@@ -270,8 +270,73 @@ def validate_catalog(catalog: dict[str, Any]) -> None:
                 f"{device['marketing_name']}: expected {device['expected_tier']}, got {selected}")
 
 
+def validate_model_benchmark_suite(root: Path) -> None:
+    suite = load_json(root / "config" / "model_benchmark_suite.json")
+    require(set(suite) == {
+        "schema_version", "suite_version", "required_observations",
+        "gate_profiles",
+    } and suite["schema_version"] == 1
+            and isinstance(suite["suite_version"], int)
+            and suite["suite_version"] >= 1,
+            "unsupported model benchmark suite")
+    observations = suite["required_observations"]
+    require(isinstance(observations, list) and observations
+            and len(observations) == len(set(observations))
+            and {"peak_rss_mb", "thermal_status_max"} <= set(observations),
+            "benchmark suite must record memory and thermal observations")
+    profiles = suite["gate_profiles"]
+    require(isinstance(profiles, dict) and set(profiles) == {
+        "text_model", "media_model", "tts_model", "asr_candidate",
+    }, "benchmark suite must define every model role")
+    all_metrics: set[str] = set()
+    for role, gates in profiles.items():
+        require(isinstance(gates, list) and gates,
+                f"{role}: benchmark gates are required")
+        gate_ids: set[str] = set()
+        for gate in gates:
+            require(isinstance(gate, dict) and set(gate) == {
+                "id", "metric", "operator", "threshold",
+            } and re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,127}",
+                               str(gate["id"])) is not None
+                    and gate["id"] not in gate_ids
+                    and re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,127}",
+                                     str(gate["metric"])) is not None
+                    and gate["operator"] in {"eq", "gte", "lte"}
+                    and isinstance(gate["threshold"], (int, float, bool))
+                    and (not isinstance(gate["threshold"], float)
+                         or math.isfinite(gate["threshold"])),
+                    f"{role}: malformed benchmark gate")
+            gate_ids.add(gate["id"])
+            all_metrics.add(gate["metric"])
+    require("peak_rss_mb" not in all_metrics,
+            "device admission may observe RAM but cannot impose a fixed model cap")
+    require({"en_known_answer_rate", "es_known_answer_rate"}
+            <= {gate["metric"] for gate in profiles["text_model"]}
+            and {"en_wer", "es_wer"}
+            <= {gate["metric"] for gate in profiles["asr_candidate"]},
+            "benchmark suite must gate English and Spanish quality")
+
+
+def benchmark_gate_passes(value: int | float | bool, operator: str,
+                          threshold: int | float | bool) -> bool:
+    if isinstance(threshold, bool):
+        return isinstance(value, bool) and operator == "eq" and value is threshold
+    if isinstance(value, bool):
+        return False
+    if operator == "eq":
+        return value == threshold
+    if operator == "gte":
+        return value >= threshold
+    return value <= threshold
+
+
 def validate_model_admission(root: Path) -> None:
     catalog = load_json(root / "config" / "model_catalog.json")
+    suite_path = root / "config" / "model_benchmark_suite.json"
+    suite = load_json(suite_path)
+    suite_sha256 = hashlib.sha256(json.dumps(
+        suite, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+    ).encode("utf-8")).hexdigest()
     document = load_json(root / "config" / "model_admission.json")
     require(set(document) == {
         "schema_version", "default_action", "debug_policy", "profiles"
@@ -321,6 +386,12 @@ def validate_model_admission(root: Path) -> None:
             tier["text_model"], tier["media_model"], tier["tts_model"],
             *tier["asr_candidates"],
         }
+        benchmark_roles = {
+            tier["text_model"]: "text_model",
+            tier["media_model"]: "media_model",
+            tier["tts_model"]: "tts_model",
+            **{item: "asr_candidate" for item in tier["asr_candidates"]},
+        }
         research = profile["research_candidate_models"]
         require(isinstance(research, list) and len(research) == len(set(research))
                 and set(research) == tier_ids,
@@ -342,7 +413,8 @@ def validate_model_admission(root: Path) -> None:
         passed_by_evidence: dict[str, set[tuple[str, str, str]]] = {}
         for evidence in evidence_entries:
             require(isinstance(evidence, dict) and set(evidence) == {
-                "path", "sha256", "build_fingerprint_sha256", "completed_at"
+                "path", "sha256", "build_fingerprint_sha256", "suite_sha256",
+                "completed_at"
             }, f"{profile['id']}: malformed evidence entry")
             path_text = evidence["path"]
             evidence_path = (root / path_text).resolve()
@@ -359,9 +431,17 @@ def validate_model_admission(root: Path) -> None:
                     f"{profile['id']}: evidence digest mismatch or duplicate")
             evidence_digests.add(evidence["sha256"])
             benchmark = load_json(evidence_path)
-            require(benchmark.get("schema_version") == 1
+            require(set(benchmark) == {
+                        "schema_version", "suite_version", "suite_sha256",
+                        "profile_id", "catalog_tier", "device_codename",
+                        "total_ram_mb", "build_fingerprint_sha256",
+                        "completed_at", "results",
+                    }
+                    and benchmark.get("schema_version") == 2
                     and isinstance(benchmark.get("suite_version"), int)
-                    and benchmark["suite_version"] >= 1
+                    and benchmark["suite_version"] == suite["suite_version"]
+                    and benchmark.get("suite_sha256") == suite_sha256
+                    and evidence.get("suite_sha256") == suite_sha256
                     and benchmark.get("profile_id") == profile["id"]
                     and benchmark.get("catalog_tier") == profile["catalog_tier"]
                     and benchmark.get("device_codename") in device_names
@@ -413,12 +493,26 @@ def validate_model_admission(root: Path) -> None:
                                      or math.isfinite(metric))
                                 for name, metric in metrics.items()),
                         f"{profile['id']}: benchmark gates and metrics are required")
-                require((result["decision"] == "passed") == (not failed_gates)
+                gates = suite["gate_profiles"][benchmark_roles[model_id]]
+                expected_gate_ids = [gate["id"] for gate in gates]
+                require(required_gates == expected_gate_ids
+                        and set(suite["required_observations"]) <= set(metrics)
+                        and all(gate["metric"] in metrics for gate in gates),
+                        f"{profile['id']}: evidence does not match benchmark suite")
+                expected_failed = [
+                    gate["id"] for gate in gates
+                    if not benchmark_gate_passes(
+                        metrics[gate["metric"]], gate["operator"], gate["threshold"])
+                ]
+                require(failed_gates == expected_failed
+                        and (result["decision"] == "passed") == (not expected_failed)
                         and result["decision"] in {"passed", "failed"},
-                        f"{profile['id']}: benchmark decision disagrees with gates")
+                        f"{profile['id']}: benchmark decision disagrees with suite gates")
                 if result["decision"] == "passed":
                     passes.add((model_id, result["backend"],
                                 result["artifact_sha256"]))
+            require(result_ids == tier_ids,
+                    f"{profile['id']}: benchmark must measure every tier model")
             passed_by_evidence[evidence["sha256"]] = passes
         admitted_ids: set[str] = set()
         for item in admitted:
@@ -1720,6 +1814,7 @@ def validate_release_configuration(root: Path) -> None:
 def validate(root: Path = ROOT) -> None:
     validate_product(load_json(root / "config" / "product_policy.json"))
     validate_catalog(load_json(root / "config" / "model_catalog.json"))
+    validate_model_benchmark_suite(root)
     validate_model_admission(root)
     validate_patch_series(root)
     validate_aosp_overlay(root)

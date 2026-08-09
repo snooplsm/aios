@@ -23,6 +23,18 @@ class AdmissionError(ValueError):
     pass
 
 
+def canonical_sha256(value: dict) -> str:
+    encoded = json.dumps(
+        value, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def finite_metric(value: object) -> bool:
+    return isinstance(value, (int, float, bool)) \
+        and (not isinstance(value, float) or math.isfinite(value))
+
+
 def load(path: Path) -> dict:
     try:
         return json.loads(path.read_text(encoding="utf-8"))
@@ -54,13 +66,26 @@ def require_timestamp(value: object) -> str:
     return value
 
 
-def validate_evidence(catalog: dict, evidence: dict) -> dict:
+def gate_passes(value: int | float | bool, operator: str,
+                threshold: int | float | bool) -> bool:
+    if isinstance(threshold, bool):
+        return isinstance(value, bool) and operator == "eq" and value is threshold
+    if isinstance(value, bool):
+        return False
+    if operator == "eq":
+        return value == threshold
+    if operator == "gte":
+        return value >= threshold
+    return value <= threshold
+
+
+def validate_evidence(catalog: dict, suite: dict, evidence: dict) -> dict:
     required = {
-        "schema_version", "suite_version", "profile_id", "catalog_tier",
+        "schema_version", "suite_version", "suite_sha256", "profile_id", "catalog_tier",
         "device_codename", "total_ram_mb", "build_fingerprint_sha256",
         "completed_at", "results",
     }
-    if set(evidence) != required or evidence.get("schema_version") != 1:
+    if set(evidence) != required or evidence.get("schema_version") != 2:
         raise AdmissionError("benchmark evidence has unknown or missing top-level fields")
     if not isinstance(evidence.get("suite_version"), int) \
             or evidence["suite_version"] < 1:
@@ -74,8 +99,26 @@ def validate_evidence(catalog: dict, evidence: dict) -> dict:
         raise AdmissionError("benchmark total RAM must be positive")
     if DIGEST.fullmatch(str(evidence.get("build_fingerprint_sha256", ""))) is None:
         raise AdmissionError("benchmark fingerprint digest must be SHA-256")
+    if DIGEST.fullmatch(str(evidence.get("suite_sha256", ""))) is None:
+        raise AdmissionError("benchmark suite digest must be SHA-256")
+    if suite.get("schema_version") != 1 \
+            or evidence["suite_version"] != suite.get("suite_version") \
+            or evidence["suite_sha256"] != canonical_sha256(suite):
+        raise AdmissionError("benchmark evidence was evaluated by a different suite")
     completed_at = require_timestamp(evidence.get("completed_at"))
     models, tier_ids = tier_models(catalog, evidence["catalog_tier"])
+    tier = next(item for item in catalog["tiers"]
+                if item["id"] == evidence["catalog_tier"])
+    roles = {
+        tier["text_model"]: "text_model",
+        tier["media_model"]: "media_model",
+        tier["tts_model"]: "tts_model",
+        **{item: "asr_candidate" for item in tier["asr_candidates"]},
+    }
+    profiles = suite.get("gate_profiles")
+    observations = suite.get("required_observations")
+    if not isinstance(profiles, dict) or not isinstance(observations, list):
+        raise AdmissionError("benchmark suite gate policy is malformed")
     results = evidence.get("results")
     if not isinstance(results, list) or not results:
         raise AdmissionError("benchmark evidence must contain model results")
@@ -122,8 +165,23 @@ def validate_evidence(catalog: dict, evidence: dict) -> dict:
                            and (not isinstance(value, float) or math.isfinite(value))
                            for name, value in metrics.items()):
             raise AdmissionError(f"{model_id}: measured numeric/boolean metrics are required")
-        if (decision == "passed") != (not failed_gates):
-            raise AdmissionError(f"{model_id}: decision disagrees with failed gates")
+        gates = profiles.get(roles[model_id])
+        if not isinstance(gates, list) or not gates \
+                or required_gates != [gate.get("id") for gate in gates] \
+                or not set(observations) <= set(metrics) \
+                or not all(isinstance(gate, dict)
+                           and set(gate) == {"id", "metric", "operator", "threshold"}
+                           and gate["operator"] in {"eq", "gte", "lte"}
+                           and gate["metric"] in metrics
+                           and finite_metric(gate["threshold"])
+                           for gate in gates):
+            raise AdmissionError(f"{model_id}: evidence does not match benchmark suite")
+        expected_failed = [gate["id"] for gate in gates
+                           if not gate_passes(metrics[gate["metric"]],
+                                              gate["operator"], gate["threshold"])]
+        if failed_gates != expected_failed \
+                or (decision == "passed") != (not expected_failed):
+            raise AdmissionError(f"{model_id}: decision disagrees with suite gates")
         if decision == "passed":
             passed.append({
                 "model_id": model_id,
@@ -131,9 +189,9 @@ def validate_evidence(catalog: dict, evidence: dict) -> dict:
                 "artifact_sha256": result["artifact_sha256"],
             })
 
+    if seen != tier_ids:
+        raise AdmissionError("benchmark evidence must measure every tier model")
     passed_ids = {item["model_id"] for item in passed}
-    tier = next(item for item in catalog["tiers"]
-                if item["id"] == evidence["catalog_tier"])
     required_ids = {tier["text_model"], tier["media_model"], tier["tts_model"]}
     if not required_ids <= passed_ids \
             or not passed_ids.intersection(tier["asr_candidates"]):
@@ -146,6 +204,7 @@ def validate_evidence(catalog: dict, evidence: dict) -> dict:
         "device_codename": evidence["device_codename"],
         "total_ram_mb": evidence["total_ram_mb"],
         "build_fingerprint_sha256": evidence["build_fingerprint_sha256"],
+        "suite_sha256": evidence["suite_sha256"],
         "completed_at": completed_at,
         "passed": sorted(passed, key=lambda item: item["model_id"]),
     }
@@ -173,6 +232,11 @@ def generate(
         raise AdmissionError("base admission profile IDs must be present and unique")
 
     promoted_profiles: set[str] = set()
+    suite_path = root / "config" / "model_benchmark_suite.json"
+    try:
+        suite = load(suite_path)
+    except AdmissionError as error:
+        raise AdmissionError(f"cannot read benchmark suite: {suite_path}") from error
     for evidence_path in evidence_paths:
         try:
             raw = evidence_path.read_bytes()
@@ -180,7 +244,7 @@ def generate(
         except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
             raise AdmissionError(f"cannot read benchmark evidence: {evidence_path}") \
                 from error
-        checked = validate_evidence(catalog, evidence)
+        checked = validate_evidence(catalog, suite, evidence)
         if checked["profile_id"] in promoted_profiles:
             raise AdmissionError("one evidence suite must own each promoted profile")
         promoted_profiles.add(checked["profile_id"])
@@ -208,6 +272,7 @@ def generate(
             "path": evidence_label,
             "sha256": evidence_sha256,
             "build_fingerprint_sha256": checked["build_fingerprint_sha256"],
+            "suite_sha256": checked["suite_sha256"],
             "completed_at": checked["completed_at"],
         }]
 

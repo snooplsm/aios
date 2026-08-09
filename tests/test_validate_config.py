@@ -47,6 +47,45 @@ def load(name):
     return json.loads((ROOT / "config" / name).read_text(encoding="utf-8"))
 
 
+def passing_admission_evidence(catalog, suite):
+    tier = next(item for item in catalog["tiers"] if item["id"] == "edge_8gb")
+    roles = {
+        tier["text_model"]: "text_model",
+        tier["media_model"]: "media_model",
+        tier["tts_model"]: "tts_model",
+        **{item: "asr_candidate" for item in tier["asr_candidates"]},
+    }
+    models = {item["id"]: item for item in catalog["models"]}
+    results = []
+    for model_id, role in roles.items():
+        metrics = {item: 1 for item in suite["required_observations"]}
+        gates = suite["gate_profiles"][role]
+        for gate in gates:
+            metrics[gate["metric"]] = gate["threshold"]
+        results.append({
+            "model_id": model_id,
+            "runtime": models[model_id]["runtime"],
+            "backend": models[model_id]["default_backend"],
+            "artifact_sha256": hashlib.sha256(model_id.encode()).hexdigest(),
+            "decision": "passed",
+            "required_gates": [gate["id"] for gate in gates],
+            "failed_gates": [],
+            "metrics": metrics,
+        })
+    return {
+        "schema_version": 2,
+        "suite_version": suite["suite_version"],
+        "suite_sha256": admission_generator.canonical_sha256(suite),
+        "profile_id": "pixel_9a_tegu",
+        "catalog_tier": "edge_8gb",
+        "device_codename": "tegu",
+        "total_ram_mb": 8192,
+        "build_fingerprint_sha256": "1" * 64,
+        "completed_at": "2026-08-09T12:00:00Z",
+        "results": results,
+    }
+
+
 class ProductPolicyTests(unittest.TestCase):
     def test_repository_configuration_is_valid(self):
         validator.validate(ROOT)
@@ -135,6 +174,8 @@ class ModelAdmissionTests(unittest.TestCase):
             (temporary / "config").mkdir()
             shutil.copy(ROOT / "config" / "model_catalog.json",
                         temporary / "config" / "model_catalog.json")
+            shutil.copy(ROOT / "config" / "model_benchmark_suite.json",
+                        temporary / "config" / "model_benchmark_suite.json")
             value = load("model_admission.json")
             value["profiles"][0]["devices"] = ["wrong-device"]
             (temporary / "config" / "model_admission.json").write_text(
@@ -150,36 +191,18 @@ class ModelAdmissionTests(unittest.TestCase):
             evidence_dir = temporary / "evidence" / "model-admission"
             config.mkdir()
             evidence_dir.mkdir(parents=True)
-            for name in ("model_catalog.json", "model_admission.json"):
+            for name in ("model_catalog.json", "model_admission.json",
+                         "model_benchmark_suite.json"):
                 shutil.copy(ROOT / "config" / name, config / name)
             catalog = json.loads((config / "model_catalog.json").read_text())
             tier = next(item for item in catalog["tiers"]
                         if item["id"] == "edge_8gb")
+            suite = json.loads((config / "model_benchmark_suite.json").read_text())
             model_ids = {
                 tier["text_model"], tier["media_model"], tier["tts_model"],
                 *tier["asr_candidates"],
             }
-            models = {item["id"]: item for item in catalog["models"]}
-            evidence = {
-                "schema_version": 1,
-                "suite_version": 1,
-                "profile_id": "pixel_9a_tegu",
-                "catalog_tier": "edge_8gb",
-                "device_codename": "tegu",
-                "total_ram_mb": 8192,
-                "build_fingerprint_sha256": "1" * 64,
-                "completed_at": "2026-08-09T12:00:00Z",
-                "results": [{
-                    "model_id": model_id,
-                    "runtime": models[model_id]["runtime"],
-                    "backend": models[model_id]["default_backend"],
-                    "artifact_sha256": hashlib.sha256(model_id.encode()).hexdigest(),
-                    "decision": "passed",
-                    "required_gates": ["known_answer", "latency"],
-                    "failed_gates": [],
-                    "metrics": {"known_answer": True, "p95_latency_ms": 100},
-                } for model_id in sorted(model_ids)],
-            }
+            evidence = passing_admission_evidence(catalog, suite)
             evidence_path = evidence_dir / "pixel-9a-test.json"
             evidence_path.write_text(json.dumps(evidence), encoding="utf-8")
             output = config / "generated-admission.json"
@@ -203,34 +226,27 @@ class ModelAdmissionTests(unittest.TestCase):
                                         "evidence digest"):
                 validator.validate_model_admission(temporary)
 
-    def test_generator_rejects_missing_required_capability_pass(self):
+    def test_generator_rejects_incomplete_tier_measurements(self):
         catalog = load("model_catalog.json")
+        suite = load("model_benchmark_suite.json")
         tier = next(item for item in catalog["tiers"] if item["id"] == "edge_8gb")
-        models = {item["id"]: item for item in catalog["models"]}
-        required = [tier["text_model"], tier["tts_model"], *tier["asr_candidates"]]
-        evidence = {
-            "schema_version": 1,
-            "suite_version": 1,
-            "profile_id": "pixel_9a_tegu",
-            "catalog_tier": "edge_8gb",
-            "device_codename": "tegu",
-            "total_ram_mb": 8192,
-            "build_fingerprint_sha256": "2" * 64,
-            "completed_at": "2026-08-09T12:00:00Z",
-            "results": [{
-                "model_id": model_id,
-                "runtime": models[model_id]["runtime"],
-                "backend": models[model_id]["default_backend"],
-                "artifact_sha256": "3" * 64,
-                "decision": "passed",
-                "required_gates": ["known_answer"],
-                "failed_gates": [],
-                "metrics": {"known_answer": True},
-            } for model_id in required],
-        }
+        evidence = passing_admission_evidence(catalog, suite)
+        evidence["results"] = [item for item in evidence["results"]
+                               if item["model_id"] != tier["media_model"]]
         with self.assertRaisesRegex(admission_generator.AdmissionError,
-                                    "text, media, TTS"):
-            admission_generator.validate_evidence(catalog, evidence)
+                                    "every tier model"):
+            admission_generator.validate_evidence(catalog, suite, evidence)
+
+    def test_generator_recomputes_gate_decisions(self):
+        catalog = load("model_catalog.json")
+        suite = load("model_benchmark_suite.json")
+        evidence = passing_admission_evidence(catalog, suite)
+        text = next(item for item in evidence["results"]
+                    if item["model_id"] == "gemma4-e2b-mobile-text")
+        text["metrics"]["p95_first_token_ms"] = 999999
+        with self.assertRaisesRegex(admission_generator.AdmissionError,
+                                    "decision disagrees with suite gates"):
+            admission_generator.validate_evidence(catalog, suite, evidence)
 
 
 class ModelCatalogValidationTests(unittest.TestCase):

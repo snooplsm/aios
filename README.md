@@ -48,7 +48,9 @@ RAM tiers nominate model candidates but do not authorize them on a release
 image. `config/model_admission.json` permits research candidates only for known
 devices on debuggable builds; `tools/generate_model_admission.py` promotes exact
 artifact/backend pairs only from checked-in benchmark evidence. See
-`docs/model-admission.md`.
+`docs/model-admission.md`. The checked-in bilingual latency/quality suite and
+ADB capture path derive decisions from measured Pixel runs while observing RAM
+without imposing a fixed model-memory ceiling.
 
 Important constraints are explicit:
 

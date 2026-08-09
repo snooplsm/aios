@@ -213,10 +213,12 @@ final class DeviceModelAdmission {
             JSONObject value = values.getJSONObject(index);
             String digest = value.getString("sha256");
             String fingerprint = value.getString("build_fingerprint_sha256");
+            String suiteDigest = value.getString("suite_sha256");
             String path = value.getString("path");
             String completedAt = value.getString("completed_at");
             if (!digest.matches("[0-9a-f]{64}")
                     || !fingerprint.matches("[0-9a-f]{64}")
+                    || !suiteDigest.matches("[0-9a-f]{64}")
                     || !path.matches("evidence/model-admission/[a-zA-Z0-9._/-]+\\.json")
                     || path.contains("..")
                     || !completedAt.matches("[0-9TZ:+.-]{10,64}")

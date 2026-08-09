@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "suite_version": 1,
+  "required_observations": [
+    "peak_rss_mb",
+    "thermal_status_max"
+  ],
+  "gate_profiles": {
+    "text_model": [
+      {"id": "measured_runs", "metric": "measured_runs", "operator": "gte", "threshold": 5},
+      {"id": "crash_free", "metric": "crash_count", "operator": "eq", "threshold": 0},
+      {"id": "invocation_success", "metric": "invocation_success_rate", "operator": "eq", "threshold": 1.0},
+      {"id": "valid_output", "metric": "output_valid_rate", "operator": "eq", "threshold": 1.0},
+      {"id": "first_token_latency", "metric": "p95_first_token_ms", "operator": "lte", "threshold": 2000},
+      {"id": "generation_throughput", "metric": "p50_output_tokens_per_second", "operator": "gte", "threshold": 5.0},
+      {"id": "english_known_answers", "metric": "en_known_answer_rate", "operator": "gte", "threshold": 0.9},
+      {"id": "spanish_known_answers", "metric": "es_known_answer_rate", "operator": "gte", "threshold": 0.9}
+    ],
+    "media_model": [
+      {"id": "measured_runs", "metric": "measured_runs", "operator": "gte", "threshold": 5},
+      {"id": "crash_free", "metric": "crash_count", "operator": "eq", "threshold": 0},
+      {"id": "invocation_success", "metric": "invocation_success_rate", "operator": "eq", "threshold": 1.0},
+      {"id": "valid_output", "metric": "output_valid_rate", "operator": "eq", "threshold": 1.0},
+      {"id": "media_latency", "metric": "p95_latency_ms", "operator": "lte", "threshold": 15000},
+      {"id": "english_known_answers", "metric": "en_known_answer_rate", "operator": "gte", "threshold": 0.9},
+      {"id": "spanish_known_answers", "metric": "es_known_answer_rate", "operator": "gte", "threshold": 0.9}
+    ],
+    "tts_model": [
+      {"id": "measured_runs", "metric": "measured_runs", "operator": "gte", "threshold": 5},
+      {"id": "crash_free", "metric": "crash_count", "operator": "eq", "threshold": 0},
+      {"id": "invocation_success", "metric": "invocation_success_rate", "operator": "eq", "threshold": 1.0},
+      {"id": "first_audio_latency", "metric": "p95_time_to_first_audio_ms", "operator": "lte", "threshold": 1000},
+      {"id": "realtime_synthesis", "metric": "p95_realtime_factor", "operator": "lte", "threshold": 1.0},
+      {"id": "english_audio_valid", "metric": "en_output_valid_rate", "operator": "eq", "threshold": 1.0},
+      {"id": "spanish_audio_valid", "metric": "es_output_valid_rate", "operator": "eq", "threshold": 1.0}
+    ],
+    "asr_candidate": [
+      {"id": "measured_runs", "metric": "measured_runs", "operator": "gte", "threshold": 5},
+      {"id": "crash_free", "metric": "crash_count", "operator": "eq", "threshold": 0},
+      {"id": "invocation_success", "metric": "invocation_success_rate", "operator": "eq", "threshold": 1.0},
+      {"id": "partial_latency", "metric": "p95_partial_latency_ms", "operator": "lte", "threshold": 1000},
+      {"id": "final_latency", "metric": "p95_final_latency_ms", "operator": "lte", "threshold": 2000},
+      {"id": "realtime_transcription", "metric": "p95_realtime_factor", "operator": "lte", "threshold": 1.0},
+      {"id": "english_word_error_rate", "metric": "en_wer", "operator": "lte", "threshold": 0.2},
+      {"id": "spanish_word_error_rate", "metric": "es_wer", "operator": "lte", "threshold": 0.25}
+    ]
+  }
+}
