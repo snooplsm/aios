@@ -64,6 +64,7 @@ class CallAssistantClient(
 
     private val main = Handler(Looper.getMainLooper())
     private val telecomLifecycleToken: IBinder = Binder()
+    private val pendingAiAnswers = PendingAiAnswerGate()
     private val worker: ExecutorService = Executors.newSingleThreadExecutor { work ->
         Thread(work, "aios-phone-intelligence")
     }
@@ -160,6 +161,7 @@ class CallAssistantClient(
         val presentCallIds = sessions.keys.toList()
         sessions.values.forEach(::cancelDelayedAnswer)
         sessions.clear()
+        pendingAiAnswers.clear()
         val service = remote
         remote = null
         callbacks.onAssistantConnectionChanged(false)
@@ -241,7 +243,16 @@ class CallAssistantClient(
     }
 
     fun markAiAnswered(callId: String) {
-        sessions[callId]?.answeredByAi = true
+        check(Looper.myLooper() == Looper.getMainLooper())
+        sessions[callId]?.let { session ->
+            cancelDelayedAnswer(session)
+            session.answeredByAi = true
+        }
+    }
+
+    fun cancelAutomaticAnswer(callId: String) {
+        check(Looper.myLooper() == Looper.getMainLooper())
+        sessions[callId]?.let(::cancelDelayedAnswer)
     }
 
     fun loadPolicy() {
@@ -377,15 +388,18 @@ class CallAssistantClient(
             CallHandlingDecision.ACTION_RING_THEN_AI -> decision.answerDelayMillis.coerceAtLeast(0L)
             else -> return
         }
+        cancelDelayedAnswer(session)
+        val reservation = pendingAiAnswers.arm(callId)
         val task = Runnable {
             val current = sessions[callId] ?: return@Runnable
             current.delayedAnswer = null
+            if (!pendingAiAnswers.consume(callId, reservation)) return@Runnable
             if (current.state == Call.STATE_RINGING && current.processingAllowed == true) {
                 callbacks.onAiAnswerRequested(callId)
             }
         }
         session.delayedAnswer = task
-        main.postDelayed(task, delay)
+        if (!main.postDelayed(task, delay)) cancelDelayedAnswer(session)
     }
 
     private fun maybeNotifyAnswered(session: Session) {
@@ -403,6 +417,7 @@ class CallAssistantClient(
     }
 
     private fun cancelDelayedAnswer(session: Session) {
+        pendingAiAnswers.cancel(session.callId)
         session.delayedAnswer?.let(main::removeCallbacks)
         session.delayedAnswer = null
     }

@@ -662,6 +662,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "permissions/privapp-permissions-aios.xml",
         "apps/phone/Android.bp",
         "apps/phone/AndroidManifest.xml",
+        "apps/phone/tests/src/com/aios/phone/intelligence/PendingAiAnswerGateTest.kt",
         "apps/phone/src/com/aios/phone/PhoneRuntime.kt",
         "apps/phone/src/com/aios/phone/data/CallHistoryRepository.kt",
         "apps/phone/src/com/aios/phone/data/VoicemailRepository.kt",
@@ -673,9 +674,13 @@ def validate_aosp_overlay(root: Path) -> None:
         "apps/phone/src/com/aios/phone/telecom/VoicemailPlaybackController.kt",
         "apps/phone/src/com/aios/phone/notifications/CallNotificationCoordinator.kt",
         "apps/phone/src/com/aios/phone/intelligence/CallAssistantClient.kt",
+        "apps/phone/src/com/aios/phone/intelligence/PendingAiAnswerGate.kt",
+        "apps/phone/src/com/aios/phone/ui/InCallActivity.kt",
         "apps/phone/src/com/aios/phone/ui/screens/PhoneScreens.kt",
         "apps/phone/src/com/aios/phone/ui/theme/PhoneTheme.kt",
         "docs/compose-dialer-decision.md",
+        "preview/README.md",
+        "preview/prodcheck/build.gradle.kts",
         "preview/telecomsmoke/build.gradle.kts",
         "preview/telecomsmoke/src/debug/AndroidManifest.xml",
         "preview/telecomsmoke/src/debug/kotlin/com/aios/phone/smoke/EmulatorCallActivity.kt",
@@ -878,6 +883,9 @@ def validate_aosp_overlay(root: Path) -> None:
     phone_manifest = (root / "apps" / "phone" / "AndroidManifest.xml").read_text(
         encoding="utf-8"
     )
+    phone_build = (root / "apps" / "phone" / "Android.bp").read_text(
+        encoding="utf-8"
+    )
     require('android:name="android.telecom.IN_CALL_SERVICE_UI"' in phone_manifest
             and 'android:name="android.telecom.IN_CALL_SERVICE_RINGING"' in phone_manifest
             and 'android:permission="android.permission.BIND_INCALL_SERVICE"'
@@ -904,6 +912,15 @@ def validate_aosp_overlay(root: Path) -> None:
     assistant_client = (root / "apps" / "phone" / "src" / "com" / "aios" /
                         "phone" / "intelligence" /
                         "CallAssistantClient.kt").read_text(encoding="utf-8")
+    pending_answer_gate = (root / "apps" / "phone" / "src" / "com" / "aios" /
+                           "phone" / "intelligence" /
+                           "PendingAiAnswerGate.kt").read_text(encoding="utf-8")
+    pending_answer_test = (root / "apps" / "phone" / "tests" / "src" / "com" /
+                           "aios" / "phone" / "intelligence" /
+                           "PendingAiAnswerGateTest.kt").read_text(encoding="utf-8")
+    in_call_activity = (root / "apps" / "phone" / "src" / "com" / "aios" /
+                        "phone" / "ui" / "InCallActivity.kt").read_text(
+                            encoding="utf-8")
     notification_source = (root / "apps" / "phone" / "src" / "com" / "aios" /
                            "phone" / "notifications" /
                            "CallNotificationCoordinator.kt").read_text(encoding="utf-8")
@@ -927,6 +944,8 @@ def validate_aosp_overlay(root: Path) -> None:
                      "PhoneScreens.kt").read_text(encoding="utf-8")
     smoke_build = (root / "preview" / "telecomsmoke" /
                    "build.gradle.kts").read_text(encoding="utf-8")
+    prodcheck_build = (root / "preview" / "prodcheck" /
+                       "build.gradle.kts").read_text(encoding="utf-8")
     smoke_manifest = (root / "preview" / "telecomsmoke" / "src" / "debug" /
                       "AndroidManifest.xml").read_text(encoding="utf-8")
     smoke_activity = (root / "preview" / "telecomsmoke" / "src" / "debug" /
@@ -1036,6 +1055,19 @@ def validate_aosp_overlay(root: Path) -> None:
             and "service.setTelecomCallPresent(telecomLifecycleToken" in assistant_client
             and "announceEveryPresentCall(service)" in assistant_client,
             "AIOS Phone must publish every Telecom call with a replayable lifecycle token")
+    require("PendingAiAnswerGate()" in assistant_client
+            and "pendingAiAnswers.consume(callId, reservation)" in assistant_client
+            and "fun cancelAutomaticAnswer(callId: String)" in assistant_client
+            and "assistant.cancelAutomaticAnswer(callId)" in phone_runtime
+            and "private fun rejectCall(callId: String)" in phone_runtime
+            and "PhoneAction.ClaimOwnerAnswer(action.callId)" in in_call_activity,
+            "owner answer and decline must synchronously revoke delayed AI answering")
+    require("reservations.remove(callId)" in pending_answer_gate
+            and "ownerCancellationRejectsAlreadyQueuedCallback" in pending_answer_test
+            and 'name: "aios_phone_host_tests"' in phone_build
+            and 'kotlin.directories.add("../../apps/phone/tests/src")' in prodcheck_build
+            and 'testImplementation("junit:junit:4.13.2")' in prodcheck_build,
+            "delayed AI-answer cancellation must have a host-tested stale-callback guard")
     require("onAssistantFailure" in assistant_client
             and "status < 0" in assistant_client
             and "The call is connected to you" in phone_runtime

@@ -10,10 +10,11 @@ implement `InCallService`, cannot request the dialer role, and uses simulated
 call state. It can be installed on a stock phone for visual iteration without
 replacing that phone's dialer.
 
-`prodcheck` compiles the actual `apps/phone` sources and Call Intelligence AIDL
-against the installed public Android SDK. It is a compile check only and must
-not be installed. The authoritative product build remains the platform-signed
-Soong module inside the locked AOSP tree.
+`prodcheck` compiles and lints the actual `apps/phone` sources and Call
+Intelligence AIDL against the installed public Android SDK. Its local unit-test
+source set also runs the Android-free dialer policy state machines. It must not
+be installed. The authoritative product build and host-test target remain the
+platform-signed Soong modules inside the locked AOSP tree.
 
 `telecomsmoke` packages those same sources as `com.aios.phone` solely for an
 AOSP emulator. It is debug-signed, cannot use the signature-protected AIOS
@@ -28,7 +29,7 @@ and `prodcheck` builds.
 Open this directory in Android Studio, or run:
 
 ```text
-gradle :app:assembleDebug :prodcheck:compileDebugKotlin
+gradle :app:assembleDebug :prodcheck:testDebugUnitTest :prodcheck:lintDebug
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 adb shell am start -n com.aios.phone.preview/.PreviewActivity
 ```

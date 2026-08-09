@@ -83,6 +83,16 @@ also fails closed unless call processing is enabled and the service reports that
 the caller-audio interaction transport is ready. The setting may be configured
 in advance, but it cannot override those runtime safety gates.
 
+Owner intent wins over every delayed automatic-answer callback. AIOS Phone
+revokes the per-call reservation synchronously before its **Answer** or
+**Decline** Telecom mutation; manual **AI** consumes the same pending timer. For
+video answer, the reservation is revoked before opening Android's camera
+permission dialog, so a 1–4 second AI timer cannot expire behind that dialog.
+The queued callback must still consume its exact reservation before answering,
+which makes a callback already ready on the main queue harmless after owner
+cancellation. Hardware/headset answer remains part of the physical Telecom
+release matrix because it originates outside the application action path.
+
 Call Intelligence now implements a bounded synthesis pipe and an explicit
 telephony-TX `AudioTrack` route. AI-answered calls start capture immediately
 after pickup; the first synthesized audio is the receptionist's actual response,

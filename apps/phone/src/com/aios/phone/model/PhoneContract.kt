@@ -186,6 +186,7 @@ sealed interface PhoneAction {
         val callId: String,
         val videoState: Int = VideoProfile.STATE_AUDIO_ONLY,
     ) : PhoneAction
+    data class ClaimOwnerAnswer(val callId: String) : PhoneAction
     data class Ignore(val callId: String) : PhoneAction
     data class AnswerWithAi(val callId: String) : PhoneAction
     data class Reject(val callId: String) : PhoneAction

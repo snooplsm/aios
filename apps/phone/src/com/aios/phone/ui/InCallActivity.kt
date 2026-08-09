@@ -41,6 +41,10 @@ class InCallActivity : ComponentActivity() {
     }
 
     private fun requestCameraAction(action: PhoneAction) {
+        if (action is PhoneAction.Answer) {
+            // Claim the ringing call before a permission dialog can outlive the AI timer.
+            PhoneRuntime.dispatch(PhoneAction.ClaimOwnerAnswer(action.callId))
+        }
         if (checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
             PhoneRuntime.dispatch(action)
         } else {

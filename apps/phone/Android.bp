@@ -27,3 +27,13 @@ android_app {
         shrink_resources: true,
     },
 }
+
+java_test_host {
+    name: "aios_phone_host_tests",
+    srcs: [
+        "src/com/aios/phone/intelligence/PendingAiAnswerGate.kt",
+        "tests/src/**/*.kt",
+    ],
+    static_libs: ["junit"],
+    test_suites: ["general-tests"],
+}

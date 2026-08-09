@@ -326,6 +326,7 @@ object PhoneRuntime {
             }
             is PhoneAction.SelectCall -> calls.select(action.callId)
             is PhoneAction.Answer -> answerCall(action.callId, action.videoState)
+            is PhoneAction.ClaimOwnerAnswer -> assistant.cancelAutomaticAnswer(action.callId)
             is PhoneAction.Ignore -> {
                 val ringing = mutableState.value.calls.firstOrNull {
                     it.id == action.callId && it.isRinging
@@ -341,9 +342,7 @@ object PhoneRuntime {
                     answerWithAi(action.callId)
                 }
             }
-            is PhoneAction.Reject -> calls.call(action.callId)
-                ?.takeIf { it.details.state == Call.STATE_RINGING }
-                ?.reject(false, null)
+            is PhoneAction.Reject -> rejectCall(action.callId)
             is PhoneAction.Disconnect -> calls.call(action.callId)?.disconnect()
             is PhoneAction.Hold -> calls.call(action.callId)?.hold()
             is PhoneAction.Unhold -> calls.call(action.callId)?.unhold()
@@ -619,6 +618,7 @@ object PhoneRuntime {
     private fun answerCall(callId: String, videoState: Int) {
         val call = calls.call(callId)
             ?.takeIf { it.details.state == Call.STATE_RINGING } ?: return
+        assistant.cancelAutomaticAnswer(callId)
         val requestedState = videoState.takeIf {
             it == VideoProfile.STATE_AUDIO_ONLY || it == call.details.videoState
         } ?: VideoProfile.STATE_AUDIO_ONLY
@@ -630,6 +630,13 @@ object PhoneRuntime {
             call.videoCall?.setCamera(cameraId)
         }
         call.answer(requestedState)
+    }
+
+    private fun rejectCall(callId: String) {
+        val call = calls.call(callId)
+            ?.takeIf { it.details.state == Call.STATE_RINGING } ?: return
+        assistant.cancelAutomaticAnswer(callId)
+        call.reject(false, null)
     }
 
     private fun respondToVideoRequest(callId: String, accept: Boolean) {
