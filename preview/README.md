@@ -1,0 +1,38 @@
+# AIOS Phone visual preview
+
+This Android Studio project renders the same immutable phone contract, Compose
+theme, home/recents/voicemail screens, multi-call screen, RTT and negotiated-video
+states, transcript/risk surface, audio endpoint controls, and assistant settings
+used by the AOSP product module.
+
+`app` is deliberately harmless: it declares no call permissions, does not
+implement `InCallService`, cannot request the dialer role, and uses simulated
+call state. It can be installed on a stock phone for visual iteration without
+replacing that phone's dialer.
+
+`prodcheck` compiles the actual `apps/phone` sources and Call Intelligence AIDL
+against the installed public Android SDK. It is a compile check only and must
+not be installed. The authoritative product build remains the platform-signed
+Soong module inside the locked AOSP tree.
+
+`telecomsmoke` packages those same sources as `com.aios.phone` solely for an
+AOSP emulator. It is debug-signed, cannot use the signature-protected AIOS
+services, and must never be installed on a physical phone or treated as a
+release artifact. Its purpose is to verify the real `ROLE_DIALER` and
+`InCallService` callback path. The current emulator console no longer exposes
+the legacy `gsm call` command, so a debug-source-set-only managed
+`ConnectionService` injects a synthetic call through Android Telecom. The
+fixture checks for emulator hardware at runtime and is absent from the product
+and `prodcheck` builds.
+
+Open this directory in Android Studio, or run:
+
+```text
+gradle :app:assembleDebug :prodcheck:compileDebugKotlin
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+adb shell am start -n com.aios.phone.preview/.PreviewActivity
+```
+
+The preview follows the device theme by default and also provides explicit
+Light and Dark selections in Settings. Simulated voicemail never opens a real
+provider URI, and simulated video surfaces never access the camera.

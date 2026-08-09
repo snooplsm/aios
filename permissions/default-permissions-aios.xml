@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<exceptions>
+    <exception package="com.aios.callintelligence">
+        <permission
+            name="android.permission.RECORD_AUDIO"
+            fixed="true" />
+    </exception>
+
+    <!-- Media Intelligence is a core, platform-signed component. These grants
+         provide read access; mutation still goes through MediaStore policy. -->
+    <exception package="com.aios.mediaintelligence">
+        <permission
+            name="android.permission.READ_MEDIA_IMAGES"
+            fixed="true" />
+        <permission
+            name="android.permission.READ_MEDIA_VIDEO"
+            fixed="true" />
+        <permission
+            name="android.permission.READ_PHONE_STATE"
+            fixed="true" />
+    </exception>
+
+</exceptions>

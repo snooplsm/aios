@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<permissions>
+    <!-- Entries are deliberately narrow. CAPTURE_AUDIO_OUTPUT is granted only
+         to Call Intelligence, never to the general model broker or media job. -->
+    <privapp-permissions package="com.aios.callintelligence">
+        <permission name="android.permission.CAPTURE_AUDIO_OUTPUT" />
+        <permission name="android.permission.MODIFY_PHONE_STATE" />
+    </privapp-permissions>
+
+    <privapp-permissions package="com.android.dialer">
+        <permission name="com.aios.permission.CONTROL_CALL_INTELLIGENCE" />
+    </privapp-permissions>
+
+    <!-- The stock AOSP package stays installed as the system/emergency dialer.
+         AIOS Phone receives the same narrow bridge permission and may become
+         the user-selected normal dialer only after the role prompt. -->
+    <privapp-permissions package="com.aios.phone">
+        <permission name="com.aios.permission.CONTROL_CALL_INTELLIGENCE" />
+        <permission name="com.android.voicemail.permission.READ_VOICEMAIL" />
+        <permission name="com.android.voicemail.permission.WRITE_VOICEMAIL" />
+    </privapp-permissions>
+
+    <privapp-permissions package="com.aios.mediaintelligence">
+        <permission name="android.permission.MANAGE_MEDIA" />
+        <permission name="android.permission.WRITE_MEDIA_STORAGE" />
+    </privapp-permissions>
+</permissions>

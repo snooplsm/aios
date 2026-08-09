@@ -1,0 +1,29 @@
+package com.aios.mediaintelligence;
+
+import android.content.BroadcastReceiver;
+import android.content.Context;
+import android.content.Intent;
+
+public final class MediaBootReceiver extends BroadcastReceiver {
+    @Override
+    public void onReceive(Context context, Intent intent) {
+        if (Intent.ACTION_BOOT_COMPLETED.equals(intent.getAction())) {
+            PendingResult pending = goAsync();
+            Context application = context.getApplicationContext();
+            new Thread(() -> {
+                try (MediaJobStore store = new MediaJobStore(application)) {
+                    store.recoverInterruptedWork();
+                    new MediaMetadataCommitter(application).recover(store);
+                } finally {
+                    application.startService(
+                            new Intent(application, MediaObserverService.class));
+                    MediaInferenceJobService.schedule(
+                            application, MediaWorkPolicy.CLASS_IMMEDIATE);
+                    MediaInferenceJobService.schedule(
+                            application, MediaWorkPolicy.CLASS_DEFERRED);
+                    pending.finish();
+                }
+            }, "aios-media-recovery").start();
+        }
+    }
+}

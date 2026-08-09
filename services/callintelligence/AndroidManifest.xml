@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.aios.callintelligence">
+
+    <permission
+        android:name="com.aios.permission.CONTROL_CALL_INTELLIGENCE"
+        android:protectionLevel="signature|privileged" />
+
+    <uses-permission android:name="android.permission.CAPTURE_AUDIO_OUTPUT" />
+    <uses-permission android:name="android.permission.MODIFY_PHONE_STATE" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="com.aios.permission.USE_MODEL_BROKER" />
+
+    <uses-feature
+        android:name="android.hardware.telephony.calling"
+        android:required="true" />
+
+    <application
+        android:allowBackup="false"
+        android:directBootAware="false"
+        android:hasCode="true"
+        android:label="AIOS Call Intelligence"
+        android:persistent="true">
+        <service
+            android:name=".CallIntelligenceService"
+            android:exported="true"
+            android:permission="com.aios.permission.CONTROL_CALL_INTELLIGENCE">
+            <intent-filter>
+                <action android:name="com.aios.call.CALL_INTELLIGENCE_SERVICE" />
+            </intent-filter>
+        </service>
+
+        <receiver
+            android:name=".CleanupBootReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="com.aios.callintelligence.CLEANUP_EXPIRED" />
+            </intent-filter>
+        </receiver>
+    </application>
+</manifest>

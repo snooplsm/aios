@@ -1,0 +1,70 @@
+{
+  "schema_version": 1,
+  "vectors": [
+    {
+      "name": "emergency_always_bypasses_all_mode",
+      "mode": "all",
+      "known_contact": false,
+      "emergency": true,
+      "emergency_callback_mode": false,
+      "expected": "bypass_ai"
+    },
+    {
+      "name": "emergency_callback_mode_bypasses_ai",
+      "mode": "all",
+      "known_contact": true,
+      "emergency": false,
+      "emergency_callback_mode": true,
+      "expected": "bypass_ai"
+    },
+    {
+      "name": "off_rings_owner",
+      "mode": "off",
+      "known_contact": false,
+      "emergency": false,
+      "emergency_callback_mode": false,
+      "expected": "ring_owner"
+    },
+    {
+      "name": "all_answers_known_contact",
+      "mode": "all",
+      "known_contact": true,
+      "emergency": false,
+      "emergency_callback_mode": false,
+      "expected": "answer_with_ai"
+    },
+    {
+      "name": "unknown_only_answers_unknown",
+      "mode": "unknown_only",
+      "known_contact": false,
+      "emergency": false,
+      "emergency_callback_mode": false,
+      "expected": "answer_with_ai"
+    },
+    {
+      "name": "unknown_only_rings_for_known",
+      "mode": "unknown_only",
+      "known_contact": true,
+      "emergency": false,
+      "emergency_callback_mode": false,
+      "expected": "ring_owner"
+    },
+    {
+      "name": "missed_only_uses_delayed_ai",
+      "mode": "missed_only",
+      "known_contact": true,
+      "emergency": false,
+      "emergency_callback_mode": false,
+      "expected": "ring_then_ai"
+    },
+    {
+      "name": "answering_fails_closed_without_processing",
+      "mode": "all",
+      "known_contact": false,
+      "emergency": false,
+      "emergency_callback_mode": false,
+      "processing_enabled": false,
+      "expected": "ring_owner"
+    }
+  ]
+}

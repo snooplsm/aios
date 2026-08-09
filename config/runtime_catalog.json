@@ -1,0 +1,147 @@
+{
+  "schema_version": 1,
+  "provider_api_version": 2,
+  "providers": [
+    {
+      "runtime": "litert_lm",
+      "status": "candidate",
+      "package": "com.aios.runtime.litertlm",
+      "service_class": "com.aios.runtime.litertlm.LiteRtLmRuntimeService",
+      "action": "com.aios.model.RUNTIME_PROVIDER",
+      "implementation_version": "0.15.0",
+      "source_repository": "https://github.com/google-ai-edge/LiteRT-LM",
+      "source_tag": "v0.15.0",
+      "source_revision": "2117fc4314670e00047bc8469783f02a68c33f0c",
+      "license_spdx": "Apache-2.0",
+      "license_url": "https://github.com/google-ai-edge/LiteRT-LM/blob/v0.15.0/LICENSE",
+      "maven_artifact": {
+        "coordinate": "com.google.ai.edge.litertlm:litertlm-android:0.15.0",
+        "repository": "https://dl.google.com/dl/android/maven2/",
+        "size_bytes": 19827303,
+        "sha256": "b398c4745934a6035d192ffce5fdaf4f72a0009830a97b73c017c21f2a92b5bd"
+      },
+      "direct_dependencies": [
+        "com.google.code.gson:gson:2.13.2",
+        "org.jetbrains.kotlin:kotlin-reflect:2.2.21",
+        "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0"
+      ],
+      "required_apk_entries": [
+        {
+          "path": "assets/THIRD_PARTY_NOTICES/LiteRT-LM-LICENSE.txt",
+          "size_bytes": 11357,
+          "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+        },
+        {
+          "path": "assets/THIRD_PARTY_NOTICES/LiteRT-LM-THIRD_PARTY_NOTICE.txt",
+          "size_bytes": 2050452,
+          "sha256": "0b2c3c75da43d624e40d6e8072340792ef054ca88a003b5dfcb3b129f21bb65b"
+        }
+      ]
+    },
+    {
+      "runtime": "whisper_cpp",
+      "status": "candidate",
+      "package": "com.aios.runtime.whispercpp",
+      "service_class": "com.aios.runtime.whispercpp.WhisperRuntimeService",
+      "action": "com.aios.model.RUNTIME_PROVIDER",
+      "implementation_version": "1.9.2",
+      "source_repository": "https://github.com/ggml-org/whisper.cpp",
+      "source_tag": "v1.9.2",
+      "source_revision": "306c88f4d1286aec1bf96e544632897886af5501",
+      "license_spdx": "MIT",
+      "license_url": "https://github.com/ggml-org/whisper.cpp/blob/v1.9.2/LICENSE",
+      "source_build": {
+        "build_system": "cmake",
+        "language": "cxx17",
+        "android_abi": "arm64-v8a",
+        "minimum_ndk": "28b",
+        "bundled_dependency": "ggml"
+      },
+      "direct_dependencies": [],
+      "required_apk_entries": [
+        {
+          "path": "assets/THIRD_PARTY_NOTICES/whisper.cpp-LICENSE.txt",
+          "size_bytes": 1078,
+          "sha256": "94f29bbed6a22c35b992c5c6ebf0e7c92f13b836b90f36f461c9cf2f0f1d010d"
+        }
+      ]
+    },
+    {
+      "runtime": "sherpa_onnx_tts",
+      "status": "candidate",
+      "package": "com.aios.runtime.sherpatts",
+      "service_class": "com.aios.runtime.sherpatts.SherpaTtsRuntimeService",
+      "action": "com.aios.model.RUNTIME_PROVIDER",
+      "implementation_version": "1.13.4",
+      "source_repository": "https://github.com/k2-fsa/sherpa-onnx",
+      "source_tag": "v1.13.4",
+      "source_revision": "142807252687d81b40d6315f23470a1512a00de3",
+      "license_spdx": "Apache-2.0",
+      "license_url": "https://github.com/k2-fsa/sherpa-onnx/blob/v1.13.4/LICENSE",
+      "binary_artifact": {
+        "coordinate": "github-release:k2-fsa-sherpa-onnx:1.13.4",
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.4/sherpa-onnx-1.13.4.aar",
+        "size_bytes": 48847529,
+        "sha256": "03f9c4df965f21c71269365a7951a7f23b5696fddd093fa318c80d65550ab780"
+      },
+      "bundled_components": [
+        {"name": "onnxruntime", "version": "1.27.0", "license_spdx": "MIT"}
+      ],
+      "direct_dependencies": [],
+      "required_apk_entries": [
+        {
+          "path": "assets/THIRD_PARTY_NOTICES/sherpa-onnx-LICENSE.txt",
+          "size_bytes": 11358,
+          "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+        },
+        {
+          "path": "assets/THIRD_PARTY_NOTICES/onnxruntime-LICENSE.txt",
+          "size_bytes": 1073,
+          "sha256": "2f07c72751aed99790b8a4869cf2311df85a860b22ded05fa22803587a48922c"
+        }
+      ]
+    }
+  ],
+  "device_profiles": [
+    {
+      "id": "pixel_9a_tegu_userdebug",
+      "devices": ["tegu"],
+      "debuggable_only": true,
+      "runtime_backends": {
+        "litert_lm": ["gpu", "cpu"],
+        "whisper_cpp": ["cpu"],
+        "sherpa_onnx_tts": ["cpu"]
+      },
+      "preferred_backends": {
+        "litert_lm": "gpu",
+        "whisper_cpp": "cpu",
+        "sherpa_onnx_tts": "cpu"
+      },
+      "notes": "Tensor G4 NPU is denied until a public compatible artifact and on-device evidence exist."
+    },
+    {
+      "id": "pixel_10_tensor_g5_planned",
+      "devices": [],
+      "debuggable_only": true,
+      "runtime_backends": {
+        "litert_lm": ["gpu", "cpu"],
+        "whisper_cpp": ["cpu"],
+        "sherpa_onnx_tts": ["cpu"]
+      },
+      "preferred_backends": {
+        "litert_lm": "gpu",
+        "whisper_cpp": "cpu",
+        "sherpa_onnx_tts": "cpu"
+      },
+      "notes": "Bind exact upstream device codenames after device trees and runtime artifacts are verified; NPU remains disabled meanwhile."
+    },
+    {
+      "id": "unvalidated_device",
+      "devices": ["*"],
+      "debuggable_only": true,
+      "runtime_backends": {},
+      "preferred_backends": {},
+      "notes": "Unknown devices advertise no inference runtime until a measured profile is added."
+    }
+  ]
+}

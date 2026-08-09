@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="com.aios.permission.PROVIDE_MODEL_RUNTIME" />
+
+    <application
+        android:allowBackup="false"
+        android:extractNativeLibs="true"
+        android:hasCode="true"
+        android:label="AIOS LiteRT-LM Runtime">
+        <uses-native-library android:name="libvndksupport.so" android:required="false" />
+        <uses-native-library android:name="libOpenCL.so" android:required="false" />
+
+        <service
+            android:name=".LiteRtLmRuntimeService"
+            android:directBootAware="false"
+            android:exported="true"
+            android:isolatedProcess="false"
+            android:permission="com.aios.permission.PROVIDE_MODEL_RUNTIME"
+            android:process=":runtime">
+            <intent-filter>
+                <action android:name="com.aios.model.RUNTIME_PROVIDER" />
+            </intent-filter>
+        </service>
+    </application>
+</manifest>

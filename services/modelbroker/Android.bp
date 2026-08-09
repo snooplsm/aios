@@ -1,0 +1,39 @@
+java_library {
+    name: "aios_model_api",
+    srcs: ["aidl/**/*.aidl"],
+    aidl: {
+        include_dirs: ["vendor/aios/services/modelbroker/aidl"],
+    },
+    sdk_version: "system_current",
+    min_sdk_version: "35",
+    installable: false,
+}
+
+android_app {
+    name: "AiosModelBroker",
+    manifest: "AndroidManifest.xml",
+    srcs: ["src/**/*.java"],
+    static_libs: [
+        "aios_model_api",
+        "aios_runtime_api",
+    ],
+    resource_dirs: [],
+    platform_apis: true,
+    certificate: "platform",
+    privileged: true,
+    product_specific: true,
+    optimize: {
+        enabled: true,
+    },
+}
+
+java_test_host {
+    name: "aios_modelbroker_host_tests",
+    srcs: [
+        "src/com/aios/modelbroker/SessionArbiter.java",
+        "src/com/aios/modelbroker/WorkClass.java",
+        "tests/src/**/*.java",
+    ],
+    static_libs: ["junit"],
+    test_suites: ["general-tests"],
+}

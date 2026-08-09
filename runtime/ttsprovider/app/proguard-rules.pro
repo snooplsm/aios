@@ -1,0 +1,4 @@
+-keep class com.aios.runtime.sherpatts.SherpaTtsRuntimeService { *; }
+-keep class com.k2fsa.sherpa.onnx.** { *; }
+-keep class com.aios.model.** { *; }
+-keep class com.aios.runtime.** { *; }

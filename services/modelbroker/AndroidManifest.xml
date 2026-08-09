@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.aios.modelbroker">
+
+    <permission
+        android:name="com.aios.permission.USE_MODEL_BROKER"
+        android:protectionLevel="signature" />
+    <permission
+        android:name="com.aios.permission.PROVIDE_MODEL_RUNTIME"
+        android:protectionLevel="signature" />
+
+    <uses-permission android:name="com.aios.permission.PROVIDE_MODEL_RUNTIME" />
+
+    <queries>
+        <intent>
+            <action android:name="com.aios.model.RUNTIME_PROVIDER" />
+        </intent>
+    </queries>
+
+    <application
+        android:allowBackup="false"
+        android:directBootAware="false"
+        android:hasCode="true"
+        android:label="AIOS Model Broker"
+        android:persistent="true">
+        <service
+            android:name=".ModelBrokerService"
+            android:exported="true"
+            android:permission="com.aios.permission.USE_MODEL_BROKER">
+            <intent-filter>
+                <action android:name="com.aios.model.MODEL_SERVICE" />
+            </intent-filter>
+        </service>
+    </application>
+</manifest>

@@ -1,0 +1,135 @@
+# AIOS Phone integration
+
+## Product application
+
+AIOS Phone is an original Apache-2.0 Kotlin/Jetpack Compose application in
+`apps/phone`. It implements Android's dialer role using `InCallService` and the
+public/privileged Telecom surface available to an AOSP product app. Compose owns
+presentation only; mutable framework `Call` objects remain inside a main-thread
+registry.
+
+The application uses unidirectional data flow:
+
+```text
+Telecom callbacks -> CallRegistry -> immutable PhoneUiState -> Compose
+Compose event -> PhoneAction -> PhoneRuntime controller -> Telecom mutation
+```
+
+The registry maintains an identity map for every simultaneous `Call`. Its UI
+snapshots include parent, children, conferenceable peers, capabilities,
+properties, direction, video state, and account-independent opaque IDs. Actions
+always target an ID. There is intentionally no global `currentCall` variable.
+
+AIOS Phone supports call waiting, conferences, DTMF, hold, mute, multi-SIM
+selection, post-dial waits, proximity blanking, and Android's modern
+`CallEndpoint` routing API. Incoming and ongoing notifications use distinct
+ringing, silenced, and ongoing `Notification.CallStyle` channels; incoming calls
+can present the full-screen in-call UI. The home, in-call, and settings surfaces
+share one UDF store and support system, light, and dark appearance.
+
+RTT uses `Call.RttCall` behind a single serialized worker. The UI receives only
+bounded local and remote text snapshots. It supports RTT-at-dial-time, mid-call
+requests, remote request acceptance, and explicit termination. A failed or
+closed RTT stream is detached instead of polling indefinitely.
+
+Video calls use Telecom session-modification requests and responses. Mutable
+`VideoCall` and `Surface` instances remain in `CallRegistry`; Compose contributes
+short-lived remote and local `SurfaceView` surfaces through typed effects.
+Outgoing camera transmission requires a runtime camera grant, while answering a
+video invitation always offers an audio-only choice. Video capability and
+physical carrier interoperability remain release-gated.
+
+Recents are a bounded read-only projection. Voicemail is separately projected
+from `VoicemailContract`, filters OMTP rows to the active visual-voicemail source,
+and exposes opaque UI identifiers. Playback streams the provider URI directly;
+AIOS does not copy voicemail audio into its storage. Missing content is fetched
+only after an explicit owner action, targeted to the recorded source package.
+
+## Safe transition and emergency behavior
+
+The upstream AOSP Dialer remains installed and configured as the preloaded
+system dialer. AIOS Phone is not assigned through `config_defaultDialer` or a
+resource overlay. During research builds, the owner explicitly selects it using
+the standard `ROLE_DIALER` prompt. Android can therefore continue to route
+emergency calls through the preloaded system dialer.
+
+The exact Android 17 AOSP Dialer topic in `patches/` remains a temporary bridge
+for Call Intelligence while AIOS Phone is under validation. It should be removed
+after AIOS Phone passes role selection, incoming/outgoing, emergency fallback,
+call waiting, conference, Bluetooth/audio endpoint, DTMF, RTT, video, voicemail,
+VoLTE, VoWiFi, eSIM, and AI-service-crash gates. Until then, AOSP Dialer and AIOS Phone may both use
+the narrow `aios_call_api`; only the selected role holder receives live Telecom
+calls.
+
+## Owner-selected automatic answer
+
+Phone settings expose an opt-in **Auto AI answer** switch. When enabled, the
+owner chooses whether it applies to unknown callers or every non-emergency call,
+then selects a 1, 2, 3, or 4 second delay or `Random`. Random is sampled anew for
+each eligible call from the inclusive 1,010–3,990 ms range. The UI selection is
+persisted by Call Intelligence and the service returns the resolved delay with
+its call-handling decision; the dialer never invents a separate delay.
+
+Emergency calls and emergency callback mode always bypass AI. Automatic answer
+also fails closed unless call processing is enabled and the service reports that
+the caller-audio interaction transport is ready. The setting may be configured
+in advance, but it cannot override those runtime safety gates.
+
+Call Intelligence now implements a bounded synthesis pipe and an explicit
+telephony-TX `AudioTrack` route. AI-answered calls start capture immediately
+after pickup; the first synthesized audio is the receptionist's actual response,
+not a mandatory disclosure. Route selection is checked while audio is playing
+with `AudioTrack.getRoutedDevice()`; a preferred-device request alone is not
+treated as proof.
+
+Implementation is not release evidence. `ro.aios.call_uplink_validated` remains
+`false`, so both automatic policy answers and the manual **AI** button stay
+locked. The property may become true for a device product only after a physical
+carrier call proves that a remote test endpoint heard the complete synthesized
+AI response, capture began immediately after answer, teardown stopped audio, and
+speaker/Bluetooth/handset endpoint changes remained correct. A compatible
+English/Spanish `speech_synthesis` runtime must also be packaged and ready.
+See `caller-audio-uplink.md` for the gate and evidence contract.
+
+## Open-source survey decision
+
+The following projects demonstrate that a Kotlin/Compose default dialer is
+practical, but AIOS does not copy their code:
+
+- Amadz: <https://github.com/msusman1/Amadz>, audited at commit
+  `483f8d74238c5c1677549734215ce15a74384195` (Apache-2.0). Its current-call
+  singleton and limited audio routing are unsuitable for AIOS multi-call parity.
+- NovaDial: <https://github.com/dhilipmpms/NovaDial> (GPL-3.0), a Fossify-derived
+  Compose dialer. Its license is intentionally not introduced into this
+  Apache-2.0 product module.
+- simple-phone: <https://github.com/arekolek/simple-phone>, a useful small
+  Telecom reference rather than a parity baseline.
+
+Android's dialer-role requirements are the source of truth:
+<https://developer.android.com/develop/connectivity/telecom/dialer-app>.
+
+## Emulator verification
+
+`preview/telecomsmoke` compiles the production phone sources as a debug-signed
+APK for emulator verification only. Its debug source set supplies a managed
+`ConnectionService` fixture because current Android Emulator releases no longer
+expose the legacy `gsm call` console command. The fixture injects a synthetic
+incoming call through Telecom, causing Android to bind the production
+`AiosInCallService`, post the production `CallStyle` notification, and render the
+production Compose activity.
+
+`scripts/emulator-telecom-smoke.ps1` refuses non-emulator serials and verifies
+`ro.kernel.qemu=1` before installation. It preserves and restores the original
+dialer role, disconnects the synthetic call, unregisters its phone account, and
+marks generated evidence `physical_gate_evidence=false`. This is useful
+integration coverage, but it does not exercise the cellular modem, IMS,
+emergency routing, carrier video/RTT, or a Pixel build and cannot pass any
+physical-device release gate.
+
+## Update strategy
+
+Because AIOS Phone is additive under `vendor/aios`, routine AOSP merges do not
+require replaying a UI fork. Track API changes at the Telecom contract boundary,
+compile against the new platform, and rerun the physical telephony matrix. Keep
+the stock system dialer until all required gates have fresh evidence on every
+supported device.

@@ -1,0 +1,14 @@
+java_library {
+    name: "aios_runtime_api",
+    srcs: ["aidl/**/*.aidl"],
+    aidl: {
+        include_dirs: [
+            "vendor/aios/services/modelbroker/aidl",
+            "vendor/aios/services/runtimeapi/aidl",
+        ],
+    },
+    static_libs: ["aios_model_api"],
+    sdk_version: "system_current",
+    min_sdk_version: "35",
+    installable: false,
+}

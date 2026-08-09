@@ -1,0 +1,185 @@
+{
+  "schema_version": 1,
+  "memory_policy": {
+    "mode": "adaptive_system_pressure",
+    "fixed_model_limit_mb": null,
+    "prefer_quality_when_headroom_available": true,
+    "preempt_background_during_calls": true,
+    "release_idle_models_on_trim": true
+  },
+  "models": [
+    {
+      "id": "gemma4-e2b-mobile-text",
+      "family": "gemma4",
+      "capabilities": ["text_generation", "call_classification", "call_summary"],
+      "languages": ["en", "es"],
+      "runtime": "litert_lm",
+      "allowed_backends": ["gpu", "cpu"],
+      "default_backend": "gpu",
+      "artifact_formats": ["litertlm"],
+      "license_url": "https://ai.google.dev/gemma/terms",
+      "estimated_resident_mb": 840,
+      "distribution": "licensed_build_input",
+      "status": "candidate"
+    },
+    {
+      "id": "gemma4-e2b-mobile-multimodal",
+      "family": "gemma4",
+      "capabilities": ["image_understanding", "audio_understanding"],
+      "languages": ["en", "es"],
+      "runtime": "litert_lm",
+      "allowed_backends": ["gpu", "cpu"],
+      "default_backend": "gpu",
+      "artifact_formats": ["litertlm"],
+      "license_url": "https://ai.google.dev/gemma/terms",
+      "estimated_resident_mb": 1100,
+      "distribution": "licensed_build_input",
+      "status": "candidate"
+    },
+    {
+      "id": "gemma4-e4b-mobile-text",
+      "family": "gemma4",
+      "capabilities": ["text_generation", "call_classification", "call_summary"],
+      "languages": ["en", "es"],
+      "runtime": "litert_lm",
+      "allowed_backends": ["gpu", "cpu"],
+      "default_backend": "gpu",
+      "artifact_formats": ["litertlm"],
+      "license_url": "https://ai.google.dev/gemma/terms",
+      "estimated_resident_mb": 2200,
+      "distribution": "licensed_build_input",
+      "status": "candidate"
+    },
+    {
+      "id": "gemma4-e4b-mobile-multimodal",
+      "family": "gemma4",
+      "capabilities": ["image_understanding", "audio_understanding"],
+      "languages": ["en", "es"],
+      "runtime": "litert_lm",
+      "allowed_backends": ["gpu", "cpu"],
+      "default_backend": "gpu",
+      "artifact_formats": ["litertlm"],
+      "license_url": "https://ai.google.dev/gemma/terms",
+      "estimated_resident_mb": 2500,
+      "distribution": "licensed_build_input",
+      "status": "candidate"
+    },
+    {
+      "id": "whisper-base-multilingual-quantized",
+      "family": "whisper",
+      "capabilities": ["streaming_asr"],
+      "languages": ["en", "es", "und"],
+      "runtime": "whisper_cpp",
+      "allowed_backends": ["cpu"],
+      "default_backend": "cpu",
+      "artifact_formats": ["ggml"],
+      "license_url": "https://github.com/openai/whisper/blob/main/LICENSE",
+      "reference_artifact": {
+        "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base-q5_1.bin",
+        "sha256": "422f1ae452ade6f30a004d7e5c6a43195e4433bc370bf23fac9cc591f01a8898"
+      },
+      "estimated_resident_mb": 300,
+      "distribution": "licensed_build_input",
+      "status": "benchmark_candidate"
+    },
+    {
+      "id": "whisper-small-multilingual-quantized",
+      "family": "whisper",
+      "capabilities": ["streaming_asr"],
+      "languages": ["en", "es", "und"],
+      "runtime": "whisper_cpp",
+      "allowed_backends": ["cpu"],
+      "default_backend": "cpu",
+      "artifact_formats": ["ggml"],
+      "license_url": "https://github.com/openai/whisper/blob/main/LICENSE",
+      "reference_artifact": {
+        "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small-q5_1.bin",
+        "sha256": "ae85e4a935d7a567bd102fe55afc16bb595bdb618e11b2fc7591bc08120411bb"
+      },
+      "estimated_resident_mb": 700,
+      "distribution": "licensed_build_input",
+      "status": "benchmark_candidate"
+    },
+    {
+      "id": "supertonic3-en-es-int8",
+      "family": "supertonic3",
+      "capabilities": ["speech_synthesis"],
+      "languages": ["en", "es"],
+      "runtime": "sherpa_onnx_tts",
+      "allowed_backends": ["cpu"],
+      "default_backend": "cpu",
+      "artifact_formats": ["bundle"],
+      "license_url": "https://huggingface.co/Supertone/supertonic-3/blob/main/LICENSE",
+      "reference_bundle": {
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/sherpa-onnx-supertonic-3-tts-int8-2026-05-11.tar.bz2",
+        "source_format": "tar_bz2",
+        "sha256": "82fa96f91c4ef8abaae3a14a3f4153facf88bed821d1f7331cec2700f432c427",
+        "size_bytes": 128774318,
+        "archive_root": "sherpa-onnx-supertonic-3-tts-int8-2026-05-11",
+        "members": [
+          {"path": "duration_predictor.int8.onnx", "size_bytes": 3700147, "sha256": "c3eb91414d5ff8a7a239b7fe9e34e7e2bf8a8140d8375ffb14718b1c639325db"},
+          {"path": "text_encoder.int8.onnx", "size_bytes": 36416150, "sha256": "c7befd5ea8c3119769e8a6c1486c4edc6a3bc8365c67621c881bbb774b9902ff"},
+          {"path": "vector_estimator.int8.onnx", "size_bytes": 78400833, "sha256": "20cd86fa5c6effedfda0e7cffe5b0569ca401c440a0c3a1d72bf39286c0db3fd"},
+          {"path": "vocoder.int8.onnx", "size_bytes": 25991073, "sha256": "e923d60f53f95eb1ce235f1dc33ec56d9c057823c96fa6f8acf98f32b0da6152"},
+          {"path": "tts.json", "size_bytes": 8253, "sha256": "42078d3aef1cd43ab43021f3c54f47d2d75ceb4e75f627f118890128b06a0d09"},
+          {"path": "unicode_indexer.bin", "size_bytes": 262144, "sha256": "8402ca48e5189a8950138580b0fff64db6f072f24ac07cd54ba8b2fbb9883b30"},
+          {"path": "voice.bin", "size_bytes": 517168, "sha256": "67d5209b0ee8ce6c74105ffbe12fe6a7628aea3b4ba2fcb308a4a67938a93ce8"},
+          {"path": "LICENSE", "size_bytes": 1070, "sha256": "0dfe0d0ba84416fe3879d9a34f4909d8d0137c78d1e95834177b0414ac096fa2"}
+        ]
+      },
+      "estimated_resident_mb": 600,
+      "distribution": "licensed_build_input",
+      "status": "benchmark_candidate"
+    }
+  ],
+  "tiers": [
+    {
+      "id": "edge_8gb",
+      "min_total_ram_mb": 7168,
+      "text_model": "gemma4-e2b-mobile-text",
+      "media_model": "gemma4-e2b-mobile-multimodal",
+      "tts_model": "supertonic3-en-es-int8",
+      "asr_candidates": [
+        "whisper-base-multilingual-quantized",
+        "whisper-small-multilingual-quantized"
+      ]
+    },
+    {
+      "id": "edge_12gb",
+      "min_total_ram_mb": 11264,
+      "text_model": "gemma4-e4b-mobile-text",
+      "media_model": "gemma4-e4b-mobile-multimodal",
+      "tts_model": "supertonic3-en-es-int8",
+      "fallback_tier": "edge_8gb",
+      "asr_candidates": [
+        "whisper-small-multilingual-quantized",
+        "whisper-base-multilingual-quantized"
+      ]
+    },
+    {
+      "id": "edge_16gb_plus",
+      "min_total_ram_mb": 15360,
+      "text_model": "gemma4-e4b-mobile-text",
+      "media_model": "gemma4-e4b-mobile-multimodal",
+      "tts_model": "supertonic3-en-es-int8",
+      "fallback_tier": "edge_12gb",
+      "asr_candidates": ["whisper-small-multilingual-quantized"]
+    }
+  ],
+  "known_devices": [
+    {
+      "marketing_name": "Pixel 9a",
+      "codename": "tegu",
+      "ram_mb": 8192,
+      "expected_tier": "edge_8gb",
+      "enablement_status": "first_target"
+    },
+    {
+      "marketing_name": "Pixel 10",
+      "codename": null,
+      "ram_mb": 12288,
+      "expected_tier": "edge_12gb",
+      "enablement_status": "planned_after_device_tree_validation"
+    }
+  ]
+}

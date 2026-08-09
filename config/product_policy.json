@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "calls": {
+    "default_answer_mode": "off",
+    "allowed_answer_modes": ["off", "missed_only", "unknown_only", "all"],
+    "default_auto_answer_delay_mode": "fixed_2000_ms",
+    "allowed_auto_answer_delay_modes": [
+      "fixed_1000_ms",
+      "fixed_2000_ms",
+      "fixed_3000_ms",
+      "fixed_4000_ms",
+      "random_1010_3990_ms"
+    ],
+    "random_auto_answer_delay_ms": {
+      "min_inclusive": 1010,
+      "max_inclusive": 3990
+    },
+    "supported_languages": ["en", "es"],
+    "incoming_audio_priority": "realtime",
+    "outgoing_audio_priority": "interactive",
+    "bypass_emergency_calls": true,
+    "processing_default_enabled": false,
+    "automatic_answer_requires_processing": true,
+    "spoken_disclosure_required": false,
+    "caller_audio_injection_status": "implemented_unvalidated",
+    "capture_starts_after_ai_answer": true
+  },
+  "retention": {
+    "call_artifact_ttl_hours": 24,
+    "cleanup_on_boot": true,
+    "cleanup_after_call": true
+  },
+  "media": {
+    "immediate_single_photo": true,
+    "defer_bursts": true,
+    "defer_videos": true,
+    "deferred_requires_charging": true,
+    "deferred_min_battery_percent": 80,
+    "writable_mime_types": ["image/jpeg"],
+    "index_only_mime_types": [
+      "image/heic",
+      "image/heif",
+      "image/avif",
+      "image/png",
+      "image/webp",
+      "image/x-adobe-dng",
+      "video/mp4"
+    ]
+  },
+  "broker": {
+    "access": "signature_permission",
+    "global_session_capacity": 3,
+    "call_asr_stream_capacity": 2,
+    "call_agent_capacity": 1,
+    "preempt_background_on_call": true,
+    "raw_model_file_access": false
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "manifest_url": "https://android.googlesource.com/platform/manifest",
+  "tracking_revision": "android-latest-release",
+  "observed_release_branch": "android17-release",
+  "observed_release_manifest_commit": "29ace668ae756c7b8917c57abb440f6518844b0c",
+  "observed_on": "2026-08-09",
+  "release_manifest_lock": null,
+  "dialer_reference": {
+    "tag": "android-17.0.0_r1",
+    "commit": "768ed834ced557e2d42476757776a26c68fed656",
+    "patch_status": "exact_base_patch_created_uncompiled"
+  },
+  "first_device": {
+    "marketing_name": "Pixel 9a",
+    "codename": "tegu",
+    "aosp_product": "aosp_tegu",
+    "aios_product": "aios_tegu",
+    "public_driver_binary_latest_observed_android": 15,
+    "factory_kernel_branch": "android-gs-tegu-6.1-android16",
+    "present_in_observed_release_manifest": false,
+    "vendor_input_status": "must_be_resolved_on_linux_build_host"
+  }
+}

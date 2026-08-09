@@ -1,0 +1,34 @@
+# AOSP checkouts and build products are intentionally external to this repository.
+.aosp/
+.cache/
+preview/.gradle/
+preview/**/build/
+preview/local.properties
+preview/screenshots/
+out/
+dist/
+
+# Licensed/proprietary artifacts must never be committed.
+models/
+vendor-blobs/
+*.tflite
+*.litertlm
+*.safetensors
+*.gguf
+*.onnx
+*.bin
+
+# Local state and tooling output.
+.venv/
+__pycache__/
+*.pyc
+.idea/
+.vscode/
+local.properties
+build-state.json
+generated/modelpack/
+generated/runtimepack/
+runtime/*/.gradle/
+runtime/*/build/
+runtime/*/app/build/
+runtime/*/third_party/

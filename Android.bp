@@ -1,0 +1,58 @@
+package {
+    default_applicable_licenses: ["AIOS_Apache_2_0"],
+}
+
+license {
+    name: "AIOS_Apache_2_0",
+    visibility: [":__subpackages__"],
+    license_kinds: ["SPDX-license-identifier-Apache-2.0"],
+    license_text: ["LICENSE"],
+}
+
+prebuilt_etc {
+    name: "aios_product_policy",
+    src: "config/product_policy.json",
+    filename: "product_policy.json",
+    sub_dir: "aios",
+    product_specific: true,
+}
+
+prebuilt_etc {
+    name: "aios_model_catalog",
+    src: "config/model_catalog.json",
+    filename: "model_catalog.json",
+    sub_dir: "aios",
+    product_specific: true,
+}
+
+prebuilt_etc {
+    name: "aios_runtime_catalog",
+    src: "config/runtime_catalog.json",
+    filename: "runtime_catalog.json",
+    sub_dir: "aios",
+    product_specific: true,
+}
+
+prebuilt_etc {
+    name: "aios_authorized_clients",
+    src: "config/authorized_clients.json",
+    filename: "authorized_clients.json",
+    sub_dir: "aios",
+    product_specific: true,
+}
+
+prebuilt_etc {
+    name: "privapp-permissions-aios",
+    src: "permissions/privapp-permissions-aios.xml",
+    filename_from_src: true,
+    sub_dir: "permissions",
+    product_specific: true,
+}
+
+prebuilt_etc {
+    name: "default-permissions-aios",
+    src: "permissions/default-permissions-aios.xml",
+    filename_from_src: true,
+    sub_dir: "default-permissions",
+    product_specific: true,
+}

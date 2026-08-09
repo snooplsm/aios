@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "clients": [
+    {
+      "package": "com.aios.callintelligence",
+      "capabilities": [
+        "streaming_asr",
+        "text_generation",
+        "call_classification",
+        "call_summary",
+        "speech_synthesis"
+      ],
+      "workloads": ["call_rx", "call_tx", "call_agent"],
+      "max_sessions": 3,
+      "max_output_tokens": 2048,
+      "can_control_call_state": true
+    },
+    {
+      "package": "com.aios.mediaintelligence",
+      "capabilities": ["image_understanding", "audio_understanding"],
+      "workloads": ["media_background"],
+      "max_sessions": 1,
+      "max_output_tokens": 1024,
+      "can_control_call_state": false
+    }
+  ]
+}

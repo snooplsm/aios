@@ -1,0 +1,473 @@
+diff --git a/Android.bp b/Android.bp
+index e754c57..96b4598 100644
+--- a/Android.bp
++++ b/Android.bp
+@@ -312,6 +312,7 @@ android_app {
+         "libphonenumber",
+         "volley",
+         "zxing-core-1.7",
++        "aios_call_api",
+     ],
+     libs: [
+         "auto_value_annotations",
+diff --git a/AndroidManifest.xml b/AndroidManifest.xml
+index 7a56af5..fe48985 100644
+--- a/AndroidManifest.xml
++++ b/AndroidManifest.xml
+@@ -25,6 +25,7 @@
+
+
+   <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
++  <uses-permission android:name="com.aios.permission.CONTROL_CALL_INTELLIGENCE"/>
+   <uses-permission android:name="android.permission.CALL_PHONE"/>
+   <uses-permission android:name="android.permission.READ_CONTACTS"/>
+   <uses-permission android:name="android.permission.WRITE_CONTACTS"/>
+diff --git a/java/com/android/incallui/InCallServiceImpl.java b/java/com/android/incallui/InCallServiceImpl.java
+index b9d0ecc..059adb2 100644
+--- a/java/com/android/incallui/InCallServiceImpl.java
++++ b/java/com/android/incallui/InCallServiceImpl.java
+@@ -26,6 +26,7 @@ import android.telecom.InCallService;
+ import com.android.dialer.blocking.FilteredNumberAsyncQueryHandler;
+ import com.android.dialer.feedback.FeedbackComponent;
+ import com.android.incallui.audiomode.AudioModeProvider;
++import com.android.incallui.aios.AiosCallAssistant;
+ import com.android.incallui.call.CallList;
+ import com.android.incallui.call.ExternalCallList;
+ import com.android.incallui.call.TelecomAdapter;
+@@ -47,6 +48,7 @@ public class InCallServiceImpl extends InCallService {
+   // lifecycle of this service, because the singleton is associated with the state of the
+   // Application, not this service.
+   private SpeakEasyCallManager speakEasyCallManager;
++  private AiosCallAssistant aiosCallAssistant;
+
+   @Override
+   public void onCallAudioStateChanged(CallAudioState audioState) {
+@@ -116,6 +118,8 @@ public class InCallServiceImpl extends InCallService {
+         new ReturnToCallController(this, ContactInfoCache.getInstance(context));
+     feedbackListener = FeedbackComponent.get(context).getCallFeedbackListener();
+     CallList.getInstance().addListener(feedbackListener);
++    aiosCallAssistant = new AiosCallAssistant(context);
++    aiosCallAssistant.start(CallList.getInstance());
+
+     IBinder iBinder = super.onBind(intent);
+     Trace.endSection();
+@@ -148,6 +152,10 @@ public class InCallServiceImpl extends InCallService {
+       CallList.getInstance().removeListener(feedbackListener);
+       feedbackListener = null;
+     }
++    if (aiosCallAssistant != null) {
++      aiosCallAssistant.close();
++      aiosCallAssistant = null;
++    }
+     Trace.endSection();
+   }
+ }
+diff --git a/java/com/android/incallui/aios/AiosCallAssistant.java b/java/com/android/incallui/aios/AiosCallAssistant.java
+new file mode 100644
+index 0000000..30748ca
+--- /dev/null
++++ b/java/com/android/incallui/aios/AiosCallAssistant.java
+@@ -0,0 +1,403 @@
++/*
++ * Copyright (C) 2026 The AIOS Project
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package com.android.incallui.aios;
++
++import android.content.ComponentName;
++import android.content.Context;
++import android.content.Intent;
++import android.content.ServiceConnection;
++import android.database.Cursor;
++import android.net.Uri;
++import android.os.Handler;
++import android.os.IBinder;
++import android.os.Looper;
++import android.os.RemoteException;
++import android.os.SystemClock;
++import android.provider.ContactsContract;
++import android.telecom.VideoProfile;
++import android.telephony.PhoneNumberUtils;
++import android.util.Base64;
++import com.aios.call.CallHandlingDecision;
++import com.aios.call.IAiosCallIntelligence;
++import com.aios.call.IncomingCallContext;
++import com.android.dialer.common.LogUtil;
++import com.android.incallui.call.CallList;
++import com.android.incallui.call.DialerCall;
++import com.android.incallui.call.DialerCallListener;
++import com.android.incallui.call.state.DialerCallState;
++import java.nio.charset.StandardCharsets;
++import java.security.MessageDigest;
++import java.security.NoSuchAlgorithmException;
++import java.security.SecureRandom;
++import java.util.HashMap;
++import java.util.Map;
++import java.util.concurrent.ExecutorService;
++import java.util.concurrent.Executors;
++
++/** Narrow, fail-closed bridge between the AOSP in-call lifecycle and Call Intelligence. */
++public final class AiosCallAssistant implements CallList.Listener, AutoCloseable {
++  private static final String ACTION = "com.aios.call.CALL_INTELLIGENCE_SERVICE";
++  private static final String PACKAGE = "com.aios.callintelligence";
++  private static final String PREFERENCES = "aios_call_bridge";
++  private static final String HASH_SALT = "address_hash_salt";
++
++  private final Context context;
++  private final Handler main = new Handler(Looper.getMainLooper());
++  private final ExecutorService worker = Executors.newSingleThreadExecutor();
++  private final Map<String, CallSession> sessions = new HashMap<>();
++  private CallList callList;
++  private IAiosCallIntelligence service;
++  private boolean bound;
++  private boolean closed;
++
++  private final ServiceConnection connection =
++      new ServiceConnection() {
++        @Override
++        public void onServiceConnected(ComponentName name, IBinder binder) {
++          service = IAiosCallIntelligence.Stub.asInterface(binder);
++          for (CallSession session : sessions.values()) {
++            session.evaluateIfPossible();
++          }
++        }
++
++        @Override
++        public void onServiceDisconnected(ComponentName name) {
++          service = null;
++          cancelEveryPendingAnswer();
++        }
++
++        @Override
++        public void onBindingDied(ComponentName name) {
++          service = null;
++          cancelEveryPendingAnswer();
++        }
++      };
++
++  public AiosCallAssistant(Context context) {
++    this.context = context.getApplicationContext();
++  }
++
++  public void start(CallList callList) {
++    if (closed || this.callList != null) {
++      return;
++    }
++    this.callList = callList;
++    callList.addListener(this);
++    Intent intent = new Intent(ACTION).setPackage(PACKAGE);
++    bound =
++        context.bindService(
++            intent, connection, Context.BIND_AUTO_CREATE | Context.BIND_IMPORTANT);
++    if (!bound) {
++      LogUtil.w("AiosCallAssistant.start", "Call Intelligence is unavailable");
++    }
++  }
++
++  @Override
++  public void onIncomingCall(DialerCall call) {
++    if (closed
++        || call == null
++        || call.getState() != DialerCallState.INCOMING
++        || unsafeCall(call)
++        || sessions.containsKey(call.getId())) {
++      return;
++    }
++    CallSession session = new CallSession(call);
++    sessions.put(call.getId(), session);
++    call.addListener(session);
++    session.evaluateIfPossible();
++  }
++
++  @Override
++  public void onDisconnect(DialerCall call) {
++    CallSession session = call == null ? null : sessions.remove(call.getId());
++    if (session != null) {
++      session.end(call.getDisconnectCause().getCode());
++    }
++  }
++
++  @Override
++  public void close() {
++    if (closed) {
++      return;
++    }
++    closed = true;
++    if (callList != null) {
++      callList.removeListener(this);
++      callList = null;
++    }
++    for (CallSession session : sessions.values()) {
++      session.end(android.telecom.DisconnectCause.UNKNOWN);
++    }
++    sessions.clear();
++    if (bound) {
++      context.unbindService(connection);
++      bound = false;
++    }
++    service = null;
++    // Let already-queued terminal Binder notifications drain without holding the UI thread.
++    worker.shutdown();
++  }
++
++  @Override
++  public void onCallListChange(CallList currentCalls) {
++    // addListener() invokes this immediately, which recovers a ringing call after service rebind.
++    DialerCall incoming = currentCalls == null ? null : currentCalls.getIncomingCall();
++    if (incoming != null) {
++      onIncomingCall(incoming);
++    }
++  }
++
++  @Override
++  public void onUpgradeToVideo(DialerCall ignored) {}
++
++  @Override
++  public void onSessionModificationStateChange(DialerCall ignored) {}
++
++  @Override
++  public void onWiFiToLteHandover(DialerCall ignored) {}
++
++  @Override
++  public void onHandoverToWifiFailed(DialerCall ignored) {}
++
++  @Override
++  public void onInternationalCallOnWifi(DialerCall ignored) {}
++
++  private void cancelEveryPendingAnswer() {
++    for (CallSession session : sessions.values()) {
++      session.cancelPendingAnswer();
++    }
++  }
++
++  private static boolean unsafeCall(DialerCall call) {
++    return call.isEmergencyCall() || call.isPotentialEmergencyCallback();
++  }
++
++  private final class CallSession implements DialerCallListener {
++    private final DialerCall call;
++    private final String callId;
++    private final long ringingSinceElapsedRealtimeMillis;
++    private final Runnable answer = this::answerIfStillEligible;
++    private boolean evaluationStarted;
++    private boolean ended;
++    private boolean aiAnswerInitiated;
++    private boolean answeredSignalled;
++    private CallHandlingDecision decision;
++
++    CallSession(DialerCall call) {
++      this.call = call;
++      callId = call.getUniqueCallId();
++      ringingSinceElapsedRealtimeMillis = SystemClock.elapsedRealtime();
++    }
++
++    void evaluateIfPossible() {
++      IAiosCallIntelligence remote = service;
++      if (ended || evaluationStarted || remote == null || unsafeCall(call)) {
++        return;
++      }
++      evaluationStarted = true;
++      String number = call.getNumber();
++      boolean emergency = call.isEmergencyCall();
++      boolean emergencyCallback = call.isPotentialEmergencyCallback();
++      worker.execute(
++          () -> {
++            try {
++              IncomingCallContext request = new IncomingCallContext();
++              request.callId = callId;
++              request.normalizedAddressHash = hashAddress(number);
++              request.knownContact = isKnownContact(number);
++              request.emergency = emergency;
++              request.emergencyCallbackMode = emergencyCallback;
++              request.ringingSinceElapsedRealtimeMillis = ringingSinceElapsedRealtimeMillis;
++              CallHandlingDecision result = remote.evaluateIncoming(request);
++              main.post(() -> applyDecision(result));
++            } catch (RemoteException | RuntimeException error) {
++              LogUtil.w("AiosCallAssistant.evaluate", "policy evaluation failed");
++              main.post(this::cancelPendingAnswer);
++            }
++          });
++    }
++
++    private void applyDecision(CallHandlingDecision value) {
++      if (ended || value == null || unsafeCall(call)) {
++        return;
++      }
++      decision = value;
++      signalAnsweredIfActive();
++      boolean answerAction =
++          value.action == CallHandlingDecision.ACTION_ANSWER_WITH_AI
++              || value.action == CallHandlingDecision.ACTION_RING_THEN_AI;
++      if (!value.aiMayAnswer || !answerAction || call.getState() != DialerCallState.INCOMING) {
++        return;
++      }
++      long elapsed = SystemClock.elapsedRealtime() - ringingSinceElapsedRealtimeMillis;
++      long remaining = Math.max(0L, value.answerDelayMillis - elapsed);
++      main.postDelayed(answer, remaining);
++    }
++
++    private void answerIfStillEligible() {
++      if (ended
++          || decision == null
++          || !decision.aiMayAnswer
++          || call.getState() != DialerCallState.INCOMING
++          || unsafeCall(call)
++          || service == null) {
++        return;
++      }
++      aiAnswerInitiated = true;
++      call.answer(VideoProfile.STATE_AUDIO_ONLY);
++    }
++
++    private void signalAnsweredIfActive() {
++      if (ended
++          || answeredSignalled
++          || decision == null
++          || call.getState() != DialerCallState.ACTIVE
++          || unsafeCall(call)) {
++        return;
++      }
++      IAiosCallIntelligence remote = service;
++      if (remote == null) {
++        return;
++      }
++      answeredSignalled = true;
++      boolean answeredByAi = aiAnswerInitiated;
++      boolean processingAllowed = decision.processingAllowed;
++      worker.execute(
++          () -> {
++            try {
++              remote.onCallAnswered(callId, answeredByAi, processingAllowed);
++            } catch (RemoteException error) {
++              LogUtil.w("AiosCallAssistant.onAnswered", "status delivery failed");
++            }
++          });
++    }
++
++    void cancelPendingAnswer() {
++      main.removeCallbacks(answer);
++    }
++
++    void end(int disconnectCause) {
++      if (ended) {
++        return;
++      }
++      ended = true;
++      cancelPendingAnswer();
++      call.removeListener(this);
++      IAiosCallIntelligence remote = service;
++      if (remote != null) {
++        worker.execute(
++            () -> {
++              try {
++                remote.onCallEnded(callId, disconnectCause);
++              } catch (RemoteException error) {
++                LogUtil.w("AiosCallAssistant.onEnded", "status delivery failed");
++              }
++            });
++      }
++    }
++
++    @Override
++    public void onDialerCallUpdate() {
++      if (call.getState() != DialerCallState.INCOMING) {
++        cancelPendingAnswer();
++      }
++      signalAnsweredIfActive();
++    }
++
++    @Override
++    public void onDialerCallDisconnect() {}
++
++    @Override
++    public void onDialerCallChildNumberChange() {}
++
++    @Override
++    public void onDialerCallLastForwardedNumberChange() {}
++
++    @Override
++    public void onDialerCallUpgradeToVideo() {}
++
++    @Override
++    public void onDialerCallSessionModificationStateChange() {}
++
++    @Override
++    public void onWiFiToLteHandover() {}
++
++    @Override
++    public void onHandoverToWifiFailure() {}
++
++    @Override
++    public void onInternationalCallOnWifi() {}
++
++    @Override
++    public void onEnrichedCallSessionUpdate() {}
++  }
++
++  private boolean isKnownContact(String number) {
++    if (number == null || number.isEmpty()) {
++      return false;
++    }
++    Uri uri =
++        Uri.withAppendedPath(
++            ContactsContract.PhoneLookup.CONTENT_FILTER_URI, Uri.encode(number));
++    try (Cursor cursor =
++        context
++            .getContentResolver()
++            .query(uri, new String[] {ContactsContract.PhoneLookup._ID}, null, null, null)) {
++      return cursor != null && cursor.moveToFirst();
++    } catch (RuntimeException error) {
++      LogUtil.w("AiosCallAssistant.isKnownContact", "contact lookup failed");
++      // Treat lookup failure as known so unknown-only mode cannot answer on uncertainty.
++      return true;
++    }
++  }
++
++  private String hashAddress(String number) {
++    String normalized = number == null ? "restricted" : PhoneNumberUtils.normalizeNumber(number);
++    try {
++      MessageDigest digest = MessageDigest.getInstance("SHA-256");
++      digest.update(addressHashSalt());
++      digest.update(normalized.getBytes(StandardCharsets.UTF_8));
++      return toHex(digest.digest());
++    } catch (NoSuchAlgorithmException impossible) {
++      throw new IllegalStateException("SHA-256 unavailable", impossible);
++    }
++  }
++
++  private synchronized byte[] addressHashSalt() {
++    String encoded =
++        context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).getString(HASH_SALT, null);
++    if (encoded != null) {
++      return Base64.decode(encoded, Base64.NO_WRAP);
++    }
++    byte[] value = new byte[32];
++    new SecureRandom().nextBytes(value);
++    context
++        .getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
++        .edit()
++        .putString(HASH_SALT, Base64.encodeToString(value, Base64.NO_WRAP))
++        .apply();
++    return value;
++  }
++
++  private static String toHex(byte[] value) {
++    StringBuilder result = new StringBuilder(value.length * 2);
++    for (byte item : value) {
++      result.append(String.format("%02x", item & 0xff));
++    }
++    return result.toString();
++  }
++}

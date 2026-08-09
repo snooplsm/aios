@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "patches": [
+    {
+      "id": "dialer-aios-call-assistant",
+      "project": "packages/apps/Dialer",
+      "file": "0001-dialer-aios-call-assistant.patch",
+      "base_revision": "768ed834ced557e2d42476757776a26c68fed656",
+      "sha256": "978165277d0305af4730e3c9a00d8e79e89e2b82df1dc038f22b262104573f9a",
+      "reason": "Connect the Android 17 AOSP Dialer call lifecycle to the fail-closed AIOS Call Intelligence policy and capture service.",
+      "removal_condition": "Remove only if AOSP exposes an equivalent stable call-assistant lifecycle API requiring no Dialer source hook."
+    }
+  ]
+}

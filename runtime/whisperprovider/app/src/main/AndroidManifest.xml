@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="com.aios.permission.PROVIDE_MODEL_RUNTIME" />
+
+    <application
+        android:allowBackup="false"
+        android:extractNativeLibs="true"
+        android:hasCode="true"
+        android:label="AIOS whisper.cpp Runtime">
+        <service
+            android:name=".WhisperRuntimeService"
+            android:directBootAware="false"
+            android:exported="true"
+            android:isolatedProcess="false"
+            android:permission="com.aios.permission.PROVIDE_MODEL_RUNTIME"
+            android:process=":runtime">
+            <intent-filter>
+                <action android:name="com.aios.model.RUNTIME_PROVIDER" />
+            </intent-filter>
+        </service>
+    </application>
+</manifest>

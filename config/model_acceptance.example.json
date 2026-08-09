@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "accepted": [
+    {
+      "model_id": "replace-with-catalog-model-id",
+      "license_url": "replace-with-exact-catalog-license-url",
+      "accepted_at": "2026-01-01T00:00:00Z",
+      "accepted_by": "local-builder"
+    }
+  ]
+}
