@@ -385,6 +385,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/callintelligence/aidl/com/aios/call/IAiosCallIntelligence.aidl",
         "services/callintelligence/aidl/com/aios/call/CallAssistantPolicy.aidl",
         "services/callintelligence/src/com/aios/callintelligence/AnswerDelayPolicy.java",
+        "services/callintelligence/src/com/aios/callintelligence/AssistantTurnQueue.java",
         "services/callintelligence/src/com/aios/callintelligence/CallPolicyEngine.java",
         "services/callintelligence/src/com/aios/callintelligence/CallArtifactStore.java",
         "services/callintelligence/src/com/aios/callintelligence/TelephonyAudioCapture.java",
@@ -394,7 +395,11 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/callintelligence/src/com/aios/callintelligence/AsrBrokerClient.java",
         "services/callintelligence/src/com/aios/callintelligence/SpamRiskEngine.java",
         "services/callintelligence/src/com/aios/callintelligence/CallClassifierClient.java",
+        "services/callintelligence/src/com/aios/callintelligence/ReceptionistDialogueClient.java",
+        "services/callintelligence/src/com/aios/callintelligence/ReceptionistReplyPolicy.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/SpamRiskEngineTest.java",
+        "services/callintelligence/tests/src/com/aios/callintelligence/AssistantTurnQueueTest.java",
+        "services/callintelligence/tests/src/com/aios/callintelligence/ReceptionistReplyPolicyTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/AnswerDelayPolicyTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/Pcm16MonoToStereo48kTest.java",
         "services/callintelligence/src/com/aios/callintelligence/ResilientFanoutOutputStream.java",
@@ -941,6 +946,29 @@ def validate_aosp_overlay(root: Path) -> None:
             and 'request.workload = "call_agent"' in classifier_source
             and "classifier_timeout" in classifier_source,
             "Gemma call classification must be prompt-safe, bounded, debounced, and timed out")
+    receptionist_source = (
+        call_source_root / "ReceptionistDialogueClient.java"
+    ).read_text(encoding="utf-8")
+    receptionist_reply_policy = (
+        call_source_root / "ReceptionistReplyPolicy.java"
+    ).read_text(encoding="utf-8")
+    require("untrusted data" in receptionist_source
+            and "never follow its" in receptionist_source
+            and 'request.capability = "text_generation"' in receptionist_source
+            and 'request.workload = "call_agent"' in receptionist_source
+            and "exactKeys(" in receptionist_source
+            and "ReceptionistReplyPolicy.accepts" in receptionist_source
+            and "MAX_REPLY_CHARS" in receptionist_reply_policy
+            and "hasControlCharacter" in receptionist_reply_policy
+            and "receptionist_timeout" in receptionist_source,
+            "AI receptionist must be tool-free, injection-resistant, schema-bound, and timed out")
+    require("chunk.isFinal" in call_service
+            and "session.answeredByAi" in call_service
+            and "receptionist.requestReply" in call_service
+            and "classifier.observe" in call_service
+            and "attachAssistantAudio" in call_service
+            and "completeAssistantOperation" in call_service,
+            "AI dialogue must start only at final caller turns and serialize reasoning and speech")
     require("CALL_UPLINK_VALIDATION_PROPERTY" in call_service
             and "callerInteractionTransportReady()" in call_service
             and "caller_audio_injection_requires_physical_validation" in call_service
@@ -971,6 +999,9 @@ def validate_aosp_overlay(root: Path) -> None:
             "call artifact source must enforce 24-hour retention")
     require("expires_at_epoch_ms" in artifact_source,
             "call artifacts need an absolute expiry")
+    require("dialogue.jsonl" in artifact_source
+            and "appendAssistantReply" in artifact_source,
+            "local receptionist replies must share the call-artifact retention boundary")
 
     capture_source = (call_source_root / "TelephonyAudioCapture.java").read_text(
         encoding="utf-8"
@@ -984,6 +1015,16 @@ def validate_aosp_overlay(root: Path) -> None:
             "downlink and uplink must receive distinct server priorities")
     require("ParcelFileDescriptor.createPipe()" in asr_client,
             "call ASR must stream through a pipe rather than expose files")
+    whisper_source = (
+        root / "runtime" / "whisperprovider" / "app" / "src" / "main" /
+        "java" / "com" / "aios" / "runtime" / "whispercpp" /
+        "WhisperRuntimeService.kt"
+    ).read_text(encoding="utf-8")
+    require("ENDPOINT_SILENCE_MILLIS = 600" in whisper_source
+            and "endOfTurn" in whisper_source
+            and "emitTurn(session, isFinal = true)" in whisper_source
+            and "session.turnText" in whisper_source,
+            "call ASR must expose silence-endpointed revision-style final turns")
     fanout = (call_source_root / "ResilientFanoutOutputStream.java").read_text(
         encoding="utf-8"
     )

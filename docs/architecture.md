@@ -42,21 +42,28 @@ Pipeline:
 ```text
 Telecom call -> policy -> answer/ring
                          |
-Telephony RX -> VAD -> language -> streaming ASR -> risk/events -> dialer overlay
+Telephony RX -> VAD/endpoint -> streaming ASR -> risk/events -> dialer overlay
 Telephony TX -> VAD -----------> queued ASR -----^              -> local session
-Model Broker -> bounded TTS PCM -> telephony-TX route -> remote caller
+Final caller turn -> Gemma reply+risk -> bounded TTS -> telephony TX -> caller
 ```
 
 Spam classification is an ensemble of low-cost deterministic signals, number and
 contact context, acoustic/transcript classifiers, and optional LLM review. An LLM
-label alone can never block, terminate, or report a number.
+label alone can never block, terminate, or report a number. Human-answered calls
+use the debounced classifier. AI-answered calls use one strict receptionist JSON
+result for both its reply and advisory risk, then release that third broker slot
+before opening TTS; the two live ASR streams remain uninterrupted.
 
-AI answering is fail-closed on processing and transport readiness. Capture begins
+AI answering is fail-closed on processing, bilingual text/TTS availability, and
+transport readiness. Capture begins
 immediately after AI pickup, with no mandatory spoken disclosure. When the agent
-has a response, Call Intelligence requests English or Spanish speech through
-Model Broker, converts the mono provider output to the device's 48 kHz stereo
-in-call format, and routes it only to `TYPE_TELEPHONY`. The route is verified
-during playback. A per-device read-only property remains false until a physical
+has a final caller turn, Call Intelligence gives Gemma only bounded, quoted,
+untrusted conversation data and accepts only an exact reply/risk schema. It then
+requests English or Spanish speech through Model Broker, converts the mono
+provider output to the device's 48 kHz stereo in-call format, and routes it only
+to `TYPE_TELEPHONY`. Reasoning and speech never overlap, and a caller turn that
+arrives while the assistant is busy is queued. The route is verified during
+playback. A per-device read-only property remains false until a physical
 carrier-call test proves remote audibility; static audio-policy inspection and
 emulator playback cannot unlock automatic answering.
 

@@ -207,6 +207,27 @@ final class CallArtifactStore {
             }
         }
 
+        synchronized void appendAssistantReply(
+                String language,
+                String text,
+                long observedAtEpochMillis) throws IOException {
+            JSONObject value = new JSONObject();
+            try {
+                value.put("direction", "assistant");
+                value.put("language", language);
+                value.put("text", text);
+                value.put("observed_at_epoch_ms", observedAtEpochMillis);
+            } catch (JSONException impossible) {
+                throw new IOException("cannot encode assistant reply", impossible);
+            }
+            try (FileOutputStream stream = new FileOutputStream(
+                    new File(directory, "dialogue.jsonl"), true)) {
+                stream.write(value.toString().getBytes(StandardCharsets.UTF_8));
+                stream.write('\n');
+                stream.getFD().sync();
+            }
+        }
+
         @Override
         public synchronized void close() {
             closeQuietly(downlink);

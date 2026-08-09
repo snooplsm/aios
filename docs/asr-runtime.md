@@ -10,13 +10,19 @@ Pixel 9a starts with the multilingual Whisper base Q5_1 candidate. Pixel 10 and
 records the official reference artifact URLs and SHA-256 values; weights remain
 licensed local inputs and are never committed.
 
-The provider continuously drains each 16 kHz mono PCM pipe into four-second
-windows. Low-energy windows are skipped. A single priority decode queue services
-both directions: incoming/downlink work is always scheduled before
-outgoing/uplink work. Each session is bounded to four queued windows; falling
-behind closes that AI stream rather than blocking authoritative local capture or
-telephony. English and Spanish are auto-detected per window; other detected
-languages fail the prototype's declared language policy.
+The provider continuously drains each 16 kHz mono PCM pipe through 100 ms voice
+activity frames. Speech is decoded in windows no longer than four seconds, and
+600 ms of trailing silence ends a conversational turn. Long-turn updates carry
+the complete current turn as a replaceable revision; the silence endpoint emits
+the same turn with `isFinal=true`. This contract prevents the receptionist from
+answering a partial utterance and matches the Dialer's UDF transcript reducer.
+
+Low-energy frames outside a turn are skipped. A single priority decode queue
+services both directions: incoming/downlink work is always scheduled before
+outgoing/uplink work. Each session is bounded to four queued decode items;
+falling behind closes that AI stream rather than blocking authoritative local
+capture or telephony. English and Spanish are auto-detected per window; other
+detected languages fail the prototype's declared language policy.
 
 Build on Linux:
 
@@ -36,8 +42,8 @@ For a combined product, include both generated runtime make fragments under
 distinct output directories. The generic packager intentionally refuses a
 non-empty output directory.
 
-Four seconds is a provisional window, not a passed latency claim. Device gates
-must measure partial latency, real-time factor, WER for English and Spanish
-telephony cohorts, thermal throttling, and queue lag. Tune windowing only from
-recorded evidence; do not silently drop incoming audio to improve benchmark
-numbers.
+Four seconds and the 600 ms endpoint are provisional, not passed latency claims.
+Device gates must measure partial/final latency, endpoint misses, real-time
+factor, WER for English and Spanish telephony cohorts, thermal throttling, and
+queue lag. Tune windowing only from recorded evidence; do not silently drop
+incoming audio to improve benchmark numbers.

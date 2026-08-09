@@ -29,6 +29,7 @@ build-state.json
 generated/modelpack/
 generated/runtimepack/
 runtime/*/.gradle/
+runtime/*/.kotlin/
 runtime/*/build/
 runtime/*/app/build/
 runtime/*/third_party/

@@ -17,6 +17,7 @@ import com.aios.model.GenerationChunk;
 
 import java.io.IOException;
 import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
 
 public final class CallIntelligenceService extends Service {
@@ -33,6 +34,7 @@ public final class CallIntelligenceService extends Service {
     private CallArtifactStore artifactStore;
     private AsrBrokerClient asr;
     private CallClassifierClient classifier;
+    private ReceptionistDialogueClient receptionist;
     private CallerAudioUplink callerAudio;
     private SpeechSynthesisBrokerClient speech;
 
@@ -109,9 +111,10 @@ public final class CallIntelligenceService extends Service {
         @Override
         public void onCallEnded(String callId, int disconnectCause) {
             enforceControlPermission();
+            classifier.endCall(callId);
+            receptionist.endCall(callId);
             synchronized (sessions) {
                 pendingKnownContacts.remove(callId);
-                classifier.endCall(callId);
                 stopLocked(callId);
             }
             artifactStore.cleanup(System.currentTimeMillis());
@@ -176,6 +179,21 @@ public final class CallIntelligenceService extends Service {
             }
         });
         classifier.start();
+        receptionist = new ReceptionistDialogueClient(
+                this,
+                new ReceptionistDialogueClient.Listener() {
+                    @Override
+                    public void onReply(
+                            String callId, ReceptionistDialogueClient.Reply reply) {
+                        handleReceptionistReply(callId, reply);
+                    }
+
+                    @Override
+                    public void onStatus(String callId, String detail) {
+                        handleReceptionistStatus(callId, detail);
+                    }
+                });
+        receptionist.start();
         callerAudio = new CallerAudioUplink(this);
         speech = new SpeechSynthesisBrokerClient(
                 this,
@@ -200,6 +218,7 @@ public final class CallIntelligenceService extends Service {
         }
         if (speech != null) speech.close();
         if (callerAudio != null) callerAudio.close();
+        if (receptionist != null) receptionist.close();
         listeners.kill();
         if (asr != null) asr.close();
         if (classifier != null) classifier.close();
@@ -237,16 +256,24 @@ public final class CallIntelligenceService extends Service {
 
     private boolean callerInteractionTransportReady() {
         return SystemProperties.getBoolean(CALL_UPLINK_VALIDATION_PROPERTY, false)
+                && asr != null
+                && asr.isAvailable()
                 && callerAudio != null
                 && callerAudio.probe().available
                 && speech != null
                 && speech.isAvailable("en")
-                && speech.isAvailable("es");
+                && speech.isAvailable("es")
+                && receptionist != null
+                && receptionist.isAvailable("en")
+                && receptionist.isAvailable("es");
     }
 
     private String automaticAnswerUnavailableReason() {
         if (!SystemProperties.getBoolean(CALL_UPLINK_VALIDATION_PROPERTY, false)) {
             return "caller_audio_injection_requires_physical_validation";
+        }
+        if (asr == null || !asr.isAvailable()) {
+            return "streaming_asr_unavailable";
         }
         if (callerAudio == null) {
             return "caller_audio_uplink_unavailable";
@@ -258,20 +285,32 @@ public final class CallIntelligenceService extends Service {
         if (speech == null || !speech.isAvailable("en") || !speech.isAvailable("es")) {
             return "speech_synthesis_languages_unavailable";
         }
+        if (receptionist == null || !receptionist.isAvailable("en")
+                || !receptionist.isAvailable("es")) {
+            return "receptionist_languages_unavailable";
+        }
         return "caller_interaction_transport_unavailable";
     }
 
     private void beginCapture(String callId, boolean answeredByAi, boolean knownContact) {
+        ActiveSession started;
         synchronized (sessions) {
-            beginCaptureLocked(callId, answeredByAi, knownContact);
+            started = beginCaptureLocked(callId, answeredByAi, knownContact);
+        }
+        if (started != null && answeredByAi && started.beginGreeting()) {
+            String language = "es".equals(Locale.getDefault().getLanguage()) ? "es" : "en";
+            String greeting = "es".equals(language)
+                    ? "Hola, ¿cómo puedo ayudarle?"
+                    : "Hello, how can I help you?";
+            speakToCaller(callId, started, language, greeting);
         }
     }
 
-    private void beginCaptureLocked(
+    private ActiveSession beginCaptureLocked(
             String callId, boolean answeredByAi, boolean knownContact) {
         if (sessions.containsKey(callId)) {
             notifyStatus(callId, 1, "capture_already_started");
-            return;
+            return null;
         }
         CallArtifactStore.Session stored = null;
         AsrBrokerClient.Stream downlinkAsr = null;
@@ -282,6 +321,9 @@ public final class CallIntelligenceService extends Service {
             asr.setCallActive(true);
             downlinkAsr = asr.openStream(callId, "downlink");
             uplinkAsr = asr.openStream(callId, "uplink");
+            if (answeredByAi && downlinkAsr == null) {
+                throw new IOException("incoming ASR is required for AI answering");
+            }
             capture = new TelephonyAudioCapture(
                     new ResilientFanoutOutputStream(
                             stored.openDownlink(), sink(downlinkAsr)),
@@ -289,21 +331,32 @@ public final class CallIntelligenceService extends Service {
                             stored.openUplink(), sink(uplinkAsr)));
             ActiveSession active = new ActiveSession(
                     stored, capture, downlinkAsr, uplinkAsr,
-                    new SpamRiskEngine(knownContact));
-            capture.start();
-            classifier.beginCall(callId, knownContact);
+                    new SpamRiskEngine(knownContact), answeredByAi);
             sessions.put(callId, active);
+            if (answeredByAi) {
+                receptionist.beginCall(callId, knownContact);
+            } else {
+                classifier.beginCall(callId, knownContact);
+            }
+            capture.start();
+            RetentionAlarm.scheduleNext(this, artifactStore);
+            notifyStatus(callId, 1, "capture_started");
+            return active;
         } catch (IOException | RuntimeException error) {
+            sessions.remove(callId);
+            if (answeredByAi) {
+                receptionist.endCall(callId);
+            } else {
+                classifier.endCall(callId);
+            }
             if (capture != null) capture.close();
             if (downlinkAsr != null) downlinkAsr.close();
             if (uplinkAsr != null) uplinkAsr.close();
             if (stored != null) stored.close();
             if (sessions.isEmpty()) asr.setCallActive(false);
             notifyStatus(callId, -1, "capture_unavailable");
-            return;
+            return null;
         }
-        RetentionAlarm.scheduleNext(this, artifactStore);
-        notifyStatus(callId, 1, "capture_started");
     }
 
     private void stopLocked(String callId) {
@@ -393,11 +446,117 @@ public final class CallIntelligenceService extends Service {
         } finally {
             listeners.finishBroadcast();
         }
-        if ("downlink".equals(direction) && chunk.text != null && !chunk.text.isBlank()) {
+        if ("downlink".equals(direction) && chunk.isFinal
+                && chunk.text != null && !chunk.text.isBlank()) {
             SpamRiskEngine.Assessment assessment =
                     session.observeHeuristic(chunk.text, language);
             publishAssessment(callId, session, assessment);
-            classifier.observe(callId, language, chunk.text);
+            if (session.answeredByAi) {
+                requestReceptionistReply(callId, session, language, chunk.text);
+            } else {
+                classifier.observe(callId, language, chunk.text);
+            }
+        }
+    }
+
+    private void requestReceptionistReply(
+            String callId, ActiveSession session, String language, String text) {
+        AssistantTurnQueue.CallerTurn turn = session.offerCallerTurn(language, text);
+        if (turn == null) return;
+        if (!receptionist.requestReply(callId, turn.language, turn.text)) {
+            notifyStatus(callId, -5, "receptionist_request_unavailable");
+            continueAfterAssistantOperation(callId, session);
+        } else {
+            notifyStatus(callId, 6, "receptionist_thinking");
+        }
+    }
+
+    private void handleReceptionistReply(
+            String callId, ReceptionistDialogueClient.Reply reply) {
+        ActiveSession session;
+        synchronized (sessions) {
+            session = sessions.get(callId);
+        }
+        if (session == null || !session.answeredByAi) return;
+        publishAssessment(
+                callId,
+                session,
+                session.observeModel(new CallClassifierClient.ModelAssessment(
+                        reply.riskScore,
+                        reply.label,
+                        reply.language,
+                        reply.reasonCode)));
+        try {
+            session.stored.appendAssistantReply(
+                    reply.language, reply.text, System.currentTimeMillis());
+        } catch (IOException error) {
+            notifyStatus(callId, -6, "assistant_reply_storage_failed");
+        }
+        speakToCaller(callId, session, reply.language, reply.text);
+    }
+
+    private void handleReceptionistStatus(String callId, String detail) {
+        notifyStatus(callId, 6, detail);
+        if (callId == null || "availability".equals(callId)
+                || detail == null || "receptionist_ready".equals(detail)) return;
+        ActiveSession session;
+        synchronized (sessions) {
+            session = sessions.get(callId);
+        }
+        if (session != null && session.answeredByAi) {
+            continueAfterAssistantOperation(callId, session);
+        }
+    }
+
+    private void speakToCaller(
+            String callId, ActiveSession session, String language, String text) {
+        SpeechSynthesisBrokerClient.Speech synthesized = null;
+        CallerAudioUplink.Stream uplink = null;
+        try {
+            long generation = session.nextSpeechGeneration();
+            synthesized = speech.synthesize(
+                    callId + ":tts:" + generation, language, text);
+            uplink = callerAudio.open(
+                    callId,
+                    synthesized.takePcmInput(),
+                    synthesized.sampleRateHz,
+                    (completedCallId, detail) ->
+                            handleCallerAudioStatus(completedCallId, detail));
+            if (!session.attachAssistantAudio(synthesized, uplink)) {
+                throw new IOException("call ended during assistant audio setup");
+            }
+            uplink.start();
+            notifyStatus(callId, 7, "assistant_speaking");
+        } catch (IOException | RuntimeException error) {
+            if (uplink != null) uplink.close();
+            if (synthesized != null) synthesized.close();
+            notifyStatus(callId, -7, "assistant_speech_unavailable");
+            continueAfterAssistantOperation(callId, session);
+        }
+    }
+
+    private void handleCallerAudioStatus(String callId, String detail) {
+        notifyStatus(callId, 7, detail);
+        if (!"caller_audio_complete".equals(detail)
+                && !"caller_audio_failed".equals(detail)) return;
+        ActiveSession session;
+        synchronized (sessions) {
+            session = sessions.get(callId);
+        }
+        if (session != null) continueAfterAssistantOperation(callId, session);
+    }
+
+    private void continueAfterAssistantOperation(String callId, ActiveSession session) {
+        ActiveSession.AssistantCompletion completion = session.completeAssistantOperation();
+        completion.closeAudio();
+        if (completion.nextTurn != null) {
+            if (!receptionist.requestReply(
+                    callId, completion.nextTurn.language, completion.nextTurn.text)) {
+                notifyStatus(callId, -5, "receptionist_request_unavailable");
+                session.completeAssistantOperation().closeAudio();
+            } else {
+                notifyStatus(callId, 6, "receptionist_thinking");
+            }
         }
     }
 
@@ -434,26 +593,89 @@ public final class CallIntelligenceService extends Service {
     }
 
     private static final class ActiveSession implements AutoCloseable {
+        private static final class AssistantCompletion {
+            final SpeechSynthesisBrokerClient.Speech speech;
+            final CallerAudioUplink.Stream uplink;
+            final AssistantTurnQueue.CallerTurn nextTurn;
+
+            AssistantCompletion(
+                    SpeechSynthesisBrokerClient.Speech speech,
+                    CallerAudioUplink.Stream uplink,
+                    AssistantTurnQueue.CallerTurn nextTurn) {
+                this.speech = speech;
+                this.uplink = uplink;
+                this.nextTurn = nextTurn;
+            }
+
+            void closeAudio() {
+                if (uplink != null) uplink.close();
+                if (speech != null) speech.close();
+            }
+        }
+
         private final CallArtifactStore.Session stored;
         private final TelephonyAudioCapture capture;
         private final AsrBrokerClient.Stream downlinkAsr;
         private final AsrBrokerClient.Stream uplinkAsr;
         private final SpamRiskEngine risk;
+        private final boolean answeredByAi;
+        private final AssistantTurnQueue turnQueue = new AssistantTurnQueue();
         private SpamRiskEngine.Assessment published;
         private CallClassifierClient.ModelAssessment modelAssessment;
+        private boolean closed;
+        private long speechGeneration;
+        private SpeechSynthesisBrokerClient.Speech activeSpeech;
+        private CallerAudioUplink.Stream activeUplink;
 
         ActiveSession(
                 CallArtifactStore.Session stored,
                 TelephonyAudioCapture capture,
                 AsrBrokerClient.Stream downlinkAsr,
                 AsrBrokerClient.Stream uplinkAsr,
-                SpamRiskEngine risk) {
+                SpamRiskEngine risk,
+                boolean answeredByAi) {
             this.stored = stored;
             this.capture = capture;
             this.downlinkAsr = downlinkAsr;
             this.uplinkAsr = uplinkAsr;
             this.risk = risk;
+            this.answeredByAi = answeredByAi;
             published = risk.current();
+        }
+
+        synchronized boolean beginGreeting() {
+            return !closed && answeredByAi && turnQueue.beginGreeting();
+        }
+
+        synchronized AssistantTurnQueue.CallerTurn offerCallerTurn(
+                String language, String text) {
+            if (closed || !answeredByAi) return null;
+            return turnQueue.offer(language, text);
+        }
+
+        synchronized long nextSpeechGeneration() {
+            return ++speechGeneration;
+        }
+
+        synchronized boolean attachAssistantAudio(
+                SpeechSynthesisBrokerClient.Speech speech,
+                CallerAudioUplink.Stream uplink) {
+            if (closed || !turnQueue.isBusy()
+                    || activeSpeech != null || activeUplink != null) {
+                return false;
+            }
+            activeSpeech = speech;
+            activeUplink = uplink;
+            return true;
+        }
+
+        synchronized AssistantCompletion completeAssistantOperation() {
+            SpeechSynthesisBrokerClient.Speech speech = activeSpeech;
+            CallerAudioUplink.Stream uplink = activeUplink;
+            activeSpeech = null;
+            activeUplink = null;
+            AssistantTurnQueue.CallerTurn next = closed ? null : turnQueue.complete();
+            return new AssistantCompletion(speech, uplink, next);
         }
 
         synchronized SpamRiskEngine.Assessment observeHeuristic(String text, String language) {
@@ -490,7 +712,14 @@ public final class CallIntelligenceService extends Service {
         }
 
         @Override
-        public void close() {
+        public synchronized void close() {
+            if (closed) return;
+            closed = true;
+            turnQueue.close();
+            if (activeUplink != null) activeUplink.close();
+            if (activeSpeech != null) activeSpeech.close();
+            activeUplink = null;
+            activeSpeech = null;
             capture.close();
             if (downlinkAsr != null) {
                 downlinkAsr.close();

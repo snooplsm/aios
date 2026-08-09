@@ -1,5 +1,6 @@
 import groovy.json.JsonOutput
 import java.security.MessageDigest
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
     id("com.android.application")
@@ -28,6 +29,11 @@ android {
         buildConfig = false
     }
 
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
     sourceSets["main"].aidl.srcDirs(
         "../../../services/modelbroker/aidl",
         "../../../services/runtimeapi/aidl",
@@ -51,6 +57,12 @@ android {
     packaging {
         jniLibs.useLegacyPackaging = true
         resources.excludes += setOf("META-INF/DEPENDENCIES", "META-INF/*.kotlin_module")
+    }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget = JvmTarget.JVM_17
     }
 }
 

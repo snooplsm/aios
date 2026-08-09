@@ -7,7 +7,8 @@ AIOS must never claim that a caller heard synthesized speech merely because an
 answering is available only when all of the following are true:
 
 - the owner enabled on-device call processing;
-- an English/Spanish speech-synthesis runtime is available through Model Broker;
+- English/Spanish text-generation and speech-synthesis runtimes are available
+  through Model Broker;
 - the device exposes the explicit `TYPE_TELEPHONY` output and the playing track
   reports that actual routed device;
 - the device product was enabled with
@@ -31,8 +32,11 @@ AI receptionist response text
 
 The client owns no model path. Broker and provider cancellation closes the pipe;
 call teardown cancels synthesis, closes the read descriptor, and stops the track.
-AI capture and classification begin immediately after the AI answers; synthesis
-runs only when the receptionist has a real response. Any missing dependency,
+AI capture and endpointed transcription begin immediately after the AI answers.
+Two ASR sessions stay live; the third authorized call-agent slot is used first
+for one strict Gemma receptionist reply/risk result and then, after release, for
+TTS. Synthesis runs only for the greeting or a validated receptionist response,
+and caller turns arriving while the assistant is busy are queued. Any missing dependency,
 route mismatch, empty PCM stream, Binder failure, or call teardown fails closed
 for speech delivery without ending ordinary telephony.
 

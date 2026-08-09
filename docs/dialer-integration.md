@@ -87,8 +87,9 @@ Implementation is not release evidence. `ro.aios.call_uplink_validated` remains
 locked. The property may become true for a device product only after a physical
 carrier call proves that a remote test endpoint heard the complete synthesized
 AI response, capture began immediately after answer, teardown stopped audio, and
-speaker/Bluetooth/handset endpoint changes remained correct. A compatible
-English/Spanish `speech_synthesis` runtime must also be packaged and ready.
+speaker/Bluetooth/handset endpoint changes remained correct. Compatible
+English/Spanish `streaming_asr`, `text_generation`, and `speech_synthesis`
+runtimes must also be packaged and ready.
 See `caller-audio-uplink.md` for the gate and evidence contract.
 
 ## Open-source survey decision

@@ -39,6 +39,11 @@ class WhisperRuntimeService : Service() {
         const val ERROR_BUSY = 3
         const val ERROR_RUNTIME_FAILED = 5
         const val SAMPLE_RATE_HZ = 16_000
+        const val VAD_FRAME_MILLIS = 100
+        const val VAD_FRAME_SAMPLES = SAMPLE_RATE_HZ * VAD_FRAME_MILLIS / 1_000
+        const val VAD_FRAME_BYTES = VAD_FRAME_SAMPLES * 2
+        const val ENDPOINT_SILENCE_MILLIS = 600
+        const val ENDPOINT_SILENCE_FRAMES = ENDPOINT_SILENCE_MILLIS / VAD_FRAME_MILLIS
         const val WINDOW_SECONDS = 4
         const val WINDOW_SAMPLES = SAMPLE_RATE_HZ * WINDOW_SECONDS
         const val WINDOW_BYTES = WINDOW_SAMPLES * 2
@@ -69,6 +74,10 @@ class WhisperRuntimeService : Service() {
         val decodedWindows = AtomicInteger(0)
         val englishWindows = AtomicInteger(0)
         val spanishWindows = AtomicInteger(0)
+        val turnText = StringBuilder()
+        var turnLanguage = "und"
+        var turnStartMillis = 0L
+        var turnEndMillis = 0L
         lateinit var deathRecipient: IBinder.DeathRecipient
         @Volatile var input: ParcelFileDescriptor? = null
         @Volatile var reader: Thread? = null
@@ -82,6 +91,7 @@ class WhisperRuntimeService : Service() {
         val samples: FloatArray?,
         val startMillis: Long,
         val endMillis: Long,
+        val endOfTurn: Boolean,
         val endOfStream: Boolean,
         val order: Long,
     ) : Comparable<DecodeWindow> {
@@ -256,29 +266,107 @@ class WhisperRuntimeService : Service() {
     }
 
     private fun readPcm(session: AsrSession, descriptor: ParcelFileDescriptor) {
-        val buffer = ByteArray(WINDOW_BYTES)
-        var filled = 0
+        val frame = ByteArray(VAD_FRAME_BYTES)
+        val window = ByteArray(WINDOW_BYTES)
+        var frameFilled = 0
+        var windowFilled = 0
         var sampleOffset = 0L
+        var windowStartSamples = 0L
+        var turnActive = false
+        var windowHasSpeech = false
+        var turnHasQueuedWindow = false
+        var silenceFrames = 0
         try {
             ParcelFileDescriptor.AutoCloseInputStream(descriptor).use { input ->
                 while (!session.cancelled.get() && !session.completed.get()) {
-                    val read = input.read(buffer, filled, buffer.size - filled)
+                    val read = input.read(frame, frameFilled, frame.size - frameFilled)
                     if (read < 0) break
                     if (read == 0) continue
-                    filled += read
-                    if (filled == buffer.size) {
-                        enqueueWindow(session, pcm16ToFloat(buffer, filled), sampleOffset)
-                        sampleOffset += WINDOW_SAMPLES
-                        filled = 0
+                    frameFilled += read
+                    if (frameFilled == frame.size) {
+                        val speechFrame = hasSpeech(pcm16ToFloat(frame, frameFilled))
+                        if (speechFrame && !turnActive) {
+                            turnActive = true
+                            windowStartSamples = sampleOffset
+                        }
+                        if (turnActive) {
+                            if (speechFrame) {
+                                silenceFrames = 0
+                                windowHasSpeech = true
+                            } else {
+                                silenceFrames++
+                            }
+                            System.arraycopy(frame, 0, window, windowFilled, frameFilled)
+                            windowFilled += frameFilled
+                            if (windowFilled == window.size) {
+                                if (windowHasSpeech) {
+                                    enqueueWindow(
+                                        session,
+                                        pcm16ToFloat(window, windowFilled),
+                                        windowStartSamples,
+                                        endOfTurn = false,
+                                    )
+                                    turnHasQueuedWindow = true
+                                }
+                                windowFilled = 0
+                                windowHasSpeech = false
+                                windowStartSamples = sampleOffset + VAD_FRAME_SAMPLES
+                            }
+                            if (silenceFrames >= ENDPOINT_SILENCE_FRAMES) {
+                                finishTurn(
+                                    session,
+                                    window,
+                                    windowFilled,
+                                    windowStartSamples,
+                                    windowHasSpeech,
+                                    turnHasQueuedWindow,
+                                    sampleOffset + VAD_FRAME_SAMPLES,
+                                )
+                                turnActive = false
+                                windowFilled = 0
+                                windowHasSpeech = false
+                                turnHasQueuedWindow = false
+                                silenceFrames = 0
+                            }
+                        }
+                        sampleOffset += VAD_FRAME_SAMPLES
+                        frameFilled = 0
                     }
                 }
-                if (!session.cancelled.get() && !session.completed.get()
-                    && filled / 2 >= MIN_FINAL_SAMPLES) {
-                    enqueueWindow(session, pcm16ToFloat(buffer, filled), sampleOffset)
-                    sampleOffset += filled / 2
+                if (!session.cancelled.get() && !session.completed.get() && frameFilled >= 2) {
+                    val evenBytes = frameFilled - (frameFilled % 2)
+                    val speechFrame = hasSpeech(pcm16ToFloat(frame, evenBytes))
+                    if (speechFrame && !turnActive) {
+                        turnActive = true
+                        windowStartSamples = sampleOffset
+                    }
+                    if (turnActive) {
+                        if (speechFrame) windowHasSpeech = true
+                        System.arraycopy(frame, 0, window, windowFilled, evenBytes)
+                        windowFilled += evenBytes
+                        sampleOffset += evenBytes / 2
+                    }
+                }
+                if (!session.cancelled.get() && !session.completed.get() && turnActive) {
+                    finishTurn(
+                        session,
+                        window,
+                        windowFilled,
+                        windowStartSamples,
+                        windowHasSpeech,
+                        turnHasQueuedWindow,
+                        sampleOffset,
+                    )
                 }
                 if (!session.cancelled.get() && !session.completed.get()) {
-                    enqueue(session, null, sampleOffset, sampleOffset, true)
+                    enqueue(
+                        session,
+                        samples = null,
+                        startSamples = sampleOffset,
+                        endSamples = sampleOffset,
+                        endOfTurn = false,
+                        endOfStream = true,
+                    )
                 }
             }
         } catch (error: IOException) {
@@ -290,10 +378,42 @@ class WhisperRuntimeService : Service() {
         }
     }
 
-    private fun enqueueWindow(session: AsrSession, samples: FloatArray, offset: Long) {
+    private fun finishTurn(
+        session: AsrSession,
+        window: ByteArray,
+        byteCount: Int,
+        startSamples: Long,
+        hasSpeech: Boolean,
+        hasQueuedWindow: Boolean,
+        endSamples: Long,
+    ) {
+        if (hasSpeech && byteCount / 2 >= MIN_FINAL_SAMPLES) {
+            enqueueWindow(
+                session,
+                pcm16ToFloat(window, byteCount),
+                startSamples,
+                endOfTurn = true,
+            )
+        } else if (hasQueuedWindow) {
+            enqueue(
+                session,
+                samples = null,
+                startSamples = endSamples,
+                endSamples = endSamples,
+                endOfTurn = true,
+                endOfStream = false,
+            )
+        }
+    }
+
+    private fun enqueueWindow(
+        session: AsrSession,
+        samples: FloatArray,
+        offset: Long,
+        endOfTurn: Boolean,
+    ) {
         val end = offset + samples.size
-        if (!hasSpeech(samples)) return
-        enqueue(session, samples, offset, end, false)
+        enqueue(session, samples, offset, end, endOfTurn, false)
     }
 
     private fun enqueue(
@@ -301,6 +421,7 @@ class WhisperRuntimeService : Service() {
         samples: FloatArray?,
         startSamples: Long,
         endSamples: Long,
+        endOfTurn: Boolean,
         endOfStream: Boolean,
     ) {
         if (session.pendingWindows.incrementAndGet() > MAX_PENDING_WINDOWS) {
@@ -314,6 +435,7 @@ class WhisperRuntimeService : Service() {
                 samples,
                 startSamples * 1000L / SAMPLE_RATE_HZ,
                 endSamples * 1000L / SAMPLE_RATE_HZ,
+                endOfTurn,
                 endOfStream,
                 nextWindowOrder.getAndIncrement(),
             )
@@ -332,6 +454,10 @@ class WhisperRuntimeService : Service() {
             if (session.cancelled.get() || session.completed.get()) continue
             if (window.endOfStream) {
                 complete(session)
+                continue
+            }
+            if (window.samples == null && window.endOfTurn) {
+                emitTurn(session, isFinal = true)
                 continue
             }
             try {
@@ -360,16 +486,18 @@ class WhisperRuntimeService : Service() {
                 if (language == "es") session.spanishWindows.incrementAndGet()
                 session.decodedWindows.incrementAndGet()
                 if (text.isNotEmpty()) {
-                    val chunk = GenerationChunk().apply {
-                        sequence = session.sequence.getAndIncrement()
-                        this.text = text
-                        this.language = language
-                        isFinal = false
-                        confidence = 0.0f
-                        sourceStartMillis = window.startMillis
-                        sourceEndMillis = window.endMillis
+                    if (session.turnText.isEmpty()) {
+                        session.turnStartMillis = window.startMillis
+                    } else {
+                        session.turnText.append(' ')
                     }
-                    session.callback.onChunk(chunk)
+                    session.turnText.append(text)
+                    session.turnLanguage = language
+                    session.turnEndMillis = window.endMillis
+                }
+                if (session.turnText.isNotEmpty()) {
+                    session.turnEndMillis = window.endMillis
+                    emitTurn(session, isFinal = window.endOfTurn)
                 }
             } catch (_: RemoteException) {
                 cancelInternal(session.id)
@@ -377,6 +505,31 @@ class WhisperRuntimeService : Service() {
                 fail(session, ERROR_RUNTIME_FAILED,
                      (error::class.java.simpleName + ": ASR decode failed").take(256))
             }
+        }
+    }
+
+    private fun emitTurn(session: AsrSession, isFinal: Boolean) {
+        if (session.turnText.isEmpty()) return
+        val chunk = GenerationChunk().apply {
+            sequence = session.sequence.getAndIncrement()
+            text = session.turnText.toString()
+            language = session.turnLanguage
+            this.isFinal = isFinal
+            confidence = 0.0f
+            sourceStartMillis = session.turnStartMillis
+            sourceEndMillis = session.turnEndMillis
+        }
+        try {
+            session.callback.onChunk(chunk)
+        } catch (_: RemoteException) {
+            cancelInternal(session.id)
+            return
+        }
+        if (isFinal) {
+            session.turnText.setLength(0)
+            session.turnLanguage = "und"
+            session.turnStartMillis = 0L
+            session.turnEndMillis = 0L
         }
     }
 

@@ -15,10 +15,13 @@ import com.aios.model.GenerationChunk;
 import com.aios.model.IAiosModelService;
 import com.aios.model.IModelCallback;
 import com.aios.model.InferenceResult;
+import com.aios.model.ModelCapability;
 import com.aios.model.ModelRequest;
 
 import java.io.IOException;
 import java.io.OutputStream;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /** Persistent connection that turns PCM pipes into streaming ASR callbacks. */
 final class AsrBrokerClient implements AutoCloseable {
@@ -51,23 +54,29 @@ final class AsrBrokerClient implements AutoCloseable {
 
     private final Context context;
     private final Listener listener;
+    private final ExecutorService worker = Executors.newSingleThreadExecutor(work -> {
+        Thread thread = new Thread(work, "aios-asr-capabilities");
+        thread.setPriority(Thread.NORM_PRIORITY);
+        return thread;
+    });
     private IAiosModelService service;
+    private boolean available;
     private boolean bound;
     private boolean callActive;
+    private boolean closed;
 
     private final ServiceConnection connection = new ServiceConnection() {
         @Override
         public void onServiceConnected(ComponentName name, IBinder binder) {
-            synchronized (AsrBrokerClient.this) {
-                service = IAiosModelService.Stub.asInterface(binder);
-                applyCallStateLocked();
-            }
+            IAiosModelService candidate = IAiosModelService.Stub.asInterface(binder);
+            worker.execute(() -> loadCapabilities(candidate));
         }
 
         @Override
         public void onServiceDisconnected(ComponentName name) {
             synchronized (AsrBrokerClient.this) {
                 service = null;
+                available = false;
             }
         }
     };
@@ -78,7 +87,7 @@ final class AsrBrokerClient implements AutoCloseable {
     }
 
     synchronized void start() {
-        if (bound) {
+        if (closed || bound) {
             return;
         }
         Intent intent = new Intent("com.aios.model.MODEL_SERVICE")
@@ -91,9 +100,13 @@ final class AsrBrokerClient implements AutoCloseable {
         applyCallStateLocked();
     }
 
+    synchronized boolean isAvailable() {
+        return service != null && available;
+    }
+
     synchronized Stream openStream(String callId, String direction) {
         IAiosModelService current = service;
-        if (current == null) {
+        if (current == null || !available) {
             listener.onAsrStatus(callId, direction, "model_broker_unavailable");
             return null;
         }
@@ -132,6 +145,8 @@ final class AsrBrokerClient implements AutoCloseable {
 
     @Override
     public synchronized void close() {
+        if (closed) return;
+        closed = true;
         if (service != null && callActive) {
             try {
                 service.setCallActive(false);
@@ -140,10 +155,34 @@ final class AsrBrokerClient implements AutoCloseable {
             }
         }
         service = null;
+        available = false;
         callActive = false;
         if (bound) {
             context.unbindService(connection);
             bound = false;
+        }
+        worker.shutdownNow();
+    }
+
+    private void loadCapabilities(IAiosModelService candidate) {
+        boolean found = false;
+        try {
+            for (ModelCapability capability : candidate.listCapabilities()) {
+                if (capability != null && "streaming_asr".equals(capability.capability)
+                        && capability.available && capability.languages != null) {
+                    for (String language : capability.languages) {
+                        if ("und".equals(language)) found = true;
+                    }
+                }
+            }
+        } catch (RemoteException | RuntimeException error) {
+            candidate = null;
+        }
+        synchronized (this) {
+            if (closed) return;
+            service = candidate;
+            available = candidate != null && found;
+            applyCallStateLocked();
         }
     }
 
