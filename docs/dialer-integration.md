@@ -69,6 +69,23 @@ balanced. A Call Intelligence rebind replays the current set before new policy
 requests. This call-presence signal is what preempts media inference; capture and
 transcription sessions remain optional work within that protected interval.
 
+## Live call assessment
+
+Call Intelligence sends a typed `CallRiskAssessment` rather than a display
+string. It carries a bounded label/reason/source contract plus a monotonic
+per-call revision and observation time. The service persists the same revision
+with the local assessment artifact, publishes the initial known-contact or
+unknown state when capture starts, and replays the latest value to a newly
+registered listener.
+
+AIOS Phone rejects unknown labels, inconsistent score ranges, malformed reason
+codes, invalid sources, and non-positive revisions. Its UDF reducer accepts only
+a revision newer than the one already displayed. Compose converts the safe
+typed value into a light/dark-theme-aware card headed **Likely legitimate**,
+**Still evaluating**, **Suspicious call**, or **High-risk call**; raw model reason
+codes are never shown to the owner. Classification is advisory and never invokes
+a Telecom mutation.
+
 ## Owner-selected automatic answer
 
 Phone settings expose an opt-in **Auto AI answer** switch. When enabled, the

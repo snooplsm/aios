@@ -24,6 +24,10 @@ Telecom registry; it includes system/light/dark themes, bounded recents and
 visual voicemail, RTT, negotiated video surfaces, multi-SIM selection, and
 post-dial/proximity behavior. The stock AOSP Dialer remains the system/emergency
 fallback until the replacement passes device gates.
+Call risk now crosses Binder as a typed, revisioned assessment: initial known-
+contact legitimacy is published immediately, late listeners receive the current
+state, stale concurrent updates are ignored, and Compose shows human-readable
+legitimate/evaluating/suspicious/high-risk cards in both themes.
 The production phone sources also build and lint against the Android 16 public
 SDK, and an emulator-only managed-call fixture now verifies the real dialer-role,
 `InCallService`, ringing notification, and Compose in-call UI path. Emulator

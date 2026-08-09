@@ -31,6 +31,7 @@ android_app {
 java_test_host {
     name: "aios_phone_host_tests",
     srcs: [
+        "src/com/aios/phone/model/CallRiskContract.kt",
         "src/com/aios/phone/intelligence/PendingAiAnswerGate.kt",
         "tests/src/**/*.kt",
     ],

@@ -183,6 +183,7 @@ final class CallArtifactStore {
                 String label,
                 String reasonCode,
                 String source,
+                long revision,
                 long observedAtEpochMillis)
                 throws IOException {
             JSONObject value = new JSONObject();
@@ -191,6 +192,7 @@ final class CallArtifactStore {
                 value.put("label", label);
                 value.put("reason_code", reasonCode);
                 value.put("source", source);
+                value.put("revision", revision);
                 value.put("observed_at_epoch_ms", observedAtEpochMillis);
             } catch (JSONException impossible) {
                 throw new IOException("cannot encode call assessment", impossible);

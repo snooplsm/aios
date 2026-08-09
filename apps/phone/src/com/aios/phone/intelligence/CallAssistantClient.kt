@@ -20,12 +20,16 @@ import android.util.Base64
 import androidx.core.content.edit
 import com.aios.call.CallHandlingDecision
 import com.aios.call.CallAssistantPolicy
+import com.aios.call.CallRiskAssessment
 import com.aios.call.IAiosCallIntelligence
 import com.aios.call.ICallIntelligenceListener
 import com.aios.call.IncomingCallContext
 import com.aios.call.TranscriptSegment
 import com.aios.phone.model.CallUiState
 import com.aios.phone.model.AssistantPolicyUiState
+import com.aios.phone.model.CallRiskLabel
+import com.aios.phone.model.CallRiskSemantics
+import com.aios.phone.model.CallRiskSource
 import com.aios.phone.model.RiskUiState
 import com.aios.phone.model.TranscriptUiState
 import java.nio.charset.StandardCharsets
@@ -87,9 +91,26 @@ class CallAssistantClient(
             main.post { if (sessions.containsKey(segment.callId)) callbacks.onTranscript(segment.callId, safe) }
         }
 
-        override fun onRiskChanged(callId: String?, riskScore: Int, reason: String?) {
-            if (callId.isNullOrBlank()) return
-            val safe = RiskUiState(riskScore.coerceIn(0, 100), reason.orEmpty().take(160))
+        override fun onRiskChanged(assessment: CallRiskAssessment?) {
+            val callId = assessment?.callId?.takeIf {
+                it.isNotBlank() && it.length <= MAX_CALL_ID_CHARS
+            } ?: return
+            val label = CallRiskLabel.fromWire(assessment.label) ?: return
+            val source = CallRiskSource.fromWire(assessment.source) ?: return
+            val reasonCode = assessment.reasonCode ?: return
+            if (!label.accepts(assessment.riskScore)
+                || !CallRiskSemantics.isValidReasonCode(reasonCode)
+                || assessment.revision <= 0L
+                || assessment.observedAtEpochMillis <= 0L
+            ) return
+            val safe = RiskUiState(
+                score = assessment.riskScore,
+                label = label,
+                reasonCode = reasonCode,
+                source = source,
+                revision = assessment.revision,
+                observedAtEpochMillis = assessment.observedAtEpochMillis,
+            )
             main.post { if (sessions.containsKey(callId)) callbacks.onRisk(callId, safe) }
         }
 
@@ -514,6 +535,7 @@ class CallAssistantClient(
         )
 
     private companion object {
+        const val MAX_CALL_ID_CHARS = 128
         const val SERVICE_ACTION = "com.aios.call.CALL_INTELLIGENCE_SERVICE"
         const val SERVICE_PACKAGE = "com.aios.callintelligence"
         const val SALT_PREFS = "call_privacy"

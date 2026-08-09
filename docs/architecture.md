@@ -62,6 +62,15 @@ use the debounced classifier. AI-answered calls use one strict receptionist JSON
 result for both its reply and advisory risk, then release that third broker slot
 before opening TTS; the two live ASR streams remain uninterrupted.
 
+Each visible assessment is a structured Binder value containing the opaque call
+ID, score, label, reason code, source, observation time, and a per-call monotonic
+revision. Capture publishes the initial assessment immediately, so a known
+contact is visible as `likely_legitimate` before any transcript signal arrives.
+Newly registered dialer listeners receive the latest assessment for every active
+session. The phone validates the label/score contract and ignores duplicate or
+older revisions, which prevents a late low-risk callback from overwriting newer
+high-risk evidence. These labels remain advisory UI state only.
+
 AI answering is fail-closed on processing, bilingual text/TTS availability, and
 transport readiness. Capture begins
 immediately after AI pickup, with no mandatory spoken disclosure. When the agent

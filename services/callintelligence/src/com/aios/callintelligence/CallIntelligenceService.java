@@ -12,6 +12,7 @@ import android.os.SystemProperties;
 
 import com.aios.call.CallHandlingDecision;
 import com.aios.call.CallAssistantPolicy;
+import com.aios.call.CallRiskAssessment;
 import com.aios.call.IAiosCallIntelligence;
 import com.aios.call.ICallIntelligenceListener;
 import com.aios.call.IncomingCallContext;
@@ -36,6 +37,7 @@ public final class CallIntelligenceService extends Service {
 
     private final RemoteCallbackList<ICallIntelligenceListener> listeners =
             new RemoteCallbackList<>();
+    private final Object listenerBroadcastLock = new Object();
     private final Map<String, ActiveSession> sessions = new HashMap<>();
     private final Map<String, Boolean> pendingKnownContacts = new HashMap<>();
     private final Object telecomPresenceLock = new Object();
@@ -152,8 +154,24 @@ public final class CallIntelligenceService extends Service {
         @Override
         public void registerListener(ICallIntelligenceListener listener) {
             enforceControlPermission();
-            if (listener != null) {
-                listeners.register(listener);
+            if (listener != null && listeners.register(listener)) {
+                List<CallRiskAssessment> latest = new ArrayList<>();
+                synchronized (sessions) {
+                    for (Map.Entry<String, ActiveSession> entry : sessions.entrySet()) {
+                        RiskAssessmentTracker.Update update =
+                                entry.getValue().currentRiskUpdate();
+                        if (update != null) {
+                            latest.add(toRiskAssessment(entry.getKey(), update));
+                        }
+                    }
+                }
+                for (CallRiskAssessment assessment : latest) {
+                    try {
+                        listener.onRiskChanged(assessment);
+                    } catch (Exception ignored) {
+                        break;
+                    }
+                }
             }
         }
 
@@ -320,6 +338,9 @@ public final class CallIntelligenceService extends Service {
         ActiveSession started;
         synchronized (sessions) {
             started = beginCaptureLocked(callId, answeredByAi, knownContact);
+        }
+        if (started != null) {
+            publishAssessment(callId, started, started.initialAssessment());
         }
         if (started != null && answeredByAi && started.beginGreeting()) {
             String language = "es".equals(Locale.getDefault().getLanguage()) ? "es" : "en";
@@ -492,36 +513,54 @@ public final class CallIntelligenceService extends Service {
     }
 
     private void notifyStatus(String callId, int status, String detail) {
-        int count = listeners.beginBroadcast();
-        try {
-            for (int index = 0; index < count; index++) {
-                try {
-                    listeners.getBroadcastItem(index).onServiceStatus(
-                            callId, status, detail);
-                } catch (Exception ignored) {
-                    // RemoteCallbackList removes dead clients.
+        synchronized (listenerBroadcastLock) {
+            int count = listeners.beginBroadcast();
+            try {
+                for (int index = 0; index < count; index++) {
+                    try {
+                        listeners.getBroadcastItem(index).onServiceStatus(
+                                callId, status, detail);
+                    } catch (Exception ignored) {
+                        // RemoteCallbackList removes dead clients.
+                    }
                 }
+            } finally {
+                listeners.finishBroadcast();
             }
-        } finally {
-            listeners.finishBroadcast();
         }
     }
 
-    private void notifyRisk(String callId, SpamRiskEngine.Assessment assessment) {
-        int count = listeners.beginBroadcast();
-        try {
-            for (int index = 0; index < count; index++) {
-                try {
-                    listeners.getBroadcastItem(index).onRiskChanged(
-                            callId,
-                            assessment.score,
-                            assessment.label + ":" + assessment.reasonCode);
-                } catch (Exception ignored) {
-                    // Dead listeners are removed by RemoteCallbackList.
+    private void notifyRisk(CallRiskAssessment assessment) {
+        synchronized (listenerBroadcastLock) {
+            int count = listeners.beginBroadcast();
+            try {
+                for (int index = 0; index < count; index++) {
+                    try {
+                        listeners.getBroadcastItem(index).onRiskChanged(assessment);
+                    } catch (Exception ignored) {
+                        // Dead listeners are removed by RemoteCallbackList.
+                    }
                 }
+            } finally {
+                listeners.finishBroadcast();
             }
-        } finally {
-            listeners.finishBroadcast();
+        }
+    }
+
+    private void notifyTranscript(TranscriptSegment segment) {
+        synchronized (listenerBroadcastLock) {
+            int count = listeners.beginBroadcast();
+            try {
+                for (int index = 0; index < count; index++) {
+                    try {
+                        listeners.getBroadcastItem(index).onTranscript(segment);
+                    } catch (Exception ignored) {
+                        // Dead listeners are removed by RemoteCallbackList.
+                    }
+                }
+            } finally {
+                listeners.finishBroadcast();
+            }
         }
     }
 
@@ -555,21 +594,10 @@ public final class CallIntelligenceService extends Service {
         segment.confidence = chunk.confidence;
         segment.startMillis = chunk.sourceStartMillis;
         segment.endMillis = chunk.sourceEndMillis;
-        int count = listeners.beginBroadcast();
-        try {
-            for (int index = 0; index < count; index++) {
-                try {
-                    listeners.getBroadcastItem(index).onTranscript(segment);
-                } catch (Exception ignored) {
-                    // Dead listeners are removed by RemoteCallbackList.
-                }
-            }
-        } finally {
-            listeners.finishBroadcast();
-        }
+        notifyTranscript(segment);
         if ("downlink".equals(direction) && chunk.isFinal
                 && chunk.text != null && !chunk.text.isBlank()) {
-            SpamRiskEngine.Assessment assessment =
+            RiskAssessmentTracker.Update assessment =
                     session.observeHeuristic(chunk.text, language);
             publishAssessment(callId, session, assessment);
             if (session.answeredByAi) {
@@ -693,20 +721,33 @@ public final class CallIntelligenceService extends Service {
     }
 
     private void publishAssessment(
-            String callId, ActiveSession session, SpamRiskEngine.Assessment assessment) {
-        if (assessment == null) return;
-        String source = assessment.reasonCode.startsWith("model_") ? "model" : "heuristic";
+            String callId, ActiveSession session, RiskAssessmentTracker.Update update) {
+        if (update == null) return;
         try {
             session.stored.appendAssessment(
-                    assessment.score,
-                    assessment.label,
-                    assessment.reasonCode,
-                    source,
-                    System.currentTimeMillis());
+                    update.assessment.score,
+                    update.assessment.label,
+                    update.assessment.reasonCode,
+                    update.source,
+                    update.revision,
+                    update.observedAtEpochMillis);
         } catch (IOException error) {
             notifyStatus(callId, -3, "assessment_storage_failed");
         }
-        notifyRisk(callId, assessment);
+        notifyRisk(toRiskAssessment(callId, update));
+    }
+
+    private static CallRiskAssessment toRiskAssessment(
+            String callId, RiskAssessmentTracker.Update update) {
+        CallRiskAssessment value = new CallRiskAssessment();
+        value.callId = callId;
+        value.riskScore = update.assessment.score;
+        value.label = update.assessment.label;
+        value.reasonCode = update.assessment.reasonCode;
+        value.source = update.source;
+        value.revision = update.revision;
+        value.observedAtEpochMillis = update.observedAtEpochMillis;
+        return value;
     }
 
     private static java.io.OutputStream sink(AsrBrokerClient.Stream stream) {
@@ -738,11 +779,9 @@ public final class CallIntelligenceService extends Service {
         private final TelephonyAudioCapture capture;
         private final AsrBrokerClient.Stream downlinkAsr;
         private final AsrBrokerClient.Stream uplinkAsr;
-        private final SpamRiskEngine risk;
+        private final RiskAssessmentTracker risk;
         private final boolean answeredByAi;
         private final AssistantTurnQueue turnQueue = new AssistantTurnQueue();
-        private SpamRiskEngine.Assessment published;
-        private CallClassifierClient.ModelAssessment modelAssessment;
         private boolean closed;
         private long speechGeneration;
         private SpeechSynthesisBrokerClient.Speech activeSpeech;
@@ -759,9 +798,16 @@ public final class CallIntelligenceService extends Service {
             this.capture = capture;
             this.downlinkAsr = downlinkAsr;
             this.uplinkAsr = uplinkAsr;
-            this.risk = risk;
+            this.risk = new RiskAssessmentTracker(risk);
             this.answeredByAi = answeredByAi;
-            published = risk.current();
+        }
+
+        synchronized RiskAssessmentTracker.Update initialAssessment() {
+            return closed ? null : risk.initial();
+        }
+
+        synchronized RiskAssessmentTracker.Update currentRiskUpdate() {
+            return risk.current();
         }
 
         synchronized boolean beginGreeting() {
@@ -799,37 +845,17 @@ public final class CallIntelligenceService extends Service {
             return new AssistantCompletion(speech, uplink, next);
         }
 
-        synchronized SpamRiskEngine.Assessment observeHeuristic(String text, String language) {
-            risk.observe(text, language);
-            return changedCombined();
+        synchronized RiskAssessmentTracker.Update observeHeuristic(
+                String text, String language) {
+            if (closed) return null;
+            return risk.observeHeuristic(text, language);
         }
 
-        synchronized SpamRiskEngine.Assessment observeModel(
+        synchronized RiskAssessmentTracker.Update observeModel(
                 CallClassifierClient.ModelAssessment candidate) {
-            if (modelAssessment == null || candidate.riskScore > modelAssessment.riskScore
-                    || (modelAssessment.riskScore <= 15
-                    && candidate.label.equals(SpamRiskEngine.LIKELY_LEGITIMATE))) {
-                modelAssessment = candidate;
-            }
-            return changedCombined();
-        }
-
-        private SpamRiskEngine.Assessment changedCombined() {
-            SpamRiskEngine.Assessment heuristic = risk.current();
-            SpamRiskEngine.Assessment combined = heuristic;
-            if (modelAssessment != null
-                    && (modelAssessment.riskScore > heuristic.score
-                    || (SpamRiskEngine.UNKNOWN.equals(heuristic.label)
-                    && SpamRiskEngine.LIKELY_LEGITIMATE.equals(modelAssessment.label)
-                    && heuristic.score <= 15))) {
-                combined = new SpamRiskEngine.Assessment(
-                        modelAssessment.riskScore,
-                        modelAssessment.label,
-                        "model_" + modelAssessment.reasonCode);
-            }
-            if (!combined.differsFrom(published)) return null;
-            published = combined;
-            return combined;
+            if (closed || candidate == null) return null;
+            return risk.observeModel(
+                    candidate.riskScore, candidate.label, candidate.reasonCode);
         }
 
         @Override

@@ -162,7 +162,11 @@ data class TranscriptUiState(
 
 data class RiskUiState(
     val score: Int,
-    val reason: String,
+    val label: CallRiskLabel,
+    val reasonCode: String,
+    val source: CallRiskSource,
+    val revision: Long,
+    val observedAtEpochMillis: Long,
 )
 
 data class RttUiState(

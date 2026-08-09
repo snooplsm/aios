@@ -23,6 +23,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -41,6 +42,8 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import com.aios.phone.model.CallRiskLabel
+import com.aios.phone.model.CallRiskSemantics
 import com.aios.phone.model.CallUiState
 import com.aios.phone.model.HomeSection
 import com.aios.phone.model.PhoneAction
@@ -362,10 +365,35 @@ fun InCallScreen(
             }
 
             state.risks[selected.id]?.let { risk ->
-                Card(Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(14.dp)) {
-                        Text("Call risk ${risk.score}/100", fontWeight = FontWeight.SemiBold)
-                        Text(risk.reason)
+                val containerColor = when (risk.label) {
+                    CallRiskLabel.LIKELY_LEGITIMATE -> MaterialTheme.colorScheme.primaryContainer
+                    CallRiskLabel.UNKNOWN -> MaterialTheme.colorScheme.surfaceVariant
+                    CallRiskLabel.SUSPICIOUS -> MaterialTheme.colorScheme.tertiaryContainer
+                    CallRiskLabel.HIGH_RISK -> MaterialTheme.colorScheme.errorContainer
+                }
+                val contentColor = when (risk.label) {
+                    CallRiskLabel.LIKELY_LEGITIMATE -> MaterialTheme.colorScheme.onPrimaryContainer
+                    CallRiskLabel.UNKNOWN -> MaterialTheme.colorScheme.onSurfaceVariant
+                    CallRiskLabel.SUSPICIOUS -> MaterialTheme.colorScheme.onTertiaryContainer
+                    CallRiskLabel.HIGH_RISK -> MaterialTheme.colorScheme.onErrorContainer
+                }
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = containerColor,
+                        contentColor = contentColor,
+                    ),
+                ) {
+                    Column(
+                        Modifier.padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Text(risk.label.headline, fontWeight = FontWeight.SemiBold)
+                        Text(CallRiskSemantics.explanation(risk.label, risk.reasonCode))
+                        Text(
+                            "Risk score ${risk.score}/100 · ${risk.source.displayName}",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
                     }
                 }
             }

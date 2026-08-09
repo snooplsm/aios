@@ -10,6 +10,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.aios.phone.model.AudioEndpointUiState
 import com.aios.phone.model.AssistantPolicyUiState
+import com.aios.phone.model.CallRiskLabel
+import com.aios.phone.model.CallRiskSource
 import com.aios.phone.model.CallUiState
 import com.aios.phone.model.HomeSection
 import com.aios.phone.model.PhoneAction
@@ -91,6 +93,7 @@ class PreviewActivity : ComponentActivity() {
             is PhoneAction.Answer -> updateCall(action.callId) {
                 it.copy(state = Call.STATE_ACTIVE, videoState = action.videoState)
             }
+            is PhoneAction.ClaimOwnerAnswer -> state
             is PhoneAction.Ignore -> state.copy(message = "Call silenced; it is still ringing")
             is PhoneAction.AnswerWithAi -> updateCall(action.callId) {
                 it.copy(state = Call.STATE_ACTIVE)
@@ -283,7 +286,16 @@ class PreviewActivity : ComponentActivity() {
                     TranscriptUiState("downlink", "en", "It's the shop on Franklin Street.", true, 6900),
                 ),
             ),
-            risks = mapOf(primary.id to RiskUiState(8, "Likely legitimate • service request")),
+            risks = mapOf(
+                primary.id to RiskUiState(
+                    score = 8,
+                    label = CallRiskLabel.LIKELY_LEGITIMATE,
+                    reasonCode = "business_intent",
+                    source = CallRiskSource.MODEL,
+                    revision = 3,
+                    observedAtEpochMillis = System.currentTimeMillis(),
+                ),
+            ),
         )
     }
 }

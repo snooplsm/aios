@@ -28,6 +28,7 @@ import com.aios.phone.model.PhoneAction
 import com.aios.phone.model.PhoneUiState
 import com.aios.phone.model.PhoneAccountUiState
 import com.aios.phone.model.AssistantPolicyUiState
+import com.aios.phone.model.CallRiskSemantics
 import com.aios.phone.model.RiskUiState
 import com.aios.phone.model.RttUiState
 import com.aios.phone.model.ThemePreference
@@ -206,7 +207,17 @@ object PhoneRuntime {
             }
 
             override fun onRisk(callId: String, risk: RiskUiState) {
-                reduce { it.copy(risks = it.risks + (callId to risk)) }
+                reduce { current ->
+                    if (!CallRiskSemantics.shouldReplace(
+                            current.risks[callId]?.revision,
+                            risk.revision,
+                        )
+                    ) {
+                        current
+                    } else {
+                        current.copy(risks = current.risks + (callId to risk))
+                    }
+                }
             }
 
             override fun onAiAnswerRequested(callId: String) {

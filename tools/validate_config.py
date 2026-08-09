@@ -663,10 +663,12 @@ def validate_aosp_overlay(root: Path) -> None:
         "apps/phone/Android.bp",
         "apps/phone/AndroidManifest.xml",
         "apps/phone/tests/src/com/aios/phone/intelligence/PendingAiAnswerGateTest.kt",
+        "apps/phone/tests/src/com/aios/phone/model/CallRiskContractTest.kt",
         "apps/phone/src/com/aios/phone/PhoneRuntime.kt",
         "apps/phone/src/com/aios/phone/data/CallHistoryRepository.kt",
         "apps/phone/src/com/aios/phone/data/VoicemailRepository.kt",
         "apps/phone/src/com/aios/phone/model/PhoneContract.kt",
+        "apps/phone/src/com/aios/phone/model/CallRiskContract.kt",
         "apps/phone/src/com/aios/phone/telecom/CallRegistry.kt",
         "apps/phone/src/com/aios/phone/telecom/AiosInCallService.kt",
         "apps/phone/src/com/aios/phone/telecom/ProximityLockController.kt",
@@ -752,6 +754,8 @@ def validate_aosp_overlay(root: Path) -> None:
         "scripts/capture-model-benchmark.ps1",
         "services/callintelligence/AndroidManifest.xml",
         "services/callintelligence/aidl/com/aios/call/IAiosCallIntelligence.aidl",
+        "services/callintelligence/aidl/com/aios/call/ICallIntelligenceListener.aidl",
+        "services/callintelligence/aidl/com/aios/call/CallRiskAssessment.aidl",
         "services/callintelligence/aidl/com/aios/call/CallAssistantPolicy.aidl",
         "services/callintelligence/src/com/aios/callintelligence/AnswerDelayPolicy.java",
         "services/callintelligence/src/com/aios/callintelligence/AssistantTurnQueue.java",
@@ -765,11 +769,13 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/callintelligence/src/com/aios/callintelligence/SpeechSynthesisBrokerClient.java",
         "services/callintelligence/src/com/aios/callintelligence/AsrBrokerClient.java",
         "services/callintelligence/src/com/aios/callintelligence/SpamRiskEngine.java",
+        "services/callintelligence/src/com/aios/callintelligence/RiskAssessmentTracker.java",
         "services/callintelligence/src/com/aios/callintelligence/CallClassifierClient.java",
         "services/callintelligence/src/com/aios/callintelligence/ReceptionistDialogueClient.java",
         "services/callintelligence/src/com/aios/callintelligence/ReceptionistReplyPolicy.java",
         "services/callintelligence/src/com/aios/callintelligence/TelecomCallPresenceTracker.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/SpamRiskEngineTest.java",
+        "services/callintelligence/tests/src/com/aios/callintelligence/RiskAssessmentTrackerTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/AssistantTurnQueueTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/ReceptionistReplyPolicyTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/AnswerDelayPolicyTest.java",
@@ -898,6 +904,9 @@ def validate_aosp_overlay(root: Path) -> None:
     phone_contract = (root / "apps" / "phone" / "src" / "com" / "aios" /
                       "phone" / "model" / "PhoneContract.kt").read_text(
                           encoding="utf-8")
+    call_risk_contract = (root / "apps" / "phone" / "src" / "com" / "aios" /
+                          "phone" / "model" / "CallRiskContract.kt").read_text(
+                              encoding="utf-8")
     phone_registry = (root / "apps" / "phone" / "src" / "com" / "aios" /
                       "phone" / "telecom" / "CallRegistry.kt").read_text(
                           encoding="utf-8")
@@ -918,6 +927,9 @@ def validate_aosp_overlay(root: Path) -> None:
     pending_answer_test = (root / "apps" / "phone" / "tests" / "src" / "com" /
                            "aios" / "phone" / "intelligence" /
                            "PendingAiAnswerGateTest.kt").read_text(encoding="utf-8")
+    call_risk_test = (root / "apps" / "phone" / "tests" / "src" / "com" /
+                      "aios" / "phone" / "model" /
+                      "CallRiskContractTest.kt").read_text(encoding="utf-8")
     in_call_activity = (root / "apps" / "phone" / "src" / "com" / "aios" /
                         "phone" / "ui" / "InCallActivity.kt").read_text(
                             encoding="utf-8")
@@ -1068,6 +1080,16 @@ def validate_aosp_overlay(root: Path) -> None:
             and 'kotlin.directories.add("../../apps/phone/tests/src")' in prodcheck_build
             and 'testImplementation("junit:junit:4.13.2")' in prodcheck_build,
             "delayed AI-answer cancellation must have a host-tested stale-callback guard")
+    require("CallRiskAssessment" in assistant_client
+            and "CallRiskLabel.fromWire" in assistant_client
+            and "CallRiskSource.fromWire" in assistant_client
+            and "label.accepts" in assistant_client
+            and "CallRiskSemantics.shouldReplace" in phone_runtime
+            and "risk.label.headline" in phone_screens
+            and "risk.source.displayName" in phone_screens
+            and "onlyNewerPositiveRevisionsReplaceVisibleState" in call_risk_test
+            and "MAX_REASON_CODE_CHARS" in call_risk_contract,
+            "AIOS Phone must validate, humanize, and monotonically project typed call risk")
     require("onAssistantFailure" in assistant_client
             and "status < 0" in assistant_client
             and "The call is connected to you" in phone_runtime
@@ -1379,6 +1401,12 @@ def validate_aosp_overlay(root: Path) -> None:
     call_api = (root / "services" / "callintelligence" / "aidl" / "com" /
                 "aios" / "call" / "IAiosCallIntelligence.aidl").read_text(
                     encoding="utf-8")
+    call_listener_api = (root / "services" / "callintelligence" / "aidl" / "com" /
+                         "aios" / "call" /
+                         "ICallIntelligenceListener.aidl").read_text(encoding="utf-8")
+    call_risk_api = (root / "services" / "callintelligence" / "aidl" / "com" /
+                     "aios" / "call" /
+                     "CallRiskAssessment.aidl").read_text(encoding="utf-8")
     require("import android.os.IBinder" in call_api
             and "void setTelecomCallPresent(" in call_api
             and "in IBinder lifecycleToken" in call_api,
@@ -1397,6 +1425,13 @@ def validate_aosp_overlay(root: Path) -> None:
             and '"assistant_not_ready"' in policy_source,
             "automatic answering must fail closed without processing")
     spam_source = (call_source_root / "SpamRiskEngine.java").read_text(encoding="utf-8")
+    risk_tracker_source = (call_source_root / "RiskAssessmentTracker.java").read_text(
+        encoding="utf-8")
+    artifact_source = (call_source_root / "CallArtifactStore.java").read_text(
+        encoding="utf-8")
+    risk_tracker_test = (root / "services" / "callintelligence" / "tests" / "src" /
+                         "com" / "aios" / "callintelligence" /
+                         "RiskAssessmentTrackerTest.java").read_text(encoding="utf-8")
     require("advisory only" in spam_source
             and 'new Signal("gift_card_payment"' in spam_source
             and 'new Signal("credential_request"' in spam_source
@@ -1419,6 +1454,17 @@ def validate_aosp_overlay(root: Path) -> None:
             and ".onRiskChanged(" in call_service
             and "appendAssessment(" in call_service,
             "only incoming speech may drive persisted live call-risk updates")
+    require("CallRiskAssessment" in call_listener_api
+            and "long revision" in call_risk_api
+            and "String label" in call_risk_api
+            and "String reasonCode" in call_risk_api
+            and "String source" in call_risk_api
+            and "started.initialAssessment()" in call_service
+            and "currentRiskUpdate()" in call_service
+            and 'value.put("revision", revision)' in artifact_source
+            and "++revision" in risk_tracker_source
+            and "knownContactPublishesInitialLegitimacy" in risk_tracker_test,
+            "call risk must be typed, revisioned, replayable, and publish initial legitimacy")
     classifier_source = (call_source_root / "CallClassifierClient.java").read_text(
         encoding="utf-8")
     require("untrusted data" in classifier_source
@@ -1473,9 +1519,6 @@ def validate_aosp_overlay(root: Path) -> None:
     require("ro.aios.call_uplink_validated=false" in common_product,
             "caller uplink must remain disabled in source until physical validation")
 
-    artifact_source = (call_source_root / "CallArtifactStore.java").read_text(
-        encoding="utf-8"
-    )
     retention_source = (call_source_root / "CallArtifactRetention.java").read_text(
         encoding="utf-8"
     )

@@ -31,6 +31,13 @@ English/Spanish streaming transcription, spam-risk scoring, receptionist policy,
 and a live non-obtrusive owner surface. Uplink audio is captured and transcribed,
 but may lag behind the incoming stream.
 
+The owner surface presents one of four explicit advisory states: **Likely
+legitimate**, **Still evaluating**, **Suspicious call**, or **High-risk call**.
+It includes a short human explanation, numeric score, and whether the result came
+from deterministic on-device signals or the on-device model. Known contacts get
+an initial legitimacy assessment as soon as capture starts; subsequent updates
+must be revisioned so stale classifier callbacks cannot replace newer evidence.
+
 The product is expected to speak to callers. The TTS engine and initial greeting
 copy remain a product decision; the architecture treats TTS as a replaceable
 model capability.

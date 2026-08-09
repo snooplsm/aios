@@ -36,6 +36,7 @@ java_test_host {
         "src/com/aios/callintelligence/Pcm16MonoToStereo48k.java",
         "src/com/aios/callintelligence/RequiredCaptureGate.java",
         "src/com/aios/callintelligence/ReceptionistReplyPolicy.java",
+        "src/com/aios/callintelligence/RiskAssessmentTracker.java",
         "src/com/aios/callintelligence/SpamRiskEngine.java",
         "src/com/aios/callintelligence/TelecomCallPresenceTracker.java",
         "tests/src/**/*.java",
