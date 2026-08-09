@@ -119,8 +119,19 @@ exist.
 
 Every sensitive row and file has `created_at` and `expires_at`. Cleanup uses the
 stored absolute expiry rather than file modification time. Deletion is
-idempotent, runs on boot, and first removes content before database tombstones.
-The UI cannot extend retention past the configured prototype maximum.
+idempotent and runs at service start, after calls, and after boot. Call-session
+expiry is exactly 24 hours from creation; malformed metadata fails closed and
+the stored expiry must equal the overflow-safe `created_at + 24h` calculation.
+The service and alarm receiver share one process-wide storage lock, and the
+cleanup path closes live PCM descriptors before unlinking the private session
+tree. Normal Telecom call audio is unaffected; only optional AI capture/storage
+stops at that boundary. The tree is retried on later sweeps if deletion is
+interrupted. The preinstalled service declares `USE_EXACT_ALARM`, and the next
+absolute expiry is converted to an exact, idle-capable elapsed-realtime wakeup
+so a wall-clock rollback after scheduling cannot extend the live timer. An
+inexact fallback preserves cleanup if a product build violates that permission
+contract, but such a build cannot pass the physical 24-hour release gate. The
+UI cannot extend retention past the configured prototype maximum.
 
 ## Storage boundaries
 

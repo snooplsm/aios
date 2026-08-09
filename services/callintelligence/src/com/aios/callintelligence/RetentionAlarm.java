@@ -4,7 +4,7 @@ import android.app.AlarmManager;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
-import android.os.Build;
+import android.os.SystemClock;
 
 /** Schedules the nearest artifact expiry; boot cleanup repairs missed alarms. */
 final class RetentionAlarm {
@@ -31,12 +31,17 @@ final class RetentionAlarm {
             manager.cancel(operation);
             return;
         }
-        long trigger = Math.max(System.currentTimeMillis(), expiresAtEpochMillis);
-        if (Build.VERSION.SDK_INT < 31 || manager.canScheduleExactAlarms()) {
-            manager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, trigger, operation);
+        long trigger = CallArtifactRetention.elapsedAlarmTrigger(
+                System.currentTimeMillis(),
+                SystemClock.elapsedRealtime(),
+                expiresAtEpochMillis);
+        if (manager.canScheduleExactAlarms()) {
+            manager.setExactAndAllowWhileIdle(
+                    AlarmManager.ELAPSED_REALTIME_WAKEUP, trigger, operation);
         } else {
             // Policy-restricted builds still clean automatically, with OS batching.
-            manager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, trigger, operation);
+            manager.setAndAllowWhileIdle(
+                    AlarmManager.ELAPSED_REALTIME_WAKEUP, trigger, operation);
         }
     }
 }

@@ -32,6 +32,7 @@ java_test_host {
     srcs: [
         "src/com/aios/callintelligence/AnswerDelayPolicy.java",
         "src/com/aios/callintelligence/AssistantTurnQueue.java",
+        "src/com/aios/callintelligence/CallArtifactRetention.java",
         "src/com/aios/callintelligence/Pcm16MonoToStereo48k.java",
         "src/com/aios/callintelligence/RequiredCaptureGate.java",
         "src/com/aios/callintelligence/ReceptionistReplyPolicy.java",

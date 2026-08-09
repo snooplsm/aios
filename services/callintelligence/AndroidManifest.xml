@@ -10,7 +10,9 @@
     <uses-permission android:name="android.permission.MODIFY_PHONE_STATE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
-    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <!-- User-facing privacy TTL: preinstalled AIOS builds require a non-revocable
+         exact wakeup rather than asking the owner for special app access. -->
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
     <uses-permission android:name="com.aios.permission.USE_MODEL_BROKER" />
 
     <uses-feature

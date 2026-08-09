@@ -14,10 +14,13 @@ import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.HashMap;
+import java.util.Map;
 
 /** Credential-encrypted call artifacts with an immutable 24-hour expiry. */
 final class CallArtifactStore {
-    static final long RETENTION_MILLIS = 24L * 60L * 60L * 1000L;
+    private static final Object STORAGE_LOCK = new Object();
+    private static final Map<File, Session> ACTIVE_SESSIONS = new HashMap<>();
 
     private final File callsDirectory;
 
@@ -25,43 +28,37 @@ final class CallArtifactStore {
         callsDirectory = new File(context.getFilesDir(), "calls");
     }
 
-    synchronized Session create(String callId, boolean answeredByAi, long nowEpochMillis)
+    Session create(String callId, boolean answeredByAi, long nowEpochMillis)
             throws IOException {
-        if (!callsDirectory.isDirectory() && !callsDirectory.mkdirs()) {
-            throw new IOException("cannot create private call directory");
-        }
-        File directory = new File(callsDirectory, digest(callId));
-        if (!directory.isDirectory() && !directory.mkdirs()) {
-            throw new IOException("cannot create private call session");
-        }
-        long expiresAt = Math.addExact(nowEpochMillis, RETENTION_MILLIS);
-        writeMetadata(directory, nowEpochMillis, expiresAt, answeredByAi);
-        return new Session(directory, expiresAt);
-    }
-
-    synchronized void cleanup(long nowEpochMillis) {
-        File[] sessions = callsDirectory.listFiles(File::isDirectory);
-        if (sessions == null) {
-            return;
-        }
-        for (File directory : sessions) {
-            long expiry = readExpiry(directory);
-            if (expiry <= nowEpochMillis) {
-                deleteTree(directory);
+        synchronized (STORAGE_LOCK) {
+            if (!callsDirectory.isDirectory() && !callsDirectory.mkdirs()) {
+                throw new IOException("cannot create private call directory");
             }
+            File directory = new File(callsDirectory, digest(callId));
+            if (!directory.isDirectory() && !directory.mkdirs()) {
+                throw new IOException("cannot create private call session");
+            }
+            long expiresAt = CallArtifactRetention.expiresAt(nowEpochMillis);
+            writeMetadata(directory, nowEpochMillis, expiresAt, answeredByAi);
+            Session session = new Session(directory, expiresAt);
+            ACTIVE_SESSIONS.put(directory.getAbsoluteFile(), session);
+            return session;
         }
     }
 
-    synchronized long nextExpiryEpochMillis() {
-        File[] sessions = callsDirectory.listFiles(File::isDirectory);
-        if (sessions == null || sessions.length == 0) {
-            return Long.MAX_VALUE;
+    void cleanup(long nowEpochMillis) {
+        synchronized (STORAGE_LOCK) {
+            CallArtifactRetention.cleanup(callsDirectory, nowEpochMillis,
+                    CallArtifactStore::readExpiry,
+                    CallArtifactStore::closeActiveSession);
         }
-        long next = Long.MAX_VALUE;
-        for (File directory : sessions) {
-            next = Math.min(next, readExpiry(directory));
+    }
+
+    long nextExpiryEpochMillis() {
+        synchronized (STORAGE_LOCK) {
+            return CallArtifactRetention.nextExpiry(callsDirectory,
+                    CallArtifactStore::readExpiry);
         }
-        return next;
     }
 
     private static void writeMetadata(
@@ -95,10 +92,13 @@ final class CallArtifactStore {
         try {
             AtomicFile file = new AtomicFile(new File(directory, "session.json"));
             String text = new String(file.readFully(), StandardCharsets.UTF_8);
-            return new JSONObject(text).getLong("expires_at_epoch_ms");
+            JSONObject metadata = new JSONObject(text);
+            return CallArtifactRetention.validatedExpiry(
+                    metadata.getLong("created_at_epoch_ms"),
+                    metadata.getLong("expires_at_epoch_ms"));
         } catch (IOException | JSONException error) {
             // An unreadable session cannot be proven unexpired, so delete it.
-            return Long.MIN_VALUE;
+            return CallArtifactRetention.UNREADABLE_EXPIRY;
         }
     }
 
@@ -116,15 +116,11 @@ final class CallArtifactStore {
         }
     }
 
-    private static void deleteTree(File file) {
-        File[] children = file.listFiles();
-        if (children != null) {
-            for (File child : children) {
-                deleteTree(child);
-            }
+    private static void closeActiveSession(File directory) {
+        Session active = ACTIVE_SESSIONS.remove(directory.getAbsoluteFile());
+        if (active != null) {
+            active.closeStreams();
         }
-        // Best effort: a later cleanup retries failures.
-        file.delete();
     }
 
     static final class Session implements AutoCloseable {
@@ -229,7 +225,14 @@ final class CallArtifactStore {
         }
 
         @Override
-        public synchronized void close() {
+        public void close() {
+            closeStreams();
+            synchronized (STORAGE_LOCK) {
+                ACTIVE_SESSIONS.remove(directory.getAbsoluteFile(), this);
+            }
+        }
+
+        private synchronized void closeStreams() {
             closeQuietly(downlink);
             closeQuietly(uplink);
             downlink = null;

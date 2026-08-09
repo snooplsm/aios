@@ -12,6 +12,11 @@ The service implements deterministic answer decisions, two-direction PCM
 capture, private call-session storage, 24-hour cleanup, and streaming PCM pipes
 to Model Broker. If the broker or ASR adapter is unavailable, the best-effort
 pipe is dropped while local PCM capture and the normal call continue unaffected.
+Retention eligibility is evaluated at the exact expiry boundary by a host-tested
+policy. Malformed session metadata is deleted fail-closed, and the preinstalled
+service requests an exact, idle-capable elapsed-realtime wakeup so later
+wall-clock rollback cannot extend the timer. The physical release gate still
+measures actual deletion timing on the target build.
 Capture is not declared started until both `VOICE_DOWNLINK` and `VOICE_UPLINK`
 have delivered PCM into their authoritative local sinks. Initialization,
 recording-state, first-frame, and sink failures tear down the optional AI

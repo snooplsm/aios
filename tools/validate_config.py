@@ -749,6 +749,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/callintelligence/src/com/aios/callintelligence/AnswerDelayPolicy.java",
         "services/callintelligence/src/com/aios/callintelligence/AssistantTurnQueue.java",
         "services/callintelligence/src/com/aios/callintelligence/CallPolicyEngine.java",
+        "services/callintelligence/src/com/aios/callintelligence/CallArtifactRetention.java",
         "services/callintelligence/src/com/aios/callintelligence/CallArtifactStore.java",
         "services/callintelligence/src/com/aios/callintelligence/TelephonyAudioCapture.java",
         "services/callintelligence/src/com/aios/callintelligence/RequiredCaptureGate.java",
@@ -764,6 +765,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/callintelligence/tests/src/com/aios/callintelligence/AssistantTurnQueueTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/ReceptionistReplyPolicyTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/AnswerDelayPolicyTest.java",
+        "services/callintelligence/tests/src/com/aios/callintelligence/CallArtifactRetentionTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/Pcm16MonoToStereo48kTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/RequiredCaptureGateTest.java",
         "services/callintelligence/src/com/aios/callintelligence/ResilientFanoutOutputStream.java",
@@ -1314,6 +1316,9 @@ def validate_aosp_overlay(root: Path) -> None:
                      "AndroidManifest.xml").read_text(encoding="utf-8")
     require('android:name="android.permission.CAPTURE_AUDIO_OUTPUT"' in call_manifest,
             "Call Intelligence must request privileged call capture")
+    require('android:name="android.permission.USE_EXACT_ALARM"' in call_manifest
+            and 'android.permission.SCHEDULE_EXACT_ALARM' not in call_manifest,
+            "preinstalled Call Intelligence must have non-revocable exact retention wakeups")
     require('android:protectionLevel="signature|privileged"' in call_manifest,
             "Call Intelligence control API must support the shared-key privileged Dialer")
 
@@ -1398,8 +1403,30 @@ def validate_aosp_overlay(root: Path) -> None:
     artifact_source = (call_source_root / "CallArtifactStore.java").read_text(
         encoding="utf-8"
     )
-    require("24L * 60L * 60L * 1000L" in artifact_source,
-            "call artifact source must enforce 24-hour retention")
+    retention_source = (call_source_root / "CallArtifactRetention.java").read_text(
+        encoding="utf-8"
+    )
+    retention_alarm = (call_source_root / "RetentionAlarm.java").read_text(
+        encoding="utf-8"
+    )
+    require("24L * 60L * 60L * 1000L" in retention_source
+            and "Math.addExact" in retention_source
+            and "expiresAtEpochMillis <= nowEpochMillis" in retention_source
+            and "UNREADABLE_EXPIRY = Long.MIN_VALUE" in retention_source,
+            "call artifact policy must enforce an overflow-safe, fail-closed 24-hour TTL")
+    require("CallArtifactRetention.expiresAt" in artifact_source
+            and "STORAGE_LOCK" in artifact_source
+            and "ACTIVE_SESSIONS" in artifact_source
+            and "closeActiveSession" in artifact_source
+            and "CallArtifactRetention.validatedExpiry" in artifact_source
+            and "CallArtifactRetention.cleanup" in artifact_source
+            and "CallArtifactRetention.nextExpiry" in artifact_source,
+            "call artifact storage must close live files, lock, and delegate to the tested TTL policy")
+    require("CallArtifactRetention.elapsedAlarmTrigger" in retention_alarm
+            and "AlarmManager.ELAPSED_REALTIME_WAKEUP" in retention_alarm
+            and "setExactAndAllowWhileIdle" in retention_alarm
+            and "canScheduleExactAlarms" in retention_alarm,
+            "retention alarm must resist wall-clock rollback after scheduling")
     require("expires_at_epoch_ms" in artifact_source,
             "call artifacts need an absolute expiry")
     require("dialogue.jsonl" in artifact_source
