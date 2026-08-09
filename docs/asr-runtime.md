@@ -24,6 +24,11 @@ falling behind closes that AI stream rather than blocking authoritative local
 capture or telephony. English and Spanish are auto-detected per window; other
 detected languages fail the prototype's declared language policy.
 
+Call Intelligence gates each session on the first successfully stored PCM frame
+from both telephony directions, with a bounded startup timeout. This prevents an
+AI-answered call from greeting a caller when the privileged downlink tap is
+present in policy but unavailable for that particular call.
+
 Build on Linux:
 
 ```text

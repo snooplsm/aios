@@ -12,6 +12,11 @@ The service implements deterministic answer decisions, two-direction PCM
 capture, private call-session storage, 24-hour cleanup, and streaming PCM pipes
 to Model Broker. If the broker or ASR adapter is unavailable, the best-effort
 pipe is dropped while local PCM capture and the normal call continue unaffected.
+Capture is not declared started until both `VOICE_DOWNLINK` and `VOICE_UPLINK`
+have delivered PCM into their authoritative local sinks. Initialization,
+recording-state, first-frame, and sink failures tear down the optional AI
+session; the Telecom call itself remains untouched and the Dialer explicitly
+tells the owner that the connected call has been handed back to them.
 
 Downlink transcript segments first pass through an explainable English/Spanish
 heuristic scorer with deduplicated high-risk signals. A debounced Gemma

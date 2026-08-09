@@ -213,6 +213,19 @@ object PhoneRuntime {
                 answerWithAi(callId)
             }
 
+            override fun onAssistantFailure(callId: String, status: Int, detail: String) {
+                val message = when (status) {
+                    -1 -> "AI could not access both call-audio directions. The call is connected to you."
+                    -2, -3, -6 ->
+                        "AI call storage failed. The phone call is still connected."
+                    -4 -> "AI answering became unavailable. The call is connected to you."
+                    -5 -> "AI could not generate a reply. The call is connected to you."
+                    -7 -> "AI could not speak to the caller. The call is connected to you."
+                    else -> "The call assistant stopped. The phone call is still connected."
+                }
+                showMessage(message)
+            }
+
             override fun onPolicyChanged(policy: AssistantPolicyUiState) {
                 reduce { it.copy(assistantPolicy = policy) }
             }

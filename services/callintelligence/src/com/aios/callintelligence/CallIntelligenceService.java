@@ -338,7 +338,7 @@ public final class CallIntelligenceService extends Service {
             } else {
                 classifier.beginCall(callId, knownContact);
             }
-            capture.start();
+            capture.startRequired();
             RetentionAlarm.scheduleNext(this, artifactStore);
             notifyStatus(callId, 1, "capture_started");
             return active;

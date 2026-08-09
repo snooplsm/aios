@@ -43,6 +43,7 @@ class CallAssistantClient(
         fun onTranscript(callId: String, segment: TranscriptUiState)
         fun onRisk(callId: String, risk: RiskUiState)
         fun onAiAnswerRequested(callId: String)
+        fun onAssistantFailure(callId: String, status: Int, detail: String)
         fun onPolicyChanged(policy: AssistantPolicyUiState)
     }
 
@@ -92,6 +93,15 @@ class CallAssistantClient(
         override fun onServiceStatus(callId: String?, status: Int, detail: String?) {
             if (callId == "availability" && detail?.startsWith("speech_synthesis_") == true) {
                 main.post { loadPolicy() }
+                return
+            }
+            if (status < 0 && !callId.isNullOrBlank()) {
+                val safeDetail = detail.orEmpty().take(MAX_STATUS_DETAIL_CHARS)
+                main.post {
+                    if (sessions.containsKey(callId)) {
+                        callbacks.onAssistantFailure(callId, status, safeDetail)
+                    }
+                }
             }
         }
     }
@@ -461,6 +471,7 @@ class CallAssistantClient(
         const val SALT_KEY = "address_hash_salt"
         const val MAX_ADDRESS_CHARS = 256
         const val MAX_TRANSCRIPT_CHARS = 512
+        const val MAX_STATUS_DETAIL_CHARS = 160
         const val EMERGENCY_CALLBACK_WINDOW_MILLIS = 5 * 60 * 1000L
     }
 }

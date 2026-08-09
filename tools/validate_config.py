@@ -697,6 +697,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/callintelligence/src/com/aios/callintelligence/CallPolicyEngine.java",
         "services/callintelligence/src/com/aios/callintelligence/CallArtifactStore.java",
         "services/callintelligence/src/com/aios/callintelligence/TelephonyAudioCapture.java",
+        "services/callintelligence/src/com/aios/callintelligence/RequiredCaptureGate.java",
         "services/callintelligence/src/com/aios/callintelligence/CallerAudioUplink.java",
         "services/callintelligence/src/com/aios/callintelligence/Pcm16MonoToStereo48k.java",
         "services/callintelligence/src/com/aios/callintelligence/SpeechSynthesisBrokerClient.java",
@@ -710,6 +711,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/callintelligence/tests/src/com/aios/callintelligence/ReceptionistReplyPolicyTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/AnswerDelayPolicyTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/Pcm16MonoToStereo48kTest.java",
+        "services/callintelligence/tests/src/com/aios/callintelligence/RequiredCaptureGateTest.java",
         "services/callintelligence/src/com/aios/callintelligence/ResilientFanoutOutputStream.java",
         "docs/dialer-integration.md",
         "docs/caller-audio-uplink.md",
@@ -969,6 +971,11 @@ def validate_aosp_overlay(root: Path) -> None:
             and "service.onCallEnded" in assistant_client
             and "onServiceDisconnected" in assistant_client,
             "AIOS Phone must bracket intelligence sessions and survive Binder loss")
+    require("onAssistantFailure" in assistant_client
+            and "status < 0" in assistant_client
+            and "The call is connected to you" in phone_runtime
+            and "The phone call is still connected" in phone_runtime,
+            "per-call AI failures must visibly hand the connected call to the owner")
 
     api = (root / "services" / "modelbroker" / "aidl" / "com" / "aios" /
            "model" / "IAiosModelService.aidl").read_text(encoding="utf-8")
@@ -1347,8 +1354,18 @@ def validate_aosp_overlay(root: Path) -> None:
     capture_source = (call_source_root / "TelephonyAudioCapture.java").read_text(
         encoding="utf-8"
     )
-    require("VOICE_DOWNLINK" in capture_source and "VOICE_UPLINK" in capture_source,
-            "call capture must keep downlink and uplink separate")
+    capture_gate = (call_source_root / "RequiredCaptureGate.java").read_text(
+        encoding="utf-8"
+    )
+    require("VOICE_DOWNLINK" in capture_source
+            and "VOICE_UPLINK" in capture_source
+            and "startRequired" in capture_source
+            and "FIRST_PCM_TIMEOUT_MILLIS" in capture_source
+            and "startup.markReady(name)" in capture_source
+            and "downlinkReady && uplinkReady" in capture_gate
+            and "first_pcm_timeout" in capture_gate
+            and "capture.startRequired()" in call_service,
+            "call capture must keep both directions separate and prove live PCM")
     asr_client = (call_source_root / "AsrBrokerClient.java").read_text(encoding="utf-8")
     require('request.language = "und"' in asr_client,
             "ASR client must permit English/Spanish auto-detection")
