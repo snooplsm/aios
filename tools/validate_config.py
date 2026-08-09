@@ -264,10 +264,64 @@ def validate_catalog(catalog: dict[str, Any]) -> None:
         require(fallback is None or fallback in tier_by_id,
                 f"{tier['id']}: unknown fallback tier")
 
-    for device in catalog["known_devices"]:
+    known_devices = catalog.get("known_devices")
+    require(isinstance(known_devices, list) and known_devices,
+            "known-device hardware records are required")
+    marketing_names: set[str] = set()
+    known_codenames: set[str] = set()
+    for device in known_devices:
+        require(isinstance(device, dict) and set(device) == {
+                    "marketing_name", "codename", "ram_mb", "soc",
+                    "expected_tier", "enablement_status", "hardware_source",
+                    "identity_source", "build_lane",
+                }, "known-device hardware record has unknown or missing fields")
+        marketing_name = device["marketing_name"]
+        require(isinstance(marketing_name, str)
+                and marketing_name.startswith("Pixel ")
+                and marketing_name not in marketing_names,
+                "known-device marketing names must be unique Pixel names")
+        marketing_names.add(marketing_name)
+        codename = device["codename"]
+        status = device["enablement_status"]
+        identity_source = device["identity_source"]
+        build_lane = device["build_lane"]
+        if codename is None:
+            require(status == "catalog_only_awaiting_device_codename_and_build_lane"
+                    and identity_source is None
+                    and build_lane is None,
+                    f"{marketing_name}: unknown codename must remain catalog-only")
+        else:
+            require(isinstance(codename, str)
+                    and re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,127}", codename)
+                    is not None
+                    and codename not in known_codenames,
+                    f"{marketing_name}: device codename must be a unique identifier")
+            known_codenames.add(codename)
+            require(str(identity_source).startswith(
+                        "https://source.android.com/docs/setup/reference/build-numbers"),
+                    f"{marketing_name}: official Android identity source is required")
+            if build_lane is None:
+                require(status == "catalog_only_awaiting_build_lane",
+                        f"{marketing_name}: device without a build lane must remain catalog-only")
+            else:
+                require(isinstance(build_lane, str)
+                        and re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,127}", build_lane)
+                        is not None
+                        and status in {"first_target", "supported"},
+                        f"{marketing_name}: enabled device needs a valid build lane and status")
+        require(isinstance(device["ram_mb"], int)
+                and device["ram_mb"] > 0
+                and device["ram_mb"] % 1024 == 0,
+                f"{marketing_name}: RAM must be recorded in whole GiB")
+        require(re.fullmatch(r"Google Tensor G[0-9]+", str(device["soc"]))
+                is not None,
+                f"{marketing_name}: official Tensor generation is required")
+        require(str(device["hardware_source"]).startswith(
+                    "https://support.google.com/pixelphone/answer/7158570"),
+                f"{marketing_name}: official Google hardware source is required")
         selected = select_tier(catalog, device["ram_mb"])
         require(selected == device["expected_tier"],
-                f"{device['marketing_name']}: expected {device['expected_tier']}, got {selected}")
+                f"{marketing_name}: expected {device['expected_tier']}, got {selected}")
 
 
 def validate_model_benchmark_suite(root: Path) -> None:
@@ -551,7 +605,7 @@ def validate_model_admission(root: Path) -> None:
                 f"{profile['id']}: supported profile lacks text/media/TTS/ASR coverage")
     for device in catalog["known_devices"]:
         codename = device.get("codename")
-        if codename is None:
+        if codename is None or device.get("build_lane") is None:
             continue
         profile = profiles_by_device.get(codename)
         require(profile is not None
@@ -1814,6 +1868,15 @@ def validate_release_configuration(root: Path) -> None:
     lane_ids = [lane.get("id") for lane in lanes]
     require(lane_ids == ["android_latest_integration", "pixel9a_tegu_hardware"],
             "AIOS must declare exactly the latest-integration and Pixel 9a lanes")
+    catalog = load_json(root / "config" / "model_catalog.json")
+    catalog_build_lanes = {
+        device["build_lane"]
+        for device in catalog["known_devices"]
+        if device["build_lane"] is not None
+    }
+    require(catalog_build_lanes == {"pixel9a_tegu_hardware"}
+            and catalog_build_lanes <= set(lane_ids),
+            "enabled device catalog entries must reference declared hardware lanes")
     integration, hardware = lanes
     require(integration.get("kind") == "virtual_integration"
             and integration.get("manifest_revision") == "android-latest-release"

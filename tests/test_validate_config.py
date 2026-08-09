@@ -154,6 +154,48 @@ class ModelCatalogTests(unittest.TestCase):
     def test_pixel_10_selects_12gb_tier(self):
         self.assertEqual("edge_12gb", validator.select_tier(self.catalog, 12288))
 
+    def test_official_pixel_10_family_maps_by_measured_ram(self):
+        expected = {
+            "Pixel 10": ("frankel", "edge_12gb"),
+            "Pixel 10 Pro": ("blazer", "edge_16gb_plus"),
+            "Pixel 10 Pro XL": ("mustang", "edge_16gb_plus"),
+            "Pixel 10 Pro Fold": ("rango", "edge_16gb_plus"),
+            "Pixel 10a": (None, "edge_8gb"),
+        }
+        actual = {
+            device["marketing_name"]: (
+                device["codename"], device["expected_tier"])
+            for device in self.catalog["known_devices"]
+            if device["marketing_name"].startswith("Pixel 10")
+        }
+        self.assertEqual(expected, actual)
+        for device in self.catalog["known_devices"]:
+            if device["marketing_name"].startswith("Pixel 10"):
+                self.assertIsNone(device["build_lane"])
+                self.assertTrue(device["enablement_status"].startswith(
+                    "catalog_only_"))
+
+    def test_speculative_pixel_11_is_not_preenabled(self):
+        names = {item["marketing_name"] for item in self.catalog["known_devices"]}
+        self.assertNotIn("Pixel 11", names)
+
+    def test_unknown_codename_cannot_escape_catalog_only_state(self):
+        catalog = copy.deepcopy(self.catalog)
+        pixel_10a = next(item for item in catalog["known_devices"]
+                         if item["marketing_name"] == "Pixel 10a")
+        pixel_10a["enablement_status"] = "supported"
+        with self.assertRaisesRegex(validator.ValidationError, "catalog-only"):
+            validator.validate_catalog(catalog)
+
+    def test_official_codename_does_not_enable_device_without_build_lane(self):
+        catalog = copy.deepcopy(self.catalog)
+        pixel_10 = next(item for item in catalog["known_devices"]
+                        if item["marketing_name"] == "Pixel 10")
+        pixel_10["enablement_status"] = "supported"
+        with self.assertRaisesRegex(validator.ValidationError,
+                                    "without a build lane"):
+            validator.validate_catalog(catalog)
+
     def test_fixed_memory_budget_is_rejected(self):
         catalog = copy.deepcopy(self.catalog)
         catalog["tiers"][0]["max_foreground_model_mb"] = 100
@@ -167,6 +209,23 @@ class ModelAdmissionTests(unittest.TestCase):
 
     def test_pending_pixel_9a_profile_is_valid(self):
         validator.validate_model_admission(ROOT)
+
+    def test_catalog_only_pixel_10_codenames_have_no_admission_profiles(self):
+        policy = load("model_admission.json")
+        profiled_devices = {
+            device
+            for profile in policy["profiles"]
+            for device in profile["devices"]
+        }
+        catalog_only = {
+            device["codename"]
+            for device in self.catalog["known_devices"]
+            if device["codename"] is not None
+            and device["build_lane"] is None
+        }
+        self.assertEqual({"frankel", "blazer", "mustang", "rango"},
+                         catalog_only)
+        self.assertTrue(catalog_only.isdisjoint(profiled_devices))
 
     def test_known_device_cannot_lose_its_fail_closed_profile(self):
         with tempfile.TemporaryDirectory() as raw:
@@ -331,6 +390,7 @@ class IntegrationStructureTests(unittest.TestCase):
             (temporary / "config").mkdir()
             shutil.copytree(ROOT / "patches", temporary / "patches")
             for name in ("aosp_tracking.json", "aosp_lanes.json",
+                         "model_catalog.json",
                          "release_gates.json", "release_status.json"):
                 (temporary / "config" / name).write_text(
                     (ROOT / "config" / name).read_text(encoding="utf-8"),
@@ -342,6 +402,26 @@ class IntegrationStructureTests(unittest.TestCase):
             (temporary / "config" / "release_status.json").write_text(
                 json.dumps(value), encoding="utf-8")
             with self.assertRaisesRegex(validator.ValidationError, "requires evidence"):
+                validator.validate_release_configuration(temporary)
+
+    def test_enabled_device_must_reference_declared_hardware_lane(self):
+        with tempfile.TemporaryDirectory() as raw:
+            temporary = Path(raw)
+            (temporary / "config").mkdir()
+            shutil.copytree(ROOT / "patches", temporary / "patches")
+            for name in ("aosp_tracking.json", "aosp_lanes.json",
+                         "model_catalog.json", "release_gates.json",
+                         "release_status.json"):
+                shutil.copy(ROOT / "config" / name,
+                            temporary / "config" / name)
+            catalog_path = temporary / "config" / "model_catalog.json"
+            catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
+            pixel_9a = next(item for item in catalog["known_devices"]
+                            if item["marketing_name"] == "Pixel 9a")
+            pixel_9a["build_lane"] = "misspelled_tegu_lane"
+            catalog_path.write_text(json.dumps(catalog), encoding="utf-8")
+            with self.assertRaisesRegex(validator.ValidationError,
+                                        "declared hardware lanes"):
                 validator.validate_release_configuration(temporary)
 
 

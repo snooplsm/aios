@@ -8,13 +8,43 @@ AIOS has two independent compatibility decisions:
 2. Which measured AI capability tier passes latency, memory, power, and thermal
    gates?
 
-Pixel 10 has 12 GB RAM and Tensor G5, so its expected model tier is `edge_12gb`
-and Gemma 4 E4B is eligible. Eligibility is not enablement: the phone must still
-benchmark E4B while streaming ASR and handling a call. If it misses a gate, the
-broker independently falls back to E2B.
+Google's official hardware specifications now provide these planning inputs:
 
-A future Pixel 11 profile will be added only when official device projects and
-hardware facts exist. It will not receive a model based on the name "Pixel 11."
+| Device | Official codename | RAM | SoC | Candidate tier |
+| --- | --- | ---: | --- | --- |
+| Pixel 9a | `tegu` | 8 GB | Tensor G4 | `edge_8gb` |
+| Pixel 10a | not yet published | 8 GB | Tensor G4 | `edge_8gb` |
+| Pixel 10 | `frankel` | 12 GB | Tensor G5 | `edge_12gb` |
+| Pixel 10 Pro | `blazer` | 16 GB | Tensor G5 | `edge_16gb_plus` |
+| Pixel 10 Pro XL | `mustang` | 16 GB | Tensor G5 | `edge_16gb_plus` |
+| Pixel 10 Pro Fold | `rango` | 16 GB | Tensor G5 | `edge_16gb_plus` |
+
+Sources: [Google Pixel hardware specifications](https://support.google.com/pixelphone/answer/7158570?hl=en)
+and [official Android device codenames](https://source.android.com/docs/setup/reference/build-numbers).
+
+These are catalog expectations, not device enablement. The Pixel 10-family
+entries deliberately have no AIOS build lane, product wrapper, or admission
+profile. Four official codenames are known, but a codename is identity—not proof
+that a compatible build input set exists. Pixel 10a remains without a published
+codename in the official codename table checked on 2026-08-09. The official
+Android 17 `android-latest-release` manifest includes Cuttlefish but no Pixel 10
+device projects, so AIOS cannot truthfully name a buildable upstream Pixel 10
+target from that manifest. The exact compatible platform/device/vendor/kernel
+set used for a physical lane must be locked and verified before a wrapper is
+added. See the
+[official AOSP manifest](https://android.googlesource.com/platform/manifest/+/refs/heads/android-latest-release/default.xml).
+
+RAM makes a tier eligible; it does not authorize its models. Pixel 10 may try the
+E4B tier, while the 16 GB Pro models may try the same interactive E4B model with
+more concurrency/headroom. Every model/backend/artifact combination must still
+pass while streaming ASR and handling a call, and may independently fall back to
+E2B or a smaller ASR candidate.
+
+A future Pixel 11 profile will be added only when official hardware facts and a
+reproducibly validated platform/device/vendor/kernel build lane exist. As of
+2026-08-09, the official sources above do not provide a Pixel 11 hardware or AOSP
+build target, so the catalog intentionally contains no speculative Pixel 11
+entry. It will not receive a model based on the name "Pixel 11."
 The runtime measures total memory, backend availability, model smoke tests,
 thermal behavior, and current workload. A newer NPU that the open runtime cannot
 address does not count as usable acceleration.
@@ -41,3 +71,8 @@ Each new device needs:
 This keeps device enablement separate from product logic and prevents hardware-
 specific conditionals from spreading through the dialer, Call Intelligence,
 Model Broker, or Media Intelligence.
+
+AIOS packages open-weight Gemma candidates. Google's Gemini phone models and
+Pixel Launcher/Google application features are not open AOSP build inputs; a
+newer Pixel does not give this project redistribution rights or an API to package
+those proprietary model weights.

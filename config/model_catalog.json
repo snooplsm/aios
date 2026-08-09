@@ -177,15 +177,67 @@
       "marketing_name": "Pixel 9a",
       "codename": "tegu",
       "ram_mb": 8192,
+      "soc": "Google Tensor G4",
       "expected_tier": "edge_8gb",
-      "enablement_status": "first_target"
+      "enablement_status": "first_target",
+      "hardware_source": "https://support.google.com/pixelphone/answer/7158570?hl=en",
+      "identity_source": "https://source.android.com/docs/setup/reference/build-numbers",
+      "build_lane": "pixel9a_tegu_hardware"
     },
     {
       "marketing_name": "Pixel 10",
-      "codename": null,
+      "codename": "frankel",
       "ram_mb": 12288,
+      "soc": "Google Tensor G5",
       "expected_tier": "edge_12gb",
-      "enablement_status": "planned_after_device_tree_validation"
+      "enablement_status": "catalog_only_awaiting_build_lane",
+      "hardware_source": "https://support.google.com/pixelphone/answer/7158570?hl=en",
+      "identity_source": "https://source.android.com/docs/setup/reference/build-numbers",
+      "build_lane": null
+    },
+    {
+      "marketing_name": "Pixel 10 Pro",
+      "codename": "blazer",
+      "ram_mb": 16384,
+      "soc": "Google Tensor G5",
+      "expected_tier": "edge_16gb_plus",
+      "enablement_status": "catalog_only_awaiting_build_lane",
+      "hardware_source": "https://support.google.com/pixelphone/answer/7158570?hl=en",
+      "identity_source": "https://source.android.com/docs/setup/reference/build-numbers",
+      "build_lane": null
+    },
+    {
+      "marketing_name": "Pixel 10 Pro XL",
+      "codename": "mustang",
+      "ram_mb": 16384,
+      "soc": "Google Tensor G5",
+      "expected_tier": "edge_16gb_plus",
+      "enablement_status": "catalog_only_awaiting_build_lane",
+      "hardware_source": "https://support.google.com/pixelphone/answer/7158570?hl=en",
+      "identity_source": "https://source.android.com/docs/setup/reference/build-numbers",
+      "build_lane": null
+    },
+    {
+      "marketing_name": "Pixel 10 Pro Fold",
+      "codename": "rango",
+      "ram_mb": 16384,
+      "soc": "Google Tensor G5",
+      "expected_tier": "edge_16gb_plus",
+      "enablement_status": "catalog_only_awaiting_build_lane",
+      "hardware_source": "https://support.google.com/pixelphone/answer/7158570?hl=en",
+      "identity_source": "https://source.android.com/docs/setup/reference/build-numbers",
+      "build_lane": null
+    },
+    {
+      "marketing_name": "Pixel 10a",
+      "codename": null,
+      "ram_mb": 8192,
+      "soc": "Google Tensor G4",
+      "expected_tier": "edge_8gb",
+      "enablement_status": "catalog_only_awaiting_device_codename_and_build_lane",
+      "hardware_source": "https://support.google.com/pixelphone/answer/7158570?hl=en",
+      "identity_source": null,
+      "build_lane": null
     }
   ]
 }

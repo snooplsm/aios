@@ -22,7 +22,7 @@ is cold or media inference is unloading.
 
 ## Capability tiers
 
-### Edge 8 GB — Pixel 9a baseline
+### Edge 8 GB — Pixel 9a baseline and Pixel 10a candidate
 
 - Gemma 4 E2B mobile text-only for receptionist reasoning.
 - Compact multilingual streaming ASR; benchmark Whisper `base` and `small`
@@ -33,7 +33,9 @@ is cold or media inference is unloading.
 
 Google estimates the Gemma 4 E2B mobile footprint at about 0.84 GB text-only and
 1.1 GB multimodal before workload-dependent context/runtime overhead. AIOS still
-uses measured resident memory and thermal behavior as the gate.
+uses measured resident memory and thermal behavior as the gate. Pixel 10a also
+has 8 GB RAM and Tensor G4, but remains a catalog-only candidate until its exact
+build lane and device identity are verified.
 
 Resident-memory values are observations and planning estimates, not admission
 limits. AIOS prefers quality while Android reports healthy headroom. On a trim
@@ -43,7 +45,7 @@ numeric budget. Sustained paging, LMKD kills, missed audio, UI jank, or thermal
 throttling fail a model/device benchmark even though the catalog has no fixed
 cap.
 
-### Edge 12 GB — Pixel 10 baseline
+### Edge 12 GB — Pixel 10 candidate
 
 - Gemma 4 E4B mobile text-only is eligible for receptionist reasoning.
 - Gemma 4 E4B multimodal is eligible for deferred media processing.
@@ -51,14 +53,20 @@ cap.
   limits fail.
 
 Pixel 10 has 12 GB RAM and Tensor G5. Google estimates Gemma 4 E4B mobile at about
-2.2 GB text-only and 2.5 GB multimodal before context/runtime overhead.
+2.2 GB text-only and 2.5 GB multimodal before context/runtime overhead. This is
+an expected catalog tier only until an exact platform/device/vendor input set
+and build lane are locked and benchmarked.
 
-### Edge 16 GB+
+### Edge 16 GB+ — Pixel 10 Pro-family candidates
 
 - E4B remains the default interactive model unless a larger candidate beats it
   within the latency, power, and memory-pressure gates.
 - Larger models are optional charging-only workloads, never assumed merely
   because a future phone has a newer product name.
+
+Pixel 10 Pro, Pixel 10 Pro XL, and Pixel 10 Pro Fold have 16 GB RAM and Tensor
+G5. The extra memory is measured headroom, not permission to select an
+unbenchmarked or proprietary model.
 
 ## Required benchmark gates
 
@@ -84,8 +92,10 @@ See `model-admission.md`.
   https://ai.google.dev/gemma/docs/core
 - LiteRT-LM mobile execution overview:
   https://ai.google.dev/gemma/docs/run
-- Pixel 9a specifications:
-  https://store.google.com/us/product/pixel_9a_specs
-- Pixel 10 specifications:
-  https://store.google.com/product/pixel_10_specs
+- Pixel 9a and Pixel 10-family hardware specifications:
+  https://support.google.com/pixelphone/answer/7158570?hl=en
+- Official Pixel device codenames:
+  https://source.android.com/docs/setup/reference/build-numbers
+- Pixel 10 Pro and Pro XL specifications:
+  https://store.google.com/product/pixel_10_pro_specs
 - Supertonic 3 runtime integration: `tts-runtime.md`.

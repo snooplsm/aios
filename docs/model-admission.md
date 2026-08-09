@@ -80,6 +80,6 @@ Model Broker again requires the verified packaged artifact's backend and digest
 to match that admission. Re-quantizing, rebuilding, or replacing weights makes
 the old benchmark admission unusable by design.
 
-Pixel 10 or a future Pixel gets a profile only after its real Android device
-codename and product inputs are known. Marketing names and RAM estimates alone
-never create runtime admission.
+Pixel 10 or a future Pixel gets a profile only after its Android identity and a
+reproducible product/build lane are both known. An official codename, marketing
+name, or RAM estimate alone never creates runtime admission.
