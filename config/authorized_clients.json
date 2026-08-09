@@ -22,6 +22,19 @@
       "max_sessions": 1,
       "max_output_tokens": 1024,
       "can_control_call_state": false
+    },
+    {
+      "package": "com.aios.modelbenchmark",
+      "capabilities": [
+        "streaming_asr",
+        "text_generation",
+        "image_understanding",
+        "speech_synthesis"
+      ],
+      "workloads": ["call_rx", "call_agent", "media_background"],
+      "max_sessions": 1,
+      "max_output_tokens": 256,
+      "can_control_call_state": false
     }
   ]
 }

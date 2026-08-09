@@ -45,7 +45,8 @@ def finite_metric(value: object) -> bool:
 def validate_suite(suite: dict) -> None:
     if set(suite) != {
             "schema_version", "suite_version", "required_observations",
-            "gate_profiles"} or suite.get("schema_version") != 1:
+            "required_role_coverage", "gate_profiles"} \
+            or suite.get("schema_version") != 1:
         raise BenchmarkError("benchmark suite has unknown or missing fields")
     if not isinstance(suite.get("suite_version"), int) \
             or suite["suite_version"] < 1:
@@ -77,6 +78,11 @@ def validate_suite(suite: dict) -> None:
                     or gate["operator"] not in {"eq", "gte", "lte"} \
                     or not finite_metric(gate["threshold"]):
                 raise BenchmarkError(f"{role}: invalid gate predicate")
+    coverage = suite.get("required_role_coverage")
+    if not isinstance(coverage, dict) or set(coverage) != {"all", "at_least_one"} \
+            or coverage["all"] != ["text_model", "media_model", "tts_model"] \
+            or coverage["at_least_one"] != ["asr_candidate"]:
+        raise BenchmarkError("unsupported benchmark role coverage")
 
 
 def tier_roles(catalog: dict, tier_id: str) -> tuple[dict[str, dict], dict[str, str]]:
@@ -142,8 +148,8 @@ def evaluate(catalog_path: Path, suite_path: Path, raw_path: Path,
 
     models, roles = tier_roles(catalog, raw["catalog_tier"])
     raw_results = raw.get("results")
-    if not isinstance(raw_results, list) or len(raw_results) != len(roles):
-        raise BenchmarkError("raw benchmark must measure every model in the tier")
+    if not isinstance(raw_results, list) or not raw_results:
+        raise BenchmarkError("raw benchmark model results are required")
     results: list[dict] = []
     seen: set[str] = set()
     for result in raw_results:
@@ -170,6 +176,17 @@ def evaluate(catalog_path: Path, suite_path: Path, raw_path: Path,
         if missing_observations:
             raise BenchmarkError(
                 f"{model_id}: missing observations {sorted(missing_observations)}")
+        peak_rss_mb = metrics["peak_rss_mb"]
+        thermal_status_max = metrics["thermal_status_max"]
+        if isinstance(peak_rss_mb, bool) \
+                or not isinstance(peak_rss_mb, int) or peak_rss_mb <= 0:
+            raise BenchmarkError(
+                f"{model_id}: PSS observation must be a positive integer")
+        if isinstance(thermal_status_max, bool) \
+                or not isinstance(thermal_status_max, int) \
+                or not 0 <= thermal_status_max <= 6:
+            raise BenchmarkError(
+                f"{model_id}: thermal observation must be an Android status 0..6")
         gates = suite["gate_profiles"][roles[model_id]]
         missing_gate_metrics = {gate["metric"] for gate in gates} - set(metrics)
         if missing_gate_metrics:
@@ -188,8 +205,12 @@ def evaluate(catalog_path: Path, suite_path: Path, raw_path: Path,
             "failed_gates": failed,
             "metrics": metrics,
         })
-    if seen != set(roles):
-        raise BenchmarkError("raw benchmark model coverage is incomplete")
+    seen_roles = {roles[model_id] for model_id in seen}
+    coverage = suite["required_role_coverage"]
+    if not set(coverage["all"]) <= seen_roles \
+            or not set(coverage["at_least_one"]).intersection(seen_roles):
+        raise BenchmarkError(
+            "raw benchmark needs text, media, TTS, and at least one ASR result")
 
     evidence = {
         "schema_version": 2,

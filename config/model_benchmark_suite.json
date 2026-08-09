@@ -5,6 +5,10 @@
     "peak_rss_mb",
     "thermal_status_max"
   ],
+  "required_role_coverage": {
+    "all": ["text_model", "media_model", "tts_model"],
+    "at_least_one": ["asr_candidate"]
+  },
   "gate_profiles": {
     "text_model": [
       {"id": "measured_runs", "metric": "measured_runs", "operator": "gte", "threshold": 5},

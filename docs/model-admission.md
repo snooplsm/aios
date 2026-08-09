@@ -31,14 +31,23 @@ observations, but RSS is deliberately not a fixed pass/fail ceiling. AIOS uses
 adaptive system-pressure handling rather than pretending one static RAM number
 fits every call, camera workload, device, and future model.
 
-The on-device collection path has two stages. A debuggable benchmark runner
-produces a measurement JSON containing only `schema_version`, `suite_version`,
-and exact per-model `results`. With the target connected over ADB, bind those
-measurements to the real device identity and evaluate the gates:
+The on-device collection path uses the userdebug-only
+`AiosModelBenchmarkTests` instrumentation. It invokes the production Model
+Broker sequentially for text, a generated red JPEG, bilingual Supertonic TTS,
+and the selected Whisper ASR candidate. TTS output is resampled and looped into
+ASR as a deterministic bilingual integration/performance fixture. The runner
+refuses to start during a live call, samples runtime-process PSS and Android
+thermal status throughout each invocation, and emits measurements without
+pass/fail fields.
+The host evaluator rejects a zero/unavailable PSS sample and thermal values
+outside Android's defined `0..6` status range; it still applies no fixed RAM
+ceiling.
+
+With the target connected over ADB, run the instrumentation, bind its output to
+the real device identity, and evaluate the gates:
 
 ```text
 powershell -File scripts/capture-model-benchmark.ps1 `
-  -Measurements C:\safe\pixel9a-measurements.json `
   -Output evidence\model-admission\pixel-9a-build-id.json
 ```
 
@@ -48,6 +57,14 @@ only a SHA-256 of the build fingerprint. `tools/evaluate_model_benchmark.py`
 derives pass/fail decisions from the checked-in thresholds; the measurement
 producer cannot supply its own decisions or gate list. Keep device serials,
 prompts, audio, photos, and raw fingerprints outside the repository.
+
+`-Measurements C:\safe\measurements.json` remains available for importing the
+same strict raw schema from a separately reviewed runner. The deterministic
+TTS-to-ASR loop is not representative human-speech proof. Before either
+`call.english_streaming_asr` or `call.spanish_streaming_asr` can pass for a
+release, run consented human and noisy telephony cohorts on physical hardware as
+required by `docs/pixel9a-bringup.md`; those release gates remain independent of
+model admission.
 
 Generate a review candidate with:
 

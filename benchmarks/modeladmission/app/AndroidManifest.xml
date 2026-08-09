@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.aios.modelbenchmark">
+
+    <uses-permission android:name="com.aios.permission.USE_MODEL_BROKER" />
+    <uses-permission android:name="android.permission.DUMP" />
+    <uses-permission android:name="android.permission.READ_PRIVILEGED_PHONE_STATE" />
+
+    <application
+        android:allowBackup="false"
+        android:debuggable="true"
+        android:hasCode="true"
+        android:label="AIOS Model Benchmark"
+        android:testOnly="true" />
+</manifest>

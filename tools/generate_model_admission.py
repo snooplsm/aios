@@ -117,7 +117,10 @@ def validate_evidence(catalog: dict, suite: dict, evidence: dict) -> dict:
     }
     profiles = suite.get("gate_profiles")
     observations = suite.get("required_observations")
-    if not isinstance(profiles, dict) or not isinstance(observations, list):
+    coverage = suite.get("required_role_coverage")
+    if not isinstance(profiles, dict) or not isinstance(observations, list) \
+            or not isinstance(coverage, dict) \
+            or set(coverage) != {"all", "at_least_one"}:
         raise AdmissionError("benchmark suite gate policy is malformed")
     results = evidence.get("results")
     if not isinstance(results, list) or not results:
@@ -165,6 +168,17 @@ def validate_evidence(catalog: dict, suite: dict, evidence: dict) -> dict:
                            and (not isinstance(value, float) or math.isfinite(value))
                            for name, value in metrics.items()):
             raise AdmissionError(f"{model_id}: measured numeric/boolean metrics are required")
+        peak_rss_mb = metrics.get("peak_rss_mb")
+        thermal_status_max = metrics.get("thermal_status_max")
+        if isinstance(peak_rss_mb, bool) \
+                or not isinstance(peak_rss_mb, int) or peak_rss_mb <= 0:
+            raise AdmissionError(
+                f"{model_id}: PSS observation must be a positive integer")
+        if isinstance(thermal_status_max, bool) \
+                or not isinstance(thermal_status_max, int) \
+                or not 0 <= thermal_status_max <= 6:
+            raise AdmissionError(
+                f"{model_id}: thermal observation must be an Android status 0..6")
         gates = profiles.get(roles[model_id])
         if not isinstance(gates, list) or not gates \
                 or required_gates != [gate.get("id") for gate in gates] \
@@ -189,8 +203,11 @@ def validate_evidence(catalog: dict, suite: dict, evidence: dict) -> dict:
                 "artifact_sha256": result["artifact_sha256"],
             })
 
-    if seen != tier_ids:
-        raise AdmissionError("benchmark evidence must measure every tier model")
+    seen_roles = {roles[model_id] for model_id in seen}
+    if not set(coverage["all"]) <= seen_roles \
+            or not set(coverage["at_least_one"]).intersection(seen_roles):
+        raise AdmissionError(
+            "benchmark evidence needs text, media, TTS, and at least one ASR result")
     passed_ids = {item["model_id"] for item in passed}
     required_ids = {tier["text_model"], tier["media_model"], tier["tts_model"]}
     if not required_ids <= passed_ids \

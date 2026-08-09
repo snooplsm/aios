@@ -234,7 +234,7 @@ class ModelAdmissionTests(unittest.TestCase):
         evidence["results"] = [item for item in evidence["results"]
                                if item["model_id"] != tier["media_model"]]
         with self.assertRaisesRegex(admission_generator.AdmissionError,
-                                    "every tier model"):
+                                    "text, media, TTS"):
             admission_generator.validate_evidence(catalog, suite, evidence)
 
     def test_generator_recomputes_gate_decisions(self):
@@ -246,6 +246,15 @@ class ModelAdmissionTests(unittest.TestCase):
         text["metrics"]["p95_first_token_ms"] = 999999
         with self.assertRaisesRegex(admission_generator.AdmissionError,
                                     "decision disagrees with suite gates"):
+            admission_generator.validate_evidence(catalog, suite, evidence)
+
+    def test_generator_rejects_unobserved_pss(self):
+        catalog = load("model_catalog.json")
+        suite = load("model_benchmark_suite.json")
+        evidence = passing_admission_evidence(catalog, suite)
+        evidence["results"][0]["metrics"]["peak_rss_mb"] = 0
+        with self.assertRaisesRegex(admission_generator.AdmissionError,
+                                    "PSS observation"):
             admission_generator.validate_evidence(catalog, suite, evidence)
 
 

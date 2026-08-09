@@ -14,6 +14,12 @@ PRODUCT_PACKAGES += \
     default-permissions-aios \
     privapp-permissions-aios
 
+# Never ship the benchmark client or instrumentation on a production user
+# image. PRODUCT_PACKAGES_DEBUG is installed only for eng/userdebug builds.
+PRODUCT_PACKAGES_DEBUG += \
+    AiosModelBenchmark \
+    AiosModelBenchmarkTests
+
 PRODUCT_PRODUCT_PROPERTIES += \
     ro.aios.version=0.1-dev \
     ro.aios.model_policy=/product/etc/aios/model_catalog.json \

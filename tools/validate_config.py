@@ -274,7 +274,7 @@ def validate_model_benchmark_suite(root: Path) -> None:
     suite = load_json(root / "config" / "model_benchmark_suite.json")
     require(set(suite) == {
         "schema_version", "suite_version", "required_observations",
-        "gate_profiles",
+        "required_role_coverage", "gate_profiles",
     } and suite["schema_version"] == 1
             and isinstance(suite["suite_version"], int)
             and suite["suite_version"] >= 1,
@@ -288,6 +288,13 @@ def validate_model_benchmark_suite(root: Path) -> None:
     require(isinstance(profiles, dict) and set(profiles) == {
         "text_model", "media_model", "tts_model", "asr_candidate",
     }, "benchmark suite must define every model role")
+    coverage = suite["required_role_coverage"]
+    require(isinstance(coverage, dict)
+            and coverage == {
+                "all": ["text_model", "media_model", "tts_model"],
+                "at_least_one": ["asr_candidate"],
+            },
+            "benchmark suite must require text/media/TTS and one selected ASR")
     all_metrics: set[str] = set()
     for role, gates in profiles.items():
         require(isinstance(gates, list) and gates,
@@ -493,6 +500,16 @@ def validate_model_admission(root: Path) -> None:
                                      or math.isfinite(metric))
                                 for name, metric in metrics.items()),
                         f"{profile['id']}: benchmark gates and metrics are required")
+                peak_rss_mb = metrics.get("peak_rss_mb")
+                thermal_status_max = metrics.get("thermal_status_max")
+                require(not isinstance(peak_rss_mb, bool)
+                        and isinstance(peak_rss_mb, int)
+                        and peak_rss_mb > 0,
+                        f"{profile['id']}: benchmark PSS observation is invalid")
+                require(not isinstance(thermal_status_max, bool)
+                        and isinstance(thermal_status_max, int)
+                        and 0 <= thermal_status_max <= 6,
+                        f"{profile['id']}: benchmark thermal observation is invalid")
                 gates = suite["gate_profiles"][benchmark_roles[model_id]]
                 expected_gate_ids = [gate["id"] for gate in gates]
                 require(required_gates == expected_gate_ids
@@ -511,8 +528,11 @@ def validate_model_admission(root: Path) -> None:
                 if result["decision"] == "passed":
                     passes.add((model_id, result["backend"],
                                 result["artifact_sha256"]))
-            require(result_ids == tier_ids,
-                    f"{profile['id']}: benchmark must measure every tier model")
+            measured_roles = {benchmark_roles[model_id] for model_id in result_ids}
+            coverage = suite["required_role_coverage"]
+            require(set(coverage["all"]) <= measured_roles
+                    and set(coverage["at_least_one"]).intersection(measured_roles),
+                    f"{profile['id']}: benchmark needs text/media/TTS/ASR coverage")
             passed_by_evidence[evidence["sha256"]] = passes
         admitted_ids: set[str] = set()
         for item in admitted:
@@ -662,6 +682,13 @@ def validate_aosp_overlay(root: Path) -> None:
         "runtime/ttsprovider/bootstrap_dependency_locks.sh",
         "runtime/ttsprovider/build_provider.sh",
         "docs/tts-runtime.md",
+        "benchmarks/modeladmission/Android.bp",
+        "benchmarks/modeladmission/README.md",
+        "benchmarks/modeladmission/app/AndroidManifest.xml",
+        "benchmarks/modeladmission/common/com/aios/modelbenchmark/BenchmarkMath.java",
+        "benchmarks/modeladmission/tests/AndroidManifest.xml",
+        "benchmarks/modeladmission/tests/src/com/aios/modelbenchmark/ModelAdmissionBenchmarkTest.java",
+        "scripts/capture-model-benchmark.ps1",
         "services/callintelligence/AndroidManifest.xml",
         "services/callintelligence/aidl/com/aios/call/IAiosCallIntelligence.aidl",
         "services/callintelligence/aidl/com/aios/call/CallAssistantPolicy.aidl",
@@ -756,6 +783,24 @@ def validate_aosp_overlay(root: Path) -> None:
             and "ro.aios.model_admission=/product/etc/aios/model_admission.json"
             in common_product,
             "the product must install the fail-closed device model-admission policy")
+    debug_packages = common_product.partition("PRODUCT_PACKAGES_DEBUG +=")[2]
+    production_packages = common_product.partition("PRODUCT_PACKAGES_DEBUG +=")[0]
+    require("AiosModelBenchmark" in debug_packages
+            and "AiosModelBenchmarkTests" in debug_packages
+            and "AiosModelBenchmark" not in production_packages,
+            "model benchmarks must be installed only on eng/userdebug images")
+    benchmark_manifest = (root / "benchmarks" / "modeladmission" / "app" /
+                          "AndroidManifest.xml").read_text(encoding="utf-8")
+    benchmark_source = (root / "benchmarks" / "modeladmission" / "tests" / "src" /
+                        "com" / "aios" / "modelbenchmark" /
+                        "ModelAdmissionBenchmarkTest.java").read_text(encoding="utf-8")
+    require('android:testOnly="true"' in benchmark_manifest
+            and '"userdebug".equals(Build.TYPE)' in benchmark_source
+            and "telecom.isInCall()" in benchmark_source
+            and ".setCallActive(" not in benchmark_source
+            and "IAiosModelService" in benchmark_source
+            and "aios_measurements_base64" in benchmark_source,
+            "model benchmark must be test-only, call-safe, and exercise Model Broker")
     overlay_text = "\n".join(
         path.read_text(encoding="utf-8", errors="ignore")
         for directory in (root / "products", root / "overlays")
@@ -1470,6 +1515,24 @@ def validate_authorized_clients(root: Path) -> None:
             "Call Intelligence must control the call-active gate")
     require(by_package["com.aios.mediaintelligence"]["can_control_call_state"] is False,
             "Media Intelligence must not control the call-active gate")
+    call_gate_controllers = {
+        client["package"] for client in clients
+        if client["can_control_call_state"] is True
+    }
+    require(call_gate_controllers == {"com.aios.callintelligence"},
+            "only Call Intelligence may control the call-active gate")
+    benchmark = by_package.get("com.aios.modelbenchmark")
+    require(benchmark is not None
+            and set(benchmark["capabilities"]) == {
+                "streaming_asr", "text_generation", "image_understanding",
+                "speech_synthesis",
+            }
+            and set(benchmark["workloads"])
+            == {"call_rx", "call_agent", "media_background"}
+            and benchmark["max_sessions"] == 1
+            and benchmark["can_control_call_state"] is False,
+            "debug model benchmark must have one bounded production-path session "
+            "and no call-gate authority")
 
 
 def validate_runtime_catalog(root: Path) -> None:
@@ -1607,6 +1670,21 @@ def validate_security_surface(root: Path) -> None:
             "only Call Intelligence may hold MODIFY_PHONE_STATE")
     require(media_managers == ["com.aios.mediaintelligence"],
             "only Media Intelligence may hold MANAGE_MEDIA")
+    benchmark_permissions = next((
+        package for package in permissions.findall("privapp-permissions")
+        if package.attrib.get("package") == "com.aios.modelbenchmark"
+    ), None)
+    require(benchmark_permissions is not None,
+            "debug model benchmark needs an explicit privileged allowlist")
+    benchmark_permission_names = {
+        item.attrib.get("name") or item.attrib.get(android_name)
+        for item in benchmark_permissions.findall("permission")
+    }
+    require(benchmark_permission_names == {
+                "android.permission.DUMP",
+                "android.permission.READ_PRIVILEGED_PHONE_STATE",
+            },
+            "debug model benchmark may hold only PSS and live-call safety permissions")
     privileged_text = permissions_path.read_text(encoding="utf-8")
     require("android.permission.RECORD_AUDIO" not in privileged_text
             and "android.permission.READ_CALL_LOG" not in privileged_text

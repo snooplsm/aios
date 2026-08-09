@@ -1,6 +1,5 @@
 param(
-    [Parameter(Mandatory = $true)]
-    [string]$Measurements,
+    [string]$Measurements = "",
 
     [Parameter(Mandatory = $true)]
     [string]$Output,
@@ -11,7 +10,6 @@ param(
 
 $ErrorActionPreference = "Stop"
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
-$measurementsPath = (Resolve-Path -LiteralPath $Measurements).Path
 $outputPath = [IO.Path]::GetFullPath($Output)
 $adbCommand = Get-Command adb -ErrorAction SilentlyContinue
 if ($null -eq $adbCommand) {
@@ -86,30 +84,65 @@ if ($totalRamMb -lt [int64]$profile[0].min_total_ram_mb -or
     throw "measured RAM does not match profile '$ProfileId'"
 }
 
-$measurementDocument = Get-Content -Raw -LiteralPath $measurementsPath | ConvertFrom-Json
-$measurementFields = @($measurementDocument.PSObject.Properties.Name | Sort-Object)
-$expectedFields = @("results", "schema_version", "suite_version")
-if (($measurementFields -join ",") -ne ($expectedFields -join ",") -or
-    $measurementDocument.schema_version -ne 1 -or
-    $measurementDocument.suite_version -ne 1 -or
-    $null -eq $measurementDocument.results) {
-    throw "measurement input must contain only schema_version, suite_version, and results"
+$temporaryMeasurementsPath = $null
+if ($Measurements) {
+    $measurementsPath = (Resolve-Path -LiteralPath $Measurements).Path
+}
+else {
+    $instrumentationOutput = Invoke-AiosAdb -Arguments @(
+        "shell", "am", "instrument", "-w", "-r",
+        "-e", "class",
+        "com.aios.modelbenchmark.ModelAdmissionBenchmarkTest",
+        "com.aios.modelbenchmark.tests/androidx.test.runner.AndroidJUnitRunner"
+    )
+    $instrumentationText = $instrumentationOutput -join "`n"
+    $matches = [regex]::Matches(
+        $instrumentationText,
+        "(?m)^INSTRUMENTATION_(?:STATUS|RESULT): " +
+        "aios_measurements_base64=([^\r\n]+)\r?$"
+    )
+    if ($matches.Count -ne 1) {
+        $summary = ($instrumentationOutput | Select-Object -Last 20) -join "`n"
+        throw "benchmark runner did not emit exactly one measurement payload:`n$summary"
+    }
+    try {
+        $measurementBytes = [Convert]::FromBase64String(
+            $matches[0].Groups[1].Value.Trim())
+    }
+    catch {
+        throw "benchmark runner emitted invalid base64 measurements"
+    }
+    $temporaryMeasurementsPath = [IO.Path]::GetTempFileName()
+    [IO.File]::WriteAllBytes($temporaryMeasurementsPath, $measurementBytes)
+    $measurementsPath = $temporaryMeasurementsPath
 }
 
-$rawDocument = [ordered]@{
-    schema_version = 1
-    suite_version = [int]$measurementDocument.suite_version
-    profile_id = $profile[0].id
-    catalog_tier = $profile[0].catalog_tier
-    device_codename = $codename
-    total_ram_mb = [int]$totalRamMb
-    build_fingerprint_sha256 = Get-AiosSha256 -Value $fingerprint
-    completed_at = [DateTime]::UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
-    results = $measurementDocument.results
-}
-
-$temporaryPath = [IO.Path]::GetTempFileName()
+$temporaryPath = $null
 try {
+    $measurementDocument = Get-Content -Raw -LiteralPath $measurementsPath |
+        ConvertFrom-Json
+    $measurementFields = @($measurementDocument.PSObject.Properties.Name | Sort-Object)
+    $expectedFields = @("results", "schema_version", "suite_version")
+    if (($measurementFields -join ",") -ne ($expectedFields -join ",") -or
+        $measurementDocument.schema_version -ne 1 -or
+        $measurementDocument.suite_version -ne 1 -or
+        $null -eq $measurementDocument.results) {
+        throw "measurement input must contain only schema_version, suite_version, and results"
+    }
+
+    $rawDocument = [ordered]@{
+        schema_version = 1
+        suite_version = [int]$measurementDocument.suite_version
+        profile_id = $profile[0].id
+        catalog_tier = $profile[0].catalog_tier
+        device_codename = $codename
+        total_ram_mb = [int]$totalRamMb
+        build_fingerprint_sha256 = Get-AiosSha256 -Value $fingerprint
+        completed_at = [DateTime]::UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+        results = $measurementDocument.results
+    }
+
+    $temporaryPath = [IO.Path]::GetTempFileName()
     $rawJson = $rawDocument | ConvertTo-Json -Depth 20
     $utf8WithoutBom = [Text.UTF8Encoding]::new($false)
     [IO.File]::WriteAllText($temporaryPath, $rawJson, $utf8WithoutBom)
@@ -127,7 +160,12 @@ try {
     }
 }
 finally {
-    Remove-Item -LiteralPath $temporaryPath -Force -ErrorAction SilentlyContinue
+    if ($null -ne $temporaryPath) {
+        Remove-Item -LiteralPath $temporaryPath -Force -ErrorAction SilentlyContinue
+    }
+    if ($null -ne $temporaryMeasurementsPath) {
+        Remove-Item -LiteralPath $temporaryMeasurementsPath -Force -ErrorAction SilentlyContinue
+    }
 }
 
 Write-Output "Captured privacy-minimized device evidence at $outputPath"

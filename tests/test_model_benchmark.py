@@ -105,12 +105,35 @@ class ModelBenchmarkEvaluationTests(unittest.TestCase):
                                     "missing observations"):
             self.evaluate(raw)
 
-    def test_incomplete_tier_cannot_be_evaluated(self):
+    def test_zero_pss_is_not_an_observation(self):
         raw = raw_benchmark()
-        raw["results"].pop()
+        raw["results"][0]["metrics"]["peak_rss_mb"] = 0
         with self.assertRaisesRegex(evaluator.BenchmarkError,
-                                    "every model"):
+                                    "PSS observation"):
             self.evaluate(raw)
+
+    def test_unknown_thermal_status_is_rejected(self):
+        raw = raw_benchmark()
+        raw["results"][0]["metrics"]["thermal_status_max"] = 7
+        with self.assertRaisesRegex(evaluator.BenchmarkError,
+                                    "thermal observation"):
+            self.evaluate(raw)
+
+    def test_missing_required_role_cannot_be_evaluated(self):
+        raw = raw_benchmark()
+        raw["results"] = [item for item in raw["results"]
+                          if item["model_id"] != "gemma4-e2b-mobile-multimodal"]
+        with self.assertRaisesRegex(evaluator.BenchmarkError,
+                                    "text, media, TTS"):
+            self.evaluate(raw)
+
+    def test_one_measured_asr_candidate_is_sufficient(self):
+        raw = raw_benchmark()
+        raw["results"] = [item for item in raw["results"]
+                          if item["model_id"]
+                          != "whisper-small-multilingual-quantized"]
+        evidence = self.evaluate(raw)
+        self.assertEqual(4, len(evidence["results"]))
 
     def test_boolean_cannot_satisfy_numeric_gate(self):
         raw = raw_benchmark()

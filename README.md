@@ -50,7 +50,9 @@ devices on debuggable builds; `tools/generate_model_admission.py` promotes exact
 artifact/backend pairs only from checked-in benchmark evidence. See
 `docs/model-admission.md`. The checked-in bilingual latency/quality suite and
 ADB capture path derive decisions from measured Pixel runs while observing RAM
-without imposing a fixed model-memory ceiling.
+without imposing a fixed model-memory ceiling. A test-only instrumentation APK
+now drives the production Broker paths on eng/userdebug images and is excluded
+from production `user` builds.
 
 Important constraints are explicit:
 

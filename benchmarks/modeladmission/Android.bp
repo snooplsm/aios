@@ -1,0 +1,43 @@
+android_app {
+    name: "AiosModelBenchmark",
+    manifest: "app/AndroidManifest.xml",
+    srcs: ["app/src/**/*.java"],
+    resource_dirs: [],
+    static_libs: ["aios_model_api"],
+    platform_apis: true,
+    certificate: "platform",
+    privileged: true,
+    product_specific: true,
+    optimize: {
+        enabled: false,
+    },
+}
+
+android_test {
+    name: "AiosModelBenchmarkTests",
+    manifest: "tests/AndroidManifest.xml",
+    srcs: [
+        "common/**/*.java",
+        "tests/src/**/*.java",
+    ],
+    static_libs: [
+        "aios_model_api",
+        "androidx.test.ext.junit",
+        "androidx.test.runner",
+    ],
+    instrumentation_for: "AiosModelBenchmark",
+    platform_apis: true,
+    certificate: "platform",
+    product_specific: true,
+    test_suites: ["device-tests"],
+}
+
+java_test_host {
+    name: "aios_modelbenchmark_host_tests",
+    srcs: [
+        "common/**/*.java",
+        "hosttests/**/*.java",
+    ],
+    static_libs: ["junit"],
+    test_suites: ["general-tests"],
+}

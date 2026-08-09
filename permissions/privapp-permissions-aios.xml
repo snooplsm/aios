@@ -24,4 +24,12 @@
         <permission name="android.permission.MANAGE_MEDIA" />
         <permission name="android.permission.WRITE_MEDIA_STORAGE" />
     </privapp-permissions>
+
+    <!-- This package is present only in PRODUCT_PACKAGES_DEBUG. It needs DUMP
+         to sample PSS for the isolated runtime processes and privileged phone
+         state solely to refuse benchmarks while a real call is active. -->
+    <privapp-permissions package="com.aios.modelbenchmark">
+        <permission name="android.permission.DUMP" />
+        <permission name="android.permission.READ_PRIVILEGED_PHONE_STATE" />
+    </privapp-permissions>
 </permissions>

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.aios.modelbenchmark.tests">
+
+    <uses-permission android:name="com.aios.permission.USE_MODEL_BROKER" />
+
+    <application android:hasCode="true">
+        <uses-library android:name="android.test.runner" />
+    </application>
+
+    <instrumentation
+        android:name="androidx.test.runner.AndroidJUnitRunner"
+        android:targetPackage="com.aios.modelbenchmark"
+        android:label="AIOS model admission benchmark" />
+</manifest>
