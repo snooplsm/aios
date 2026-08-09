@@ -25,22 +25,33 @@ import java.util.concurrent.TimeUnit;
 final class MediaBrokerClient implements AutoCloseable {
     private static final long BIND_TIMEOUT_SECONDS = 5L;
     private static final long INFERENCE_TIMEOUT_MINUTES = 2L;
+    private static final long CONSTRAINT_RECHECK_MILLIS = 1_000L;
+    private static final int ERROR_BROKER_UNAVAILABLE = 1;
+    private static final int ERROR_INFERENCE_TIMEOUT = 2;
+    private static final int ERROR_CONSTRAINT_BLOCKED = 3;
+
+    interface ConstraintProbe {
+        /** Returns a retry reason, or {@code null} while inference may continue. */
+        String blockedReason();
+    }
 
     static final class Result {
         final InferenceResult inference;
         final int errorCode;
+        final String retryReason;
 
-        Result(InferenceResult inference, int errorCode) {
+        Result(InferenceResult inference, int errorCode, String retryReason) {
             this.inference = inference;
             this.errorCode = errorCode;
+            this.retryReason = retryReason;
         }
     }
 
     private final Context context;
     private final CountDownLatch connected = new CountDownLatch(1);
-    private IAiosModelService service;
+    private volatile IAiosModelService service;
     private boolean bound;
-    private long sessionId = -1L;
+    private volatile long sessionId = -1L;
 
     private final ServiceConnection connection = new ServiceConnection() {
         @Override
@@ -59,13 +70,22 @@ final class MediaBrokerClient implements AutoCloseable {
         this.context = context;
     }
 
-    Result process(MediaJobStore.PendingJob job) throws IOException, InterruptedException {
+    Result process(MediaJobStore.PendingJob job, ConstraintProbe constraints)
+            throws IOException, InterruptedException {
+        String blocked = constraints.blockedReason();
+        if (blocked != null) {
+            return new Result(null, ERROR_CONSTRAINT_BLOCKED, blocked);
+        }
         Intent intent = new Intent("com.aios.model.MODEL_SERVICE")
                 .setPackage("com.aios.modelbroker");
         bound = context.bindService(intent, connection, Context.BIND_AUTO_CREATE);
         if (!bound || !connected.await(BIND_TIMEOUT_SECONDS, TimeUnit.SECONDS)
                 || service == null) {
-            return new Result(null, 1);
+            return new Result(null, ERROR_BROKER_UNAVAILABLE, "model_broker_unavailable");
+        }
+        blocked = constraints.blockedReason();
+        if (blocked != null) {
+            return new Result(null, ERROR_CONSTRAINT_BLOCKED, blocked);
         }
 
         CountDownLatch completed = new CountDownLatch(1);
@@ -102,7 +122,10 @@ final class MediaBrokerClient implements AutoCloseable {
         try {
             sessionId = service.createSession(request, callback);
             if (sessionId <= 0L) {
-                return new Result(null, holder.errorCode == 0 ? 1 : holder.errorCode);
+                return new Result(
+                        null,
+                        holder.errorCode == 0 ? ERROR_BROKER_UNAVAILABLE : holder.errorCode,
+                        "model_session_rejected");
             }
             Uri uri = Uri.parse(job.uri);
             try (ParcelFileDescriptor media =
@@ -112,26 +135,49 @@ final class MediaBrokerClient implements AutoCloseable {
                 }
                 service.submitMedia(sessionId, media, job.mimeType, true);
             }
-            if (!completed.await(INFERENCE_TIMEOUT_MINUTES, TimeUnit.MINUTES)) {
-                return new Result(null, 2);
+            long timeoutAt = SystemClock.elapsedRealtime()
+                    + TimeUnit.MINUTES.toMillis(INFERENCE_TIMEOUT_MINUTES);
+            while (completed.getCount() != 0L) {
+                blocked = constraints.blockedReason();
+                if (blocked != null) {
+                    cancelActiveSession();
+                    return new Result(null, ERROR_CONSTRAINT_BLOCKED, blocked);
+                }
+                long remaining = timeoutAt - SystemClock.elapsedRealtime();
+                if (remaining <= 0L) {
+                    cancelActiveSession();
+                    return new Result(
+                            null, ERROR_INFERENCE_TIMEOUT, "media_inference_timeout");
+                }
+                completed.await(
+                        Math.min(CONSTRAINT_RECHECK_MILLIS, remaining),
+                        TimeUnit.MILLISECONDS);
             }
-            return new Result(holder.result, holder.errorCode);
+            return new Result(
+                    holder.result,
+                    holder.errorCode,
+                    holder.result == null ? "model_runtime_error" : null);
         } catch (RemoteException error) {
             throw new IOException("Model Broker binder failed", error);
         }
     }
 
-    @Override
-    public void close() {
+    private void cancelActiveSession() {
         IAiosModelService current = service;
-        if (current != null && sessionId > 0L) {
+        long activeSession = sessionId;
+        sessionId = -1L;
+        if (current != null && activeSession > 0L) {
             try {
-                current.cancel(sessionId);
+                current.cancel(activeSession);
             } catch (RemoteException ignored) {
                 // Binder death already cancels the server session.
             }
         }
-        sessionId = -1L;
+    }
+
+    @Override
+    public void close() {
+        cancelActiveSession();
         service = null;
         if (bound) {
             context.unbindService(connection);

@@ -727,6 +727,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/mediaintelligence/src/com/aios/mediaintelligence/JpegXmpInjector.java",
         "services/mediaintelligence/src/com/aios/mediaintelligence/MediaMetadataCommitter.java",
         "services/mediaintelligence/tests/src/com/aios/mediaintelligence/JpegXmpInjectorTest.java",
+        "services/mediaintelligence/tests/src/com/aios/mediaintelligence/MediaWorkPolicyTest.java",
         "permissions/default-permissions-aios.xml",
         "docs/media-metadata-schema.md",
     ]
@@ -1398,8 +1399,14 @@ def validate_aosp_overlay(root: Path) -> None:
     )
     require("MIN_DEFERRED_BATTERY_PERCENT = 80" in media_policy,
             "media service must enforce the 80 percent deferred threshold")
-    require("charging && batteryPercent" in media_policy,
+    require("BLOCK_NOT_CHARGING" in media_policy
+            and "BLOCK_BELOW_BATTERY_THRESHOLD" in media_policy
+            and "batteryPercent < MIN_DEFERRED_BATTERY_PERCENT" in media_policy,
             "deferred media work must require charging and battery threshold")
+    require("BLOCK_ACTIVE_CALL" in media_policy
+            and "BLOCK_THERMAL_PRESSURE" in media_policy
+            and "BLOCK_BATTERY_STATE_UNAVAILABLE" in media_policy,
+            "media execution policy must fail closed on runtime constraints")
     require("!motionPhoto" in media_policy and "!ultraHdr" in media_policy,
             "portable metadata policy must reject complex photos by default")
 
@@ -1432,6 +1439,17 @@ def validate_aosp_overlay(root: Path) -> None:
     require("MediaMetadataCommitter" in job_source
             and "hasPortableMetadataPending" in job_source,
             "media worker must durably finish pending portable metadata")
+    require("currentBlockReason(workClass)" in job_source
+            and "job, () -> currentBlockReason(workClass)" in job_source,
+            "media worker must enforce constraints before and during inference")
+
+    media_broker_source = (media_source_root / "MediaBrokerClient.java").read_text(
+        encoding="utf-8"
+    )
+    require("CONSTRAINT_RECHECK_MILLIS = 1_000L" in media_broker_source
+            and "constraints.blockedReason()" in media_broker_source
+            and "cancelActiveSession()" in media_broker_source,
+            "media Broker client must periodically cancel work that loses constraints")
 
     media_store_source = (media_source_root / "MediaJobStore.java").read_text(
         encoding="utf-8"

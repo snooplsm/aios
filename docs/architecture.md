@@ -96,8 +96,12 @@ generation, content digest, and scheduling class.
 Immediate photo work requires no active call, acceptable thermal state, and a
 small queue. Deferred burst/video work additionally requires external power and
 an observed battery level of at least 80%. The battery threshold is checked when
-the job starts and periodically while it runs because Android's standard job
-constraint expresses charging, not an arbitrary 80% threshold.
+the job starts and once per second while model inference runs because Android's
+standard job constraint expresses charging, not an arbitrary 80% threshold. A
+new call, severe thermal pressure, unplugging, an unavailable battery reading,
+or a drop below 80% cancels the background Broker session and leaves the durable
+job pending for retry. Immediate photos ignore charging state but remain
+preemptible by calls and thermal pressure.
 
 Metadata writes are two-phase:
 

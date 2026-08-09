@@ -3,8 +3,12 @@
 Media Intelligence observes settled `MediaStore` additions from any camera app.
 It coalesces rapid captures for five seconds: an isolated image is immediate,
 while a burst or any video is deferred. Deferred work is scheduled only while
-charging and rechecks battery >=80%, active-call state, and thermal state when it
-actually starts.
+charging. Before work starts and once per second during model inference, the
+worker rechecks battery >=80%, active-call state, and thermal state. Unplugging,
+falling below the threshold, a new call, or severe thermal pressure cancels the
+background Broker session and returns the durable queue item to retryable state.
+Immediate isolated photos do not require external power, but calls and severe
+thermal pressure preempt them too.
 
 The SQLite queue survives process death and reboot. The worker atomically claims
 one item, verifies its `MediaStore` generation around content hashing and again

@@ -12,6 +12,7 @@ import android.os.BatteryManager;
 import android.os.PersistableBundle;
 import android.os.PowerManager;
 import android.telecom.TelecomManager;
+import android.util.Log;
 
 import org.json.JSONException;
 
@@ -20,8 +21,9 @@ import java.io.IOException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Pattern;
 
-/** Enforces runtime constraints before a future Model Broker media lease. */
+/** Enforces runtime constraints before and throughout a Model Broker media lease. */
 public final class MediaInferenceJobService extends JobService {
+    private static final String TAG = "AiosMediaInference";
     private static final String EXTRA_WORK_CLASS = "work_class";
     private static final int JOB_IMMEDIATE = 0xA105;
     private static final int JOB_DEFERRED = 0xA106;
@@ -84,17 +86,13 @@ public final class MediaInferenceJobService extends JobService {
         MediaJobStore.PendingJob job = null;
         MediaJobStore.PortableJob portableJob = null;
         try {
-            if (callIsActive() || thermalPressureIsHigh()) {
-                reschedule = true;
+            if (!MediaWorkPolicy.isKnownWorkClass(workClass)) {
                 return;
             }
-            if (workClass == MediaWorkPolicy.CLASS_DEFERRED) {
-                BatteryState battery = readBattery();
-                if (!MediaWorkPolicy.deferredConstraintsSatisfied(
-                        battery.charging, battery.percent)) {
-                    reschedule = true;
-                    return;
-                }
+            String blocked = currentBlockReason(workClass);
+            if (blocked != null) {
+                reschedule = true;
+                return;
             }
             portableJob = store.nextPortableMetadata(workClass);
             if (portableJob != null) {
@@ -114,8 +112,18 @@ public final class MediaInferenceJobService extends JobService {
             }
 
             activeClient = new MediaBrokerClient(this);
-            MediaBrokerClient.Result brokerResult = activeClient.process(job);
+            MediaBrokerClient.Result brokerResult = activeClient.process(
+                    job, () -> currentBlockReason(workClass));
             if (brokerResult.inference == null) {
+                Log.i(TAG, "media inference will retry: " + brokerResult.retryReason);
+                store.markPending(job.id);
+                job = null;
+                reschedule = true;
+                return;
+            }
+            blocked = currentBlockReason(workClass);
+            if (blocked != null) {
+                Log.i(TAG, "completed media inference will retry: " + blocked);
                 store.markPending(job.id);
                 job = null;
                 reschedule = true;
@@ -236,17 +244,29 @@ public final class MediaInferenceJobService extends JobService {
                 && power.getCurrentThermalStatus() >= PowerManager.THERMAL_STATUS_SEVERE;
     }
 
+    private String currentBlockReason(int workClass) {
+        BatteryState battery = workClass == MediaWorkPolicy.CLASS_DEFERRED
+                ? readBattery() : new BatteryState(false, -1);
+        return MediaWorkPolicy.executionBlockReason(
+                workClass,
+                callIsActive(),
+                thermalPressureIsHigh(),
+                battery.charging,
+                battery.percent);
+    }
+
     private BatteryState readBattery() {
         Intent value = registerReceiver(null, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
         if (value == null) {
-            return new BatteryState(false, 0);
+            return new BatteryState(false, -1);
         }
         int status = value.getIntExtra(BatteryManager.EXTRA_STATUS, -1);
         boolean charging = status == BatteryManager.BATTERY_STATUS_CHARGING
                 || status == BatteryManager.BATTERY_STATUS_FULL;
-        int level = value.getIntExtra(BatteryManager.EXTRA_LEVEL, 0);
-        int scale = value.getIntExtra(BatteryManager.EXTRA_SCALE, 100);
-        int percent = scale > 0 ? (level * 100) / scale : 0;
+        int level = value.getIntExtra(BatteryManager.EXTRA_LEVEL, -1);
+        int scale = value.getIntExtra(BatteryManager.EXTRA_SCALE, -1);
+        int percent = level >= 0 && scale > 0 && level <= scale
+                ? (int) (((long) level * 100L) / scale) : -1;
         return new BatteryState(charging, percent);
     }
 
