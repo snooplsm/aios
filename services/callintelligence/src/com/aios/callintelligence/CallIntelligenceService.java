@@ -3,8 +3,11 @@ package com.aios.callintelligence;
 import android.app.Service;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.os.Handler;
 import android.os.IBinder;
+import android.os.Looper;
 import android.os.RemoteCallbackList;
+import android.os.RemoteException;
 import android.os.SystemProperties;
 
 import com.aios.call.CallHandlingDecision;
@@ -16,7 +19,9 @@ import com.aios.call.TranscriptSegment;
 import com.aios.model.GenerationChunk;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
@@ -26,17 +31,31 @@ public final class CallIntelligenceService extends Service {
     private static final long DEFAULT_MISSED_DELAY_MILLIS = 15_000L;
     private static final String CALL_UPLINK_VALIDATION_PROPERTY =
             "ro.aios.call_uplink_validated";
+    private static final int MAX_TELECOM_LIFECYCLE_TOKENS = 4;
+    private static final int MAX_CALLS_PER_LIFECYCLE_TOKEN = 8;
 
     private final RemoteCallbackList<ICallIntelligenceListener> listeners =
             new RemoteCallbackList<>();
     private final Map<String, ActiveSession> sessions = new HashMap<>();
     private final Map<String, Boolean> pendingKnownContacts = new HashMap<>();
+    private final Object telecomPresenceLock = new Object();
+    private final TelecomCallPresenceTracker<IBinder> telecomPresence =
+            new TelecomCallPresenceTracker<>(
+                    MAX_TELECOM_LIFECYCLE_TOKENS, MAX_CALLS_PER_LIFECYCLE_TOKEN);
+    private final Map<IBinder, IBinder.DeathRecipient> telecomPresenceDeaths =
+            new HashMap<>();
+    private final Runnable reconcileTelecomPresenceRunnable =
+            this::reconcileTelecomPresence;
     private CallArtifactStore artifactStore;
     private AsrBrokerClient asr;
     private CallClassifierClient classifier;
     private ReceptionistDialogueClient receptionist;
     private CallerAudioUplink callerAudio;
     private SpeechSynthesisBrokerClient speech;
+    private Handler mainHandler;
+    private boolean appliedTelecomPresence;
+    private boolean telecomPresenceUpdateScheduled;
+    private boolean telecomPresenceStopping;
 
     private final IAiosCallIntelligence.Stub binder = new IAiosCallIntelligence.Stub() {
         @Override
@@ -80,6 +99,14 @@ public final class CallIntelligenceService extends Service {
         }
 
         @Override
+        public void setTelecomCallPresent(
+                IBinder lifecycleToken, String callId, boolean present) {
+            enforceControlPermission();
+            updateTelecomPresence(
+                    android.os.Binder.getCallingUid(), lifecycleToken, callId, present);
+        }
+
+        @Override
         public void onCallAnswered(
                 String callId, boolean answeredByAi, boolean processingAllowed) {
             enforceControlPermission();
@@ -118,11 +145,6 @@ public final class CallIntelligenceService extends Service {
                 stopLocked(callId);
             }
             artifactStore.cleanup(System.currentTimeMillis());
-            synchronized (sessions) {
-                if (sessions.isEmpty()) {
-                    asr.setCallActive(false);
-                }
-            }
             RetentionAlarm.scheduleNext(CallIntelligenceService.this, artifactStore);
             notifyStatus(callId, 2, "call_ended");
         }
@@ -147,6 +169,7 @@ public final class CallIntelligenceService extends Service {
     @Override
     public void onCreate() {
         super.onCreate();
+        mainHandler = new Handler(Looper.getMainLooper());
         artifactStore = new CallArtifactStore(this);
         artifactStore.cleanup(System.currentTimeMillis());
         RetentionAlarm.scheduleNext(this, artifactStore);
@@ -209,6 +232,7 @@ public final class CallIntelligenceService extends Service {
 
     @Override
     public void onDestroy() {
+        stopTelecomPresenceTracking();
         synchronized (sessions) {
             pendingKnownContacts.clear();
             for (ActiveSession session : sessions.values()) {
@@ -318,7 +342,6 @@ public final class CallIntelligenceService extends Service {
         TelephonyAudioCapture capture = null;
         try {
             stored = artifactStore.create(callId, answeredByAi, System.currentTimeMillis());
-            asr.setCallActive(true);
             downlinkAsr = asr.openStream(callId, "downlink");
             uplinkAsr = asr.openStream(callId, "uplink");
             if (answeredByAi && downlinkAsr == null) {
@@ -353,7 +376,6 @@ public final class CallIntelligenceService extends Service {
             if (downlinkAsr != null) downlinkAsr.close();
             if (uplinkAsr != null) uplinkAsr.close();
             if (stored != null) stored.close();
-            if (sessions.isEmpty()) asr.setCallActive(false);
             notifyStatus(callId, -1, "capture_unavailable");
             return null;
         }
@@ -368,6 +390,105 @@ public final class CallIntelligenceService extends Service {
 
     private void enforceControlPermission() {
         enforceCallingOrSelfPermission(PERMISSION_CONTROL, "unauthorized dialer caller");
+    }
+
+    private void updateTelecomPresence(
+            int ownerUid, IBinder token, String callId, boolean present) {
+        if (token == null || callId == null || callId.isEmpty() || callId.length() > 128) {
+            throw new IllegalArgumentException("valid Telecom token and opaque call ID required");
+        }
+        IBinder.DeathRecipient removedRecipient = null;
+        synchronized (telecomPresenceLock) {
+            if (telecomPresenceStopping) {
+                throw new IllegalStateException("call intelligence is stopping");
+            }
+            Integer existingOwner = telecomPresence.ownerUid(token);
+            if (present && existingOwner == null) {
+                IBinder.DeathRecipient recipient = () -> onTelecomPresenceTokenDied(token);
+                try {
+                    token.linkToDeath(recipient, 0);
+                } catch (RemoteException error) {
+                    throw new IllegalArgumentException(
+                            "Telecom lifecycle token is already dead", error);
+                }
+                try {
+                    telecomPresence.setPresent(token, ownerUid, callId, true);
+                    telecomPresenceDeaths.put(token, recipient);
+                } catch (RuntimeException error) {
+                    token.unlinkToDeath(recipient, 0);
+                    throw error;
+                }
+            } else {
+                telecomPresence.setPresent(token, ownerUid, callId, present);
+                if (!present && telecomPresence.ownerUid(token) == null) {
+                    removedRecipient = telecomPresenceDeaths.remove(token);
+                }
+            }
+            scheduleTelecomPresenceReconciliationLocked();
+        }
+        if (removedRecipient != null) {
+            token.unlinkToDeath(removedRecipient, 0);
+        }
+    }
+
+    private void onTelecomPresenceTokenDied(IBinder token) {
+        synchronized (telecomPresenceLock) {
+            if (telecomPresenceStopping) {
+                return;
+            }
+            telecomPresenceDeaths.remove(token);
+            telecomPresence.removeDead(token);
+            scheduleTelecomPresenceReconciliationLocked();
+        }
+    }
+
+    private void scheduleTelecomPresenceReconciliationLocked() {
+        if (appliedTelecomPresence == telecomPresence.isActive()
+                || telecomPresenceUpdateScheduled) {
+            return;
+        }
+        telecomPresenceUpdateScheduled = true;
+        if (!mainHandler.post(reconcileTelecomPresenceRunnable)) {
+            telecomPresenceUpdateScheduled = false;
+        }
+    }
+
+    private void reconcileTelecomPresence() {
+        while (true) {
+            final boolean desired;
+            synchronized (telecomPresenceLock) {
+                if (telecomPresenceStopping) {
+                    telecomPresenceUpdateScheduled = false;
+                    return;
+                }
+                desired = telecomPresence.isActive();
+                if (appliedTelecomPresence == desired) {
+                    telecomPresenceUpdateScheduled = false;
+                    return;
+                }
+            }
+            asr.setCallActive(desired);
+            synchronized (telecomPresenceLock) {
+                appliedTelecomPresence = desired;
+            }
+        }
+    }
+
+    private void stopTelecomPresenceTracking() {
+        List<Map.Entry<IBinder, IBinder.DeathRecipient>> deaths;
+        synchronized (telecomPresenceLock) {
+            telecomPresenceStopping = true;
+            if (mainHandler != null) {
+                mainHandler.removeCallbacks(reconcileTelecomPresenceRunnable);
+            }
+            deaths = new ArrayList<>(telecomPresenceDeaths.entrySet());
+            telecomPresenceDeaths.clear();
+            telecomPresence.clear();
+            telecomPresenceUpdateScheduled = false;
+        }
+        for (Map.Entry<IBinder, IBinder.DeathRecipient> death : deaths) {
+            death.getKey().unlinkToDeath(death.getValue(), 0);
+        }
     }
 
     private void notifyStatus(String callId, int status, String detail) {

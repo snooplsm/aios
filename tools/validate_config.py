@@ -695,7 +695,9 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/modelbroker/src/com/aios/modelbroker/RuntimeRegistry.java",
         "services/modelbroker/src/com/aios/modelbroker/SessionController.java",
         "services/modelbroker/src/com/aios/modelbroker/SessionArbiter.java",
+        "services/modelbroker/src/com/aios/modelbroker/CallActivityLeaseTracker.java",
         "services/modelbroker/tests/src/com/aios/modelbroker/SessionArbiterTest.java",
+        "services/modelbroker/tests/src/com/aios/modelbroker/CallActivityLeaseTrackerTest.java",
         "tools/generate_model_pack.py",
         "tools/generate_model_admission.py",
         "tools/generate_runtime_pack.py",
@@ -761,6 +763,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/callintelligence/src/com/aios/callintelligence/CallClassifierClient.java",
         "services/callintelligence/src/com/aios/callintelligence/ReceptionistDialogueClient.java",
         "services/callintelligence/src/com/aios/callintelligence/ReceptionistReplyPolicy.java",
+        "services/callintelligence/src/com/aios/callintelligence/TelecomCallPresenceTracker.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/SpamRiskEngineTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/AssistantTurnQueueTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/ReceptionistReplyPolicyTest.java",
@@ -768,6 +771,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/callintelligence/tests/src/com/aios/callintelligence/CallArtifactRetentionTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/Pcm16MonoToStereo48kTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/RequiredCaptureGateTest.java",
+        "services/callintelligence/tests/src/com/aios/callintelligence/TelecomCallPresenceTrackerTest.java",
         "services/callintelligence/src/com/aios/callintelligence/ResilientFanoutOutputStream.java",
         "docs/dialer-integration.md",
         "docs/caller-audio-uplink.md",
@@ -1028,6 +1032,10 @@ def validate_aosp_overlay(root: Path) -> None:
             and "service.onCallEnded" in assistant_client
             and "onServiceDisconnected" in assistant_client,
             "AIOS Phone must bracket intelligence sessions and survive Binder loss")
+    require("telecomLifecycleToken: IBinder = Binder()" in assistant_client
+            and "service.setTelecomCallPresent(telecomLifecycleToken" in assistant_client
+            and "announceEveryPresentCall(service)" in assistant_client,
+            "AIOS Phone must publish every Telecom call with a replayable lifecycle token")
     require("onAssistantFailure" in assistant_client
             and "status < 0" in assistant_client
             and "The call is connected to you" in phone_runtime
@@ -1336,6 +1344,14 @@ def validate_aosp_overlay(root: Path) -> None:
     require('android:protectionLevel="signature|privileged"' in call_manifest,
             "Call Intelligence control API must support the shared-key privileged Dialer")
 
+    call_api = (root / "services" / "callintelligence" / "aidl" / "com" /
+                "aios" / "call" / "IAiosCallIntelligence.aidl").read_text(
+                    encoding="utf-8")
+    require("import android.os.IBinder" in call_api
+            and "void setTelecomCallPresent(" in call_api
+            and "in IBinder lifecycleToken" in call_api,
+            "Call Intelligence must expose death-linked Telecom presence independently of AI")
+
     call_source_root = (
         root / "services" / "callintelligence" / "src" / "com" / "aios" /
         "callintelligence"
@@ -1356,6 +1372,17 @@ def validate_aosp_overlay(root: Path) -> None:
             "call risk scoring must be advisory, explainable, and English/Spanish aware")
     call_service = (call_source_root / "CallIntelligenceService.java").read_text(
         encoding="utf-8")
+    telecom_presence = (call_source_root / "TelecomCallPresenceTracker.java").read_text(
+        encoding="utf-8")
+    require("token.linkToDeath" in call_service
+            and "onTelecomPresenceTokenDied" in call_service
+            and "asr.setCallActive(desired)" in call_service
+            and "MAX_TELECOM_LIFECYCLE_TOKENS" in call_service
+            and "MAX_CALLS_PER_LIFECYCLE_TOKEN" in call_service
+            and "ownerUid" in telecom_presence
+            and "maxTokens" in telecom_presence
+            and "maxCallsPerToken" in telecom_presence,
+            "Telecom presence must be UID-owned, bounded, death-linked, and drive call priority")
     require('"downlink".equals(direction)' in call_service
             and ".onRiskChanged(" in call_service
             and "appendAssessment(" in call_service,
@@ -1962,6 +1989,11 @@ def validate_release_configuration(root: Path) -> None:
             and "processingAllowed" in dialer_patch_text
             and '"aios_call_api"' in dialer_patch_text,
             "Dialer topic must minimize addresses and use the typed AIOS API")
+    require("telecomLifecycleToken = new Binder()" in dialer_patch_text
+            and "currentCalls.getAllCalls()" in dialer_patch_text
+            and "DialerCallState.isConnectingOrConnected" in dialer_patch_text
+            and "remote.setTelecomCallPresent" in dialer_patch_text,
+            "AOSP Dialer bridge must publish complete Telecom presence with Binder cleanup")
 
     release = load_json(root / "config" / "release_gates.json")
     require(release.get("schema_version") == 1, "unsupported release-gate schema")

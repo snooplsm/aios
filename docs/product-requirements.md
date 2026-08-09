@@ -55,7 +55,8 @@ camera application that created them.
   idle and the device is thermally healthy.
 - Bursts, sustained capture sessions, and all video jobs are deferred.
 - Deferred jobs require external power and battery level of at least 80%.
-- Active or ringing calls preempt all media inference.
+- Every ringing, dialing, active, waiting, held, or conferenced call preempts all
+  media inference, whether or not AI processing is enabled.
 - Originals remain viewable if inference fails or is interrupted.
 
 The service produces a versioned structured record containing a caption, tags,

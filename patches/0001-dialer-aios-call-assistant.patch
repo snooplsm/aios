@@ -64,10 +64,10 @@ index b9d0ecc..059adb2 100644
  }
 diff --git a/java/com/android/incallui/aios/AiosCallAssistant.java b/java/com/android/incallui/aios/AiosCallAssistant.java
 new file mode 100644
-index 0000000..30748ca
+index 0000000..577dab6
 --- /dev/null
 +++ b/java/com/android/incallui/aios/AiosCallAssistant.java
-@@ -0,0 +1,403 @@
+@@ -0,0 +1,471 @@
 +/*
 + * Copyright (C) 2026 The AIOS Project
 + *
@@ -92,6 +92,7 @@ index 0000000..30748ca
 +import android.content.ServiceConnection;
 +import android.database.Cursor;
 +import android.net.Uri;
++import android.os.Binder;
 +import android.os.Handler;
 +import android.os.IBinder;
 +import android.os.Looper;
@@ -114,7 +115,9 @@ index 0000000..30748ca
 +import java.security.NoSuchAlgorithmException;
 +import java.security.SecureRandom;
 +import java.util.HashMap;
++import java.util.HashSet;
 +import java.util.Map;
++import java.util.Set;
 +import java.util.concurrent.ExecutorService;
 +import java.util.concurrent.Executors;
 +
@@ -127,8 +130,10 @@ index 0000000..30748ca
 +
 +  private final Context context;
 +  private final Handler main = new Handler(Looper.getMainLooper());
++  private final IBinder telecomLifecycleToken = new Binder();
 +  private final ExecutorService worker = Executors.newSingleThreadExecutor();
 +  private final Map<String, CallSession> sessions = new HashMap<>();
++  private final Set<String> presentCallIds = new HashSet<>();
 +  private CallList callList;
 +  private IAiosCallIntelligence service;
 +  private boolean bound;
@@ -138,7 +143,9 @@ index 0000000..30748ca
 +      new ServiceConnection() {
 +        @Override
 +        public void onServiceConnected(ComponentName name, IBinder binder) {
-+          service = IAiosCallIntelligence.Stub.asInterface(binder);
++          IAiosCallIntelligence connected = IAiosCallIntelligence.Stub.asInterface(binder);
++          service = connected;
++          announceEveryPresentCall(connected);
 +          for (CallSession session : sessions.values()) {
 +            session.evaluateIfPossible();
 +          }
@@ -193,6 +200,9 @@ index 0000000..30748ca
 +
 +  @Override
 +  public void onDisconnect(DialerCall call) {
++    if (call != null) {
++      setCallPresent(call.getUniqueCallId(), false);
++    }
 +    CallSession session = call == null ? null : sessions.remove(call.getId());
 +    if (session != null) {
 +      session.end(call.getDisconnectCause().getCode());
@@ -209,6 +219,10 @@ index 0000000..30748ca
 +      callList.removeListener(this);
 +      callList = null;
 +    }
++    IAiosCallIntelligence remote = service;
++    Set<String> closingCallIds = new HashSet<>(presentCallIds);
++    presentCallIds.clear();
++    announceCallPresence(remote, closingCallIds, false);
 +    for (CallSession session : sessions.values()) {
 +      session.end(android.telecom.DisconnectCause.UNKNOWN);
 +    }
@@ -224,6 +238,10 @@ index 0000000..30748ca
 +
 +  @Override
 +  public void onCallListChange(CallList currentCalls) {
++    if (closed) {
++      return;
++    }
++    reconcileTelecomCallPresence(currentCalls);
 +    // addListener() invokes this immediately, which recovers a ringing call after service rebind.
 +    DialerCall incoming = currentCalls == null ? null : currentCalls.getIncomingCall();
 +    if (incoming != null) {
@@ -250,6 +268,56 @@ index 0000000..30748ca
 +    for (CallSession session : sessions.values()) {
 +      session.cancelPendingAnswer();
 +    }
++  }
++
++  private void reconcileTelecomCallPresence(CallList currentCalls) {
++    Set<String> currentCallIds = new HashSet<>();
++    if (currentCalls != null) {
++      for (DialerCall call : currentCalls.getAllCalls()) {
++        if (call != null && DialerCallState.isConnectingOrConnected(call.getState())) {
++          currentCallIds.add(call.getUniqueCallId());
++        }
++      }
++    }
++    Set<String> addedCallIds = new HashSet<>(currentCallIds);
++    addedCallIds.removeAll(presentCallIds);
++    Set<String> removedCallIds = new HashSet<>(presentCallIds);
++    removedCallIds.removeAll(currentCallIds);
++    presentCallIds.clear();
++    presentCallIds.addAll(currentCallIds);
++    announceCallPresence(service, addedCallIds, true);
++    announceCallPresence(service, removedCallIds, false);
++  }
++
++  private void setCallPresent(String callId, boolean present) {
++    if (callId == null || callId.isEmpty()) {
++      return;
++    }
++    boolean changed = present ? presentCallIds.add(callId) : presentCallIds.remove(callId);
++    if (changed) {
++      announceCallPresence(service, java.util.Collections.singleton(callId), present);
++    }
++  }
++
++  private void announceEveryPresentCall(IAiosCallIntelligence remote) {
++    announceCallPresence(remote, new HashSet<>(presentCallIds), true);
++  }
++
++  private void announceCallPresence(
++      IAiosCallIntelligence remote, Set<String> callIds, boolean present) {
++    if (remote == null || callIds.isEmpty()) {
++      return;
++    }
++    worker.execute(
++        () -> {
++          try {
++            for (String callId : callIds) {
++              remote.setTelecomCallPresent(telecomLifecycleToken, callId, present);
++            }
++          } catch (RemoteException error) {
++            LogUtil.w("AiosCallAssistant.callPresence", "presence delivery failed");
++          }
++        });
 +  }
 +
 +  private static boolean unsafeCall(DialerCall call) {

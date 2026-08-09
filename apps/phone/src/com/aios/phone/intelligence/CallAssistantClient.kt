@@ -7,6 +7,7 @@ import android.content.Intent
 import android.content.ServiceConnection
 import android.database.Cursor
 import android.net.Uri
+import android.os.Binder
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
@@ -62,6 +63,7 @@ class CallAssistantClient(
     )
 
     private val main = Handler(Looper.getMainLooper())
+    private val telecomLifecycleToken: IBinder = Binder()
     private val worker: ExecutorService = Executors.newSingleThreadExecutor { work ->
         Thread(work, "aios-phone-intelligence")
     }
@@ -120,6 +122,7 @@ class CallAssistantClient(
                             ownerProcessingEnabled = processing
                             callbacks.onAssistantConnectionChanged(true)
                             callbacks.onPolicyChanged(policy.toUi())
+                            announceEveryPresentCall(service)
                             sessions.values.forEach { session ->
                                 if (session.direction != Call.Details.DIRECTION_INCOMING) {
                                     session.processingAllowed = processing
@@ -154,6 +157,7 @@ class CallAssistantClient(
         check(Looper.myLooper() == Looper.getMainLooper())
         if (!started) return
         started = false
+        val presentCallIds = sessions.keys.toList()
         sessions.values.forEach(::cancelDelayedAnswer)
         sessions.clear()
         val service = remote
@@ -161,6 +165,9 @@ class CallAssistantClient(
         callbacks.onAssistantConnectionChanged(false)
         if (service != null) worker.execute {
             try {
+                presentCallIds.forEach { callId ->
+                    service.setTelecomCallPresent(telecomLifecycleToken, callId, false)
+                }
                 service.unregisterListener(listener)
             } catch (_: Exception) {
                 // The optional process may already be dead.
@@ -194,6 +201,7 @@ class CallAssistantClient(
             ),
         )
         sessions[callId] = session
+        announceCallPresence(session.callId, true)
         if (session.direction == Call.Details.DIRECTION_INCOMING) {
             requestIncomingDecision(session)
         } else {
@@ -224,6 +232,7 @@ class CallAssistantClient(
         val service = remote ?: return
         worker.execute {
             try {
+                service.setTelecomCallPresent(telecomLifecycleToken, callId, false)
                 service.onCallEnded(callId, disconnectCause)
             } catch (_: Exception) {
                 // Telephony has already ended; cleanup is best effort here.
@@ -324,6 +333,31 @@ class CallAssistantClient(
                     sessions[session.callId]?.decisionRequested = false
                     if (remote === service) disconnect(service)
                 }
+            }
+        }
+    }
+
+    private fun announceEveryPresentCall(service: IAiosCallIntelligence) {
+        val callIds = sessions.keys.toList()
+        if (callIds.isEmpty()) return
+        worker.execute {
+            try {
+                callIds.forEach { callId ->
+                    service.setTelecomCallPresent(telecomLifecycleToken, callId, true)
+                }
+            } catch (_: Exception) {
+                main.post { disconnect(service) }
+            }
+        }
+    }
+
+    private fun announceCallPresence(callId: String, present: Boolean) {
+        val service = remote ?: return
+        worker.execute {
+            try {
+                service.setTelecomCallPresent(telecomLifecycleToken, callId, present)
+            } catch (_: Exception) {
+                main.post { disconnect(service) }
             }
         }
     }

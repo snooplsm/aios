@@ -1,12 +1,22 @@
 # Call Intelligence
 
-Call Intelligence is the only component granted telephony audio capture. The
-AIOS-flavored AOSP Dialer binds to its signature-protected API to evaluate an
-incoming call and to bracket the lifetime of an answered call.
+Call Intelligence is the only component granted telephony audio capture. AIOS
+Phone—or the temporary AIOS-flavored AOSP Dialer fallback—binds to its
+signature-protected API to publish the full Telecom lifecycle, evaluate an
+incoming call, and bracket optional processing for an answered call.
 
 This separation keeps call state changes inside the default dialer/Telecom while
 audio capture, model I/O, artifact retention, and receptionist policy remain in a
 small auditable privileged service.
+
+Telecom presence is deliberately separate from AI processing. The selected
+dialer reports opaque IDs for all ringing, dialing, active, waiting, held, and
+conferenced calls under a process-owned Binder token. The service enforces token
+UID ownership and a bounded concurrent-call count, links the token to death, and
+keeps Model Broker's call-priority lease active until the last reported call is
+gone. Live calls are replayed after a service rebind. If either dialer or Call
+Intelligence dies, Binder cleanup releases priority without relying on a final
+callback; normal Telecom behavior remains independent.
 
 The service implements deterministic answer decisions, two-direction PCM
 capture, private call-session storage, 24-hour cleanup, and streaming PCM pipes

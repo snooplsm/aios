@@ -1,5 +1,6 @@
 package com.aios.call;
 
+import android.os.IBinder;
 import com.aios.call.CallHandlingDecision;
 import com.aios.call.CallAssistantPolicy;
 import com.aios.call.ICallIntelligenceListener;
@@ -11,6 +12,16 @@ interface IAiosCallIntelligence {
     CallAssistantPolicy updatePolicy(in CallAssistantPolicy requested);
 
     CallHandlingDecision evaluateIncoming(in IncomingCallContext context);
+
+    /**
+     * Assert opaque Telecom call presence independently of whether AI processing
+     * is enabled. All calls owned by a token are removed if its process dies.
+     */
+    void setTelecomCallPresent(
+        in IBinder lifecycleToken,
+        String callId,
+        boolean present
+    );
 
     void onCallAnswered(String callId, boolean answeredByAi, boolean processingAllowed);
 

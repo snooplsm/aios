@@ -25,6 +25,14 @@ Dialer remains the configured system/emergency fallback until AIOS Phone passes
 the physical telephony matrix; AIOS Phone becomes the normal role holder only
 through an explicit owner choice.
 
+Whichever dialer owns Telecom publishes every ringing, dialing, active, waiting,
+held, and conferenced call to Call Intelligence with opaque call IDs and a
+process-owned Binder token. This signal is independent of transcription and AI
+settings: even a human-handled or emergency call immediately preempts background
+media inference. A service rebind replays all live calls, concurrent calls keep
+the gate asserted until the final call ends, and dialer process death clears its
+entire assertion automatically.
+
 ### Call Intelligence service
 
 A narrow privileged service owns the real-time call pipeline. As a preinstalled
@@ -81,10 +89,12 @@ The Model Broker is a signature-protected Binder service. It:
 - cancels media work when a call begins or thermal pressure becomes severe; and
 - records aggregate performance counters without recording prompts or media.
 
-The call pipeline's priority assertion carries a client-owned Binder lifecycle
-token. Model Broker links it to death and automatically returns to the non-call
-state when the final token dies, so a call-intelligence crash cannot leave media
-inference permanently blocked.
+Call Intelligence converts the dialer's complete Telecom-presence set into a
+process-owned Binder lease at Model Broker. Model Broker links that lease to
+death and automatically returns to the non-call state when the final token dies,
+so a Call Intelligence crash cannot leave media inference permanently blocked.
+Foreground inference sessions also preempt media for their own bounded lifetime,
+but they are not the source of truth for whether a phone call exists.
 
 Initial execution uses LiteRT-LM for supported Gemma mobile artifacts and a
 separate runtime adapter for streaming ASR. Backends are discovered and

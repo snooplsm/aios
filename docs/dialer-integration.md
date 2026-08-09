@@ -61,6 +61,14 @@ VoLTE, VoWiFi, eSIM, and AI-service-crash gates. Until then, AOSP Dialer and AIO
 the narrow `aios_call_api`; only the selected role holder receives live Telecom
 calls.
 
+Both implementations publish the full Telecom call set—not only calls selected
+for AI processing—through `setTelecomCallPresent`. The process-owned Binder token
+makes the assertion self-cleaning on dialer death, while opaque per-call IDs keep
+ringing, outgoing, active, waiting, held, and conference calls independently
+balanced. A Call Intelligence rebind replays the current set before new policy
+requests. This call-presence signal is what preempts media inference; capture and
+transcription sessions remain optional work within that protected interval.
+
 ## Owner-selected automatic answer
 
 Phone settings expose an opt-in **Auto AI answer** switch. When enabled, the
