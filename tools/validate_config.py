@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
 import sys
 import xml.etree.ElementTree as ET
@@ -130,6 +131,10 @@ def validate_product(policy: dict[str, Any]) -> None:
             "broker capacity must reserve RX, TX, and one call-agent session")
     require(broker["raw_model_file_access"] is False,
             "apps must not receive raw model file access")
+    require(broker.get("release_model_admission") == "evidence_bound_fail_closed"
+            and broker.get("debug_model_admission")
+            == "known_device_research_candidates",
+            "model admission must be evidence-bound in release and device-scoped in debug")
 
 
 def validate_catalog(catalog: dict[str, Any]) -> None:
@@ -265,6 +270,183 @@ def validate_catalog(catalog: dict[str, Any]) -> None:
                 f"{device['marketing_name']}: expected {device['expected_tier']}, got {selected}")
 
 
+def validate_model_admission(root: Path) -> None:
+    catalog = load_json(root / "config" / "model_catalog.json")
+    document = load_json(root / "config" / "model_admission.json")
+    require(set(document) == {
+        "schema_version", "default_action", "debug_policy", "profiles"
+    }, "model admission has unknown or missing top-level fields")
+    require(document["schema_version"] == 1
+            and document["default_action"] == "deny"
+            and document["debug_policy"] == "known_profiles_research_candidates",
+            "model admission must fail closed outside known debug profiles")
+    models = {model["id"]: model for model in catalog["models"]}
+    tiers = {tier["id"]: tier for tier in catalog["tiers"]}
+    profiles = document["profiles"]
+    require(isinstance(profiles, list) and profiles,
+            "at least one device admission profile is required")
+    profile_ids: set[str] = set()
+    devices_seen: set[str] = set()
+    profiles_by_device: dict[str, dict[str, Any]] = {}
+    for profile in profiles:
+        require(isinstance(profile, dict) and set(profile) == {
+            "id", "devices", "catalog_tier", "min_total_ram_mb",
+            "max_total_ram_mb", "status", "research_candidate_models",
+            "admitted_models", "evidence",
+        }, "device admission profile has unknown or missing fields")
+        require(re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,127}",
+                             str(profile["id"])) is not None
+                and profile["id"] not in profile_ids,
+                "device admission profile IDs must be valid and unique")
+        profile_ids.add(profile["id"])
+        device_names = profile["devices"]
+        require(isinstance(device_names, list) and device_names
+                and len(device_names) == len(set(device_names))
+                and all(re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,127}", str(item))
+                        for item in device_names),
+                f"{profile['id']}: device codenames must be unique identifiers")
+        require(not devices_seen.intersection(device_names),
+                "a device codename cannot appear in multiple admission profiles")
+        devices_seen.update(device_names)
+        for device in device_names:
+            profiles_by_device[device] = profile
+        tier = tiers.get(profile["catalog_tier"])
+        require(tier is not None, f"{profile['id']}: unknown catalog tier")
+        require(isinstance(profile["min_total_ram_mb"], int)
+                and isinstance(profile["max_total_ram_mb"], int)
+                and 0 < profile["min_total_ram_mb"]
+                <= profile["max_total_ram_mb"],
+                f"{profile['id']}: invalid total-RAM range")
+        tier_ids = {
+            tier["text_model"], tier["media_model"], tier["tts_model"],
+            *tier["asr_candidates"],
+        }
+        research = profile["research_candidate_models"]
+        require(isinstance(research, list) and len(research) == len(set(research))
+                and set(research) == tier_ids,
+                f"{profile['id']}: debug research candidates must exactly match the tier")
+        status = profile["status"]
+        admitted = profile["admitted_models"]
+        evidence_entries = profile["evidence"]
+        require(status in {"benchmark_pending", "supported"},
+                f"{profile['id']}: unknown admission status")
+        require(isinstance(admitted, list) and isinstance(evidence_entries, list),
+                f"{profile['id']}: admissions and evidence must be arrays")
+        if status == "benchmark_pending":
+            require(not admitted and not evidence_entries,
+                    f"{profile['id']}: pending profile cannot admit release models")
+            continue
+        require(admitted and evidence_entries,
+                f"{profile['id']}: supported profile requires models and evidence")
+        evidence_digests: set[str] = set()
+        passed_by_evidence: dict[str, set[tuple[str, str, str]]] = {}
+        for evidence in evidence_entries:
+            require(isinstance(evidence, dict) and set(evidence) == {
+                "path", "sha256", "build_fingerprint_sha256", "completed_at"
+            }, f"{profile['id']}: malformed evidence entry")
+            path_text = evidence["path"]
+            evidence_path = (root / path_text).resolve()
+            evidence_root = (root / "evidence" / "model-admission").resolve()
+            require(isinstance(path_text, str)
+                    and evidence_root in evidence_path.parents
+                    and evidence_path.is_file(),
+                    f"{profile['id']}: evidence must exist under evidence/model-admission")
+            raw = evidence_path.read_bytes()
+            actual_digest = hashlib.sha256(raw).hexdigest()
+            require(evidence["sha256"] == actual_digest
+                    and re.fullmatch(r"[0-9a-f]{64}", actual_digest) is not None
+                    and evidence["sha256"] not in evidence_digests,
+                    f"{profile['id']}: evidence digest mismatch or duplicate")
+            evidence_digests.add(evidence["sha256"])
+            benchmark = load_json(evidence_path)
+            require(benchmark.get("schema_version") == 1
+                    and isinstance(benchmark.get("suite_version"), int)
+                    and benchmark["suite_version"] >= 1
+                    and benchmark.get("profile_id") == profile["id"]
+                    and benchmark.get("catalog_tier") == profile["catalog_tier"]
+                    and benchmark.get("device_codename") in device_names
+                    and profile["min_total_ram_mb"] <= benchmark.get("total_ram_mb", 0)
+                    <= profile["max_total_ram_mb"]
+                    and benchmark.get("build_fingerprint_sha256")
+                    == evidence["build_fingerprint_sha256"]
+                    and benchmark.get("completed_at") == evidence["completed_at"],
+                    f"{profile['id']}: benchmark identity does not match profile")
+            passes: set[tuple[str, str, str]] = set()
+            results = benchmark.get("results")
+            require(isinstance(results, list) and results,
+                    f"{profile['id']}: benchmark results are required")
+            result_ids: set[str] = set()
+            for result in results:
+                require(isinstance(result, dict) and set(result) == {
+                    "model_id", "runtime", "backend", "artifact_sha256",
+                    "decision", "required_gates", "failed_gates", "metrics"
+                }, f"{profile['id']}: malformed benchmark result")
+                model_id = result["model_id"]
+                model = models.get(model_id)
+                required_gates = result["required_gates"]
+                failed_gates = result["failed_gates"]
+                metrics = result["metrics"]
+                require(model_id in tier_ids and model_id not in result_ids
+                        and model is not None
+                        and result["runtime"] == model["runtime"]
+                        and result["backend"] in model["allowed_backends"]
+                        and re.fullmatch(r"[0-9a-f]{64}",
+                                         str(result["artifact_sha256"])) is not None,
+                        f"{profile['id']}: benchmark result does not match catalog")
+                result_ids.add(model_id)
+                require(isinstance(required_gates, list) and required_gates
+                        and len(required_gates) == len(set(required_gates))
+                        and all(isinstance(item, str)
+                                and re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,127}", item)
+                                for item in required_gates)
+                        and isinstance(failed_gates, list)
+                        and len(failed_gates) == len(set(failed_gates))
+                        and all(isinstance(item, str)
+                                and re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,127}", item)
+                                for item in failed_gates)
+                        and set(failed_gates) <= set(required_gates)
+                        and isinstance(metrics, dict) and metrics
+                        and all(re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,127}",
+                                             str(name)) is not None
+                                and isinstance(metric, (int, float, bool))
+                                and (not isinstance(metric, float)
+                                     or math.isfinite(metric))
+                                for name, metric in metrics.items()),
+                        f"{profile['id']}: benchmark gates and metrics are required")
+                require((result["decision"] == "passed") == (not failed_gates)
+                        and result["decision"] in {"passed", "failed"},
+                        f"{profile['id']}: benchmark decision disagrees with gates")
+                if result["decision"] == "passed":
+                    passes.add((model_id, result["backend"],
+                                result["artifact_sha256"]))
+            passed_by_evidence[evidence["sha256"]] = passes
+        admitted_ids: set[str] = set()
+        for item in admitted:
+            require(isinstance(item, dict) and set(item) == {
+                "model_id", "backend", "artifact_sha256", "evidence_sha256"
+            }, f"{profile['id']}: malformed admitted model")
+            model_id = item["model_id"]
+            key = (model_id, item["backend"], item["artifact_sha256"])
+            require(model_id not in admitted_ids and model_id in tier_ids
+                    and item["evidence_sha256"] in passed_by_evidence
+                    and key in passed_by_evidence[item["evidence_sha256"]],
+                    f"{profile['id']}: admitted model lacks an exact benchmark pass")
+            admitted_ids.add(model_id)
+        require({tier["text_model"], tier["media_model"], tier["tts_model"]}
+                <= admitted_ids and admitted_ids.intersection(tier["asr_candidates"]),
+                f"{profile['id']}: supported profile lacks text/media/TTS/ASR coverage")
+    for device in catalog["known_devices"]:
+        codename = device.get("codename")
+        if codename is None:
+            continue
+        profile = profiles_by_device.get(codename)
+        require(profile is not None
+                and profile["catalog_tier"] == device["expected_tier"]
+                and profile["min_total_ram_mb"] <= device["ram_mb"]
+                <= profile["max_total_ram_mb"],
+                f"{device['marketing_name']}: known device lacks a matching admission profile")
+
+
 def validate_patch_series(root: Path) -> None:
     series = load_json(root / "patches" / "series.json")
     require(series.get("schema_version") == 1, "unsupported patch-series schema")
@@ -338,6 +520,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/modelbroker/src/com/aios/modelbroker/ArtifactVerifier.java",
         "services/modelbroker/src/com/aios/modelbroker/AuthorizedClientPolicy.java",
         "services/modelbroker/src/com/aios/modelbroker/CatalogPolicy.java",
+        "services/modelbroker/src/com/aios/modelbroker/DeviceModelAdmission.java",
         "services/modelbroker/src/com/aios/modelbroker/BrokerState.java",
         "services/modelbroker/src/com/aios/modelbroker/RuntimeAdapter.java",
         "services/modelbroker/src/com/aios/modelbroker/RemoteRuntimeAdapter.java",
@@ -346,10 +529,14 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/modelbroker/src/com/aios/modelbroker/SessionArbiter.java",
         "services/modelbroker/tests/src/com/aios/modelbroker/SessionArbiterTest.java",
         "tools/generate_model_pack.py",
+        "tools/generate_model_admission.py",
         "tools/generate_runtime_pack.py",
         "docs/model-packaging.md",
+        "docs/model-admission.md",
+        "evidence/model-admission/README.md",
         "docs/runtime-packaging.md",
         "config/runtime_catalog.json",
+        "config/model_admission.json",
         "services/runtimeapi/Android.bp",
         "services/runtimeapi/aidl/com/aios/runtime/IAiosRuntimeProvider.aidl",
         "services/runtimeapi/aidl/com/aios/runtime/RuntimeArtifact.aidl",
@@ -471,6 +658,10 @@ def validate_aosp_overlay(root: Path) -> None:
     )
     require("AiosPhone" in common_product and "AiosPhoneAssistant" not in common_product,
             "the product must include the full AIOS Phone module")
+    require("aios_model_admission" in common_product
+            and "ro.aios.model_admission=/product/etc/aios/model_admission.json"
+            in common_product,
+            "the product must install the fail-closed device model-admission policy")
     overlay_text = "\n".join(
         path.read_text(encoding="utf-8", errors="ignore")
         for directory in (root / "products", root / "overlays")
@@ -710,6 +901,17 @@ def validate_aosp_overlay(root: Path) -> None:
     require("RuntimeRegistry.modelFree()" in broker_state
             and "RuntimeRegistry.load" in broker_state,
             "runtime loading must retain a fail-closed fallback")
+    admission_source = (broker_source_root / "DeviceModelAdmission.java").read_text(
+        encoding="utf-8"
+    )
+    require("DeviceModelAdmission.load" in broker_state
+            and "Build.DEVICE" in broker_state
+            and 'SystemProperties.getInt("ro.debuggable", 0) == 1' in broker_state
+            and '"model_admission.json"' in broker_state
+            and '"deny".equals(root.getString("default_action"))' in admission_source
+            and "artifactSha256.equals(artifact.sha256)" in admission_source
+            and "STATUS_PENDING.equals(profile.status) && debuggable" in admission_source,
+            "broker model selection must be device-scoped, digest-bound, and debug-only while unbenchmarked")
     runtime_registry = (broker_source_root / "RuntimeRegistry.java").read_text(
         encoding="utf-8"
     )
@@ -1518,6 +1720,7 @@ def validate_release_configuration(root: Path) -> None:
 def validate(root: Path = ROOT) -> None:
     validate_product(load_json(root / "config" / "product_policy.json"))
     validate_catalog(load_json(root / "config" / "model_catalog.json"))
+    validate_model_admission(root)
     validate_patch_series(root)
     validate_aosp_overlay(root)
     validate_policy_vectors(root)

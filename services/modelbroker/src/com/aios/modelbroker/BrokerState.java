@@ -2,6 +2,8 @@ package com.aios.modelbroker;
 
 import android.app.ActivityManager;
 import android.content.Context;
+import android.os.Build;
+import android.os.SystemProperties;
 import android.os.SystemClock;
 import android.util.Log;
 
@@ -52,8 +54,20 @@ final class BrokerState {
                     new ArtifactVerifier(CONFIGURATION).verifyAll();
             CatalogPolicy catalog = CatalogPolicy.load(
                     new File(CONFIGURATION, "model_catalog.json"));
-            selected = catalog.selectForMemory(verified, totalRamMb(context));
-            Log.i(TAG, "selected " + selected.size() + " verified model artifact(s)");
+            long totalRamMb = totalRamMb(context);
+            Map<String, VerifiedArtifact> tierCandidates =
+                    catalog.selectForMemory(verified, totalRamMb);
+            DeviceModelAdmission admission = DeviceModelAdmission.load(
+                    new File(CONFIGURATION, "model_admission.json"));
+            DeviceModelAdmission.Selection deviceSelection = admission.select(
+                    tierCandidates,
+                    Build.DEVICE,
+                    totalRamMb,
+                    SystemProperties.getInt("ro.debuggable", 0) == 1);
+            selected = deviceSelection.artifacts;
+            Log.i(TAG, "selected " + selected.size() + " verified model artifact(s)"
+                    + " for profile=" + deviceSelection.profileId
+                    + " research=" + deviceSelection.researchMode);
         } catch (IOException | RuntimeException error) {
             Log.e(TAG, "broker startup policy failed; all inference denied", error);
             clients = AuthorizedClientPolicy.denyAll(context);

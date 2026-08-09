@@ -12,8 +12,8 @@ predicts quality or speed.
 - Spam risk: deterministic context plus small classifiers; Gemma may explain but
   is not the sole decision maker.
 - Receptionist reasoning and call summary: Gemma text model.
-- TTS: benchmark a locally converted Kokoro 82M ONNX model with licensed English
-  and Spanish voices; keep the runtime replaceable.
+- TTS: the current candidate is the digest-locked bilingual Supertonic 3 int8
+  bundle through the replaceable Sherpa-ONNX provider.
 - Photo/video understanding: Gemma multimodal model, preemptible and normally
   deferred.
 
@@ -71,11 +71,16 @@ Pixel 10 has 12 GB RAM and Tensor G5. Google estimates Gemma 4 E4B mobile at abo
 - System: missed audio frames and UI jank while a call preempts media inference.
 
 No device/model mapping graduates from `candidate` to `supported` without these
-measurements.
+measurements. RAM selects a catalog tier only. The separate device-admission
+policy binds a pass to the device codename, build fingerprint, backend, and
+exact artifact SHA-256; release builds deny unbenchmarked or unknown profiles.
+See `model-admission.md`.
 
 ## Sources
 
-- Gemma 4 model sizes and mobile memory estimates:
+- Gemma 4 model card and license:
+  https://ai.google.dev/gemma/docs/core/model_card_4
+- Gemma 4 mobile formats and memory estimates:
   https://ai.google.dev/gemma/docs/core
 - LiteRT-LM mobile execution overview:
   https://ai.google.dev/gemma/docs/run
@@ -83,5 +88,4 @@ measurements.
   https://store.google.com/us/product/pixel_9a_specs
 - Pixel 10 specifications:
   https://store.google.com/product/pixel_10_specs
-- Kokoro 82M model/license and multilingual voices:
-  https://huggingface.co/hexgrad/Kokoro-82M
+- Supertonic 3 runtime integration: `tts-runtime.md`.

@@ -44,6 +44,12 @@ See `docs/model-packaging.md` and
 `docs/asr-runtime.md`, speech output is in `docs/tts-runtime.md`, and the
 physical caller-audio gate is in `docs/caller-audio-uplink.md`.
 
+RAM tiers nominate model candidates but do not authorize them on a release
+image. `config/model_admission.json` permits research candidates only for known
+devices on debuggable builds; `tools/generate_model_admission.py` promotes exact
+artifact/backend pairs only from checked-in benchmark evidence. See
+`docs/model-admission.md`.
+
 Important constraints are explicit:
 
 - AOSP builds require a supported 64-bit Linux host; this Windows checkout is for

@@ -7,6 +7,7 @@ PRODUCT_PACKAGES += \
     AiosMediaIntelligence \
     AiosModelBroker \
     aios_authorized_clients \
+    aios_model_admission \
     aios_model_catalog \
     aios_runtime_catalog \
     aios_product_policy \
@@ -16,6 +17,7 @@ PRODUCT_PACKAGES += \
 PRODUCT_PRODUCT_PROPERTIES += \
     ro.aios.version=0.1-dev \
     ro.aios.model_policy=/product/etc/aios/model_catalog.json \
+    ro.aios.model_admission=/product/etc/aios/model_admission.json \
     ro.aios.runtime_policy=/product/etc/aios/runtime_catalog.json \
     ro.aios.authorized_clients=/product/etc/aios/authorized_clients.json \
     ro.aios.product_policy=/product/etc/aios/product_policy.json \

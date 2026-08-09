@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "default_action": "deny",
+  "debug_policy": "known_profiles_research_candidates",
+  "profiles": [
+    {
+      "id": "pixel_9a_tegu",
+      "devices": ["tegu"],
+      "catalog_tier": "edge_8gb",
+      "min_total_ram_mb": 7168,
+      "max_total_ram_mb": 9216,
+      "status": "benchmark_pending",
+      "research_candidate_models": [
+        "gemma4-e2b-mobile-text",
+        "gemma4-e2b-mobile-multimodal",
+        "supertonic3-en-es-int8",
+        "whisper-base-multilingual-quantized",
+        "whisper-small-multilingual-quantized"
+      ],
+      "admitted_models": [],
+      "evidence": []
+    }
+  ]
+}

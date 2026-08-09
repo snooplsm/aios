@@ -39,6 +39,11 @@ partition. Model Broker still recomputes size and SHA-256 before activation.
 The provider repeats confinement, size, and digest verification before native
 model initialization. `.bin` is accepted only for a catalog model whose logical
 format is `ggml`; generic binary blobs are not accepted for other models.
+Artifact verification does not itself authorize a model on release hardware.
+Model Broker also requires `model_admission.json` to match the device codename,
+measured RAM range, backend, and the exact packaged artifact SHA-256. Pending
+profiles expose research candidates only on debuggable builds. See
+`model-admission.md` for benchmark-evidence promotion.
 Verified Boot therefore protects both the expected digest and the artifact for a
 release image; later downloadable model updates will need an additional signed
 update envelope and rollback protection.

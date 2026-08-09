@@ -74,7 +74,8 @@ The Model Broker is a signature-protected Binder service. It:
 - verifies the caller UID, signing certificate, requested capability, and per-
   application quota;
 - verifies each model artifact against a build-generated SHA-256 manifest;
-- selects a compatible model/backend from the capability policy;
+- selects a compatible model/backend from the capability tier and the
+  device-specific, evidence-backed artifact admission;
 - owns model mappings so apps cannot copy raw weights;
 - enforces one foreground real-time lease and bounded background leases;
 - cancels media work when a call begins or thermal pressure becomes severe; and

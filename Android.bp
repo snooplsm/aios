@@ -26,6 +26,14 @@ prebuilt_etc {
 }
 
 prebuilt_etc {
+    name: "aios_model_admission",
+    src: "config/model_admission.json",
+    filename: "model_admission.json",
+    sub_dir: "aios",
+    product_specific: true,
+}
+
+prebuilt_etc {
     name: "aios_runtime_catalog",
     src: "config/runtime_catalog.json",
     filename: "runtime_catalog.json",
