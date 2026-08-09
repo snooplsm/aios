@@ -109,7 +109,13 @@
       "allowed_backends": ["cpu"],
       "default_backend": "cpu",
       "artifact_formats": ["bundle"],
-      "license_url": "https://huggingface.co/Supertone/supertonic-3/blob/main/LICENSE",
+      "license_url": "https://huggingface.co/Supertone/supertonic-3/blob/724fb5abbf5502583fb520898d45929e62f02c0b/LICENSE",
+      "packaged_license": {
+        "filename": "MODEL_LICENSE.OpenRAIL-M.txt",
+        "size_bytes": 15007,
+        "sha256": "0d944a9110fed9a9602d60e0423a272903e7bd21ab060490774efc77c2275e9f",
+        "soong_license_kinds": ["legacy_restricted"]
+      },
       "reference_bundle": {
         "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/sherpa-onnx-supertonic-3-tts-int8-2026-05-11.tar.bz2",
         "source_format": "tar_bz2",

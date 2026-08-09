@@ -132,6 +132,14 @@ class ModelCatalogTests(unittest.TestCase):
         with self.assertRaisesRegex(validator.ValidationError, "default backend"):
             validator.validate_catalog(catalog)
 
+    def test_tts_bundle_member_cannot_escape_archive_root(self):
+        catalog = copy.deepcopy(self.catalog)
+        model = next(item for item in catalog["models"]
+                     if item["id"] == "supertonic3-en-es-int8")
+        model["reference_bundle"]["members"][0]["path"] = "../model.onnx"
+        with self.assertRaisesRegex(validator.ValidationError, "unique and flat"):
+            validator.validate_catalog(catalog)
+
 
 class RuntimeCatalogTests(unittest.TestCase):
     def test_runtime_catalog_is_valid(self):
@@ -207,6 +215,15 @@ class ModelPackTests(unittest.TestCase):
             catalog = load("model_catalog.json")
             model = next(item for item in catalog["models"]
                          if item["id"] == "supertonic3-en-es-int8")
+            license_payload = b"test-only-openrail-license"
+            license_file = temporary / "MODEL_LICENSE.OpenRAIL-M.txt"
+            license_file.write_bytes(license_payload)
+            model["packaged_license"] = {
+                "filename": license_file.name,
+                "size_bytes": len(license_payload),
+                "sha256": hashlib.sha256(license_payload).hexdigest(),
+                "soong_license_kinds": ["legacy_restricted"],
+            }
             model["reference_bundle"] = {
                 "url": "https://example.invalid/voice.tar.bz2",
                 "source_format": "tar_bz2",
@@ -233,17 +250,38 @@ class ModelPackTests(unittest.TestCase):
             }), encoding="utf-8")
 
             output = temporary / "pack"
+            with self.assertRaisesRegex(packager.PackError,
+                                        "packaged model license missing"):
+                packager.generate(
+                    catalog_path,
+                    acceptance,
+                    [packager.Source(model["id"], None, archive)],
+                    temporary / "missing-license-pack",
+                )
             manifest = packager.generate(
                 catalog_path,
                 acceptance,
                 [packager.Source(model["id"], None, archive)],
                 output,
+                [packager.LicenseSource(model["id"], license_file)],
             )
             artifact = manifest["artifacts"][0]
             self.assertEqual("bundle", artifact["artifact_format"])
             self.assertEqual(2, len(artifact["bundle_members"]))
+            self.assertEqual(hashlib.sha256(license_payload).hexdigest(),
+                             artifact["packaged_license"]["sha256"])
             self.assertIn("aios/models/supertonic3-en-es-int8",
                           (output / "Android.bp").read_text(encoding="utf-8"))
+            self.assertIn('license_kinds: ["legacy_restricted"]',
+                          (output / "Android.bp").read_text(encoding="utf-8"))
+            self.assertIn("aios_model_supertonic3_en_es_int8_model_license_terms",
+                          (output / "Android.bp").read_text(encoding="utf-8"))
+            packaged_license = output / "assets" / model["id"] / license_file.name
+            packaged_license.write_bytes(b"tampered-license")
+            with self.assertRaisesRegex(packager.PackError,
+                                        "size mismatch|digest mismatch"):
+                packager.verify_generated_pack(output)
+            packaged_license.write_bytes(license_payload)
             tampered = output / "assets" / model["id"] / "model.onnx"
             tampered.write_bytes(b"tampered")
             with self.assertRaisesRegex(packager.PackError,
@@ -512,6 +550,42 @@ class RuntimePackTests(unittest.TestCase):
                 catalog_path,
                 "whisper_cpp", apk, provenance, temporary / "pack")
             self.assertEqual("whisper_cpp", manifest["runtime"])
+
+    def test_generates_binary_release_runtime_pack(self):
+        with tempfile.TemporaryDirectory() as raw:
+            temporary = Path(raw)
+            catalog_path = temporary / "runtime_catalog.json"
+            catalog = self.write_test_catalog(catalog_path)
+            provider = next(item for item in catalog["providers"]
+                            if item["runtime"] == "sherpa_onnx_tts")
+            primary = provider["binary_artifact"]
+            provenance_value = {
+                "schema_version": 1,
+                "runtime": provider["runtime"],
+                "provider_package": provider["package"],
+                "provider_service": provider["service_class"],
+                "implementation_version": provider["implementation_version"],
+                "source_repository": provider["source_repository"],
+                "source_revision": provider["source_revision"],
+                "reproducible_build_command":
+                    "gradle --offline :app:writeRuntimeProvenance",
+                "dependency_verification_sha256": "d" * 64,
+                "resolved_dependencies": [{
+                    "coordinate": primary["coordinate"],
+                    "sha256": primary["sha256"],
+                    "size_bytes": primary["size_bytes"],
+                }],
+            }
+            apk = temporary / "provider.apk"
+            self.write_apk(apk, catalog)
+            provenance = temporary / "provenance.json"
+            provenance.write_text(json.dumps(provenance_value), encoding="utf-8")
+            manifest = runtime_packager.generate(
+                catalog_path, "sherpa_onnx_tts", apk, provenance,
+                temporary / "pack")
+            self.assertEqual("sherpa_onnx_tts", manifest["runtime"])
+            self.assertEqual(primary["coordinate"],
+                             manifest["resolved_dependencies"][0]["coordinate"])
 
     def test_detects_runtime_apk_tampering(self):
         with tempfile.TemporaryDirectory() as raw:

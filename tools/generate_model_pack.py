@@ -32,6 +32,12 @@ class Source:
     path: Path
 
 
+@dataclass(frozen=True)
+class LicenseSource:
+    model_id: str
+    path: Path
+
+
 def read_json(path: Path) -> dict[str, Any]:
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
@@ -53,6 +59,16 @@ def parse_source(value: str) -> Source:
     return Source(model_id=model_id, backend=backend if separator else None, path=path)
 
 
+def parse_license_file(value: str) -> LicenseSource:
+    if "=" not in value:
+        raise PackError("model license must use MODEL_ID=/absolute/path")
+    model_id, raw_path = value.split("=", 1)
+    path = Path(raw_path)
+    if not model_id or not path.is_absolute():
+        raise PackError("model license must use MODEL_ID=/absolute/path")
+    return LicenseSource(model_id=model_id, path=path)
+
+
 def sha256(path: Path) -> str:
     with path.open("rb") as stream:
         return sha256_stream(stream)
@@ -70,6 +86,11 @@ def module_name(model_id: str) -> str:
     if not re.fullmatch(r"[a-zA-Z0-9_]+", value):
         raise PackError(f"cannot create Soong module name for {model_id}")
     return value
+
+
+def licenses_property(license_module: str | None) -> str:
+    return (f"    licenses: [\"{license_module}\"],\n"
+            if license_module is not None else "")
 
 
 def bundle_members(model: dict[str, Any], source: Path) -> list[dict[str, Any]]:
@@ -120,8 +141,9 @@ def bundle_members(model: dict[str, Any], source: Path) -> list[dict[str, Any]]:
 
 
 def validate_inputs(
-        catalog: dict[str, Any], acceptance: dict[str, Any], sources: Iterable[Source]
-) -> list[tuple[dict[str, Any], Source]]:
+        catalog: dict[str, Any], acceptance: dict[str, Any], sources: Iterable[Source],
+        license_files: Iterable[LicenseSource] = (),
+) -> list[tuple[dict[str, Any], Source, Path | None]]:
     if catalog.get("schema_version") != 1:
         raise PackError("unsupported model catalog schema")
     if acceptance.get("schema_version") != 1:
@@ -132,6 +154,11 @@ def validate_inputs(
     accepted = {item["model_id"]: item for item in accepted_values}
     if len(accepted) != len(accepted_values):
         raise PackError("duplicate license-acceptance record")
+    license_by_model: dict[str, LicenseSource] = {}
+    for license_source in license_files:
+        if license_source.model_id in license_by_model:
+            raise PackError(f"duplicate model license for {license_source.model_id}")
+        license_by_model[license_source.model_id] = license_source
     result = []
     seen: set[str] = set()
     seen_modules: set[str] = set()
@@ -151,6 +178,33 @@ def validate_inputs(
             raise PackError(f"license URL mismatch for {source.model_id}")
         if not record.get("accepted_at") or not record.get("accepted_by"):
             raise PackError(f"incomplete license acceptance for {source.model_id}")
+        license_lock = model.get("packaged_license")
+        license_source = license_by_model.get(source.model_id)
+        resolved_license: Path | None = None
+        if license_lock is not None:
+            if (not isinstance(license_lock, dict)
+                    or not re.fullmatch(r"[a-zA-Z0-9._-]+\.txt",
+                                        str(license_lock.get("filename", "")))
+                    or not isinstance(license_lock.get("size_bytes"), int)
+                    or license_lock["size_bytes"] <= 0
+                    or not isinstance(license_lock.get("sha256"), str)
+                    or not DIGEST_PATTERN.fullmatch(license_lock["sha256"])
+                    or not isinstance(license_lock.get("soong_license_kinds"), list)
+                    or not license_lock["soong_license_kinds"]
+                    or not all(isinstance(kind, str)
+                               and (kind == "legacy_restricted"
+                                    or kind.startswith("SPDX-license-identifier-"))
+                               for kind in license_lock["soong_license_kinds"])):
+                raise PackError(f"invalid packaged model license lock for {source.model_id}")
+            if license_source is None:
+                raise PackError(f"packaged model license missing for {source.model_id}")
+            resolved_license = license_source.path.resolve(strict=True)
+            if (not resolved_license.is_file()
+                    or resolved_license.stat().st_size != license_lock.get("size_bytes")
+                    or sha256(resolved_license) != license_lock.get("sha256")):
+                raise PackError(f"packaged model license mismatch for {source.model_id}")
+        elif license_source is not None:
+            raise PackError(f"catalog does not require a model license for {source.model_id}")
         resolved = source.path.resolve(strict=True)
         if not resolved.is_file():
             raise PackError(f"model source is not a file: {resolved}")
@@ -175,9 +229,12 @@ def validate_inputs(
         backend = source.backend or model.get("default_backend")
         if backend not in model.get("allowed_backends", []):
             raise PackError(f"catalog does not allow backend {backend!r} for {source.model_id}")
-        result.append((model, Source(source.model_id, backend, resolved)))
+        result.append((model, Source(source.model_id, backend, resolved), resolved_license))
     if not result:
         raise PackError("at least one model source is required")
+    unused_licenses = set(license_by_model) - seen
+    if unused_licenses:
+        raise PackError(f"model license has no matching source: {sorted(unused_licenses)}")
     return result
 
 
@@ -237,11 +294,27 @@ def verify_generated_pack(output: Path) -> dict[str, Any]:
             }
             if descriptor != expected_descriptor:
                 raise PackError(f"generated bundle descriptor mismatch: {model_id}")
+        license_record = artifact.get("packaged_license")
+        if license_record is not None:
+            if not isinstance(license_record, dict):
+                raise PackError(f"generated model license record is malformed: {model_id}")
+            license_path = verified_file(license_record, f"{model_id}/model-license")
+            expected_parent = (assets / model_id).resolve(strict=True)
+            if license_path.parent != expected_parent:
+                raise PackError(f"generated model license is misplaced: {model_id}")
+            if (license_record.get("filename") != license_path.name
+                    or not str(license_record.get("license_url", "")).startswith("https://")
+                    or not isinstance(license_record.get("soong_license_kinds"), list)
+                    or not license_record["soong_license_kinds"]
+                    or license_record.get("soong_license_module") !=
+                        module_name(f"{model_id}_model_license_terms")):
+                raise PackError(f"generated model license identity is malformed: {model_id}")
     return manifest
 
 
 def generate_bundle(
         model: dict[str, Any], source: Source, assets: Path,
+        license_module: str | None,
 ) -> tuple[dict[str, Any], list[str], list[str]]:
     locked_members = bundle_members(model, source.path)
     bundle = model["reference_bundle"]
@@ -278,6 +351,7 @@ def generate_bundle(
                 f"    src: \"assets/{source.model_id}/{name}\",\n"
                 f"    filename: \"{name}\",\n"
                 f"    sub_dir: \"aios/models/{source.model_id}\",\n"
+                f"{licenses_property(license_module)}"
                 "    product_specific: true,\n"
                 "}\n"
             )
@@ -300,6 +374,7 @@ def generate_bundle(
         f"    src: \"assets/{descriptor_name}\",\n"
         f"    filename: \"{descriptor_name}\",\n"
         "    sub_dir: \"aios/models\",\n"
+        f"{licenses_property(license_module)}"
         "    product_specific: true,\n"
         "}\n"
     )
@@ -320,15 +395,58 @@ def generate_bundle(
     return entry, blueprint_blocks, modules
 
 
+def generate_packaged_license(
+        model: dict[str, Any], source: Path, assets: Path, license_module: str,
+) -> tuple[dict[str, Any], list[str], str]:
+    lock = model["packaged_license"]
+    destination_dir = assets / model["id"]
+    destination_dir.mkdir(exist_ok=True)
+    filename = lock["filename"]
+    destination = destination_dir / filename
+    shutil.copyfile(source, destination)
+    record = {
+        "filename": filename,
+        "relative_path": f"models/{model['id']}/{filename}",
+        "size_bytes": destination.stat().st_size,
+        "sha256": sha256(destination),
+        "license_url": model["license_url"],
+        "soong_license_module": license_module,
+        "soong_license_kinds": lock["soong_license_kinds"],
+    }
+    if (record["size_bytes"] != lock["size_bytes"]
+            or record["sha256"] != lock["sha256"]):
+        raise PackError(f"copied model license failed verification: {model['id']}")
+    module = module_name(f"{model['id']}_model_license")
+    license_block = (
+        "license {\n"
+        f"    name: \"{license_module}\",\n"
+        f"    license_kinds: {json.dumps(lock['soong_license_kinds'])},\n"
+        f"    license_text: [\"assets/{model['id']}/{filename}\"],\n"
+        "}\n"
+    )
+    prebuilt_block = (
+        "prebuilt_etc {\n"
+        f"    name: \"{module}\",\n"
+        f"    src: \"assets/{model['id']}/{filename}\",\n"
+        f"    filename: \"{filename}\",\n"
+        f"    sub_dir: \"aios/models/{model['id']}\",\n"
+        f"{licenses_property(license_module)}"
+        "    product_specific: true,\n"
+        "}\n"
+    )
+    return record, [license_block, prebuilt_block], module
+
+
 def generate(
         catalog_path: Path,
         acceptance_path: Path,
         sources: Iterable[Source],
         output: Path,
+        license_files: Iterable[LicenseSource] = (),
 ) -> dict[str, Any]:
     catalog = read_json(catalog_path)
     acceptance = read_json(acceptance_path)
-    validated = validate_inputs(catalog, acceptance, sources)
+    validated = validate_inputs(catalog, acceptance, sources, license_files)
     if output.exists() and any(output.iterdir()):
         raise PackError(f"output directory must be absent or empty: {output}")
     output.mkdir(parents=True, exist_ok=True)
@@ -338,41 +456,54 @@ def generate(
     manifest_entries = []
     blueprint_blocks = []
     modules = []
-    for model, source in validated:
+    for model, source, license_source in validated:
+        license_module = (module_name(f"{model['id']}_model_license_terms")
+                          if license_source is not None else None)
         if model.get("reference_bundle") is not None:
-            entry, blocks, bundle_modules = generate_bundle(model, source, assets)
+            entry, blocks, bundle_modules = generate_bundle(
+                model, source, assets, license_module)
             manifest_entries.append(entry)
             blueprint_blocks.extend(blocks)
             modules.extend(bundle_modules)
-            continue
-        suffix = source.path.suffix.lower()
-        destination_name = source.model_id + suffix
-        destination = assets / destination_name
-        shutil.copyfile(source.path, destination)
-        digest = sha256(destination)
-        module = module_name(source.model_id)
-        modules.append(module)
-        blueprint_blocks.append(
-            "prebuilt_etc {\n"
-            f"    name: \"{module}\",\n"
-            f"    src: \"assets/{destination_name}\",\n"
-            f"    filename: \"{destination_name}\",\n"
-            "    sub_dir: \"aios/models\",\n"
-            "    product_specific: true,\n"
-            "}\n"
-        )
-        manifest_entries.append({
-            "model_id": source.model_id,
-            "artifact_format": "ggml" if suffix == ".bin" else suffix.removeprefix("."),
-            "relative_path": f"models/{destination_name}",
-            "sha256": digest,
-            "size_bytes": destination.stat().st_size,
-            "runtime": model["runtime"],
-            "backend": source.backend,
-            "capabilities": model["capabilities"],
-            "languages": model["languages"],
-            "license_url": model["license_url"],
-        })
+        else:
+            suffix = source.path.suffix.lower()
+            destination_name = source.model_id + suffix
+            destination = assets / destination_name
+            shutil.copyfile(source.path, destination)
+            digest = sha256(destination)
+            module = module_name(source.model_id)
+            modules.append(module)
+            blueprint_blocks.append(
+                "prebuilt_etc {\n"
+                f"    name: \"{module}\",\n"
+                f"    src: \"assets/{destination_name}\",\n"
+                f"    filename: \"{destination_name}\",\n"
+                "    sub_dir: \"aios/models\",\n"
+                f"{licenses_property(license_module)}"
+                "    product_specific: true,\n"
+                "}\n"
+            )
+            entry = {
+                "model_id": source.model_id,
+                "artifact_format": (
+                    "ggml" if suffix == ".bin" else suffix.removeprefix(".")),
+                "relative_path": f"models/{destination_name}",
+                "sha256": digest,
+                "size_bytes": destination.stat().st_size,
+                "runtime": model["runtime"],
+                "backend": source.backend,
+                "capabilities": model["capabilities"],
+                "languages": model["languages"],
+                "license_url": model["license_url"],
+            }
+            manifest_entries.append(entry)
+        if license_source is not None:
+            assert license_module is not None
+            license_record, blocks, module = generate_packaged_license(
+                model, license_source, assets, license_module)
+            entry["packaged_license"] = license_record
+            blueprint_blocks.extend(blocks)
+            modules.append(module)
 
     artifact_manifest = {"schema_version": 1, "artifacts": manifest_entries}
     manifest_path = output / "model_artifacts.json"
@@ -406,10 +537,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--catalog", type=Path, default=ROOT / "config" / "model_catalog.json")
     parser.add_argument("--acceptance", type=Path, required=True)
     parser.add_argument("--source", action="append", default=[], type=parse_source)
+    parser.add_argument("--license-file", action="append", default=[],
+                        type=parse_license_file,
+                        help="MODEL_ID=/absolute/path to a catalog-locked model license")
     parser.add_argument("--output", type=Path, default=ROOT / "generated" / "modelpack")
     args = parser.parse_args(argv)
     try:
-        manifest = generate(args.catalog, args.acceptance, args.source, args.output)
+        manifest = generate(
+            args.catalog, args.acceptance, args.source, args.output,
+            args.license_file)
     except (OSError, PackError) as exc:
         print(f"model pack generation failed: {exc}", file=sys.stderr)
         return 1

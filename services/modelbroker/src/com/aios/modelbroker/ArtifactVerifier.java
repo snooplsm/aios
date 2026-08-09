@@ -7,11 +7,11 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.BufferedInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
@@ -29,6 +29,8 @@ final class ArtifactVerifier {
     private static final Pattern DIGEST = Pattern.compile("[0-9a-f]{64}");
     private static final Pattern MODEL_ID = Pattern.compile("[a-z0-9][a-z0-9._-]{0,127}");
     private static final int BUFFER_BYTES = 1024 * 1024;
+    private static final int MAX_ARTIFACT_MANIFEST_BYTES = 8 * 1024 * 1024;
+    private static final int MAX_BUNDLE_DESCRIPTOR_BYTES = 1024 * 1024;
 
     private final File configurationDirectory;
     private final File modelDirectory;
@@ -47,8 +49,8 @@ final class ArtifactVerifier {
             return Collections.emptyMap();
         }
         try {
-            JSONObject root = new JSONObject(Files.readString(
-                    artifactManifest.toPath(), StandardCharsets.UTF_8));
+            JSONObject root = new JSONObject(readUtf8(
+                    artifactManifest, MAX_ARTIFACT_MANIFEST_BYTES));
             if (root.getInt("schema_version") != 1) {
                 throw new IOException("unsupported artifact manifest schema");
             }
@@ -114,8 +116,8 @@ final class ArtifactVerifier {
 
     private void verifyBundle(String modelId, File descriptor, JSONObject outer)
             throws IOException, JSONException {
-        JSONObject inner = new JSONObject(Files.readString(
-                descriptor.toPath(), StandardCharsets.UTF_8));
+        JSONObject inner = new JSONObject(readUtf8(
+                descriptor, MAX_BUNDLE_DESCRIPTOR_BYTES));
         if (inner.getInt("schema_version") != 1
                 || !modelId.equals(inner.getString("model_id"))
                 || !outer.getString("source_archive_sha256").equals(
@@ -172,6 +174,30 @@ final class ArtifactVerifier {
             return result.toString();
         } catch (NoSuchAlgorithmException impossible) {
             throw new IOException("SHA-256 unavailable", impossible);
+        }
+    }
+
+    private static String readUtf8(File path, int maximumBytes) throws IOException {
+        long length = path.length();
+        if (length < 0 || length > maximumBytes) {
+            throw new IOException(path + ": JSON input exceeds its bound");
+        }
+        try (FileInputStream stream = new FileInputStream(path);
+             ByteArrayOutputStream output = new ByteArrayOutputStream((int) length)) {
+            byte[] buffer = new byte[Math.min(BUFFER_BYTES, maximumBytes)];
+            int total = 0;
+            int read;
+            while ((read = stream.read(buffer)) >= 0) {
+                if (read == 0) {
+                    continue;
+                }
+                total += read;
+                if (total > maximumBytes) {
+                    throw new IOException(path + ": JSON input grew beyond its bound");
+                }
+                output.write(buffer, 0, read);
+            }
+            return new String(output.toByteArray(), StandardCharsets.UTF_8);
         }
     }
 }

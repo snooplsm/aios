@@ -45,8 +45,21 @@ and confidence. Faces, identity guesses, precise private location inferences,
 OCR secrets, embeddings, and internal prompts remain solely in the encrypted
 index unless the user explicitly exports them.
 
+## Model licensing
+
+An "open-weight" model is not necessarily OSI open source and does not inherit
+the Apache-2.0 license of AIOS code. Supertonic 3 weights use OpenRAIL-M, which
+includes use restrictions and redistribution conditions. Its Sherpa conversion
+archive contains an MIT code license that is not a substitute for the weights'
+license. The model packer therefore requires the separately pinned OpenRAIL-M
+text, installs it with the weights, and assigns the generated Soong modules a
+restricted license kind. Gemma terms and every future model license still need
+qualified review before a public image or device is distributed.
+
 ## Sources
 
 - US federal consent overview: https://www.congress.gov/crs-product/R41733
 - California Penal Code section 632:
   https://leginfo.legislature.ca.gov/faces/codes_displaySection.xhtml?lawCode=PEN&sectionNum=632
+- Supertonic 3 model license at the pinned revision:
+  https://huggingface.co/Supertone/supertonic-3/blob/724fb5abbf5502583fb520898d45929e62f02c0b/LICENSE

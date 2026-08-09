@@ -16,6 +16,8 @@ of AOSP. It now contains the AOSP product wrapper, Binder contracts, fail-closed
 Model Broker policy, crash-isolated runtime transport, and session arbitration,
 Call Intelligence policy/capture/
 retention plus Broker ASR streaming, and a durable MediaStore inference worker.
+The call path also has a digest-locked, arm64 Sherpa-ONNX/Supertonic 3 provider
+that streams 24 kHz English/Spanish receptionist speech through the broker.
 The owner-facing phone application is now an original Kotlin/Jetpack Compose
 `InCallService` using immutable UDF state, typed actions, and a multi-call
 Telecom registry; it includes system/light/dark themes, bounded recents and
@@ -39,8 +41,8 @@ exact-base Android 17 Dialer lifecycle patch exists, but it and the generated,
 dependency-locked runtime provider must be built and tested on the Linux lane.
 See `docs/model-packaging.md` and
 `docs/runtime-packaging.md`; the dedicated call path is in
-`docs/asr-runtime.md`, and the physical caller-audio gate is in
-`docs/caller-audio-uplink.md`.
+`docs/asr-runtime.md`, speech output is in `docs/tts-runtime.md`, and the
+physical caller-audio gate is in `docs/caller-audio-uplink.md`.
 
 Important constraints are explicit:
 

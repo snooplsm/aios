@@ -159,6 +159,24 @@ def validate_catalog(catalog: dict[str, Any]) -> None:
                 f"{model['id']}: allowed artifact formats are required")
         require(str(model.get("license_url", "")).startswith("https://"),
                 f"{model['id']}: an HTTPS license URL is required")
+        packaged_license = model.get("packaged_license")
+        if packaged_license is not None:
+            require(isinstance(packaged_license, dict)
+                    and re.fullmatch(r"[a-zA-Z0-9._-]+\.txt",
+                                     str(packaged_license.get("filename", "")))
+                    is not None
+                    and isinstance(packaged_license.get("size_bytes"), int)
+                    and packaged_license["size_bytes"] > 0
+                    and re.fullmatch(r"[0-9a-f]{64}",
+                                     str(packaged_license.get("sha256", "")))
+                    is not None
+                    and isinstance(packaged_license.get("soong_license_kinds"), list)
+                    and packaged_license["soong_license_kinds"]
+                    and all(kind == "legacy_restricted"
+                            or re.fullmatch(r"SPDX-license-identifier-[A-Za-z0-9.-]+",
+                                            str(kind)) is not None
+                            for kind in packaged_license["soong_license_kinds"]),
+                    f"{model['id']}: packaged model license needs exact file metadata")
         allowed_backends = model.get("allowed_backends")
         require(isinstance(allowed_backends, list) and allowed_backends
                 and len(allowed_backends) == len(set(allowed_backends)),
@@ -202,6 +220,11 @@ def validate_catalog(catalog: dict[str, Any]) -> None:
                         and re.fullmatch(r"[0-9a-f]{64}",
                                          str(member.get("sha256", ""))) is not None,
                         f"{model['id']}: bundle member needs exact size and digest")
+            if "speech_synthesis" in model.get("capabilities", []):
+                require(packaged_license is not None
+                        and re.search(r"/blob/[0-9a-f]{40}/",
+                                      model["license_url"]) is not None,
+                        f"{model['id']}: TTS bundle needs an immutable packaged model license")
 
     tiers = catalog["tiers"]
     tier_by_id = {tier["id"]: tier for tier in tiers}
@@ -349,6 +372,15 @@ def validate_aosp_overlay(root: Path) -> None:
         "runtime/whisperprovider/bootstrap_dependency_locks.sh",
         "runtime/whisperprovider/build_provider.sh",
         "docs/asr-runtime.md",
+        "runtime/ttsprovider/settings.gradle.kts",
+        "runtime/ttsprovider/build.gradle.kts",
+        "runtime/ttsprovider/app/build.gradle.kts",
+        "runtime/ttsprovider/app/src/main/AndroidManifest.xml",
+        "runtime/ttsprovider/app/src/main/java/com/aios/runtime/sherpatts/SherpaTtsRuntimeService.kt",
+        "runtime/ttsprovider/bootstrap_artifacts.sh",
+        "runtime/ttsprovider/bootstrap_dependency_locks.sh",
+        "runtime/ttsprovider/build_provider.sh",
+        "docs/tts-runtime.md",
         "services/callintelligence/AndroidManifest.xml",
         "services/callintelligence/aidl/com/aios/call/IAiosCallIntelligence.aidl",
         "services/callintelligence/aidl/com/aios/call/CallAssistantPolicy.aidl",
@@ -660,6 +692,15 @@ def validate_aosp_overlay(root: Path) -> None:
     require("artifact.length() != expectedSize" in verifier_source
             and "MessageDigest.isEqual" in verifier_source,
             "artifact verifier must check exact size and digest")
+    require("verifyBundle" in verifier_source
+            and 'value.has("bundle_members")' in verifier_source
+            and 'inner.getString("source_archive_sha256")' in verifier_source
+            and "verifyFile(modelId + \"/\" + name, locked)" in verifier_source,
+            "artifact verifier must reverify every locked bundle member")
+    require("MAX_ARTIFACT_MANIFEST_BYTES" in verifier_source
+            and "MAX_BUNDLE_DESCRIPTOR_BYTES" in verifier_source
+            and "total > maximumBytes" in verifier_source,
+            "artifact and bundle JSON reads must be explicitly bounded")
     broker_state = (broker_source_root / "BrokerState.java").read_text(encoding="utf-8")
     require("RuntimeRegistry.modelFree()" in broker_state
             and "RuntimeRegistry.load" in broker_state,
@@ -747,6 +788,98 @@ def validate_aosp_overlay(root: Path) -> None:
             and "armv8.2-a+fp16" in whisper_cmake
             and "WHISPER_BUILD_TESTS OFF" in whisper_cmake,
             "ASR native build must be pinned to the arm64 mobile profile")
+
+    tts_root = root / "runtime" / "ttsprovider"
+    tts_manifest = (tts_root / "app" / "src" / "main" /
+                    "AndroidManifest.xml").read_text(encoding="utf-8")
+    require('android:process=":runtime"' in tts_manifest
+            and 'android:permission="com.aios.permission.PROVIDE_MODEL_RUNTIME"'
+            in tts_manifest,
+            "TTS must run in its own protected process")
+    tts_source = (tts_root / "app" / "src" / "main" / "java" / "com" /
+                  "aios" / "runtime" / "sherpatts" /
+                  "SherpaTtsRuntimeService.kt").read_text(encoding="utf-8")
+    require('BROKER_PACKAGE = "com.aios.modelbroker"' in tts_source
+            and "packages.size != 1" in tts_source,
+            "TTS runtime provider must admit only the exact broker UID")
+    require("generateWithConfigAndCallback" in tts_source
+            and 'extra = mapOf("lang" to session.request.language)' in tts_source
+            and 'request.language in setOf("en", "es")' in tts_source
+            and "ParcelFileDescriptor.AutoCloseOutputStream" in tts_source
+            and "writePcm16" in tts_source,
+            "TTS runtime must stream bilingual PCM with pipe backpressure")
+    require("session.cancelled.get()" in tts_source
+            and "deadlineElapsedRealtimeMillis" in tts_source
+            and "TRIM_MEMORY_RUNNING_LOW" in tts_source
+            and "if (sessions.isEmpty()) closeEngine()" in tts_source,
+            "TTS runtime must support cancellation, deadlines, and pressure cleanup")
+    require("MODEL_DIRECTORY.canonicalFile" in tts_source
+            and "MessageDigest.isEqual" in tts_source
+            and "EXPECTED_MEMBERS" in tts_source
+            and "source_archive_sha256" in tts_source,
+            "TTS runtime must independently reverify its complete model bundle")
+
+    model_catalog = load_json(root / "config" / "model_catalog.json")
+    tts_models = [model for model in model_catalog["models"]
+                  if model.get("runtime") == "sherpa_onnx_tts"
+                  and "speech_synthesis" in model.get("capabilities", [])]
+    require(len(tts_models) == 1 and isinstance(
+                tts_models[0].get("reference_bundle"), dict),
+            "exactly one locked Sherpa TTS model bundle is required")
+    tts_model = tts_models[0]
+    bundle = tts_model["reference_bundle"]
+    packaged_license = tts_model["packaged_license"]
+    normalized_tts_source = tts_source.replace("_", "")
+    require(f'const val MODEL_ID = "{tts_model["id"]}"' in tts_source
+            and bundle["sha256"] in tts_source,
+            "TTS provider model/archive identity must match the model catalog")
+    for member in bundle["members"]:
+        require(member["path"] in tts_source
+                and member["sha256"] in tts_source
+                and f'{member["size_bytes"]}L' in normalized_tts_source,
+                f'TTS provider lock is stale for {member["path"]}')
+    model_packager = (root / "tools" / "generate_model_pack.py").read_text(
+        encoding="utf-8")
+    require('parser.add_argument("--license-file"' in model_packager
+            and "packaged model license missing" in model_packager
+            and 'entry["packaged_license"] = license_record' in model_packager
+            and "copied model license failed verification" in model_packager
+            and '"license {\\n"' in model_packager
+            and "soong_license_kinds" in model_packager
+            and "licenses_property(license_module)" in model_packager
+            and packaged_license["filename"] in (root / "docs" /
+                "tts-runtime.md").read_text(encoding="utf-8"),
+            "Supertonic model-license packaging must remain mandatory and verified")
+
+    runtime_catalog = load_json(root / "config" / "runtime_catalog.json")
+    tts_providers = [provider for provider in runtime_catalog["providers"]
+                     if provider.get("runtime") == "sherpa_onnx_tts"]
+    require(len(tts_providers) == 1
+            and isinstance(tts_providers[0].get("binary_artifact"), dict),
+            "exactly one binary-locked Sherpa TTS provider is required")
+    tts_provider = tts_providers[0]
+    binary = tts_provider["binary_artifact"]
+    tts_build = (tts_root / "app" / "build.gradle.kts").read_text(
+        encoding="utf-8")
+    tts_bootstrap = (tts_root / "bootstrap_artifacts.sh").read_text(
+        encoding="utf-8")
+    normalized_tts_build = tts_build.replace("_", "")
+    require(tts_provider["implementation_version"] in tts_build
+            and binary["sha256"] in tts_build
+            and str(binary["size_bytes"]) in normalized_tts_build
+            and binary["url"] in tts_bootstrap
+            and binary["sha256"] in tts_bootstrap
+            and str(binary["size_bytes"]) in tts_bootstrap,
+            "TTS build/bootstrap inputs must match the runtime catalog lock")
+    require('abiFilters += "arm64-v8a"' in tts_build
+            and "lockAllConfigurations" in tts_build
+            and "verifyPinnedInputs" in tts_build
+            and "dependency_verification_sha256" in tts_build,
+            "TTS APK must be arm64-only and emit verified provenance")
+    for notice in tts_provider["required_apk_entries"]:
+        require(Path(notice["path"]).name in tts_build
+                and notice["sha256"] in tts_build,
+                f'TTS build does not pin {notice["path"]}')
     asr_client = (root / "services" / "callintelligence" / "src" / "com" /
                   "aios" / "callintelligence" / "AsrBrokerClient.java").read_text(
                       encoding="utf-8")
