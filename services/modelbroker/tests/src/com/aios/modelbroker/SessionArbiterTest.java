@@ -40,6 +40,35 @@ public final class SessionArbiterTest {
     }
 
     @Test
+    public void completedCallWorkDoesNotLeaveStickyMediaGate() {
+        SessionArbiter arbiter = new SessionArbiter(1);
+        arbiter.submit(1L, 100, WorkClass.CALL_AGENT, 2);
+        SessionArbiter.Change media =
+                arbiter.submit(2L, 200, WorkClass.MEDIA_BACKGROUND, 1);
+        assertEquals(SessionArbiter.Status.QUEUED, media.submittedStatus);
+
+        SessionArbiter.Change finished = arbiter.finish(1L, 100);
+
+        assertEquals(1, finished.activated.size());
+        assertEquals(Long.valueOf(2L), finished.activated.get(0));
+    }
+
+    @Test
+    public void explicitLeaseStillBlocksMediaAfterCallWorkCompletes() {
+        SessionArbiter arbiter = new SessionArbiter(1);
+        arbiter.setCallActive(true);
+        arbiter.submit(1L, 100, WorkClass.CALL_RX, 2);
+        arbiter.submit(2L, 200, WorkClass.MEDIA_BACKGROUND, 1);
+
+        SessionArbiter.Change finished = arbiter.finish(1L, 100);
+        assertTrue(finished.activated.isEmpty());
+
+        SessionArbiter.Change released = arbiter.setCallActive(false);
+        assertEquals(1, released.activated.size());
+        assertEquals(Long.valueOf(2L), released.activated.get(0));
+    }
+
+    @Test
     public void ownerQuotaCountsQueuedAndActiveSessions() {
         SessionArbiter arbiter = new SessionArbiter(1);
         arbiter.submit(1L, 100, WorkClass.CALL_RX, 2);

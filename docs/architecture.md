@@ -81,6 +81,11 @@ The Model Broker is a signature-protected Binder service. It:
 - cancels media work when a call begins or thermal pressure becomes severe; and
 - records aggregate performance counters without recording prompts or media.
 
+The call pipeline's priority assertion carries a client-owned Binder lifecycle
+token. Model Broker links it to death and automatically returns to the non-call
+state when the final token dies, so a call-intelligence crash cannot leave media
+inference permanently blocked.
+
 Initial execution uses LiteRT-LM for supported Gemma mobile artifacts and a
 separate runtime adapter for streaming ASR. Backends are discovered and
 benchmarked; NPU availability is never inferred solely from a marketing model

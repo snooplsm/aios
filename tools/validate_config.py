@@ -1041,6 +1041,9 @@ def validate_aosp_overlay(root: Path) -> None:
     require("attachAudioOutput" in api and "in ParcelFileDescriptor pcmSink" in api,
             "model API must expose a bounded PCM sink for speech synthesis")
     require("IModelCallback" in api, "model API must be asynchronous")
+    require("import android.os.IBinder" in api
+            and "setCallActive(in IBinder lifecycleToken, boolean active)" in api,
+            "call priority must be tied to a client-owned Binder lifecycle token")
     require("String modelPath" not in api and "String filePath" not in api,
             "model API must not expose filesystem paths")
 
@@ -1059,6 +1062,11 @@ def validate_aosp_overlay(root: Path) -> None:
     require("onTrimMemory" in service
             and "sessions.onMemoryPressure()" in service,
             "model broker must preempt background work under Android memory pressure")
+    require("token.linkToDeath" in service
+            and "callActivityLeases.removeDead(token)" in service
+            and "state.setCallActive(active)" in service
+            and "sessions.setCallActive(desired)" in service,
+            "call priority must clear on client death and reconcile broker arbitration")
     session_controller = (root / "services" / "modelbroker" / "src" / "com" /
                           "aios" / "modelbroker" / "SessionController.java").read_text(
                               encoding="utf-8")
@@ -1132,6 +1140,12 @@ def validate_aosp_overlay(root: Path) -> None:
             and "requireOwner(record, ownerUid)" in session_controller
             and "MAX_PENDING_INPUTS" in session_controller,
             "runtime sessions must handle client death, UID ownership, and input bounds")
+    arbiter_source = (broker_source_root / "SessionArbiter.java").read_text(
+        encoding="utf-8"
+    )
+    require("mediaBlocked()" in arbiter_source
+            and "callActive = true" not in arbiter_source,
+            "foreground sessions must not leave a sticky media gate after completion")
 
     provider_root = root / "runtime" / "litertlmprovider"
     provider_manifest = (provider_root / "app" / "src" / "main" /
@@ -1455,6 +1469,9 @@ def validate_aosp_overlay(root: Path) -> None:
             "downlink and uplink must receive distinct server priorities")
     require("ParcelFileDescriptor.createPipe()" in asr_client,
             "call ASR must stream through a pipe rather than expose files")
+    require("callActivityToken = new Binder()" in asr_client
+            and "service.setCallActive(callActivityToken, callActive)" in asr_client,
+            "call ASR must hold call priority with a process-lifetime Binder token")
     whisper_source = (
         root / "runtime" / "whisperprovider" / "app" / "src" / "main" /
         "java" / "com" / "aios" / "runtime" / "whispercpp" /

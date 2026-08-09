@@ -73,13 +73,12 @@ final class SessionArbiter {
 
         List<Long> cancelled = new ArrayList<>();
         if (workClass != WorkClass.MEDIA_BACKGROUND) {
-            callActive = true;
             cancelled.addAll(removeWorkClass(WorkClass.MEDIA_BACKGROUND));
         }
 
         Lease lease = new Lease(sessionId, ownerUid, workClass, sequence++);
         leases.put(sessionId, lease);
-        if (workClass == WorkClass.MEDIA_BACKGROUND && callActive) {
+        if (workClass == WorkClass.MEDIA_BACKGROUND && mediaBlocked()) {
             queue.add(lease);
             return new Change(Status.QUEUED, cancelled, List.of());
         }
@@ -184,7 +183,7 @@ final class SessionArbiter {
             if (!leases.containsKey(next.sessionId)) {
                 continue;
             }
-            if (callActive && next.workClass == WorkClass.MEDIA_BACKGROUND) {
+            if (mediaBlocked() && next.workClass == WorkClass.MEDIA_BACKGROUND) {
                 queue.add(next);
                 break;
             }
@@ -192,6 +191,18 @@ final class SessionArbiter {
             result.add(next.sessionId);
         }
         return result;
+    }
+
+    private boolean mediaBlocked() {
+        if (callActive) {
+            return true;
+        }
+        for (Lease lease : leases.values()) {
+            if (lease.workClass != WorkClass.MEDIA_BACKGROUND) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private Lease requireOwner(long sessionId, int ownerUid) {

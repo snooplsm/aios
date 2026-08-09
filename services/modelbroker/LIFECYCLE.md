@@ -35,6 +35,16 @@ cancellation of existing media inference. If memory cannot hold RX ASR plus an
 interactive model, the broker unloads the interactive model between turns. It
 never swaps model pages heavily enough to jeopardize telephony.
 
+Call-active state is a UID-owned Binder lease, not a sticky boolean. The call
+pipeline supplies a process-local token; the broker links that token to death,
+rejects cross-UID release, and automatically clears the final lease if the call
+pipeline crashes. Request admission observes the lease synchronously, while
+runtime cancellation and queued-media promotion are serialized on the broker's
+main looper. This prevents a dead call process from blocking media indefinitely.
+Individual RX/TX/agent sessions also block media for their own lifetime, but do
+not mutate the persistent call-activity lease; completing the final foreground
+session therefore promotes queued media when no lifecycle lease remains.
+
 There is deliberately no fixed broker RAM ceiling. The catalog's resident-memory
 figures are measurement metadata, not quotas. Android low-memory callbacks
 preempt background media, and isolated runtime providers release idle model

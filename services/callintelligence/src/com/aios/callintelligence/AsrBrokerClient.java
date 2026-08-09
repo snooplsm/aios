@@ -5,6 +5,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.ServiceConnection;
 import android.media.AudioFormat;
+import android.os.Binder;
 import android.os.IBinder;
 import android.os.ParcelFileDescriptor;
 import android.os.RemoteException;
@@ -54,6 +55,7 @@ final class AsrBrokerClient implements AutoCloseable {
 
     private final Context context;
     private final Listener listener;
+    private final IBinder callActivityToken = new Binder();
     private final ExecutorService worker = Executors.newSingleThreadExecutor(work -> {
         Thread thread = new Thread(work, "aios-asr-capabilities");
         thread.setPriority(Thread.NORM_PRIORITY);
@@ -149,7 +151,7 @@ final class AsrBrokerClient implements AutoCloseable {
         closed = true;
         if (service != null && callActive) {
             try {
-                service.setCallActive(false);
+                service.setCallActive(callActivityToken, false);
             } catch (RemoteException ignored) {
                 // Service death already clears process-local state.
             }
@@ -212,7 +214,7 @@ final class AsrBrokerClient implements AutoCloseable {
             return;
         }
         try {
-            service.setCallActive(callActive);
+            service.setCallActive(callActivityToken, callActive);
         } catch (RemoteException ignored) {
             service = null;
         }

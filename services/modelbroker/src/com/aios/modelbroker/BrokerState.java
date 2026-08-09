@@ -139,10 +139,13 @@ final class BrokerState {
         runtimes.close();
     }
 
-    void setCallActive(AuthorizedClientPolicy.Rule client, boolean active) {
+    void requireCallStateController(AuthorizedClientPolicy.Rule client) {
         if (!client.canControlCallState) {
             throw new SecurityException("client cannot control call-active state");
         }
+    }
+
+    void setCallActive(boolean active) {
         callActive = active;
     }
 
