@@ -33,6 +33,7 @@ data class PhoneUiState(
     val themePreference: ThemePreference = ThemePreference.SYSTEM,
     val transcripts: Map<String, List<TranscriptUiState>> = emptyMap(),
     val risks: Map<String, RiskUiState> = emptyMap(),
+    val assistantCalls: Map<String, AssistantCallUiState> = emptyMap(),
     val rttConversations: Map<String, RttUiState> = emptyMap(),
     val message: String? = null,
 ) {
@@ -169,6 +170,12 @@ data class RiskUiState(
     val observedAtEpochMillis: Long,
 )
 
+data class AssistantCallUiState(
+    val aiHandling: Boolean,
+    val revision: Long,
+    val observedAtEpochMillis: Long,
+)
+
 data class RttUiState(
     val localText: String = "",
     val remoteText: String = "",
@@ -193,6 +200,7 @@ sealed interface PhoneAction {
     data class ClaimOwnerAnswer(val callId: String) : PhoneAction
     data class Ignore(val callId: String) : PhoneAction
     data class AnswerWithAi(val callId: String) : PhoneAction
+    data class TakeOver(val callId: String) : PhoneAction
     data class Reject(val callId: String) : PhoneAction
     data class Disconnect(val callId: String) : PhoneAction
     data class Hold(val callId: String) : PhoneAction

@@ -38,6 +38,12 @@ from deterministic on-device signals or the on-device model. Known contacts get
 an initial legitimacy assessment as soon as capture starts; subsequent updates
 must be revisioned so stale classifier callbacks cannot replace newer evidence.
 
+While AI is handling an active call, both the in-call surface and ongoing call
+notification must say so and expose **Take over**. Takeover is a one-way owner
+action: it stops queued and in-flight AI speech without disconnecting the caller,
+then keeps live two-direction transcription and advisory spam classification
+running. A stale service callback must not restore the AI-handling presentation.
+
 The product is expected to speak to callers. The TTS engine and initial greeting
 copy remain a product decision; the architecture treats TTS as a replaceable
 model capability.
@@ -103,7 +109,10 @@ device:
 3. The configured AI policy can answer a non-emergency incoming call.
 4. Downlink English and Spanish transcription meets the latency target defined
    by benchmark data; uplink transcript arrives without blocking the call.
-5. Call artifacts disappear no later than 24 hours after creation.
-6. A new JPEG is indexed, a burst is deferred, and a deferred media job does not
+5. The owner can take over an AI-handled call from the call UI or notification;
+   remote audio contains no queued or later AI speech, while transcription
+   continues and the carrier call remains connected.
+6. Call artifacts disappear no later than 24 hours after creation.
+7. A new JPEG is indexed, a burst is deferred, and a deferred media job does not
    run below 80% battery or off charger.
-7. Airplane mode demonstrates that the entire feature set remains on-device.
+8. Airplane mode demonstrates that the entire feature set remains on-device.

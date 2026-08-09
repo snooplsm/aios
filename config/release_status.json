@@ -41,6 +41,7 @@
     "call.spanish_streaming_asr": {"status": "not_run", "evidence": []},
     "call.caller_uplink_remote_audibility": {"status": "not_run", "evidence": []},
     "call.ai_receptionist_dialog_round_trip": {"status": "not_run", "evidence": []},
+    "call.owner_takeover_stops_ai_speech": {"status": "not_run", "evidence": []},
     "call.offline_mode": {"status": "not_run", "evidence": []},
     "call.telephony_survives_ai_crash": {"status": "not_run", "evidence": []},
     "retention.expiry_24_hours": {"status": "not_run", "evidence": []},

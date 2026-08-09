@@ -41,6 +41,7 @@
     {"id": "call.spanish_streaming_asr", "category": "call_ai", "required": true},
     {"id": "call.caller_uplink_remote_audibility", "category": "call_ai", "required": true},
     {"id": "call.ai_receptionist_dialog_round_trip", "category": "call_ai", "required": true},
+    {"id": "call.owner_takeover_stops_ai_speech", "category": "call_ai", "required": true},
     {"id": "call.offline_mode", "category": "call_ai", "required": true},
     {"id": "call.telephony_survives_ai_crash", "category": "call_ai", "required": true},
     {"id": "retention.expiry_24_hours", "category": "privacy", "required": true},

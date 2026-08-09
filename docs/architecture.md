@@ -71,6 +71,15 @@ session. The phone validates the label/score contract and ignores duplicate or
 older revisions, which prevents a late low-risk callback from overwriting newer
 high-risk evidence. These labels remain advisory UI state only.
 
+Assistant ownership is a separate typed, revisioned per-call state. An AI-
+handled call can transition only once, from `aiHandling=true` to owner handling.
+The signature-protected takeover transaction atomically closes the assistant
+turn queue and detaches any in-flight TTS/uplink handles before returning. It
+does not close telephony capture or either ASR stream; incoming and outgoing
+transcription and advisory risk continue, using the non-receptionist classifier.
+The current ownership value is persisted with the 24-hour call artifact and
+replayed to a newly registered dialer listener.
+
 AI answering is fail-closed on processing, bilingual text/TTS availability, and
 transport readiness. Capture begins
 immediately after AI pickup, with no mandatory spoken disclosure. When the agent

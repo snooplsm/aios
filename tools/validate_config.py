@@ -663,11 +663,13 @@ def validate_aosp_overlay(root: Path) -> None:
         "apps/phone/Android.bp",
         "apps/phone/AndroidManifest.xml",
         "apps/phone/tests/src/com/aios/phone/intelligence/PendingAiAnswerGateTest.kt",
+        "apps/phone/tests/src/com/aios/phone/model/AssistantCallContractTest.kt",
         "apps/phone/tests/src/com/aios/phone/model/CallRiskContractTest.kt",
         "apps/phone/src/com/aios/phone/PhoneRuntime.kt",
         "apps/phone/src/com/aios/phone/data/CallHistoryRepository.kt",
         "apps/phone/src/com/aios/phone/data/VoicemailRepository.kt",
         "apps/phone/src/com/aios/phone/model/PhoneContract.kt",
+        "apps/phone/src/com/aios/phone/model/AssistantCallContract.kt",
         "apps/phone/src/com/aios/phone/model/CallRiskContract.kt",
         "apps/phone/src/com/aios/phone/telecom/CallRegistry.kt",
         "apps/phone/src/com/aios/phone/telecom/AiosInCallService.kt",
@@ -675,6 +677,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "apps/phone/src/com/aios/phone/telecom/RttSessionController.kt",
         "apps/phone/src/com/aios/phone/telecom/VoicemailPlaybackController.kt",
         "apps/phone/src/com/aios/phone/notifications/CallNotificationCoordinator.kt",
+        "apps/phone/src/com/aios/phone/notifications/CallActionReceiver.kt",
         "apps/phone/src/com/aios/phone/intelligence/CallAssistantClient.kt",
         "apps/phone/src/com/aios/phone/intelligence/PendingAiAnswerGate.kt",
         "apps/phone/src/com/aios/phone/ui/InCallActivity.kt",
@@ -755,9 +758,11 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/callintelligence/AndroidManifest.xml",
         "services/callintelligence/aidl/com/aios/call/IAiosCallIntelligence.aidl",
         "services/callintelligence/aidl/com/aios/call/ICallIntelligenceListener.aidl",
+        "services/callintelligence/aidl/com/aios/call/CallAssistantState.aidl",
         "services/callintelligence/aidl/com/aios/call/CallRiskAssessment.aidl",
         "services/callintelligence/aidl/com/aios/call/CallAssistantPolicy.aidl",
         "services/callintelligence/src/com/aios/callintelligence/AnswerDelayPolicy.java",
+        "services/callintelligence/src/com/aios/callintelligence/AssistantHandlingTracker.java",
         "services/callintelligence/src/com/aios/callintelligence/AssistantTurnQueue.java",
         "services/callintelligence/src/com/aios/callintelligence/CallPolicyEngine.java",
         "services/callintelligence/src/com/aios/callintelligence/CallArtifactRetention.java",
@@ -775,6 +780,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/callintelligence/src/com/aios/callintelligence/ReceptionistReplyPolicy.java",
         "services/callintelligence/src/com/aios/callintelligence/TelecomCallPresenceTracker.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/SpamRiskEngineTest.java",
+        "services/callintelligence/tests/src/com/aios/callintelligence/AssistantHandlingTrackerTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/RiskAssessmentTrackerTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/AssistantTurnQueueTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/ReceptionistReplyPolicyTest.java",
@@ -907,6 +913,9 @@ def validate_aosp_overlay(root: Path) -> None:
     call_risk_contract = (root / "apps" / "phone" / "src" / "com" / "aios" /
                           "phone" / "model" / "CallRiskContract.kt").read_text(
                               encoding="utf-8")
+    assistant_call_contract = (root / "apps" / "phone" / "src" / "com" / "aios" /
+                               "phone" / "model" /
+                               "AssistantCallContract.kt").read_text(encoding="utf-8")
     phone_registry = (root / "apps" / "phone" / "src" / "com" / "aios" /
                       "phone" / "telecom" / "CallRegistry.kt").read_text(
                           encoding="utf-8")
@@ -930,12 +939,18 @@ def validate_aosp_overlay(root: Path) -> None:
     call_risk_test = (root / "apps" / "phone" / "tests" / "src" / "com" /
                       "aios" / "phone" / "model" /
                       "CallRiskContractTest.kt").read_text(encoding="utf-8")
+    assistant_call_test = (root / "apps" / "phone" / "tests" / "src" / "com" /
+                           "aios" / "phone" / "model" /
+                           "AssistantCallContractTest.kt").read_text(encoding="utf-8")
     in_call_activity = (root / "apps" / "phone" / "src" / "com" / "aios" /
                         "phone" / "ui" / "InCallActivity.kt").read_text(
                             encoding="utf-8")
     notification_source = (root / "apps" / "phone" / "src" / "com" / "aios" /
                            "phone" / "notifications" /
                            "CallNotificationCoordinator.kt").read_text(encoding="utf-8")
+    notification_receiver = (root / "apps" / "phone" / "src" / "com" / "aios" /
+                             "phone" / "notifications" /
+                             "CallActionReceiver.kt").read_text(encoding="utf-8")
     proximity_source = (root / "apps" / "phone" / "src" / "com" / "aios" /
                         "phone" / "telecom" /
                         "ProximityLockController.kt").read_text(encoding="utf-8")
@@ -1090,6 +1105,24 @@ def validate_aosp_overlay(root: Path) -> None:
             and "onlyNewerPositiveRevisionsReplaceVisibleState" in call_risk_test
             and "MAX_REASON_CODE_CHARS" in call_risk_contract,
             "AIOS Phone must validate, humanize, and monotonically project typed call risk")
+    require("CallAssistantState" in assistant_client
+            and "onAssistantStateChanged" in assistant_client
+            and "service.takeOverCall(callId)" in assistant_client
+            and "pendingTakeovers.add(callId)" in assistant_client
+            and "session.assistantRevision" in assistant_client
+            and "AssistantCallSemantics.shouldReplace" in assistant_client
+            and "AssistantCallSemantics.shouldReplace" in phone_runtime
+            and "assistantCalls" in phone_contract
+            and "PhoneAction.TakeOver" in phone_runtime
+            and "PhoneAction.TakeOver" in phone_screens
+            and 'Text("Take over")' in phone_screens
+            and '"Take over"' in notification_source
+            and "ACTION_TAKE_OVER" in notification_source
+            and "PhoneAction.TakeOver" in notification_receiver
+            and "onlyNewerPositiveAssistantStateReplacesVisibleState"
+            in assistant_call_test
+            and "candidateRevision > 0L" in assistant_call_contract,
+            "AIOS Phone must expose one revision-safe owner-takeover action in UI and notification")
     require("onAssistantFailure" in assistant_client
             and "status < 0" in assistant_client
             and "The call is connected to you" in phone_runtime
@@ -1407,6 +1440,9 @@ def validate_aosp_overlay(root: Path) -> None:
     call_risk_api = (root / "services" / "callintelligence" / "aidl" / "com" /
                      "aios" / "call" /
                      "CallRiskAssessment.aidl").read_text(encoding="utf-8")
+    call_assistant_api = (root / "services" / "callintelligence" / "aidl" / "com" /
+                          "aios" / "call" /
+                          "CallAssistantState.aidl").read_text(encoding="utf-8")
     require("import android.os.IBinder" in call_api
             and "void setTelecomCallPresent(" in call_api
             and "in IBinder lifecycleToken" in call_api,
@@ -1432,6 +1468,13 @@ def validate_aosp_overlay(root: Path) -> None:
     risk_tracker_test = (root / "services" / "callintelligence" / "tests" / "src" /
                          "com" / "aios" / "callintelligence" /
                          "RiskAssessmentTrackerTest.java").read_text(encoding="utf-8")
+    assistant_tracker_source = (call_source_root /
+                                "AssistantHandlingTracker.java").read_text(
+                                    encoding="utf-8")
+    assistant_tracker_test = (root / "services" / "callintelligence" / "tests" /
+                              "src" / "com" / "aios" / "callintelligence" /
+                              "AssistantHandlingTrackerTest.java").read_text(
+                                  encoding="utf-8")
     require("advisory only" in spam_source
             and 'new Signal("gift_card_payment"' in spam_source
             and 'new Signal("credential_request"' in spam_source
@@ -1465,6 +1508,24 @@ def validate_aosp_overlay(root: Path) -> None:
             and "++revision" in risk_tracker_source
             and "knownContactPublishesInitialLegitimacy" in risk_tracker_test,
             "call risk must be typed, revisioned, replayable, and publish initial legitimacy")
+    require("boolean takeOverCall(String callId)" in call_api
+            and "CallAssistantState" in call_listener_api
+            and "boolean aiHandling" in call_assistant_api
+            and "long revision" in call_assistant_api
+            and "long observedAtEpochMillis" in call_assistant_api
+            and "started.initialAssistantState()" in call_service
+            and "currentAssistantState()" in call_service
+            and "session.takeOver()" in call_service
+            and "takeover.closeAudio()" in call_service
+            and "receptionist.endCall(callId)" in call_service
+            and "classifier.beginCall(callId, takeover.knownContact)" in call_service
+            and "turnQueue.close()" in call_service
+            and "appendAssistantState(" in artifact_source
+            and '"assistant_state.jsonl"' in artifact_source
+            and "++revision" in assistant_tracker_source
+            and "aiHandledCallPublishesInitialStateAndOneTakeover"
+            in assistant_tracker_test,
+            "owner takeover must be typed, one-way, persisted, replayed, and stop AI audio")
     classifier_source = (call_source_root / "CallClassifierClient.java").read_text(
         encoding="utf-8")
     require("untrusted data" in classifier_source
@@ -1490,7 +1551,7 @@ def validate_aosp_overlay(root: Path) -> None:
             and "receptionist_timeout" in receptionist_source,
             "AI receptionist must be tool-free, injection-resistant, schema-bound, and timed out")
     require("chunk.isFinal" in call_service
-            and "session.answeredByAi" in call_service
+            and "session.isAiHandling()" in call_service
             and "receptionist.requestReply" in call_service
             and "classifier.observe" in call_service
             and "attachAssistantAudio" in call_service
@@ -2099,6 +2160,7 @@ def validate_release_configuration(root: Path) -> None:
         "dialer.emergency_never_ai",
         "call.caller_uplink_remote_audibility",
         "call.ai_receptionist_dialog_round_trip",
+        "call.owner_takeover_stops_ai_speech",
         "call.offline_mode",
         "call.telephony_survives_ai_crash",
         "retention.expiry_24_hours",

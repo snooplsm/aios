@@ -13,6 +13,7 @@ class CallActionReceiver : BroadcastReceiver() {
             ACTION_ANSWER -> PhoneRuntime.dispatch(PhoneAction.Answer(callId))
             ACTION_DECLINE -> PhoneRuntime.dispatch(PhoneAction.Reject(callId))
             ACTION_HANG_UP -> PhoneRuntime.dispatch(PhoneAction.Disconnect(callId))
+            ACTION_TAKE_OVER -> PhoneRuntime.dispatch(PhoneAction.TakeOver(callId))
         }
     }
 
@@ -21,5 +22,6 @@ class CallActionReceiver : BroadcastReceiver() {
         const val ACTION_ANSWER = "com.aios.phone.action.ANSWER"
         const val ACTION_DECLINE = "com.aios.phone.action.DECLINE"
         const val ACTION_HANG_UP = "com.aios.phone.action.HANG_UP"
+        const val ACTION_TAKE_OVER = "com.aios.phone.action.TAKE_OVER"
     }
 }

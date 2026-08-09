@@ -21,12 +21,15 @@ import androidx.core.content.edit
 import com.aios.call.CallHandlingDecision
 import com.aios.call.CallAssistantPolicy
 import com.aios.call.CallRiskAssessment
+import com.aios.call.CallAssistantState
 import com.aios.call.IAiosCallIntelligence
 import com.aios.call.ICallIntelligenceListener
 import com.aios.call.IncomingCallContext
 import com.aios.call.TranscriptSegment
 import com.aios.phone.model.CallUiState
+import com.aios.phone.model.AssistantCallSemantics
 import com.aios.phone.model.AssistantPolicyUiState
+import com.aios.phone.model.AssistantCallUiState
 import com.aios.phone.model.CallRiskLabel
 import com.aios.phone.model.CallRiskSemantics
 import com.aios.phone.model.CallRiskSource
@@ -47,7 +50,9 @@ class CallAssistantClient(
         fun onAssistantConnectionChanged(connected: Boolean)
         fun onTranscript(callId: String, segment: TranscriptUiState)
         fun onRisk(callId: String, risk: RiskUiState)
+        fun onAssistantCallState(callId: String, state: AssistantCallUiState)
         fun onAiAnswerRequested(callId: String)
+        fun onTakeOverResult(callId: String, succeeded: Boolean)
         fun onAssistantFailure(callId: String, status: Int, detail: String)
         fun onPolicyChanged(policy: AssistantPolicyUiState)
     }
@@ -63,12 +68,14 @@ class CallAssistantClient(
         var decisionRequested: Boolean = false,
         var answeredByAi: Boolean = false,
         var answeredNotified: Boolean = false,
+        var assistantRevision: Long = 0L,
         var delayedAnswer: Runnable? = null,
     )
 
     private val main = Handler(Looper.getMainLooper())
     private val telecomLifecycleToken: IBinder = Binder()
     private val pendingAiAnswers = PendingAiAnswerGate()
+    private val pendingTakeovers = mutableSetOf<String>()
     private val worker: ExecutorService = Executors.newSingleThreadExecutor { work ->
         Thread(work, "aios-phone-intelligence")
     }
@@ -112,6 +119,30 @@ class CallAssistantClient(
                 observedAtEpochMillis = assessment.observedAtEpochMillis,
             )
             main.post { if (sessions.containsKey(callId)) callbacks.onRisk(callId, safe) }
+        }
+
+        override fun onAssistantStateChanged(state: CallAssistantState?) {
+            val callId = state?.callId?.takeIf {
+                it.isNotBlank() && it.length <= MAX_CALL_ID_CHARS
+            } ?: return
+            if (state.revision <= 0L || state.observedAtEpochMillis <= 0L) return
+            val safe = AssistantCallUiState(
+                aiHandling = state.aiHandling,
+                revision = state.revision,
+                observedAtEpochMillis = state.observedAtEpochMillis,
+            )
+            main.post {
+                sessions[callId]?.let { session ->
+                    if (!AssistantCallSemantics.shouldReplace(
+                            session.assistantRevision,
+                            safe.revision,
+                        )
+                    ) return@post
+                    session.assistantRevision = safe.revision
+                    session.answeredByAi = safe.aiHandling
+                    callbacks.onAssistantCallState(callId, safe)
+                }
+            }
         }
 
         override fun onServiceStatus(callId: String?, status: Int, detail: String?) {
@@ -251,6 +282,7 @@ class CallAssistantClient(
     fun onCallRemoved(callId: String, disconnectCause: Int) {
         check(Looper.myLooper() == Looper.getMainLooper())
         val session = sessions.remove(callId) ?: return
+        pendingTakeovers.remove(callId)
         cancelDelayedAnswer(session)
         val service = remote ?: return
         worker.execute {
@@ -274,6 +306,30 @@ class CallAssistantClient(
     fun cancelAutomaticAnswer(callId: String) {
         check(Looper.myLooper() == Looper.getMainLooper())
         sessions[callId]?.let(::cancelDelayedAnswer)
+    }
+
+    fun takeOver(callId: String) {
+        check(Looper.myLooper() == Looper.getMainLooper())
+        val service = remote
+        if (service == null || !sessions.containsKey(callId)) {
+            callbacks.onTakeOverResult(callId, false)
+            return
+        }
+        if (!pendingTakeovers.add(callId)) return
+        worker.execute {
+            val succeeded = try {
+                service.takeOverCall(callId)
+            } catch (_: Exception) {
+                false
+            }
+            main.post {
+                pendingTakeovers.remove(callId)
+                sessions[callId]?.let { session ->
+                    if (succeeded) session.answeredByAi = false
+                    callbacks.onTakeOverResult(callId, succeeded)
+                }
+            }
+        }
     }
 
     fun loadPolicy() {

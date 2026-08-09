@@ -7,10 +7,13 @@ import android.app.PendingIntent
 import android.app.Person
 import android.content.Context
 import android.content.Intent
+import android.graphics.drawable.Icon
 import android.media.AudioAttributes
 import android.media.RingtoneManager
 import com.aios.phone.R
+import com.aios.phone.model.AssistantCallUiState
 import com.aios.phone.model.CallUiState
+import com.aios.phone.model.RiskUiState
 import com.aios.phone.ui.InCallActivity
 
 class CallNotificationCoordinator(private val context: Context) {
@@ -55,13 +58,17 @@ class CallNotificationCoordinator(private val context: Context) {
     }
 
     fun showIncomingOrOngoing(callId: String, calls: List<CallUiState>) {
-        calls.firstOrNull { it.id == callId }?.let(::show)
+        calls.firstOrNull { it.id == callId }?.let { show(it, null, null) }
     }
 
-    fun sync(calls: List<CallUiState>) {
+    fun sync(
+        calls: List<CallUiState>,
+        assistantCalls: Map<String, AssistantCallUiState>,
+        risks: Map<String, RiskUiState>,
+    ) {
         val live = calls.mapTo(mutableSetOf()) { it.id }
         shown.filterNot(live::contains).toList().forEach(::cancel)
-        calls.forEach(::show)
+        calls.forEach { call -> show(call, assistantCalls[call.id], risks[call.id]) }
     }
 
     fun cancel(callId: String) {
@@ -73,11 +80,15 @@ class CallNotificationCoordinator(private val context: Context) {
     fun silence(calls: List<CallUiState>) {
         calls.filter { it.isRinging }.forEach { call ->
             silenced.add(call.id)
-            show(call)
+            show(call, null, null)
         }
     }
 
-    private fun show(call: CallUiState) {
+    private fun show(
+        call: CallUiState,
+        assistantState: AssistantCallUiState?,
+        risk: RiskUiState?,
+    ) {
         val person = Person.Builder().setName(call.displayName).setImportant(true).build()
         val content = PendingIntent.getActivity(
             context,
@@ -107,12 +118,21 @@ class CallNotificationCoordinator(private val context: Context) {
         val builder = Notification.Builder(context, channel)
             .setSmallIcon(R.drawable.ic_phone)
             .setContentTitle(call.displayName)
-            .setContentText(if (call.isRinging) "Incoming call" else "Ongoing call")
+            .setContentText(notificationText(call, assistantState, risk))
             .setContentIntent(content)
             .setCategory(Notification.CATEGORY_CALL)
             .setVisibility(Notification.VISIBILITY_PUBLIC)
             .setOngoing(!call.isRinging)
             .setStyle(style)
+        if (!call.isRinging && assistantState?.aiHandling == true) {
+            builder.addAction(
+                Notification.Action.Builder(
+                    Icon.createWithResource(context, R.drawable.ic_phone),
+                    "Take over",
+                    actionIntent(call.id, CallActionReceiver.ACTION_TAKE_OVER, 4),
+                ).build(),
+            )
+        }
         if (call.isRinging) builder.setFullScreenIntent(content, true)
         val notification = builder.build()
         if (call.isRinging && !silent) {
@@ -120,6 +140,19 @@ class CallNotificationCoordinator(private val context: Context) {
         }
         manager?.notify(notificationId(call.id), notification)
         shown.add(call.id)
+    }
+
+    private fun notificationText(
+        call: CallUiState,
+        assistantState: AssistantCallUiState?,
+        risk: RiskUiState?,
+    ): String = when {
+        call.isRinging -> "Incoming call"
+        assistantState?.aiHandling == true && risk != null ->
+            "AI receptionist · ${risk.label.headline}"
+        assistantState?.aiHandling == true -> "AI receptionist is handling this call"
+        risk != null -> "Ongoing call · ${risk.label.headline}"
+        else -> "Ongoing call"
     }
 
     private fun actionIntent(callId: String, action: String, salt: Int): PendingIntent =

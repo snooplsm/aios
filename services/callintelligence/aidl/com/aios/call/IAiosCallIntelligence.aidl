@@ -25,6 +25,9 @@ interface IAiosCallIntelligence {
 
     void onCallAnswered(String callId, boolean answeredByAi, boolean processingAllowed);
 
+    /** Stop receptionist speech/replies while preserving capture and transcription. */
+    boolean takeOverCall(String callId);
+
     void onCallEnded(String callId, int disconnectCause);
 
     void registerListener(in ICallIntelligenceListener listener);

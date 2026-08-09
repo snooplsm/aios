@@ -364,6 +364,34 @@ fun InCallScreen(
                 VideoCallSurfaces(selected, dispatch)
             }
 
+            state.assistantCalls[selected.id]?.takeIf { it.aiHandling }?.let {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                    ),
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text("AI receptionist is handling this call",
+                                fontWeight = FontWeight.SemiBold)
+                            Text(
+                                "Take over to stop AI speech. Live transcription stays on.",
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
+                        Button(onClick = { dispatch(PhoneAction.TakeOver(selected.id)) }) {
+                            Text("Take over")
+                        }
+                    }
+                }
+            }
+
             state.risks[selected.id]?.let { risk ->
                 val containerColor = when (risk.label) {
                     CallRiskLabel.LIKELY_LEGITIMATE -> MaterialTheme.colorScheme.primaryContainer

@@ -28,6 +28,8 @@ import com.aios.phone.model.PhoneAction
 import com.aios.phone.model.PhoneUiState
 import com.aios.phone.model.PhoneAccountUiState
 import com.aios.phone.model.AssistantPolicyUiState
+import com.aios.phone.model.AssistantCallSemantics
+import com.aios.phone.model.AssistantCallUiState
 import com.aios.phone.model.CallRiskSemantics
 import com.aios.phone.model.RiskUiState
 import com.aios.phone.model.RttUiState
@@ -218,16 +220,42 @@ object PhoneRuntime {
                         current.copy(risks = current.risks + (callId to risk))
                     }
                 }
+                syncNotifications()
+            }
+
+            override fun onAssistantCallState(callId: String, state: AssistantCallUiState) {
+                reduce { current ->
+                    if (!AssistantCallSemantics.shouldReplace(
+                            current.assistantCalls[callId]?.revision,
+                            state.revision,
+                        )
+                    ) {
+                        current
+                    } else {
+                        current.copy(
+                            assistantCalls = current.assistantCalls + (callId to state),
+                        )
+                    }
+                }
+                syncNotifications()
             }
 
             override fun onAiAnswerRequested(callId: String) {
                 answerWithAi(callId)
             }
 
+            override fun onTakeOverResult(callId: String, succeeded: Boolean) {
+                if (succeeded) {
+                    showMessage("You are now handling the call. Live transcription continues.")
+                } else {
+                    showMessage("AI handoff could not be completed")
+                }
+            }
+
             override fun onAssistantFailure(callId: String, status: Int, detail: String) {
                 val message = when (status) {
                     -1 -> "AI could not access both call-audio directions. The call is connected to you."
-                    -2, -3, -6 ->
+                    -2, -3, -6, -9 ->
                         "AI call storage failed. The phone call is still connected."
                     -4 -> "AI answering became unavailable. The call is connected to you."
                     -5 -> "AI could not generate a reply. The call is connected to you."
@@ -285,6 +313,7 @@ object PhoneRuntime {
                 it.copy(
                     transcripts = it.transcripts - id,
                     risks = it.risks - id,
+                    assistantCalls = it.assistantCalls - id,
                     rttConversations = it.rttConversations - id,
                     showDtmf = if (it.calls.size <= 1) false else it.showDtmf,
                 )
@@ -353,6 +382,7 @@ object PhoneRuntime {
                     answerWithAi(action.callId)
                 }
             }
+            is PhoneAction.TakeOver -> assistant.takeOver(action.callId)
             is PhoneAction.Reject -> rejectCall(action.callId)
             is PhoneAction.Disconnect -> calls.call(action.callId)?.disconnect()
             is PhoneAction.Hold -> calls.call(action.callId)?.hold()
@@ -714,7 +744,13 @@ object PhoneRuntime {
         proximity.update(
             activeCall && currentEndpoint?.type == CallEndpoint.TYPE_EARPIECE,
         )
-        notifications.sync(snapshots)
+        syncNotifications()
+    }
+
+    private fun syncNotifications() {
+        if (!initialized) return
+        val current = mutableState.value
+        notifications.sync(current.calls, current.assistantCalls, current.risks)
     }
 
     private inline fun reduce(block: (PhoneUiState) -> PhoneUiState) {

@@ -86,6 +86,18 @@ typed value into a light/dark-theme-aware card headed **Likely legitimate**,
 codes are never shown to the owner. Classification is advisory and never invokes
 a Telecom mutation.
 
+Call Intelligence separately publishes a typed `CallAssistantState` containing
+the opaque call ID, `aiHandling`, observation time, and a monotonic per-call
+revision. It publishes the initial value with capture, persists each state in the
+same 24-hour artifact boundary, and replays the latest value after listener
+reconnection. AIOS Phone validates the value and reduces only newer revisions.
+When `aiHandling=true`, the Compose in-call card and the ongoing notification
+offer **Take over**. Both dispatch the same typed UDF action and signature-
+protected Binder transaction. Success stops current/queued assistant speech and
+switches subsequent caller turns to advisory classification while leaving the
+carrier call, capture, ASR, and transcript UI running. This is deliberately not
+a Telecom answer, hold, or disconnect mutation.
+
 ## Owner-selected automatic answer
 
 Phone settings expose an opt-in **Auto AI answer** switch. When enabled, the

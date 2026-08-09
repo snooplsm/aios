@@ -9,6 +9,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.aios.phone.model.AudioEndpointUiState
+import com.aios.phone.model.AssistantCallUiState
 import com.aios.phone.model.AssistantPolicyUiState
 import com.aios.phone.model.CallRiskLabel
 import com.aios.phone.model.CallRiskSource
@@ -98,6 +99,17 @@ class PreviewActivity : ComponentActivity() {
             is PhoneAction.AnswerWithAi -> updateCall(action.callId) {
                 it.copy(state = Call.STATE_ACTIVE)
             }.copy(message = "AI receptionist answered in preview")
+            is PhoneAction.TakeOver -> state.copy(
+                assistantCalls = state.assistantCalls + (
+                    action.callId to (state.assistantCalls[action.callId]
+                        ?: AssistantCallUiState(true, 1, System.currentTimeMillis())).copy(
+                            aiHandling = false,
+                            revision = (state.assistantCalls[action.callId]?.revision ?: 1) + 1,
+                            observedAtEpochMillis = System.currentTimeMillis(),
+                        )
+                ),
+                message = "You are now handling the call",
+            )
             is PhoneAction.Reject -> state.copy(calls = state.calls.filterNot { it.id == action.callId })
             is PhoneAction.Disconnect -> state.copy(calls = state.calls.filterNot { it.id == action.callId })
             is PhoneAction.Hold -> updateCall(action.callId) { it.copy(state = Call.STATE_HOLDING) }
@@ -293,6 +305,13 @@ class PreviewActivity : ComponentActivity() {
                     reasonCode = "business_intent",
                     source = CallRiskSource.MODEL,
                     revision = 3,
+                    observedAtEpochMillis = System.currentTimeMillis(),
+                ),
+            ),
+            assistantCalls = mapOf(
+                primary.id to AssistantCallUiState(
+                    aiHandling = true,
+                    revision = 1,
                     observedAtEpochMillis = System.currentTimeMillis(),
                 ),
             ),

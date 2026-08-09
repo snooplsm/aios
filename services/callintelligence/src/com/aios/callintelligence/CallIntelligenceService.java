@@ -12,6 +12,7 @@ import android.os.SystemProperties;
 
 import com.aios.call.CallHandlingDecision;
 import com.aios.call.CallAssistantPolicy;
+import com.aios.call.CallAssistantState;
 import com.aios.call.CallRiskAssessment;
 import com.aios.call.IAiosCallIntelligence;
 import com.aios.call.ICallIntelligenceListener;
@@ -138,14 +139,41 @@ public final class CallIntelligenceService extends Service {
         }
 
         @Override
+        public boolean takeOverCall(String callId) {
+            enforceControlPermission();
+            if (callId == null || callId.isEmpty() || callId.length() > 128) return false;
+            ActiveSession session;
+            ActiveSession.TakeoverResult takeover;
+            synchronized (sessions) {
+                session = sessions.get(callId);
+                takeover = session == null ? null : session.takeOver();
+            }
+            if (takeover == null) return false;
+            takeover.closeAudio();
+            receptionist.endCall(callId);
+            classifier.beginCall(callId, takeover.knownContact);
+            synchronized (sessions) {
+                if (sessions.get(callId) != session || !session.isOpen()) {
+                    classifier.endCall(callId);
+                    return false;
+                }
+            }
+            publishAssistantState(callId, session, takeover.update);
+            notifyStatus(callId, 8, "owner_takeover_complete");
+            return true;
+        }
+
+        @Override
         public void onCallEnded(String callId, int disconnectCause) {
             enforceControlPermission();
-            classifier.endCall(callId);
-            receptionist.endCall(callId);
+            ActiveSession ended;
             synchronized (sessions) {
                 pendingKnownContacts.remove(callId);
-                stopLocked(callId);
+                ended = sessions.remove(callId);
             }
+            classifier.endCall(callId);
+            receptionist.endCall(callId);
+            if (ended != null) ended.close();
             artifactStore.cleanup(System.currentTimeMillis());
             RetentionAlarm.scheduleNext(CallIntelligenceService.this, artifactStore);
             notifyStatus(callId, 2, "call_ended");
@@ -155,19 +183,33 @@ public final class CallIntelligenceService extends Service {
         public void registerListener(ICallIntelligenceListener listener) {
             enforceControlPermission();
             if (listener != null && listeners.register(listener)) {
-                List<CallRiskAssessment> latest = new ArrayList<>();
+                List<CallRiskAssessment> latestRisks = new ArrayList<>();
+                List<CallAssistantState> latestAssistantStates = new ArrayList<>();
                 synchronized (sessions) {
                     for (Map.Entry<String, ActiveSession> entry : sessions.entrySet()) {
-                        RiskAssessmentTracker.Update update =
+                        RiskAssessmentTracker.Update riskUpdate =
                                 entry.getValue().currentRiskUpdate();
-                        if (update != null) {
-                            latest.add(toRiskAssessment(entry.getKey(), update));
+                        if (riskUpdate != null) {
+                            latestRisks.add(toRiskAssessment(entry.getKey(), riskUpdate));
+                        }
+                        AssistantHandlingTracker.Update assistantUpdate =
+                                entry.getValue().currentAssistantState();
+                        if (assistantUpdate != null) {
+                            latestAssistantStates.add(
+                                    toAssistantState(entry.getKey(), assistantUpdate));
                         }
                     }
                 }
-                for (CallRiskAssessment assessment : latest) {
+                for (CallRiskAssessment assessment : latestRisks) {
                     try {
                         listener.onRiskChanged(assessment);
+                    } catch (Exception ignored) {
+                        break;
+                    }
+                }
+                for (CallAssistantState state : latestAssistantStates) {
+                    try {
+                        listener.onAssistantStateChanged(state);
                     } catch (Exception ignored) {
                         break;
                     }
@@ -341,6 +383,7 @@ public final class CallIntelligenceService extends Service {
         }
         if (started != null) {
             publishAssessment(callId, started, started.initialAssessment());
+            publishAssistantState(callId, started, started.initialAssistantState());
         }
         if (started != null && answeredByAi && started.beginGreeting()) {
             String language = "es".equals(Locale.getDefault().getLanguage()) ? "es" : "en";
@@ -375,7 +418,7 @@ public final class CallIntelligenceService extends Service {
                             stored.openUplink(), sink(uplinkAsr)));
             ActiveSession active = new ActiveSession(
                     stored, capture, downlinkAsr, uplinkAsr,
-                    new SpamRiskEngine(knownContact), answeredByAi);
+                    new SpamRiskEngine(knownContact), answeredByAi, knownContact);
             sessions.put(callId, active);
             if (answeredByAi) {
                 receptionist.beginCall(callId, knownContact);
@@ -399,13 +442,6 @@ public final class CallIntelligenceService extends Service {
             if (stored != null) stored.close();
             notifyStatus(callId, -1, "capture_unavailable");
             return null;
-        }
-    }
-
-    private void stopLocked(String callId) {
-        ActiveSession session = sessions.remove(callId);
-        if (session != null) {
-            session.close();
         }
     }
 
@@ -547,6 +583,23 @@ public final class CallIntelligenceService extends Service {
         }
     }
 
+    private void notifyAssistantState(CallAssistantState state) {
+        synchronized (listenerBroadcastLock) {
+            int count = listeners.beginBroadcast();
+            try {
+                for (int index = 0; index < count; index++) {
+                    try {
+                        listeners.getBroadcastItem(index).onAssistantStateChanged(state);
+                    } catch (Exception ignored) {
+                        // Dead listeners are removed by RemoteCallbackList.
+                    }
+                }
+            } finally {
+                listeners.finishBroadcast();
+            }
+        }
+    }
+
     private void notifyTranscript(TranscriptSegment segment) {
         synchronized (listenerBroadcastLock) {
             int count = listeners.beginBroadcast();
@@ -600,7 +653,7 @@ public final class CallIntelligenceService extends Service {
             RiskAssessmentTracker.Update assessment =
                     session.observeHeuristic(chunk.text, language);
             publishAssessment(callId, session, assessment);
-            if (session.answeredByAi) {
+            if (session.isAiHandling()) {
                 requestReceptionistReply(callId, session, language, chunk.text);
             } else {
                 classifier.observe(callId, language, chunk.text);
@@ -626,7 +679,7 @@ public final class CallIntelligenceService extends Service {
         synchronized (sessions) {
             session = sessions.get(callId);
         }
-        if (session == null || !session.answeredByAi) return;
+        if (session == null || !session.isAiHandling()) return;
         publishAssessment(
                 callId,
                 session,
@@ -652,7 +705,7 @@ public final class CallIntelligenceService extends Service {
         synchronized (sessions) {
             session = sessions.get(callId);
         }
-        if (session != null && session.answeredByAi) {
+        if (session != null && session.isAiHandling()) {
             continueAfterAssistantOperation(callId, session);
         }
     }
@@ -750,11 +803,52 @@ public final class CallIntelligenceService extends Service {
         return value;
     }
 
+    private void publishAssistantState(
+            String callId, ActiveSession session, AssistantHandlingTracker.Update update) {
+        if (update == null) return;
+        try {
+            session.stored.appendAssistantState(
+                    update.aiHandling, update.revision, update.observedAtEpochMillis);
+        } catch (IOException error) {
+            notifyStatus(callId, -9, "assistant_state_storage_failed");
+        }
+        notifyAssistantState(toAssistantState(callId, update));
+    }
+
+    private static CallAssistantState toAssistantState(
+            String callId, AssistantHandlingTracker.Update update) {
+        CallAssistantState value = new CallAssistantState();
+        value.callId = callId;
+        value.aiHandling = update.aiHandling;
+        value.revision = update.revision;
+        value.observedAtEpochMillis = update.observedAtEpochMillis;
+        return value;
+    }
+
     private static java.io.OutputStream sink(AsrBrokerClient.Stream stream) {
         return stream == null ? null : stream.sink;
     }
 
     private static final class ActiveSession implements AutoCloseable {
+        private static final class TakeoverResult {
+            final AssistantHandlingTracker.Update update;
+            final boolean knownContact;
+            final AssistantCompletion completion;
+
+            TakeoverResult(
+                    AssistantHandlingTracker.Update update,
+                    boolean knownContact,
+                    AssistantCompletion completion) {
+                this.update = update;
+                this.knownContact = knownContact;
+                this.completion = completion;
+            }
+
+            void closeAudio() {
+                completion.closeAudio();
+            }
+        }
+
         private static final class AssistantCompletion {
             final SpeechSynthesisBrokerClient.Speech speech;
             final CallerAudioUplink.Stream uplink;
@@ -780,7 +874,8 @@ public final class CallIntelligenceService extends Service {
         private final AsrBrokerClient.Stream downlinkAsr;
         private final AsrBrokerClient.Stream uplinkAsr;
         private final RiskAssessmentTracker risk;
-        private final boolean answeredByAi;
+        private final AssistantHandlingTracker assistantHandling;
+        private final boolean knownContact;
         private final AssistantTurnQueue turnQueue = new AssistantTurnQueue();
         private boolean closed;
         private long speechGeneration;
@@ -793,13 +888,15 @@ public final class CallIntelligenceService extends Service {
                 AsrBrokerClient.Stream downlinkAsr,
                 AsrBrokerClient.Stream uplinkAsr,
                 SpamRiskEngine risk,
-                boolean answeredByAi) {
+                boolean answeredByAi,
+                boolean knownContact) {
             this.stored = stored;
             this.capture = capture;
             this.downlinkAsr = downlinkAsr;
             this.uplinkAsr = uplinkAsr;
             this.risk = new RiskAssessmentTracker(risk);
-            this.answeredByAi = answeredByAi;
+            assistantHandling = new AssistantHandlingTracker(answeredByAi);
+            this.knownContact = knownContact;
         }
 
         synchronized RiskAssessmentTracker.Update initialAssessment() {
@@ -810,13 +907,42 @@ public final class CallIntelligenceService extends Service {
             return risk.current();
         }
 
+        synchronized AssistantHandlingTracker.Update initialAssistantState() {
+            return closed ? null : assistantHandling.initial();
+        }
+
+        synchronized AssistantHandlingTracker.Update currentAssistantState() {
+            return assistantHandling.current();
+        }
+
+        synchronized boolean isAiHandling() {
+            return !closed && assistantHandling.isAiHandling();
+        }
+
+        synchronized boolean isOpen() {
+            return !closed;
+        }
+
+        synchronized TakeoverResult takeOver() {
+            if (closed) return null;
+            AssistantHandlingTracker.Update update = assistantHandling.takeOver();
+            if (update == null) return null;
+            turnQueue.close();
+            AssistantCompletion completion = new AssistantCompletion(
+                    activeSpeech, activeUplink, null);
+            activeSpeech = null;
+            activeUplink = null;
+            return new TakeoverResult(update, knownContact, completion);
+        }
+
         synchronized boolean beginGreeting() {
-            return !closed && answeredByAi && turnQueue.beginGreeting();
+            return !closed && assistantHandling.isAiHandling()
+                    && turnQueue.beginGreeting();
         }
 
         synchronized AssistantTurnQueue.CallerTurn offerCallerTurn(
                 String language, String text) {
-            if (closed || !answeredByAi) return null;
+            if (closed || !assistantHandling.isAiHandling()) return null;
             return turnQueue.offer(language, text);
         }
 
@@ -827,7 +953,7 @@ public final class CallIntelligenceService extends Service {
         synchronized boolean attachAssistantAudio(
                 SpeechSynthesisBrokerClient.Speech speech,
                 CallerAudioUplink.Stream uplink) {
-            if (closed || !turnQueue.isBusy()
+            if (closed || !assistantHandling.isAiHandling() || !turnQueue.isBusy()
                     || activeSpeech != null || activeUplink != null) {
                 return false;
             }

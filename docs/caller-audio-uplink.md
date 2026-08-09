@@ -58,15 +58,22 @@ timestamps and retain logs without call content.
    track is playing and that the routed device type is telephony.
 5. Confirm stored PCM/transcript timestamps begin immediately after AI pickup and
    synthesis can overlap continued incoming transcription without blocking it.
-6. Hang up during synthesis and confirm no later PCM or TTS completion callback
+6. While a response is playing, take over from the in-call UI. Repeat with a
+   second caller turn queued and take over from the ongoing notification. Confirm
+   the remote endpoint hears no remaining or queued AI speech, the carrier call
+   remains connected, and both transcript directions continue. A repeated
+   takeover must be harmless.
+7. Hang up during synthesis and confirm no later PCM or TTS completion callback
    can affect the ended call.
-7. Repeat with handset, speaker, wired headset where supported, Bluetooth, call
+8. Repeat with handset, speaker, wired headset where supported, Bluetooth, call
    waiting, VoLTE, and VoWiFi. Ordinary call audio and emergency fallback must
    remain functional when Call Intelligence is killed.
-8. Store the evidence under the release record and mark
+9. Store the evidence under the release record and mark
    `call.caller_uplink_remote_audibility` and
-   `call.ai_receptionist_dialog_round_trip` passed. Only then may the exact
-   device product override the property to true.
+   `call.ai_receptionist_dialog_round_trip` passed. Mark
+   `call.owner_takeover_stops_ai_speech` passed only with the remote-audio and
+   continuing-transcription evidence above. Only then may the exact device
+   product override the property to true.
 
 This gate proves an engineering transport property, not legal sufficiency. The
 spoken text and regional policy still require qualified legal review before a

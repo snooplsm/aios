@@ -226,6 +226,26 @@ final class CallArtifactStore {
             }
         }
 
+        synchronized void appendAssistantState(
+                boolean aiHandling,
+                long revision,
+                long observedAtEpochMillis) throws IOException {
+            JSONObject value = new JSONObject();
+            try {
+                value.put("ai_handling", aiHandling);
+                value.put("revision", revision);
+                value.put("observed_at_epoch_ms", observedAtEpochMillis);
+            } catch (JSONException impossible) {
+                throw new IOException("cannot encode assistant state", impossible);
+            }
+            try (FileOutputStream stream = new FileOutputStream(
+                    new File(directory, "assistant_state.jsonl"), true)) {
+                stream.write(value.toString().getBytes(StandardCharsets.UTF_8));
+                stream.write('\n');
+                stream.getFD().sync();
+            }
+        }
+
         @Override
         public void close() {
             closeStreams();
