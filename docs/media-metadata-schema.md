@@ -103,7 +103,8 @@ WebVTT/`tx3g` compatibility: Android's platform MP4 muxer can author application
 metadata tracks, but not a standard text-subtitle sample entry. Generic players
 may therefore play the unchanged encoded media while ignoring the subtitles.
 
-AIOS-aware clients use the exported
+No built-in subtitle renderer is required. Authorized AIOS-aware clients may
+use the exported
 `com.aios.media.ENHANCED_VIDEO_METADATA_SERVICE`, protected by the signature
 permission `com.aios.permission.READ_ENHANCED_VIDEO_METADATA`. The API does not
 accept file paths or descriptors. It accepts only a query-free canonical

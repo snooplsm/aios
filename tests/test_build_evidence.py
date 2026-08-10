@@ -62,6 +62,7 @@ class BuildEvidenceTests(unittest.TestCase):
             "product": "aios_cf_x86_64_phone",
             "aios_revision": head,
             "manifest_sha256": hashlib.sha256(manifest.read_bytes()).hexdigest(),
+            "manifest_repository_revision": "f" * 40,
         }), encoding="utf-8")
 
         out = base / "out"
@@ -109,6 +110,7 @@ class BuildEvidenceTests(unittest.TestCase):
             self.assertEqual("passed", value["status"])
             self.assertEqual(2, value["schema_version"])
             self.assertEqual("aios/test/fingerprint", value["build_fingerprint"])
+            self.assertEqual("f" * 40, value["manifest_repository_revision"])
             self.assertEqual(14, len(value["artifacts"]))
             self.assertEqual(2, len(value["patch_queue"]))
             self.assertRegex(value["patch_queue_sha256"], r"^[0-9a-f]{64}$")
@@ -121,6 +123,17 @@ class BuildEvidenceTests(unittest.TestCase):
                 value["installed_files_product_sha256"],
             )
             self.assertTrue(output.is_file())
+
+    def test_rejects_lock_without_manifest_repository_revision(self):
+        with tempfile.TemporaryDirectory() as raw:
+            aios, manifest, lock, out, log, _ = self.create_fixture(raw)
+            value = json.loads(lock.read_text(encoding="utf-8"))
+            value.pop("manifest_repository_revision")
+            lock.write_text(json.dumps(value), encoding="utf-8")
+            with self.assertRaisesRegex(evidence.BuildEvidenceError, "repository revision"):
+                evidence.capture(
+                    aios, "android_latest_integration", manifest, lock, out, log
+                )
 
     def test_patch_queue_record_rejects_payload_tampering(self):
         with tempfile.TemporaryDirectory() as raw:

@@ -9,11 +9,13 @@ import math
 import re
 import sys
 import xml.etree.ElementTree as ET
+from datetime import date
 from pathlib import Path
 from typing import Any
 
 
 ROOT = Path(__file__).resolve().parents[1]
+OFFICIAL_AOSP_MANIFEST_URL = "https://android.googlesource.com/platform/manifest"
 
 
 class ValidationError(ValueError):
@@ -723,12 +725,15 @@ def validate_aosp_overlay(root: Path) -> None:
     required_files = [
         "Android.bp",
         "AndroidProducts.mk",
+        ".github/workflows/aosp-upstream-watch.yml",
         "products/aios_common.mk",
         "products/aios_tegu.mk",
         "products/aios_cf_x86_64_phone.mk",
         "config/aosp_lanes.json",
         "tools/check_aosp_manifest.py",
+        "tools/refresh_aosp_tracking.py",
         "tools/capture_build_evidence.py",
+        "scripts/refresh-aosp-integration.sh",
         "scripts/capture-aosp-lock.sh",
         "scripts/build-aosp-lane.sh",
         "permissions/privapp-permissions-aios.xml",
@@ -1006,9 +1011,29 @@ def validate_aosp_overlay(root: Path) -> None:
     )
     require("repo manifest -r" in lock_script
             and "check_aosp_manifest.py" in lock_script
+            and "refresh_aosp_tracking.py" in lock_script
+            and "--manifest-revision" in lock_script
             and "status --porcelain --untracked-files=all" in lock_script
             and "Refusing to overwrite" in lock_script,
             "AOSP locks must be resolved, clean, lane-checked, and non-overwriting")
+    refresh_script = (root / "scripts" /
+                      "refresh-aosp-integration.sh").read_text(encoding="utf-8")
+    require("repo init" in refresh_script
+            and "android-latest-release" in refresh_script
+            and "refresh_aosp_tracking.py" in refresh_script
+            and "--write" in refresh_script
+            and "status --porcelain --untracked-files=all" in refresh_script,
+            "AOSP refresh must be explicit, clean, official, and reviewable")
+    watch_workflow = (root / ".github" / "workflows" /
+                      "aosp-upstream-watch.yml").read_text(encoding="utf-8")
+    require("schedule:" in watch_workflow
+            and "workflow_dispatch:" in watch_workflow
+            and "contents: read" in watch_workflow
+            and OFFICIAL_AOSP_MANIFEST_URL in watch_workflow
+            and "android-latest-release" in watch_workflow
+            and "refresh_aosp_tracking.py" in watch_workflow
+            and "--check" in watch_workflow,
+            "AOSP upstream watch must be scheduled, read-only, and official")
     patch_tool = (root / "tools" / "verify_patch_series.py").read_text(
         encoding="utf-8"
     )
@@ -2970,6 +2995,14 @@ def validate_release_configuration(root: Path) -> None:
                          tracking.get("observed_release_manifest_commit", ""))
             is not None,
             "the observed latest-release manifest must record its exact commit")
+    require(re.fullmatch(r"android[0-9]+-release",
+                         tracking.get("observed_release_branch", "")) is not None,
+            "latest-release must resolve to a numbered Android release branch")
+    try:
+        observed_on = date.fromisoformat(tracking.get("observed_on", ""))
+    except (TypeError, ValueError) as error:
+        raise ValidationError("AOSP observation date must be an ISO calendar date") from error
+    require(observed_on <= date.today(), "AOSP observation date cannot be in the future")
     require(tracking["first_device"].get("present_in_observed_release_manifest")
             is False,
             "Pixel 9a must not be represented as part of the Android 17 manifest")

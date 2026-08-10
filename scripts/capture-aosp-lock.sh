@@ -53,11 +53,20 @@ if [[ -e "$manifest" || -e "$lock" ]]; then
 fi
 
 cd "$aosp_root"
+manifest_revision="$(git -C "$aosp_root/.repo/manifests" \
+  rev-parse --verify 'HEAD^{commit}')"
+if [[ "$lane" == "android_latest_integration" ]]; then
+  python3 "$aios_root/tools/refresh_aosp_tracking.py" \
+    --root "$aios_root" \
+    --manifest-repo "$aosp_root/.repo/manifests" \
+    --check
+fi
 repo manifest -r -o "$manifest"
 python3 "$aios_root/tools/check_aosp_manifest.py" \
   --root "$aios_root" \
   --manifest "$manifest" \
   --lane "$lane" \
+  --manifest-revision "$manifest_revision" \
   --output "$lock"
 python3 "$aios_root/tools/validate_config.py"
 

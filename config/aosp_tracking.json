@@ -3,8 +3,8 @@
   "manifest_url": "https://android.googlesource.com/platform/manifest",
   "tracking_revision": "android-latest-release",
   "observed_release_branch": "android17-release",
-  "observed_release_manifest_commit": "29ace668ae756c7b8917c57abb440f6518844b0c",
-  "observed_on": "2026-08-09",
+  "observed_release_manifest_commit": "ad156f32caaa06dae91c02d443f6a8fe210eaa54",
+  "observed_on": "2026-08-10",
   "release_manifest_lock": null,
   "dialer_reference": {
     "tag": "android-17.0.0_r1",

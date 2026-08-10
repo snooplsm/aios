@@ -220,6 +220,9 @@ def capture(
         raise BuildEvidenceError("manifest lock does not match the build lane")
     if SHA256_PATTERN.fullmatch(str(lock.get("manifest_sha256", ""))) is None:
         raise BuildEvidenceError("manifest lock lacks a valid SHA-256 digest")
+    manifest_repository_revision = str(lock.get("manifest_repository_revision", ""))
+    if re.fullmatch(r"[0-9a-f]{40}", manifest_repository_revision) is None:
+        raise BuildEvidenceError("manifest lock lacks an immutable repository revision")
     actual_manifest_digest = sha256(manifest)
     if lock.get("manifest_sha256") != actual_manifest_digest:
         raise BuildEvidenceError("resolved manifest digest does not match its lock")
@@ -271,6 +274,7 @@ def capture(
         "android_release": system_properties.get("ro.build.version.release"),
         "aios_revision": head,
         "manifest_sha256": actual_manifest_digest,
+        "manifest_repository_revision": manifest_repository_revision,
         "manifest_lock_sha256": sha256(manifest_lock),
         "build_log_sha256": sha256(build_log),
         "installed_files_product_sha256": sha256(installed_manifest),

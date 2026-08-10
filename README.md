@@ -170,6 +170,17 @@ python vendor/aios/tools/verify_patch_series.py --aosp-root /absolute/path/to/ao
 vendor/aios/scripts/build-aosp-lane.sh /absolute/path/to/aosp android_latest_integration /safe/evidence/build-id 4
 ```
 
+When Google's moving manifest ref changes, refresh its reviewed observation
+before syncing projects:
+
+```text
+vendor/aios/scripts/refresh-aosp-integration.sh /absolute/path/to/aosp
+git diff -- config/aosp_tracking.json
+```
+
+Commit that small tracking change, then run `repo sync -c` and the locked build
+above. The build refuses an unreviewed manifest-head change.
+
 ## Upstream strategy
 
 AIOS tracks AOSP's `android-latest-release` manifest on an integration branch and

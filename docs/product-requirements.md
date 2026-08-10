@@ -93,8 +93,9 @@ camera application that created them.
   recompression, verify the remux before publication, and delete partial output
   on failure. A durable pre-insert journal and marker must recover process death
   at startup or boot without deleting a published copy or trusting a reassigned
-  URI. AIOS must render the custom subtitles; generic players are allowed to
-  ignore them.
+  URI. A built-in subtitle renderer is not required; generic players are allowed
+  to ignore the custom track, while authorized AIOS clients may read it through
+  the bounded metadata API.
 
 The service produces a versioned structured record containing a caption, tags,
 language, model identifier, model digest, inference timestamp, and confidence.

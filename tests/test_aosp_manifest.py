@@ -49,18 +49,20 @@ class AospManifestContractTests(unittest.TestCase):
     def test_android_latest_integration_lane_accepts_resolved_manifest(self):
         with tempfile.TemporaryDirectory() as raw:
             path = self.write_manifest(raw, self.integration_projects())
-            value = checker.check(path, ROOT, "android_latest_integration")
+            value = checker.check(
+                path, ROOT, "android_latest_integration", COMMIT_E)
             self.assertEqual("aios_cf_x86_64_phone", value["product"])
             self.assertEqual(COMMIT_D, value["aios_revision"])
             self.assertFalse(value["lane_eligible_for_physical_gates"])
             self.assertFalse(value["proves_physical_runtime_gate"])
+            self.assertEqual(COMMIT_E, value["manifest_repository_revision"])
 
     def test_pixel_lane_rejects_manifest_without_tegu(self):
         with tempfile.TemporaryDirectory() as raw:
             path = self.write_manifest(raw, self.integration_projects())
             with self.assertRaisesRegex(checker.ManifestContractError,
                                         "device/google/tegu"):
-                checker.check(path, ROOT, "pixel9a_tegu_hardware")
+                checker.check(path, ROOT, "pixel9a_tegu_hardware", COMMIT_E)
 
     def test_symbolic_project_revision_is_not_a_release_lock(self):
         with tempfile.TemporaryDirectory() as raw:
@@ -68,17 +70,26 @@ class AospManifestContractTests(unittest.TestCase):
             projects[0] = (projects[0][0], projects[0][1], "android17-release")
             path = self.write_manifest(raw, projects)
             with self.assertRaisesRegex(checker.ManifestContractError, "immutable"):
-                checker.check(path, ROOT, "android_latest_integration")
+                checker.check(path, ROOT, "android_latest_integration", COMMIT_E)
 
     def test_lock_is_atomic_and_refuses_accidental_overwrite(self):
         with tempfile.TemporaryDirectory() as raw:
             path = self.write_manifest(raw, self.integration_projects())
             output = Path(raw) / "manifest-lock.json"
-            checker.check(path, ROOT, "android_latest_integration", output)
+            checker.check(
+                path, ROOT, "android_latest_integration", COMMIT_E, output)
             value = json.loads(output.read_text(encoding="utf-8"))
             self.assertEqual(5, value["project_count"])
             with self.assertRaisesRegex(checker.ManifestContractError, "overwrite"):
-                checker.check(path, ROOT, "android_latest_integration", output)
+                checker.check(
+                    path, ROOT, "android_latest_integration", COMMIT_E, output)
+
+    def test_manifest_repository_revision_must_be_an_exact_commit(self):
+        with tempfile.TemporaryDirectory() as raw:
+            path = self.write_manifest(raw, self.integration_projects())
+            with self.assertRaisesRegex(checker.ManifestContractError, "not immutable"):
+                checker.check(
+                    path, ROOT, "android_latest_integration", "android-latest-release")
 
 
 if __name__ == "__main__":

@@ -3,7 +3,7 @@
 ## AOSP baseline
 
 The integration branch follows the `android-latest-release` Repo manifest. As of
-2026-08-09, that manifest points to `android17-release`. A separate lock file will
+2026-08-10, that manifest points to `android17-release`. A separate lock file will
 record the exact manifest revision used for each reproducible build; moving the
 tracking branch never silently changes a released image.
 
@@ -50,6 +50,17 @@ Build-evidence schema version 2 embeds the canonical review-complete queue and
 its SHA-256 after independently rehashing every payload. Together with the clean
 AIOS revision and raw series-file digest, that binds every owner, base, test,
 note, removal condition, payload digest, and footprint to the built image.
+
+The moving manifest ref is itself tracked, not merely the projects emitted by
+`repo manifest -r`. `scripts/refresh-aosp-integration.sh` reruns `repo init`
+against Google's official manifest repository and atomically updates the
+reviewed branch, exact manifest-repository commit, and observation date in
+`config/aosp_tracking.json`. That policy change is committed before `repo sync`.
+Every integration lock then runs the same checker in `--check` mode and records
+the manifest-repository commit beside the flattened-manifest and project-set
+digests. A moving ref that has not been reviewed therefore stops before patch
+replay or Soong; an old `out/` directory cannot make it appear current. Release
+locks are never changed by the refresh command.
 
 The release matrix keeps `integration.android_latest_*` gates separate from the
 Pixel `build.*` and runtime gates. A green Cuttlefish build demonstrates that the

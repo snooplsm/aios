@@ -94,7 +94,11 @@ def validate_lane(manifest: Path, root: Path, lane_id: str) -> tuple[dict, list[
     return lane, projects
 
 
-def build_lock(manifest: Path, lane: dict, projects: list[dict]) -> dict:
+def build_lock(
+    manifest: Path, lane: dict, projects: list[dict], manifest_revision: str
+) -> dict:
+    if COMMIT_PATTERN.fullmatch(manifest_revision) is None:
+        raise ManifestContractError("manifest repository revision is not immutable")
     manifest_bytes = manifest.read_bytes()
     canonical_projects = json.dumps(
         projects, sort_keys=True, separators=(",", ":")
@@ -108,6 +112,7 @@ def build_lock(manifest: Path, lane: dict, projects: list[dict]) -> dict:
         "product": lane["product"],
         "lunch_target": lane["lunch_target"],
         "manifest_sha256": hashlib.sha256(manifest_bytes).hexdigest(),
+        "manifest_repository_revision": manifest_revision,
         "project_set_sha256": hashlib.sha256(canonical_projects).hexdigest(),
         "project_count": len(projects),
         "aios_revision": aios_project["revision"],
@@ -141,12 +146,13 @@ def check(
     manifest: Path,
     root: Path,
     lane_id: str,
+    manifest_revision: str,
     output: Path | None = None,
     force: bool = False,
 ) -> dict:
     manifest = manifest.resolve()
     lane, projects = validate_lane(manifest, root.resolve(), lane_id)
-    lock = build_lock(manifest, lane, projects)
+    lock = build_lock(manifest, lane, projects, manifest_revision.lower())
     if output is not None:
         write_json_atomic(output, lock, force)
     return lock
@@ -157,6 +163,7 @@ def main() -> int:
     parser.add_argument("--root", type=Path, default=ROOT)
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--lane", required=True)
+    parser.add_argument("--manifest-revision", required=True)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--force", action="store_true")
     arguments = parser.parse_args()
@@ -165,6 +172,7 @@ def main() -> int:
             arguments.manifest,
             arguments.root,
             arguments.lane,
+            arguments.manifest_revision,
             arguments.output,
             arguments.force,
         )
@@ -173,7 +181,8 @@ def main() -> int:
         return 1
     print(
         f"AOSP manifest locked for {result['lane']}: "
-        f"{result['project_count']} projects, {result['manifest_sha256']}"
+        f"{result['project_count']} projects at manifest "
+        f"{result['manifest_repository_revision']}, {result['manifest_sha256']}"
     )
     return 0
 
