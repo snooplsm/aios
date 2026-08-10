@@ -1625,11 +1625,24 @@ def validate_aosp_overlay(root: Path) -> None:
             "the Telecom fixture must refuse physical hardware and clean up calls")
     require("'^emulator-[0-9]+$'" in smoke_script
             and "ro.kernel.qemu" in smoke_script
+            and "$apiLevel -lt 35" in smoke_script
+            and "Get-FileHash -LiteralPath $apkPath -Algorithm SHA256"
+            in smoke_script
+            and "apk_sha256 = $apkSha256" in smoke_script
+            and "Refusing to replace an existing $package installation"
+            in smoke_script
             and 'physical_gate_evidence = $false' in smoke_script
             and "finally {" in smoke_script
             and "remove-role-holder" in smoke_script
-            and "full_screen_intent_launched_automatically" in smoke_script,
-            "the Telecom smoke script must be emulator-only, reversible, and non-release evidence")
+            and "cmd telecom wait-on-handlers" in smoke_script
+            and "original_role_holders_restored" in smoke_script
+            and "fixture_phone_account_removed" in smoke_script
+            and "cleanup_verified" in smoke_script
+            and "rm -f $remoteScreenshot" in smoke_script
+            and "remote_screenshot_removed" in smoke_script
+            and "full_screen_intent_launched_automatically" in smoke_script
+            and "[IO.File]::WriteAllText" in smoke_script,
+            "the Telecom smoke script must be digest-bound, emulator-only, reversible, and non-release evidence")
     require("isKnownContact" in assistant_client
             and "addressHash" in assistant_client
             and "normalizedAddressHash" in assistant_client

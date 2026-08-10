@@ -210,6 +210,15 @@ integration coverage, but it does not exercise the cellular modem, IMS,
 emergency routing, carrier video/RTT, or a Pixel build and cannot pass any
 physical-device release gate.
 
+The evidence records the exact smoke APK size and SHA-256. The runner also
+refuses to overwrite an existing AIOS Phone installation and, after the visual
+checks, asserts that the original role holders and screen state returned, the
+fixture account disappeared, and the temporary package was removed unless the
+explicit `-KeepInstalled` debugging switch was used. Remote screenshot
+filenames are unique and their deletion is verified after pulling. These
+postconditions make repeated emulator runs auditable without turning them into
+release claims.
+
 The separate `preview:prodcheck` lane compiles the complete role-capable Phone
 app against the public SDK using the production sources, tests, manifest,
 resources, and both AIOS Binder boundaries. Its backup policy excludes every

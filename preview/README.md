@@ -78,6 +78,14 @@ the legacy `gsm call` command, so a debug-source-set-only managed
 fixture checks for emulator hardware at runtime and is absent from the product
 and `prodcheck` builds.
 
+`scripts/emulator-telecom-smoke.ps1` binds its ignored JSON evidence to the
+exact APK size/SHA-256 and refuses API levels below 35, physical serials, QEMU
+misreports, or an existing `com.aios.phone` installation. A passing run also
+proves the synthetic call and account were removed, the original dialer role and
+screen state were restored, the temporary APK was uninstalled unless the
+explicit `-KeepInstalled` debugging switch was used, and the remote screenshot
+was erased. It remains explicitly non-physical evidence.
+
 Open this directory in Android Studio, or run:
 
 ```text
