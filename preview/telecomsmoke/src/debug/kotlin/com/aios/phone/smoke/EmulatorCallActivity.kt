@@ -10,6 +10,7 @@ import android.telecom.PhoneAccount
 import android.telecom.PhoneAccountHandle
 import android.telecom.TelecomManager
 import com.aios.phone.ui.InCallActivity
+import java.io.File
 
 /**
  * Shell-driven entry point for the emulator Telecom smoke test.
@@ -23,11 +24,22 @@ class EmulatorCallActivity : Activity() {
         super.onCreate(savedInstanceState)
         check(isEmulator()) { "The Telecom smoke fixture only runs on an emulator" }
 
+        handleCommand(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        check(isEmulator()) { "The Telecom smoke fixture only runs on an emulator" }
+        handleCommand(intent)
+    }
+
+    private fun handleCommand(command: Intent) {
         val telecom = getSystemService(TelecomManager::class.java)
-        when (intent.action) {
+        when (command.action) {
             ACTION_REGISTER -> telecom.registerPhoneAccount(buildPhoneAccount())
             ACTION_INCOMING -> {
-                val number = intent.getStringExtra(EXTRA_NUMBER) ?: DEFAULT_NUMBER
+                val number = command.getStringExtra(EXTRA_NUMBER) ?: DEFAULT_NUMBER
                 telecom.addNewIncomingCall(
                     phoneAccountHandle(),
                     Bundle().apply {
@@ -39,6 +51,14 @@ class EmulatorCallActivity : Activity() {
                 )
             }
             ACTION_ACTIVATE -> EmulatorConnectionService.activateAll()
+            ACTION_RESET_AUDIT -> {
+                EmulatorConnectionService.resetAudit()
+                auditFile().delete()
+            }
+            ACTION_EXPORT_AUDIT -> auditFile().writeText(
+                EmulatorConnectionService.auditSnapshot(),
+                Charsets.UTF_8,
+            )
             ACTION_DISCONNECT -> EmulatorConnectionService.disconnectAll()
             ACTION_UNREGISTER -> telecom.unregisterPhoneAccount(phoneAccountHandle())
             ACTION_SHOW -> startActivity(
@@ -62,6 +82,8 @@ class EmulatorCallActivity : Activity() {
         ACCOUNT_ID,
     )
 
+    private fun auditFile() = File(cacheDir, AUDIT_FILE_NAME)
+
     private fun isEmulator(): Boolean =
         Build.HARDWARE.equals("ranchu", ignoreCase = true) ||
             Build.HARDWARE.equals("goldfish", ignoreCase = true) ||
@@ -72,11 +94,14 @@ class EmulatorCallActivity : Activity() {
         const val ACTION_REGISTER = "com.aios.phone.smoke.REGISTER"
         const val ACTION_INCOMING = "com.aios.phone.smoke.INCOMING"
         const val ACTION_ACTIVATE = "com.aios.phone.smoke.ACTIVATE"
+        const val ACTION_RESET_AUDIT = "com.aios.phone.smoke.RESET_AUDIT"
+        const val ACTION_EXPORT_AUDIT = "com.aios.phone.smoke.EXPORT_AUDIT"
         const val ACTION_DISCONNECT = "com.aios.phone.smoke.DISCONNECT"
         const val ACTION_UNREGISTER = "com.aios.phone.smoke.UNREGISTER"
         const val ACTION_SHOW = "com.aios.phone.smoke.SHOW"
         const val EXTRA_NUMBER = "number"
         const val ACCOUNT_ID = "aios-emulator-smoke"
         const val DEFAULT_NUMBER = "15551230182"
+        const val AUDIT_FILE_NAME = "aios-telecom-smoke-audit.txt"
     }
 }

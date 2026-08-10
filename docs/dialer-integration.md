@@ -233,10 +233,15 @@ transaction, then restores the exact previous account. A standard `ACTION_DIAL`
 intent populates the production Compose number field; the labeled **Call**
 control must create a fixture-backed `DIALING` call and automatically open
 `InCallActivity`. The fixture advances that same connection to `ACTIVE`, the
-runner captures the connected surface, and the labeled **End call** control must
-remove it without restarting AIOS Phone. This proves app/Telecom wiring only;
-radio, IMS, carrier routing, call audio, and emergency behavior remain physical
-device gates.
+runner captures the connected surface, and then verifies the production
+**Mute**/**Unmute** and **Hold**/**Resume** round trips against Telecom state. It
+opens **Keypad**, sends `5`, and requires the fixture to observe the runtime's
+exact safe sequence: stop any prior tone, play `5`, then stop it after the
+bounded pulse. That callback audit exists only in the debug APK's private cache
+and is deleted and checked absent before the run can pass. Finally, the labeled
+**End call** control must remove the connection without restarting AIOS Phone.
+This proves app/Telecom wiring only; radio, IMS, carrier routing, remote DTMF
+recognition, call audio, and emergency behavior remain physical device gates.
 
 The separate `preview:prodcheck` lane compiles the complete role-capable Phone
 app against the public SDK using the production sources, tests, manifest,

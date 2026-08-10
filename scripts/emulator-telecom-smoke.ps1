@@ -105,20 +105,29 @@ $evidencePath = $null
 $smokeToken = [Guid]::NewGuid().ToString("N")
 $remoteScreenshot = "/sdcard/aios-telecom-smoke-$smokeToken.png"
 $remoteUiDump = "/sdcard/aios-telecom-smoke-$smokeToken.xml"
+$privateAuditFile = "cache/aios-telecom-smoke-audit.txt"
 $screenshot = $null
 $outgoingScreenshot = $null
+$privateAuditRemoved = $false
 
 function Get-UiControl {
     param([Parameter(Mandatory)][string]$Text)
 
-    Invoke-Adb shell uiautomator dump $remoteUiDump | Out-Null
-    [xml]$hierarchy = (Invoke-Adb shell cat $remoteUiDump) -join "`n"
-    $labels = @(
-        $hierarchy.SelectNodes('//node') |
-            Where-Object { $_.text -eq $Text -or $_.'content-desc' -eq $Text }
-    )
+    $labels = @()
+    for ($attempt = 0; $attempt -lt 5; $attempt++) {
+        Invoke-Adb shell uiautomator dump $remoteUiDump | Out-Null
+        [xml]$hierarchy = (Invoke-Adb shell cat $remoteUiDump) -join "`n"
+        $labels = @(
+            $hierarchy.SelectNodes('//node') |
+                Where-Object { $_.text -eq $Text -or $_.'content-desc' -eq $Text }
+        )
+        if ($labels.Count -eq 1) {
+            break
+        }
+        Start-Sleep -Milliseconds 200
+    }
     if ($labels.Count -ne 1) {
-        throw "Expected exactly one '$Text' control, found $($labels.Count)"
+        throw "Expected exactly one '$Text' control after retries, found $($labels.Count)"
     }
     $control = $labels[0].ParentNode
     if ($null -eq $control -or $control.clickable -ne "true" -or
@@ -336,6 +345,69 @@ try {
     $outgoingScreenshot = Join-Path $EvidenceDirectory "aios-telecom-outgoing-smoke.png"
     Invoke-Adb shell screencap -p $remoteScreenshot | Out-Null
     Invoke-Adb pull $remoteScreenshot $outgoingScreenshot | Out-Null
+
+    Invoke-UiControl "Mute"
+    Invoke-Adb shell cmd telecom wait-on-handlers | Out-Null
+    Start-Sleep -Milliseconds 300
+    $unmuteControl = Get-UiControl "Unmute"
+    if (-not $unmuteControl.enabled -or
+        (Get-CurrentTelecomCalls) -notmatch 'state=ACTIVE') {
+        throw "Mute did not round-trip through Telecom into Compose state"
+    }
+    Invoke-UiControl "Unmute"
+    Invoke-Adb shell cmd telecom wait-on-handlers | Out-Null
+    Start-Sleep -Milliseconds 300
+    if (-not (Get-UiControl "Mute").enabled) {
+        throw "Unmute did not round-trip through Telecom into Compose state"
+    }
+
+    Invoke-UiControl "Hold"
+    Invoke-Adb shell cmd telecom wait-on-handlers | Out-Null
+    Start-Sleep -Milliseconds 300
+    $telecomAfterHold = Get-CurrentTelecomCalls
+    $resumeControl = Get-UiControl "Resume"
+    if ($telecomAfterHold -notmatch 'state=(ON_HOLD|HOLDING)' -or
+        -not $resumeControl.enabled) {
+        throw "Hold did not round-trip through the managed connection into Compose state"
+    }
+    Invoke-UiControl "Resume"
+    Invoke-Adb shell cmd telecom wait-on-handlers | Out-Null
+    Start-Sleep -Milliseconds 300
+    if ((Get-CurrentTelecomCalls) -notmatch 'state=ACTIVE' -or
+        -not (Get-UiControl "Hold").enabled) {
+        throw "Resume did not return the managed connection to ACTIVE"
+    }
+
+    Invoke-Adb shell am start -a com.aios.phone.smoke.RESET_AUDIT `
+        -n $fixtureActivity | Out-Null
+    Start-Sleep -Milliseconds 200
+    Invoke-UiControl "Keypad"
+    Start-Sleep -Milliseconds 200
+    Invoke-UiControl "5"
+    Start-Sleep -Milliseconds 350
+    Invoke-Adb shell am start -a com.aios.phone.smoke.EXPORT_AUDIT `
+        -n $fixtureActivity | Out-Null
+    Start-Sleep -Milliseconds 200
+    $dtmfAudit = @(
+        Invoke-Adb shell run-as $package cat $privateAuditFile |
+            Where-Object { $_ }
+    ) -join "`n"
+    # PhoneRuntime first stops any prior tone, then sends one bounded pulse.
+    if ($dtmfAudit -ne "stop`nplay:5`nstop") {
+        $observedDtmf = $dtmfAudit.Replace("`r", "\\r").Replace("`n", "\\n")
+        throw "Keypad DTMF did not clear a prior tone and produce one bounded play/stop callback pair; observed '$observedDtmf'"
+    }
+    Invoke-Adb shell run-as $package rm -f $privateAuditFile | Out-Null
+    $remainingAudit = @(
+        Invoke-Adb shell run-as $package find cache -maxdepth 1 `
+            -name "aios-telecom-smoke-audit.txt" |
+            Where-Object { $_ }
+    )
+    if ($remainingAudit.Count -ne 0) {
+        throw "The private DTMF smoke audit survived verification"
+    }
+    $privateAuditRemoved = $true
+
     Invoke-UiControl "End call"
     Invoke-Adb shell cmd telecom wait-on-handlers | Out-Null
     Start-Sleep -Milliseconds 500
@@ -373,6 +445,10 @@ try {
         outgoing_in_call_activity_visible = $true
         outgoing_connection_active = $true
         phone_process_survived_outgoing = $true
+        mute_unmute_round_trip = $true
+        hold_resume_round_trip = $true
+        dtmf_play_stop_callbacks = $true
+        private_dtmf_audit_removed = $privateAuditRemoved
         outgoing_end_call_disconnected = $true
         screenshot = [IO.Path]::GetFullPath($screenshot)
         outgoing_screenshot = [IO.Path]::GetFullPath($outgoingScreenshot)
@@ -396,6 +472,9 @@ try {
                 $originalOutgoingAccount.user | Out-Null
         }
         & $adb -s $Serial shell cmd telecom wait-on-handlers | Out-Null
+    }
+    if ($installed) {
+        & $adb -s $Serial shell run-as $package rm -f $privateAuditFile | Out-Null
     }
     if ($registered) {
         & $adb -s $Serial shell am start -a com.aios.phone.smoke.UNREGISTER `

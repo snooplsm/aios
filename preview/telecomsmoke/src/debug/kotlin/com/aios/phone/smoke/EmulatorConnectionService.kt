@@ -9,6 +9,7 @@ import android.telecom.PhoneAccount
 import android.telecom.PhoneAccountHandle
 import android.telecom.TelecomManager
 import java.util.Collections
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.ConcurrentHashMap
 
 /** Supplies a managed synthetic call to Android Telecom for emulator testing. */
@@ -55,6 +56,14 @@ class EmulatorConnectionService : ConnectionService() {
 
         override fun onUnhold() = setActive()
 
+        override fun onPlayDtmfTone(c: Char) {
+            dtmfEvents += "play:$c"
+        }
+
+        override fun onStopDtmfTone() {
+            dtmfEvents += "stop"
+        }
+
         fun end(code: Int) {
             setDisconnected(DisconnectCause(code))
             destroy()
@@ -68,9 +77,14 @@ class EmulatorConnectionService : ConnectionService() {
         private val connections = Collections.newSetFromMap(
             ConcurrentHashMap<EmulatorConnection, Boolean>(),
         )
+        private val dtmfEvents = CopyOnWriteArrayList<String>()
 
         fun disconnectAll() = connections.toList().forEach { it.end(DisconnectCause.LOCAL) }
 
         fun activateAll() = connections.toList().forEach(EmulatorConnection::activate)
+
+        fun resetAudit() = dtmfEvents.clear()
+
+        fun auditSnapshot(): String = dtmfEvents.joinToString(separator = "\n", postfix = "\n")
     }
 }

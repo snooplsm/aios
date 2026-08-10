@@ -95,8 +95,12 @@ because an emulator cannot satisfy the caller-audio release gate.
 For the outgoing path, the runner temporarily selects the fixture account,
 opens AIOS Phone through a standard `ACTION_DIAL` intent, activates **Call**,
 verifies `DIALING` then `ACTIVE` in Telecom and the automatic in-call surface,
-and activates **End call**. The exact original outgoing account is restored in
-cleanup, including the no-account case.
+round-trips **Mute**/**Unmute** and **Hold**/**Resume**, and opens **Keypad** to
+verify one bounded `5` DTMF pulse. The debug fixture records only its stop/play/
+stop callbacks in app-private cache; the runner deletes that audit and asserts
+it is absent before activating **End call**. The exact original outgoing account
+is restored in cleanup, including the no-account case. These checks prove
+Telecom wiring, not carrier-side DTMF reception or physical call audio.
 
 Open this directory in Android Studio, or run:
 

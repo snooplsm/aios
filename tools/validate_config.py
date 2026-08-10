@@ -1630,12 +1630,19 @@ def validate_aosp_overlay(root: Path) -> None:
             and "Build.HARDWARE" in smoke_activity
             and "ACTION_INCOMING" in smoke_activity
             and "ACTION_ACTIVATE" in smoke_activity
+            and "override fun onNewIntent" in smoke_activity
+            and "ACTION_RESET_AUDIT" in smoke_activity
+            and "ACTION_EXPORT_AUDIT" in smoke_activity
             and "ACTION_DISCONNECT" in smoke_activity,
-            "the Telecom fixture must refuse physical hardware and clean up calls")
+            "the Telecom fixture must refuse physical hardware, handle reused commands, "
+            "and clean up calls")
     require("onCreateOutgoingConnection" in smoke_connection
             and "setDialing()" in smoke_connection
-            and "activateAll()" in smoke_connection,
-            "the debug Telecom fixture must model deterministic outgoing call transitions")
+            and "activateAll()" in smoke_connection
+            and "onPlayDtmfTone" in smoke_connection
+            and "onStopDtmfTone" in smoke_connection
+            and "auditSnapshot()" in smoke_connection,
+            "the debug Telecom fixture must model deterministic outgoing and DTMF transitions")
     require("Intent(application, InCallActivity::class.java)" in phone_runtime
             and '"Call placed. Tap the active-call card to open controls"'
             in phone_runtime,
@@ -1663,9 +1670,19 @@ def validate_aosp_overlay(root: Path) -> None:
             and 'Invoke-UiControl "Decline"' in smoke_script
             and 'android.intent.action.DIAL' in smoke_script
             and 'Invoke-UiControl "Call"' in smoke_script
+            and 'Invoke-UiControl "Mute"' in smoke_script
+            and 'Invoke-UiControl "Unmute"' in smoke_script
+            and 'Invoke-UiControl "Hold"' in smoke_script
+            and 'Invoke-UiControl "Resume"' in smoke_script
+            and 'Invoke-UiControl "Keypad"' in smoke_script
             and 'Invoke-UiControl "End call"' in smoke_script
             and "original_outgoing_account_restored" in smoke_script
             and "outgoing_connection_active" in smoke_script
+            and "mute_unmute_round_trip" in smoke_script
+            and "hold_resume_round_trip" in smoke_script
+            and "dtmf_play_stop_callbacks" in smoke_script
+            and "private_dtmf_audit_removed" in smoke_script
+            and "run-as $package rm -f $privateAuditFile" in smoke_script
             and "phone_process_survived_answer" in smoke_script
             and "phone_call_foreground_service" in smoke_script
             and "ongoing_notification_posted" in smoke_script
