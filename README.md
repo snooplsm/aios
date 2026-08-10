@@ -5,6 +5,11 @@ product is an on-device AI receptionist built into the default dialer. The same
 privileged model broker also supports deferred photo and video understanding for
 authorized applications.
 
+AIOS also includes a first-party Compose messaging client and a signature-only,
+on-device communication context service. SMS, calls, contacts, and selected photo
+metadata converge through opaque per-install conversation identities and bounded
+retrieval rather than giving apps direct access to one unrestricted database.
+
 The first hardware target is Pixel 9a (`tegu`). The architecture is capability
 based so devices with more memory and better accelerators can select stronger
 models without maintaining a different product fork.
@@ -45,6 +50,10 @@ after its bounded vision request. Device/model policy and host validators are
 also present. Debug builds can export bounded, identifier-free photo/video timing
 evidence so ETAs are based on the actual Pixel, build, model, and runtime rather
 than desktop estimates.
+AIOS Messaging now compiles as an SMS-role candidate with real SMS provider
+paths, respond-via-message, call launching, and read-only Photo Picker drafts.
+MMS remains visibly blocked and is a required carrier/device gate; the app does
+not claim that photo messaging is complete.
 
 It has not yet been compiled by Soong or flashed. Android 17's official manifest
 does not contain the Pixel 9a `device/google/tegu` project, so the build strategy
@@ -57,6 +66,8 @@ See `docs/model-packaging.md` and
 `docs/runtime-packaging.md`; the dedicated call path is in
 `docs/asr-runtime.md`, speech output is in `docs/tts-runtime.md`, and the
 physical caller-audio gate is in `docs/caller-audio-uplink.md`.
+Messaging and local retrieval boundaries are in
+`docs/communications-context.md`.
 
 RAM tiers nominate model candidates but do not authorize them on a release
 image. `config/model_admission.json` permits research candidates only for known

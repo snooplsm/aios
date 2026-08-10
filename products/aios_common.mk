@@ -2,6 +2,8 @@
 # owned by their upstream AOSP projects.
 
 PRODUCT_PACKAGES += \
+    AiosContextIntelligence \
+    AiosMessaging \
     AiosPhone \
     AiosCallIntelligence \
     AiosMediaIntelligence \

@@ -1,0 +1,39 @@
+java_library {
+    name: "aios_context_api",
+    srcs: [
+        "aidl/**/*.aidl",
+        "api/**/*.java",
+    ],
+    aidl: {
+        include_dirs: ["vendor/aios/services/contextintelligence/aidl"],
+    },
+    sdk_version: "system_current",
+    min_sdk_version: "35",
+    installable: false,
+}
+
+android_app {
+    name: "AiosContextIntelligence",
+    manifest: "AndroidManifest.xml",
+    srcs: ["src/**/*.java"],
+    static_libs: ["aios_context_api"],
+    resource_dirs: [],
+    platform_apis: true,
+    certificate: "platform",
+    privileged: true,
+    product_specific: true,
+    optimize: {
+        enabled: true,
+    },
+}
+
+java_test_host {
+    name: "aios_contextintelligence_host_tests",
+    srcs: [
+        "src/com/aios/contextintelligence/ContextPolicy.java",
+        "src/com/aios/contextintelligence/RevisionGate.java",
+        "tests/src/**/*.java",
+    ],
+    static_libs: ["junit"],
+    test_suites: ["general-tests"],
+}

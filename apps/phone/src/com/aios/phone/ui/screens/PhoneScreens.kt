@@ -316,10 +316,15 @@ private fun RecentCalls(state: PhoneUiState, dispatch: (PhoneAction) -> Unit) {
                         Text("$direction • $relative", style = MaterialTheme.typography.bodySmall)
                     }
                     if (recent.number.isNotBlank()) {
-                        Button(
-                            onClick = { dispatch(PhoneAction.DialNumber(recent.number)) },
-                            enabled = state.isDialerRoleHeld,
-                        ) { Text("Call") }
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Button(
+                                onClick = { dispatch(PhoneAction.DialNumber(recent.number)) },
+                                enabled = state.isDialerRoleHeld,
+                            ) { Text("Call") }
+                            OutlinedButton(
+                                onClick = { dispatch(PhoneAction.MessageNumber(recent.number)) },
+                            ) { Text("Message") }
+                        }
                     }
                 }
             }

@@ -1,0 +1,39 @@
+android_app {
+    name: "AiosMessaging",
+    manifest: "AndroidManifest.xml",
+    srcs: ["src/**/*.kt"],
+    resource_dirs: ["res"],
+    static_libs: [
+        "aios_context_api",
+        "androidx.activity_activity-compose",
+        "androidx.compose.foundation_foundation",
+        "androidx.compose.foundation_foundation-layout",
+        "androidx.compose.material3_material3",
+        "androidx.compose.runtime_runtime",
+        "androidx.compose.ui_ui",
+        "androidx.compose.ui_ui-tooling-preview",
+        "androidx.core_core-ktx",
+        "androidx.lifecycle_lifecycle-runtime-ktx",
+        "kotlinx-coroutines-android",
+    ],
+    kotlincflags: ["-Xjvm-default=all"],
+    platform_apis: true,
+    certificate: "platform",
+    privileged: true,
+    product_specific: true,
+    optimize: {
+        enabled: true,
+        shrink: true,
+        shrink_resources: true,
+    },
+}
+
+java_test_host {
+    name: "aios_messaging_host_tests",
+    srcs: [
+        "src/com/aios/messaging/model/MessagePolicy.kt",
+        "tests/src/**/*.kt",
+    ],
+    static_libs: ["junit"],
+    test_suites: ["general-tests"],
+}

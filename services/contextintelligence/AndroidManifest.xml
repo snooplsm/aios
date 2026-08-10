@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.aios.contextintelligence">
+
+    <permission
+        android:name="com.aios.permission.USE_COMMUNICATION_CONTEXT"
+        android:protectionLevel="signature|privileged" />
+
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <application
+        android:allowBackup="false"
+        android:directBootAware="false"
+        android:hasCode="true"
+        android:label="AIOS Communication Context">
+        <service
+            android:name=".CommunicationContextService"
+            android:exported="true"
+            android:permission="com.aios.permission.USE_COMMUNICATION_CONTEXT">
+            <intent-filter>
+                <action android:name="com.aios.context.COMMUNICATION_CONTEXT_SERVICE" />
+            </intent-filter>
+        </service>
+
+        <receiver
+            android:name=".ContextBootReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+    </application>
+</manifest>

@@ -14,6 +14,7 @@
          exact wakeup rather than asking the owner for special app access. -->
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
     <uses-permission android:name="com.aios.permission.USE_MODEL_BROKER" />
+    <uses-permission android:name="com.aios.permission.USE_COMMUNICATION_CONTEXT" />
 
     <uses-feature
         android:name="android.hardware.telephony.calling"

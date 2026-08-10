@@ -691,6 +691,38 @@ def validate_aosp_overlay(root: Path) -> None:
         "apps/phone/src/com/aios/phone/ui/InCallActivity.kt",
         "apps/phone/src/com/aios/phone/ui/screens/PhoneScreens.kt",
         "apps/phone/src/com/aios/phone/ui/theme/PhoneTheme.kt",
+        "apps/messaging/Android.bp",
+        "apps/messaging/AndroidManifest.xml",
+        "apps/messaging/src/com/aios/messaging/AiosMessagingApplication.kt",
+        "apps/messaging/src/com/aios/messaging/MessagingRuntime.kt",
+        "apps/messaging/src/com/aios/messaging/model/MessagingContract.kt",
+        "apps/messaging/src/com/aios/messaging/model/MessagePolicy.kt",
+        "apps/messaging/src/com/aios/messaging/data/MessagingRepository.kt",
+        "apps/messaging/src/com/aios/messaging/context/CommunicationContextClient.kt",
+        "apps/messaging/src/com/aios/messaging/telephony/SmsDeliverReceiver.kt",
+        "apps/messaging/src/com/aios/messaging/telephony/MmsDeliverReceiver.kt",
+        "apps/messaging/src/com/aios/messaging/telephony/RespondViaMessageService.kt",
+        "apps/messaging/src/com/aios/messaging/ui/MainActivity.kt",
+        "apps/messaging/src/com/aios/messaging/ui/MessagingScreens.kt",
+        "apps/messaging/src/com/aios/messaging/ui/theme/MessagingTheme.kt",
+        "apps/messaging/tests/src/com/aios/messaging/model/MessagePolicyTest.kt",
+        "preview/messagingcheck/build.gradle.kts",
+        "services/contextintelligence/Android.bp",
+        "services/contextintelligence/AndroidManifest.xml",
+        "services/contextintelligence/aidl/com/aios/context/ICommunicationContext.aidl",
+        "services/contextintelligence/aidl/com/aios/context/ConversationIdentity.aidl",
+        "services/contextintelligence/aidl/com/aios/context/ContextDocument.aidl",
+        "services/contextintelligence/aidl/com/aios/context/ContextSnippet.aidl",
+        "services/contextintelligence/api/com/aios/context/ConversationIdentity.java",
+        "services/contextintelligence/api/com/aios/context/ContextDocument.java",
+        "services/contextintelligence/api/com/aios/context/ContextSnippet.java",
+        "services/contextintelligence/src/com/aios/contextintelligence/CommunicationContextService.java",
+        "services/contextintelligence/src/com/aios/contextintelligence/ContextStore.java",
+        "services/contextintelligence/src/com/aios/contextintelligence/ContextPolicy.java",
+        "services/contextintelligence/src/com/aios/contextintelligence/RevisionGate.java",
+        "services/contextintelligence/tests/src/com/aios/contextintelligence/ContextPolicyTest.java",
+        "services/contextintelligence/tests/src/com/aios/contextintelligence/RevisionGateTest.java",
+        "docs/communications-context.md",
         "docs/compose-dialer-decision.md",
         "preview/README.md",
         "preview/prodcheck/build.gradle.kts",
@@ -880,6 +912,9 @@ def validate_aosp_overlay(root: Path) -> None:
     )
     require("AiosPhone" in common_product and "AiosPhoneAssistant" not in common_product,
             "the product must include the full AIOS Phone module")
+    require("AiosMessaging" in common_product
+            and "AiosContextIntelligence" in common_product,
+            "the product must include first-party messaging and communication context")
     require("aios_model_admission" in common_product
             and "ro.aios.model_admission=/product/etc/aios/model_admission.json"
             in common_product,
@@ -939,6 +974,93 @@ def validate_aosp_overlay(root: Path) -> None:
     require(phone_manifest.count('android.intent.action.DIAL') == 2
             and 'android:scheme="tel"' in phone_manifest,
             "AIOS Phone must handle ACTION_DIAL with and without a tel URI")
+
+    messaging_root = root / "apps" / "messaging"
+    messaging_manifest = (messaging_root / "AndroidManifest.xml").read_text(
+        encoding="utf-8"
+    )
+    messaging_runtime = (messaging_root / "src" / "com" / "aios" / "messaging" /
+                         "MessagingRuntime.kt").read_text(encoding="utf-8")
+    messaging_repository = (messaging_root / "src" / "com" / "aios" / "messaging" /
+                            "data" / "MessagingRepository.kt").read_text(encoding="utf-8")
+    messaging_activity = (messaging_root / "src" / "com" / "aios" / "messaging" /
+                          "ui" / "MainActivity.kt").read_text(encoding="utf-8")
+    sms_receiver = (messaging_root / "src" / "com" / "aios" / "messaging" /
+                    "telephony" / "SmsDeliverReceiver.kt").read_text(encoding="utf-8")
+    mms_receiver = (messaging_root / "src" / "com" / "aios" / "messaging" /
+                    "telephony" / "MmsDeliverReceiver.kt").read_text(encoding="utf-8")
+    context_client = (messaging_root / "src" / "com" / "aios" / "messaging" /
+                      "context" / "CommunicationContextClient.kt").read_text(
+                          encoding="utf-8")
+    require('android.intent.action.SENDTO' in messaging_manifest
+            and all(f'android:scheme="{scheme}"' in messaging_manifest
+                    for scheme in ("sms", "smsto", "mms", "mmsto"))
+            and 'android.intent.action.RESPOND_VIA_MESSAGE' in messaging_manifest
+            and 'android.provider.Telephony.SMS_DELIVER' in messaging_manifest
+            and 'android.permission.BROADCAST_SMS' in messaging_manifest
+            and 'android.provider.Telephony.WAP_PUSH_DELIVER' in messaging_manifest
+            and 'android.permission.BROADCAST_WAP_PUSH' in messaging_manifest,
+            "AIOS Messaging must satisfy every Android SMS-role component")
+    require("RoleManager.ROLE_SMS" in messaging_runtime
+            and "Telephony.Sms.Inbox.CONTENT_URI" in messaging_repository
+            and "Telephony.Sms.Sent.CONTENT_URI" in messaging_repository
+            and "sendMultipartTextMessage" in messaging_repository
+            and "pending.finish()" in sms_receiver,
+            "SMS delivery must be role-gated, provider-backed, multipart, and durable")
+    require("PickVisualMedia" in messaging_activity
+            and "ImageOnly" in messaging_activity
+            and "Intent.ACTION_DIAL" in messaging_activity
+            and "Photo sending waits for the carrier-tested MMS transport"
+            in messaging_runtime
+            and "RESULT_ERROR_GENERIC_FAILURE" in mms_receiver,
+            "photo drafts must use the system picker and unadmitted MMS must fail visibly")
+    require("indexSms" in context_client
+            and "deleteSource" in context_client
+            and "queryRecent" in context_client,
+            "messaging must index, retrieve, and tombstone SMS context")
+
+    context_root = root / "services" / "contextintelligence"
+    context_manifest = (context_root / "AndroidManifest.xml").read_text(encoding="utf-8")
+    context_service = (context_root / "src" / "com" / "aios" /
+                       "contextintelligence" /
+                       "CommunicationContextService.java").read_text(encoding="utf-8")
+    context_store = (context_root / "src" / "com" / "aios" /
+                     "contextintelligence" / "ContextStore.java").read_text(
+                         encoding="utf-8")
+    context_policy = (context_root / "src" / "com" / "aios" /
+                      "contextintelligence" / "ContextPolicy.java").read_text(
+                          encoding="utf-8")
+    require('protectionLevel="signature|privileged"' in context_manifest
+            and 'android.permission.READ_CONTACTS' in context_manifest
+            and "HmacSHA256" in context_service
+            and "PhoneNumberUtils.formatNumberToE164" in context_service
+            and "contactNumbers" in context_service
+            and "related.toArray" in context_service,
+            "communication identities must be opaque and re-resolve current contact members")
+    require("CREATE VIRTUAL TABLE entries_fts USING fts4" in context_store
+            and "CREATE TABLE tombstones" in context_store
+            and "RevisionGate.accepts" in context_store
+            and "identity.relatedConversationKeys" in context_store
+            and "MAX_QUERY_RESULTS = 8" in context_policy
+            and "MAX_SNIPPET_CHARS = 512" in context_policy
+            and "CALL_ARTIFACT_TTL_MILLIS" in context_policy
+            and "call artifacts must expire within 24 hours" in context_policy,
+            "communication retrieval must be bounded, revisioned, and retention-aware")
+    require("rawAddress" not in context_store
+            and "phone_number" not in context_store
+            and "contact_lookup" not in context_store,
+            "communication index must not store raw phone or contact identifiers")
+    context_client_manifests = (
+        phone_manifest,
+        messaging_manifest,
+        (root / "services" / "callintelligence" / "AndroidManifest.xml").read_text(
+            encoding="utf-8"),
+        (root / "services" / "mediaintelligence" / "AndroidManifest.xml").read_text(
+            encoding="utf-8"),
+    )
+    require(all("com.aios.permission.USE_COMMUNICATION_CONTEXT" in manifest
+                for manifest in context_client_manifests),
+            "every declared communication-context client must request its signature permission")
 
     phone_contract = (root / "apps" / "phone" / "src" / "com" / "aios" /
                       "phone" / "model" / "PhoneContract.kt").read_text(
@@ -1080,6 +1202,11 @@ def validate_aosp_overlay(root: Path) -> None:
             and "ThemePreference.LIGHT" in theme_source
             and "ThemePreference.DARK" in theme_source,
             "AIOS Phone must support system, light, and dark themes")
+    require("data class MessageNumber" in phone_contract
+            and "Intent.ACTION_SENDTO" in phone_runtime
+            and '"smsto"' in phone_runtime
+            and "PhoneAction.MessageNumber" in phone_screens,
+            "AIOS Phone recents must open the user-selected messaging app")
     require('getByName("debug")' in smoke_build
             and 'src/debug/AndroidManifest.xml' in smoke_build
             and "android.permission.MANAGE_OWN_CALLS" in smoke_manifest
@@ -2195,7 +2322,7 @@ def validate_security_surface(root: Path) -> None:
         if module == "AIOS_Apache_2_0":
             continue
         require(module in common_product or module in {
-                    "aios_call_api", "aios_model_api", "aios_runtime_api"}
+                    "aios_call_api", "aios_context_api", "aios_model_api", "aios_runtime_api"}
                 or module.endswith("_tests"),
                 f"local AIOS module is not reachable from the product: {module}")
 
@@ -2309,6 +2436,15 @@ def validate_release_configuration(root: Path) -> None:
         "dialer.multi_call_udf",
         "dialer.light_dark_theme",
         "dialer.emergency_never_ai",
+        "messaging.user_sms_role_selection",
+        "messaging.mms_carrier_transport",
+        "context.opaque_conversation_identity",
+        "context.contact_membership_refresh",
+        "context.bounded_local_retrieval",
+        "context.source_deletion_tombstone",
+        "context.call_artifact_expiry_24_hours",
+        "context.call_source_lifecycle",
+        "context.photo_metadata_lifecycle",
         "call.caller_uplink_remote_audibility",
         "call.ai_receptionist_dialog_round_trip",
         "call.owner_takeover_stops_ai_speech",

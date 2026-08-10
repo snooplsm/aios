@@ -188,6 +188,7 @@ sealed interface PhoneAction {
     data class ChangeHomeSection(val section: HomeSection) : PhoneAction
     data object PlaceCall : PhoneAction
     data class DialNumber(val number: String) : PhoneAction
+    data class MessageNumber(val number: String) : PhoneAction
     data object ReloadRecentCalls : PhoneAction
     data object ReloadVoicemails : PhoneAction
     data class ToggleVoicemail(val voicemailId: String) : PhoneAction

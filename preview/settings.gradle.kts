@@ -18,3 +18,4 @@ rootProject.name = "AiosPhonePreview"
 include(":app")
 include(":prodcheck")
 include(":telecomsmoke")
+include(":messagingcheck")

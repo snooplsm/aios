@@ -5,6 +5,7 @@ import android.Manifest
 import android.app.Application
 import android.app.role.RoleManager
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
@@ -348,6 +349,7 @@ object PhoneRuntime {
             }
             PhoneAction.PlaceCall -> placeCall(mutableState.value.dialInput, clearInput = true)
             is PhoneAction.DialNumber -> placeCall(action.number, clearInput = false)
+            is PhoneAction.MessageNumber -> openMessage(action.number)
             PhoneAction.ReloadRecentCalls -> {
                 reduce { it.copy(recentCallsLoading = true, recentCallsError = null) }
                 history.reload()
@@ -539,6 +541,20 @@ object PhoneRuntime {
         } catch (_: RuntimeException) {
             showMessage("The call could not be placed")
         }
+    }
+
+    private fun openMessage(number: String) {
+        val normalized = PhoneNumberUtils.normalizeNumber(number)
+        if (normalized.isBlank()) {
+            showMessage("This call has no messageable phone number")
+            return
+        }
+        val intent = Intent(
+            Intent.ACTION_SENDTO,
+            Uri.fromParts("smsto", normalized, null),
+        ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        runCatching { application.startActivity(intent) }
+            .onFailure { showMessage("No messaging app is available") }
     }
 
     @Suppress("DEPRECATION")

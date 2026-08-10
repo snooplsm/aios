@@ -9,6 +9,7 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.WRITE_MEDIA_STORAGE" />
     <uses-permission android:name="com.aios.permission.USE_MODEL_BROKER" />
+    <uses-permission android:name="com.aios.permission.USE_COMMUNICATION_CONTEXT" />
 
     <application
         android:allowBackup="false"

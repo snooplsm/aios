@@ -178,12 +178,32 @@ inexact fallback preserves cleanup if a product build violates that permission
 contract, but such a build cannot pass the physical 24-hour release gate. The
 UI cannot extend retention past the configured prototype maximum.
 
+## Communication context
+
+AIOS Messaging is a separate Kotlin/Compose UDF application and may hold the SMS
+role only after user selection. It owns Telephony-provider SMS persistence; photo
+selection uses the read-only system picker, and unadmitted MMS transport fails
+visibly. It can launch AIOS Phone through the standard dial intent without
+sharing either application's private database.
+
+Communication retrieval crosses a signature-only Binder service. Raw numbers are
+normalized transiently and represented in storage by a per-install HMAC key.
+Current contact membership is resolved on every identity request into a bounded
+set of opaque number keys, so contact edits invalidate grouping without storing
+a reversible alias. Source-specific writers publish revisioned documents; a
+tombstone prevents stale resurrection after deletion. Query consumers receive at
+most eight short snippets, never database handles or model-weight access. Call
+artifacts inherit the 24-hour retention boundary; durable call events contain no
+transcript or recording.
+
 ## Storage boundaries
 
 - Read-only model assets: product model directory, accessible only to Model
   Broker domain.
 - Call artifacts: credential-encrypted, app-private storage.
 - Media intelligence index: credential-encrypted system storage.
+- Communication context index: credential-encrypted, opaque conversation keys,
+  revisioned source documents, and deletion tombstones.
 - Portable media metadata: deliberately small XMP projection, never raw prompts,
   transcripts, embeddings, faces, or private business profile data.
 

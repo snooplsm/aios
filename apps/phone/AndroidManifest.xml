@@ -23,6 +23,7 @@
         android:name="com.android.voicemail.permission.WRITE_VOICEMAIL"
         tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="com.aios.permission.CONTROL_CALL_INTELLIGENCE" />
+    <uses-permission android:name="com.aios.permission.USE_COMMUNICATION_CONTEXT" />
 
     <uses-feature
         android:name="android.hardware.telephony.calling"

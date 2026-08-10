@@ -20,4 +20,12 @@
             fixed="true" />
     </exception>
 
+    <!-- Contact membership is resolved centrally into opaque per-install keys.
+         Raw numbers and contact lookup keys are never stored in the RAG index. -->
+    <exception package="com.aios.contextintelligence">
+        <permission
+            name="android.permission.READ_CONTACTS"
+            fixed="true" />
+    </exception>
+
 </exceptions>

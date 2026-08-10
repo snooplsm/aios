@@ -83,6 +83,25 @@ format-specific writer proves byte-structure preservation. Videos remain
 index-only and are never remuxed merely to add a caption. Their temporary
 storyboards are app-private and are erased after inference.
 
+## Messaging and communication context
+
+AIOS supplies an original Kotlin/Compose messaging app with system, light, and
+dark themes. The user explicitly selects the SMS role. The app must persist an
+incoming SMS before acknowledging delivery, persist accepted outbound SMS in the
+Telephony provider, support multipart text and respond-via-message, open AIOS
+Phone through a standard dial intent, and use the read-only system Photo Picker.
+
+Photo drafts may not be sent until the MMS download/send/provider pipeline has
+passed real carrier and multi-SIM testing. Unsupported MMS must fail visibly;
+the product may not label or count an unpersisted PDU as delivered.
+
+Phone numbers and contact relationships feed a shared on-device retrieval layer
+through per-install opaque identities. Only source-owning AIOS packages may
+write. Queries return at most eight bounded snippets. SMS deletion writes a
+monotonic tombstone, contact membership is re-resolved on every query identity,
+photo metadata must disappear when its source is deleted, and call transcripts
+or summaries may not remain retrievable after the 24-hour call-artifact expiry.
+
 ## Model platform
 
 AIOS packages licensed open-weight model artifacts as build inputs and exposes
