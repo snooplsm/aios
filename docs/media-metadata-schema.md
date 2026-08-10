@@ -103,6 +103,19 @@ WebVTT/`tx3g` compatibility: Android's platform MP4 muxer can author application
 metadata tracks, but not a standard text-subtitle sample entry. Generic players
 may therefore play the unchanged encoded media while ignoring the subtitles.
 
+AIOS-aware clients use the exported
+`com.aios.media.ENHANCED_VIDEO_METADATA_SERVICE`, protected by the signature
+permission `com.aios.permission.READ_ENHANCED_VIDEO_METADATA`. The API does not
+accept file paths or descriptors. It accepts only a query-free canonical
+`content://media/<volume>/video/media/<id>` URI whose published row is owned by
+Media Intelligence and still has the generation returned with the description.
+The service rejects duplicate AIOS tracks, non-video containers, more than 34
+tracks, timelines over 24 hours, samples over 64 KiB, noncanonical JSON, or any
+description/cue/event mismatch. It returns description and provenance as a
+bounded parcelable and subtitle cues in pages of at most 16, keeping each Binder
+transaction comfortably below the platform limit. A generation change requires
+the client to fetch fresh info before requesting another page.
+
 Before publication, a fresh extractor verifies the exact embedded samples and a
 per-track fingerprint over every original sample's presentation timestamp, sync
 flag, encoded size, and encoded bytes. Unsupported/encrypted/partial samples,
@@ -147,3 +160,10 @@ remux, and immediately after publication. Reboot/startup recovery must leave no
 pending row or journal for the first three cases, preserve the verified published
 copy in the last case, refuse mismatched owner/marker fixtures, and never modify
 the source.
+
+The `media.enhanced_video_metadata_reader` gate opens the published English,
+Spanish, no-speech, and no-audio fixtures through the signature-only Binder API,
+compares every returned field and cue with the indexed source, checks multi-page
+reads, and proves that a foreign owner, pending/trashed row, query-bearing URI,
+duplicate/custom malformed track, stale generation, oversized request, and
+caller without the signature permission all fail closed.

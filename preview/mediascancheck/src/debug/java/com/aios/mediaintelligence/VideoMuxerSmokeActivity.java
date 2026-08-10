@@ -47,12 +47,20 @@ public final class VideoMuxerSmokeActivity extends Activity {
                         DIGEST,
                         "en",
                         List.of(new VideoEmbeddedMetadata.Cue(
-                                0, "en", 250L, 1_250L, "Embedded subtitle smoke", 1.0f)));
+                                0, "en", 100L, 500L, "Embedded subtitle smoke", 1.0f)));
                 VideoEnhancedCopyMuxer.Result result = VideoEnhancedCopyMuxer.create(
                         sourceDescriptor, outputDescriptor, metadata, null);
+                EnhancedVideoMetadataReader.ParsedVideo parsed =
+                        EnhancedVideoMetadataReader.readDescriptor(outputDescriptor);
+                if (!"Platform muxer smoke video".equals(parsed.data.caption)
+                        || parsed.data.cues.size() != 1
+                        || !"Embedded subtitle smoke".equals(parsed.data.cues.get(0).text)) {
+                    throw new IllegalStateException("embedded metadata reader mismatch");
+                }
                 Log.i(TAG, "AIOS_MUX_SMOKE_OK tracks=" + result.sourceTrackCount
                         + " samples=" + result.copiedSampleCount
-                        + " bytes=" + result.copiedSampleBytes);
+                        + " bytes=" + result.copiedSampleBytes
+                        + " readCues=" + parsed.data.cues.size());
             }
         } catch (Exception error) {
             Log.e(TAG, "AIOS_MUX_SMOKE_FAILED", error);

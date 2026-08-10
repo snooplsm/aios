@@ -78,4 +78,9 @@ pending row carries that UUID until publication, then atomically clears it with
 still-pending row, including the insert-before-URI-attachment window; an already
 published verified copy is preserved and its self-write suppression is repaired.
 AIOS understands the custom subtitle MIME, but ordinary players are not required
-to display it.
+to display it. AIOS UI surfaces bind to a separate signature-permission reader.
+That service accepts only canonical, published `MediaStore` MP4s owned by Media
+Intelligence, revalidates their generation, and parses only the two exact AIOS
+track MIME types. It returns bounded description/provenance fields and at most
+16 subtitle cues per Binder page; it never returns a raw descriptor, model
+artifact, source path, or arbitrary media bytes.

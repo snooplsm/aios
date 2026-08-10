@@ -75,6 +75,7 @@
     {"id": "media.self_write_no_requeue", "category": "media", "required": true},
     {"id": "media.enhanced_video_copy_round_trip", "category": "media", "required": true},
     {"id": "media.enhanced_video_interrupted_export_recovery", "category": "media", "required": true},
+    {"id": "media.enhanced_video_metadata_reader", "category": "media", "required": true},
     {"id": "media.pixel9a_latency_profile", "category": "media", "required": true},
     {"id": "model.artifact_digest_enforced", "category": "model", "required": true},
     {"id": "model.call_preempts_media", "category": "model", "required": true},

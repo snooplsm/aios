@@ -45,6 +45,8 @@
       "crash_recovery": "durable_pending_journal",
       "description_track_mime": "application/vnd.aios.video-description+json",
       "subtitle_track_mime": "application/vnd.aios.subtitle+json",
+      "reader_access": "signature_permission",
+      "reader_max_cues_per_page": 16,
       "generic_player_subtitle_support_required": false
     },
     "writable_mime_types": ["image/jpeg", "image/png"],

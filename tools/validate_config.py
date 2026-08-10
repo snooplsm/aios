@@ -130,6 +130,8 @@ def validate_product(policy: dict[str, Any]) -> None:
                 "description_track_mime":
                     "application/vnd.aios.video-description+json",
                 "subtitle_track_mime": "application/vnd.aios.subtitle+json",
+                "reader_access": "signature_permission",
+                "reader_max_cues_per_page": 16,
                 "generic_player_subtitle_support_required": False,
             },
             "video export must be an explicit embedded-track MP4 copy")
@@ -2949,7 +2951,7 @@ def validate_security_surface(root: Path) -> None:
             continue
         require(module in common_product or module in {
                     "aios_call_api", "aios_context_api", "aios_media_context_api",
-                    "aios_model_api", "aios_runtime_api"}
+                    "aios_media_metadata_api", "aios_model_api", "aios_runtime_api"}
                 or module.endswith("_tests"),
                 f"local AIOS module is not reachable from the product: {module}")
 
