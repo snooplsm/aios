@@ -6,12 +6,22 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+ENTRY_FIELDS = {
+    "id", "project", "file", "base_revision", "sha256", "reason",
+    "removal_condition", "owner", "paths", "tests", "rebase_notes",
+}
+RELATIVE_PATTERN = re.compile(r"[A-Za-z0-9._+-]+(?:/[A-Za-z0-9._+-]+)*")
+PATCH_ID_PATTERN = re.compile(r"[a-z0-9][a-z0-9-]{2,79}")
+OWNER_PATTERN = re.compile(r"[a-z][a-z0-9-]{2,63}")
+COMMIT_PATTERN = re.compile(r"[0-9a-f]{40}")
+DIGEST_PATTERN = re.compile(r"[0-9a-f]{64}")
 
 
 class PatchVerificationError(RuntimeError):
@@ -46,27 +56,102 @@ def parse_overrides(values: list[str]) -> dict[str, Path]:
     return result
 
 
+def load_series(root: Path) -> list[dict]:
+    patches_root = (root / "patches").resolve()
+    series = json.loads((patches_root / "series.json").read_text(encoding="utf-8"))
+    if not isinstance(series, dict) or set(series) != {"schema_version", "patches"} \
+            or series.get("schema_version") != 2 \
+            or not isinstance(series.get("patches"), list):
+        raise PatchVerificationError("unsupported patch-series schema")
+    seen: set[str] = set()
+    for item in series["patches"]:
+        if not isinstance(item, dict) or set(item) != ENTRY_FIELDS:
+            raise PatchVerificationError("patch entry fields do not match schema v2")
+        patch_id = item["id"]
+        if not isinstance(patch_id, str) or PATCH_ID_PATTERN.fullmatch(patch_id) is None \
+                or patch_id in seen:
+            raise PatchVerificationError("patch IDs must be unique stable lowercase slugs")
+        seen.add(patch_id)
+        if not isinstance(item["project"], str) \
+                or RELATIVE_PATTERN.fullmatch(item["project"]) is None:
+            raise PatchVerificationError(f"{patch_id}: unsafe project path")
+        if not isinstance(item["owner"], str) \
+                or OWNER_PATTERN.fullmatch(item["owner"]) is None:
+            raise PatchVerificationError(f"{patch_id}: invalid owner")
+        if not isinstance(item["base_revision"], str) \
+                or COMMIT_PATTERN.fullmatch(item["base_revision"]) is None:
+            raise PatchVerificationError(f"{patch_id}: invalid immutable base")
+        if not isinstance(item["sha256"], str) \
+                or DIGEST_PATTERN.fullmatch(item["sha256"]) is None:
+            raise PatchVerificationError(f"{patch_id}: invalid patch digest")
+        if not isinstance(item["file"], str) or not item["file"].endswith(".patch") \
+                or RELATIVE_PATTERN.fullmatch(item["file"]) is None:
+            raise PatchVerificationError(f"{patch_id}: unsafe patch file")
+        patch_path = (patches_root / item["file"]).resolve()
+        if patches_root not in patch_path.parents or not patch_path.is_file():
+            raise PatchVerificationError(f"{patch_id}: missing or unsafe patch file")
+        if hashlib.sha256(patch_path.read_bytes()).hexdigest() != item["sha256"]:
+            raise PatchVerificationError(f"{patch_id}: patch digest mismatch")
+        patch_text = patch_path.read_text(encoding="utf-8")
+        diff_pairs = re.findall(
+            r"^diff --git a/(\S+) b/(\S+)$", patch_text, re.MULTILINE
+        )
+        actual_paths = sorted(left for left, right in diff_pairs if left == right)
+        declared_paths = item["paths"]
+        if len(actual_paths) != len(diff_pairs) or not isinstance(declared_paths, list) \
+                or not declared_paths \
+                or any(not isinstance(path, str)
+                       or RELATIVE_PATTERN.fullmatch(path) is None
+                       for path in declared_paths) \
+                or declared_paths != sorted(set(declared_paths)) \
+                or declared_paths != actual_paths:
+            raise PatchVerificationError(
+                f"{patch_id}: declared footprint does not match patch diff paths"
+            )
+        tests = item["tests"]
+        if not isinstance(tests, list) or not tests \
+                or any(not isinstance(path, str)
+                       or RELATIVE_PATTERN.fullmatch(path) is None for path in tests) \
+                or tests != sorted(set(tests)):
+            raise PatchVerificationError(f"{patch_id}: invalid regression-test paths")
+        for test in tests:
+            test_path = (root / test).resolve()
+            if root.resolve() not in test_path.parents or not test_path.is_file():
+                raise PatchVerificationError(
+                    f"{patch_id}: missing regression test {test}"
+                )
+        for field in ("reason", "removal_condition", "rebase_notes"):
+            value = item[field]
+            if not isinstance(value, str) or value != value.strip() or len(value) < 40:
+                raise PatchVerificationError(
+                    f"{patch_id}: {field} is not an actionable review note"
+                )
+    return series["patches"]
+
+
 def load_entries(
     root: Path,
     aosp_root: Path,
     overrides: dict[str, Path],
 ) -> list[tuple[dict, Path, Path, str]]:
-    series = json.loads((root / "patches" / "series.json").read_text(encoding="utf-8"))
     entries = []
-    for item in series["patches"]:
+    for item in load_series(root.resolve()):
         project = item["project"]
         checkout = overrides.get(project, (aosp_root / project).resolve())
         if not (checkout / ".git").exists():
             raise PatchVerificationError(f"{item['id']}: missing checkout {checkout}")
+        checkout = checkout.resolve()
+        git_root = Path(command(["git", "rev-parse", "--show-toplevel"], checkout)).resolve()
+        if git_root != checkout:
+            raise PatchVerificationError(
+                f"{item['id']}: project root does not match Git checkout {git_root}"
+            )
         head = command(["git", "rev-parse", "HEAD"], checkout)
         if head != item["base_revision"]:
             raise PatchVerificationError(
                 f"{item['id']}: expected {item['base_revision']}, found {head}"
             )
         patch_path = (root / "patches" / item["file"]).resolve()
-        actual_digest = hashlib.sha256(patch_path.read_bytes()).hexdigest()
-        if actual_digest != item["sha256"]:
-            raise PatchVerificationError(f"{item['id']}: patch digest mismatch")
         entries.append((item, checkout, patch_path, head))
     return entries
 

@@ -24,9 +24,17 @@ small topic branch plus an exported patch and contains:
 
 - reason the public/privileged API is insufficient;
 - upstream project and base revision;
-- owner and removal condition;
-- test that fails without the change; and
+- stable owner and removal condition;
+- repository paths for regression tests that fail without the change;
+- an exact, sorted list of every upstream path touched; and
 - rebase notes.
+
+These fields are not review prose alone. Patch queue schema version 2 is checked
+both by the repository validator and by the transactional replay tool. Each tool
+parses the patch's `diff --git` headers, rejects renames or implicit paths, and
+requires an exact match with the declared footprint before touching an AOSP
+checkout. The replay tool also verifies that its configured project directory is
+the Git toplevel at the immutable recorded commit.
 
 This makes an upstream refresh a manifest sync followed by an automated patch
 replay and test run rather than a merge of a permanently modified AOSP tree.
@@ -38,6 +46,10 @@ to match its size and SHA-256 entry in the current build's
 `installed-files-product.json`; a stale APK left in `out/` cannot satisfy a new
 build. The evidence also records the installed-file manifest digest. A rebase
 conflict therefore stops before a build instead of becoming an unreviewed merge.
+Build-evidence schema version 2 embeds the canonical review-complete queue and
+its SHA-256 after independently rehashing every payload. Together with the clean
+AIOS revision and raw series-file digest, that binds every owner, base, test,
+note, removal condition, payload digest, and footprint to the built image.
 
 The release matrix keeps `integration.android_latest_*` gates separate from the
 Pixel `build.*` and runtime gates. A green Cuttlefish build demonstrates that the

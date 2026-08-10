@@ -5,16 +5,22 @@ public/system APIs, and device configuration.
 
 When an upstream-project patch is unavoidable:
 
-1. Add its metadata to `series.json`.
+1. Add its schema-v2 metadata to `series.json`: stable owner, reason, exact
+   project/base, sorted touched-path footprint, regression-test paths, actionable
+   rebase notes, and removal condition.
 2. Store the exported patch under `patches/` and record its SHA-256 and exact
    upstream project commit.
-3. Add a test that demonstrates why the patch exists.
+3. Add a test that demonstrates why the patch exists and record its repository
+   path in the queue entry.
 4. Record an explicit removal condition.
 5. Replay the series onto a clean upstream manifest before merging an AOSP
    update.
 
 Never edit a synced AOSP project without either upstreaming the change or adding
-it to this queue. That is the invariant that keeps AIOS updateable.
+it to this queue. The validator and replay tool independently parse every
+`diff --git` header and require it to match the declared sorted path list, so a
+rebase cannot quietly expand a topic's footprint. That is the invariant that
+keeps AIOS updateable.
 
 The queue tool is read-only by default:
 

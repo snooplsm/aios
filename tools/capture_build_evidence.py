@@ -18,6 +18,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SHA256_PATTERN = re.compile(r"[0-9a-f]{64}")
+PATCH_REVIEW_FIELDS = (
+    "id", "project", "file", "base_revision", "sha256", "owner", "paths",
+    "tests", "reason", "removal_condition", "rebase_notes",
+)
 
 
 class BuildEvidenceError(RuntimeError):
@@ -70,6 +74,37 @@ def select_lane(root: Path, lane_id: str) -> tuple[dict, list[str]]:
     if len(matches) != 1:
         raise BuildEvidenceError(f"unknown or duplicate lane: {lane_id}")
     return matches[0], document["expected_product_artifacts"]
+
+
+def patch_queue_record(root: Path) -> tuple[list[dict], str]:
+    patches_root = (root / "patches").resolve()
+    document = load(patches_root / "series.json")
+    if set(document) != {"schema_version", "patches"} \
+            or document.get("schema_version") != 2 \
+            or not isinstance(document.get("patches"), list):
+        raise BuildEvidenceError("unsupported patch queue schema")
+    records = []
+    for item in document["patches"]:
+        if not isinstance(item, dict) or set(item) != set(PATCH_REVIEW_FIELDS):
+            raise BuildEvidenceError("patch queue lacks review-complete metadata")
+        relative = item["file"]
+        if not isinstance(relative, str):
+            raise BuildEvidenceError("patch queue contains an invalid payload path")
+        relative_path = Path(relative)
+        if relative_path.is_absolute() or not relative_path.parts \
+                or ".." in relative_path.parts:
+            raise BuildEvidenceError("patch queue contains an unsafe payload path")
+        payload = (patches_root / relative_path).resolve()
+        if patches_root not in payload.parents or not payload.is_file():
+            raise BuildEvidenceError(f"missing patch payload: {relative}")
+        actual_digest = sha256(payload)
+        if item["sha256"] != actual_digest:
+            raise BuildEvidenceError(f"patch payload digest mismatch: {relative}")
+        records.append({field: item[field] for field in PATCH_REVIEW_FIELDS})
+    canonical = json.dumps(
+        records, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
+    return records, hashlib.sha256(canonical).hexdigest()
 
 
 def artifact_record(product_out: Path, relative: str) -> dict:
@@ -196,6 +231,7 @@ def capture(
         raise BuildEvidenceError("AIOS HEAD differs from the resolved manifest lock")
     if git_output(root, "status", "--porcelain", "--untracked-files=all"):
         raise BuildEvidenceError("AIOS sources changed after manifest capture")
+    patch_queue, patch_queue_digest = patch_queue_record(root)
 
     if not build_log.is_file() or build_log.stat().st_size == 0:
         raise BuildEvidenceError("successful build evidence requires a non-empty log")
@@ -224,7 +260,7 @@ def capture(
         artifacts.append(artifact_record(product_out, image))
 
     value = {
-        "schema_version": 1,
+        "schema_version": 2,
         "status": "passed",
         "lane": lane_id,
         "kind": lane["kind"],
@@ -239,6 +275,8 @@ def capture(
         "build_log_sha256": sha256(build_log),
         "installed_files_product_sha256": sha256(installed_manifest),
         "patch_series_sha256": sha256(root / "patches" / "series.json"),
+        "patch_queue_sha256": patch_queue_digest,
+        "patch_queue": patch_queue,
         "captured_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
         "host": {
             "system": platform.system(),

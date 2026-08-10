@@ -625,34 +625,82 @@ def validate_model_admission(root: Path) -> None:
 
 def validate_patch_series(root: Path) -> None:
     series = load_json(root / "patches" / "series.json")
-    require(series.get("schema_version") == 1, "unsupported patch-series schema")
+    require(set(series) == {"schema_version", "patches"}
+            and series.get("schema_version") == 2,
+            "unsupported patch-series schema")
     patches = series.get("patches")
     require(isinstance(patches, list), "patch series must be an array")
     required = {
         "id", "project", "file", "base_revision", "sha256", "reason",
-        "removal_condition"
+        "removal_condition", "owner", "paths", "tests", "rebase_notes"
     }
+    relative_pattern = re.compile(
+        r"[A-Za-z0-9._+-]+(?:/[A-Za-z0-9._+-]+)*"
+    )
     seen: set[str] = set()
     for patch in patches:
         require(isinstance(patch, dict), "each patch entry must be an object")
-        missing = required - patch.keys()
-        require(not missing, f"patch entry missing fields: {sorted(missing)}")
+        require(set(patch) == required,
+                "patch entry fields must exactly match schema v2")
+        require(isinstance(patch["id"], str)
+                and re.fullmatch(r"[a-z0-9][a-z0-9-]{2,79}", patch["id"]),
+                "patch ID must be a stable lowercase slug")
         require(patch["id"] not in seen, f"duplicate patch ID: {patch['id']}")
         seen.add(patch["id"])
-        require(re.fullmatch(r"[0-9a-f]{40}", patch["base_revision"]) is not None,
+        require(isinstance(patch["project"], str)
+                and relative_pattern.fullmatch(patch["project"]) is not None,
+                f"{patch['id']}: project must be a safe relative Repo path")
+        require(isinstance(patch["owner"], str)
+                and re.fullmatch(r"[a-z][a-z0-9-]{2,63}", patch["owner"]),
+                f"{patch['id']}: owner must be a stable team slug")
+        require(isinstance(patch["base_revision"], str)
+                and re.fullmatch(r"[0-9a-f]{40}", patch["base_revision"]) is not None,
                 f"{patch['id']}: base revision must be a full commit hash")
+        require(isinstance(patch["file"], str)
+                and patch["file"].endswith(".patch")
+                and relative_pattern.fullmatch(patch["file"]) is not None,
+                f"{patch['id']}: patch file must be a safe relative path")
         patch_path = (root / "patches" / patch["file"]).resolve()
         require((root / "patches").resolve() in patch_path.parents,
                 f"{patch['id']}: patch path escapes patches directory")
         require(patch_path.is_file(), f"{patch['id']}: missing patch file")
-        require(re.fullmatch(r"[0-9a-f]{64}", patch["sha256"]) is not None,
+        require(isinstance(patch["sha256"], str)
+                and re.fullmatch(r"[0-9a-f]{64}", patch["sha256"]) is not None,
                 f"{patch['id']}: patch digest must be SHA-256")
         actual_digest = hashlib.sha256(patch_path.read_bytes()).hexdigest()
         require(actual_digest == patch["sha256"],
                 f"{patch['id']}: patch digest mismatch")
         patch_text = patch_path.read_text(encoding="utf-8")
-        require("diff --git " in patch_text and "../" not in patch["file"],
-                f"{patch['id']}: malformed patch payload")
+        diff_pairs = re.findall(
+            r"^diff --git a/(\S+) b/(\S+)$", patch_text, re.MULTILINE
+        )
+        require(diff_pairs and all(left == right for left, right in diff_pairs),
+                f"{patch['id']}: patch must use explicit non-rename diff paths")
+        actual_paths = sorted(left for left, _ in diff_pairs)
+        declared_paths = patch["paths"]
+        require(isinstance(declared_paths, list) and declared_paths
+                and all(isinstance(path, str)
+                        and relative_pattern.fullmatch(path) is not None
+                        for path in declared_paths)
+                and declared_paths == sorted(set(declared_paths))
+                and declared_paths == actual_paths,
+                f"{patch['id']}: declared footprint does not match patch diff paths")
+        tests = patch["tests"]
+        require(isinstance(tests, list) and tests
+                and all(isinstance(path, str)
+                        and relative_pattern.fullmatch(path) is not None
+                        for path in tests)
+                and tests == sorted(set(tests)),
+                f"{patch['id']}: tests must be unique safe relative paths")
+        for test in tests:
+            test_path = (root / test).resolve()
+            require(root.resolve() in test_path.parents and test_path.is_file(),
+                    f"{patch['id']}: missing regression test {test}")
+        for field in ("reason", "removal_condition", "rebase_notes"):
+            value = patch[field]
+            require(isinstance(value, str) and value == value.strip()
+                    and len(value) >= 40,
+                    f"{patch['id']}: {field} must be an actionable review note")
 
 
 def validate_aosp_overlay(root: Path) -> None:
@@ -940,9 +988,12 @@ def validate_aosp_overlay(root: Path) -> None:
     )
     require("def apply_series(" in patch_tool
             and "def revert_series(" in patch_tool
+            and "def load_series(" in patch_tool
+            and "declared footprint does not match patch diff paths" in patch_tool
+            and "--show-toplevel" in patch_tool
             and '"--index"' in patch_tool
             and "refusing to patch dirty tracked checkout" in patch_tool,
-            "AOSP topics must use an exact-base, staged, reversible transaction")
+            "AOSP topics must be review-complete, footprint-locked transactions")
     build_script = (root / "scripts" / "build-aosp-lane.sh").read_text(
         encoding="utf-8"
     )
@@ -958,8 +1009,11 @@ def validate_aosp_overlay(root: Path) -> None:
     require("installed-files-product.json" in build_evidence_source
             and "require_manifest_membership" in build_evidence_source
             and "installed_files_product_sha256" in build_evidence_source
+            and "patch_queue_record" in build_evidence_source
+            and "patch_queue_sha256" in build_evidence_source
+            and '"schema_version": 2' in build_evidence_source
             and "empty installed product artifact" in build_evidence_source,
-            "build evidence must bind non-empty core artifacts to the current product image list")
+            "build evidence must bind product artifacts and the review-complete patch queue")
 
     common_product = (root / "products" / "aios_common.mk").read_text(
         encoding="utf-8"

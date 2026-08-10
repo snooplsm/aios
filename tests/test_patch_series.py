@@ -51,16 +51,27 @@ class PatchSeriesTransactionTests(unittest.TestCase):
         aios = base / "aios"
         patch_dir = aios / "patches"
         patch_dir.mkdir(parents=True)
+        test_dir = aios / "tests"
+        test_dir.mkdir()
+        (test_dir / "test_patch_series.py").write_text(
+            "# fixture regression contract\n", encoding="utf-8"
+        )
         patch_path = patch_dir / "change.patch"
         patch_path.write_bytes(patch_bytes)
         (patch_dir / "series.json").write_text(json.dumps({
-            "schema_version": 1,
+            "schema_version": 2,
             "patches": [{
                 "id": "test-change",
                 "project": "packages/apps/Dialer",
                 "file": "change.patch",
                 "base_revision": revision,
                 "sha256": hashlib.sha256(patch_bytes).hexdigest(),
+                "owner": "test-platform",
+                "paths": ["example.txt"],
+                "tests": ["tests/test_patch_series.py"],
+                "reason": "Exercise the immutable patch transaction in the host regression fixture.",
+                "removal_condition": "Remove only when the patch transaction itself is no longer supported.",
+                "rebase_notes": "Regenerate the fixture patch at its new base and preserve its one-file footprint.",
             }],
         }), encoding="utf-8")
         return aios, aosp, checkout, source
@@ -92,6 +103,26 @@ class PatchSeriesTransactionTests(unittest.TestCase):
             with self.assertRaisesRegex(patches.PatchVerificationError, "unstaged"):
                 patches.revert_series(root, aosp, {})
             self.assertEqual("additional edit\n", source.read_text(encoding="utf-8"))
+
+    def test_runtime_rejects_undeclared_patch_footprint(self):
+        with tempfile.TemporaryDirectory() as raw:
+            root, aosp, _, _ = self.create_fixture(raw)
+            series_path = root / "patches" / "series.json"
+            series = json.loads(series_path.read_text(encoding="utf-8"))
+            series["patches"][0]["paths"] = ["other.txt"]
+            series_path.write_text(json.dumps(series), encoding="utf-8")
+            with self.assertRaisesRegex(patches.PatchVerificationError, "footprint"):
+                patches.verify(root, aosp, {}, reverse=False)
+
+    def test_runtime_requires_complete_review_metadata(self):
+        with tempfile.TemporaryDirectory() as raw:
+            root, aosp, _, _ = self.create_fixture(raw)
+            series_path = root / "patches" / "series.json"
+            series = json.loads(series_path.read_text(encoding="utf-8"))
+            del series["patches"][0]["owner"]
+            series_path.write_text(json.dumps(series), encoding="utf-8")
+            with self.assertRaisesRegex(patches.PatchVerificationError, "schema v2"):
+                patches.verify(root, aosp, {}, reverse=False)
 
 
 if __name__ == "__main__":

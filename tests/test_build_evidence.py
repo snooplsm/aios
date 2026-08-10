@@ -39,11 +39,16 @@ class BuildEvidenceTests(unittest.TestCase):
                     aios / "config" / "aosp_lanes.json")
         shutil.copy(ROOT / "patches" / "series.json",
                     aios / "patches" / "series.json")
+        patch_series = json.loads((aios / "patches" / "series.json")
+                                  .read_text(encoding="utf-8"))
+        for item in patch_series["patches"]:
+            shutil.copy(ROOT / "patches" / item["file"],
+                        aios / "patches" / item["file"])
         git(aios, "init")
         git(aios, "config", "core.autocrlf", "false")
         git(aios, "config", "user.name", "AIOS Test")
         git(aios, "config", "user.email", "test@aios.invalid")
-        git(aios, "add", "config/aosp_lanes.json", "patches/series.json")
+        git(aios, "add", "config/aosp_lanes.json", "patches")
         git(aios, "commit", "-m", "fixture")
         head = git(aios, "rev-parse", "HEAD")
 
@@ -102,8 +107,11 @@ class BuildEvidenceTests(unittest.TestCase):
                 aios, "android_latest_integration", manifest, lock, out, log, output
             )
             self.assertEqual("passed", value["status"])
+            self.assertEqual(2, value["schema_version"])
             self.assertEqual("aios/test/fingerprint", value["build_fingerprint"])
             self.assertEqual(14, len(value["artifacts"]))
+            self.assertEqual(2, len(value["patch_queue"]))
+            self.assertRegex(value["patch_queue_sha256"], r"^[0-9a-f]{64}$")
             self.assertFalse(value["proves_physical_runtime_gate"])
             self.assertEqual(
                 hashlib.sha256(
@@ -113,6 +121,27 @@ class BuildEvidenceTests(unittest.TestCase):
                 value["installed_files_product_sha256"],
             )
             self.assertTrue(output.is_file())
+
+    def test_patch_queue_record_rejects_payload_tampering(self):
+        with tempfile.TemporaryDirectory() as raw:
+            aios, _, _, _, _, _ = self.create_fixture(raw)
+            series = json.loads((aios / "patches" / "series.json")
+                                .read_text(encoding="utf-8"))
+            payload = aios / "patches" / series["patches"][0]["file"]
+            payload.write_bytes(payload.read_bytes() + b"\ntampered\n")
+            with self.assertRaisesRegex(evidence.BuildEvidenceError, "digest mismatch"):
+                evidence.patch_queue_record(aios)
+
+    def test_patch_queue_digest_binds_review_metadata(self):
+        with tempfile.TemporaryDirectory() as raw:
+            aios, _, _, _, _, _ = self.create_fixture(raw)
+            _, before = evidence.patch_queue_record(aios)
+            series_path = aios / "patches" / "series.json"
+            series = json.loads(series_path.read_text(encoding="utf-8"))
+            series["patches"][0]["rebase_notes"] += " Reconfirm the owner review."
+            series_path.write_text(json.dumps(series), encoding="utf-8")
+            _, after = evidence.patch_queue_record(aios)
+            self.assertNotEqual(before, after)
 
     def test_rejects_manifest_changed_after_lock(self):
         with tempfile.TemporaryDirectory() as raw:

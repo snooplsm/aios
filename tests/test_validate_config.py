@@ -47,6 +47,17 @@ def load(name):
     return json.loads((ROOT / "config" / name).read_text(encoding="utf-8"))
 
 
+def copy_patch_contract_fixture(destination):
+    shutil.copytree(ROOT / "patches", destination / "patches")
+    for relative in (
+            "scripts/emulator-telecom-smoke.ps1",
+            "tests/test_patch_series.py",
+            "tests/test_validate_config.py"):
+        target = destination / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy(ROOT / relative, target)
+
+
 def passing_admission_evidence(catalog, suite):
     tier = next(item for item in catalog["tiers"] if item["id"] == "edge_8gb")
     roles = {
@@ -369,8 +380,30 @@ class RuntimeCatalogTests(unittest.TestCase):
 
 
 class IntegrationStructureTests(unittest.TestCase):
-    def test_empty_patch_series_is_valid(self):
+    def test_review_complete_patch_series_is_valid(self):
         validator.validate_patch_series(ROOT)
+
+    def test_declared_patch_footprint_cannot_drift(self):
+        with tempfile.TemporaryDirectory() as raw:
+            temporary = Path(raw)
+            copy_patch_contract_fixture(temporary)
+            series_path = temporary / "patches" / "series.json"
+            series = json.loads(series_path.read_text(encoding="utf-8"))
+            series["patches"][0]["paths"] = ["Android.bp"]
+            series_path.write_text(json.dumps(series), encoding="utf-8")
+            with self.assertRaisesRegex(validator.ValidationError, "footprint"):
+                validator.validate_patch_series(temporary)
+
+    def test_patch_review_metadata_is_mandatory(self):
+        with tempfile.TemporaryDirectory() as raw:
+            temporary = Path(raw)
+            copy_patch_contract_fixture(temporary)
+            series_path = temporary / "patches" / "series.json"
+            series = json.loads(series_path.read_text(encoding="utf-8"))
+            del series["patches"][0]["rebase_notes"]
+            series_path.write_text(json.dumps(series), encoding="utf-8")
+            with self.assertRaisesRegex(validator.ValidationError, "schema v2"):
+                validator.validate_patch_series(temporary)
 
     def test_aosp_overlay_contract_is_valid(self):
         validator.validate_aosp_overlay(ROOT)
@@ -388,7 +421,7 @@ class IntegrationStructureTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as raw:
             temporary = Path(raw)
             (temporary / "config").mkdir()
-            shutil.copytree(ROOT / "patches", temporary / "patches")
+            copy_patch_contract_fixture(temporary)
             for name in ("aosp_tracking.json", "aosp_lanes.json",
                          "model_catalog.json",
                          "release_gates.json", "release_status.json"):
@@ -408,7 +441,7 @@ class IntegrationStructureTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as raw:
             temporary = Path(raw)
             (temporary / "config").mkdir()
-            shutil.copytree(ROOT / "patches", temporary / "patches")
+            copy_patch_contract_fixture(temporary)
             for name in ("aosp_tracking.json", "aosp_lanes.json",
                          "model_catalog.json", "release_gates.json",
                          "release_status.json"):
