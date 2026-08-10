@@ -136,6 +136,7 @@ final class SessionController implements AutoCloseable {
         @Override
         public boolean accepts(String capability) {
             return "image_understanding".equals(capability)
+                    || "video_understanding".equals(capability)
                     || "audio_understanding".equals(capability);
         }
 

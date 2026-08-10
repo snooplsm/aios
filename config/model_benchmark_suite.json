@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "suite_version": 1,
+  "suite_version": 2,
   "required_observations": [
     "peak_rss_mb",
     "thermal_status_max"
@@ -25,7 +25,10 @@
       {"id": "crash_free", "metric": "crash_count", "operator": "eq", "threshold": 0},
       {"id": "invocation_success", "metric": "invocation_success_rate", "operator": "eq", "threshold": 1.0},
       {"id": "valid_output", "metric": "output_valid_rate", "operator": "eq", "threshold": 1.0},
-      {"id": "media_latency", "metric": "p95_latency_ms", "operator": "lte", "threshold": 15000},
+      {"id": "video_invocation_success", "metric": "video_invocation_success_rate", "operator": "eq", "threshold": 1.0},
+      {"id": "video_valid_output", "metric": "video_output_valid_rate", "operator": "eq", "threshold": 1.0},
+      {"id": "image_latency", "metric": "p95_image_latency_ms", "operator": "lte", "threshold": 15000},
+      {"id": "video_storyboard_latency", "metric": "p95_video_storyboard_inference_ms", "operator": "lte", "threshold": 20000},
       {"id": "english_known_answers", "metric": "en_known_answer_rate", "operator": "gte", "threshold": 0.9},
       {"id": "spanish_known_answers", "metric": "es_known_answer_rate", "operator": "gte", "threshold": 0.9}
     ],

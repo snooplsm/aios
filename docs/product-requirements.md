@@ -68,6 +68,8 @@ camera application that created them.
   idle and the device is thermally healthy.
 - Bursts, sustained capture sessions, and all video jobs are deferred.
 - Deferred jobs require external power and battery level of at least 80%.
+- Each video uses twenty nearest-sync keyframes sampled uniformly across time
+  and composed into one bounded 5×4 storyboard; AIOS never sends every frame.
 - Every ringing, dialing, active, waiting, held, or conferenced call preempts all
   media inference, whether or not AI processing is enabled.
 - Originals remain viewable if inference fails or is interrupted.
@@ -77,15 +79,17 @@ language, model identifier, model digest, inference timestamp, and confidence.
 The encrypted AIOS media index is authoritative. A portable XMP projection may
 be embedded only for formats that pass a lossless round-trip validator. HEIC,
 AVIF, DNG, Motion Photo, and Ultra HDR assets remain index-only until a
-format-specific writer proves byte-structure preservation. Videos use an XMP
-sidecar or container-safe writer; they are never remuxed merely to add a caption.
+format-specific writer proves byte-structure preservation. Videos remain
+index-only and are never remuxed merely to add a caption. Their temporary
+storyboards are app-private and are erased after inference.
 
 ## Model platform
 
 AIOS packages licensed open-weight model artifacts as build inputs and exposes
 capabilities through a signature-protected Binder service. Apps request a
-capability such as `streaming_asr`, `text_generation`, `image_understanding`, or
-`speech_synthesis`; they do not open weight files directly.
+capability such as `streaming_asr`, `text_generation`, `image_understanding`,
+`video_understanding`, or `speech_synthesis`; they do not open weight files
+directly.
 
 The broker chooses a model using measured memory, supported acceleration
 backends, thermal state, current workload, and the model catalog. Call inference
@@ -114,5 +118,7 @@ device:
    continues and the carrier call remains connected.
 6. Call artifacts disappear no later than 24 hours after creation.
 7. A new JPEG is indexed, a burst is deferred, and a deferred media job does not
-   run below 80% battery or off charger.
+   run below 80% battery or off charger. A known video produces one indexed
+   result from twenty chronological keyframes without changing the original or
+   retaining its temporary storyboard.
 8. Airplane mode demonstrates that the entire feature set remains on-device.

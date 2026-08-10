@@ -9,6 +9,7 @@ import android.os.IBinder;
 import android.os.ParcelFileDescriptor;
 import android.os.RemoteException;
 import android.os.SystemClock;
+import android.util.Log;
 
 import com.aios.model.GenerationChunk;
 import com.aios.model.IAiosModelService;
@@ -16,24 +17,22 @@ import com.aios.model.IModelCallback;
 import com.aios.model.InferenceResult;
 import com.aios.model.ModelRequest;
 
+import java.io.File;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.util.Locale;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
-/** One bounded image-understanding request for a JobService worker thread. */
+/** One bounded media-understanding request for a JobService worker thread. */
 final class MediaBrokerClient implements AutoCloseable {
+    private static final String TAG = "AiosMediaBroker";
     private static final long BIND_TIMEOUT_SECONDS = 5L;
     private static final long INFERENCE_TIMEOUT_MINUTES = 2L;
     private static final long CONSTRAINT_RECHECK_MILLIS = 1_000L;
     private static final int ERROR_BROKER_UNAVAILABLE = 1;
     private static final int ERROR_INFERENCE_TIMEOUT = 2;
     private static final int ERROR_CONSTRAINT_BLOCKED = 3;
-
-    interface ConstraintProbe {
-        /** Returns a retry reason, or {@code null} while inference may continue. */
-        String blockedReason();
-    }
 
     static final class Result {
         final InferenceResult inference;
@@ -70,95 +69,171 @@ final class MediaBrokerClient implements AutoCloseable {
         this.context = context;
     }
 
-    Result process(MediaJobStore.PendingJob job, ConstraintProbe constraints)
+    Result process(MediaJobStore.PendingJob job, MediaConstraintProbe constraints)
             throws IOException, InterruptedException {
         String blocked = constraints.blockedReason();
         if (blocked != null) {
             return new Result(null, ERROR_CONSTRAINT_BLOCKED, blocked);
         }
-        Intent intent = new Intent("com.aios.model.MODEL_SERVICE")
-                .setPackage("com.aios.modelbroker");
-        bound = context.bindService(intent, connection, Context.BIND_AUTO_CREATE);
-        if (!bound || !connected.await(BIND_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-                || service == null) {
-            return new Result(null, ERROR_BROKER_UNAVAILABLE, "model_broker_unavailable");
-        }
-        blocked = constraints.blockedReason();
-        if (blocked != null) {
-            return new Result(null, ERROR_CONSTRAINT_BLOCKED, blocked);
-        }
-
-        CountDownLatch completed = new CountDownLatch(1);
-        Holder holder = new Holder();
-        IModelCallback callback = new IModelCallback.Stub() {
-            @Override
-            public void onChunk(GenerationChunk chunk) {
-                // Media results are committed only from the final typed result.
-            }
-
-            @Override
-            public void onCompleted(InferenceResult value) {
-                holder.result = value;
-                completed.countDown();
-            }
-
-            @Override
-            public void onError(int code, String message) {
-                holder.errorCode = code;
-                completed.countDown();
-            }
-        };
-
-        ModelRequest request = new ModelRequest();
-        request.requestId = "media:" + job.id + ":" + job.generation;
-        request.capability = "image_understanding";
-        request.workload = "media_background";
-        String locale = Locale.getDefault().getLanguage();
-        request.language = "es".equals(locale) ? "es" : "en";
-        request.maxOutputTokens = 1024;
-        request.deadlineElapsedRealtimeMillis = SystemClock.elapsedRealtime() + 30_000L;
-        request.allowFallback = true;
-
+        PreparedMedia prepared;
         try {
-            sessionId = service.createSession(request, callback);
-            if (sessionId <= 0L) {
+            prepared = PreparedMedia.open(context, job, constraints);
+        } catch (VideoStoryboard.BlockedException error) {
+            return new Result(null, ERROR_CONSTRAINT_BLOCKED, error.reason);
+        }
+        try (prepared) {
+            blocked = constraints.blockedReason();
+            if (blocked != null) {
+                return new Result(null, ERROR_CONSTRAINT_BLOCKED, blocked);
+            }
+            Intent intent = new Intent("com.aios.model.MODEL_SERVICE")
+                    .setPackage("com.aios.modelbroker");
+            bound = context.bindService(intent, connection, Context.BIND_AUTO_CREATE);
+            if (!bound || !connected.await(BIND_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                    || service == null) {
                 return new Result(
-                        null,
-                        holder.errorCode == 0 ? ERROR_BROKER_UNAVAILABLE : holder.errorCode,
-                        "model_session_rejected");
+                        null, ERROR_BROKER_UNAVAILABLE, "model_broker_unavailable");
+            }
+            blocked = constraints.blockedReason();
+            if (blocked != null) {
+                return new Result(null, ERROR_CONSTRAINT_BLOCKED, blocked);
+            }
+
+            CountDownLatch completed = new CountDownLatch(1);
+            Holder holder = new Holder();
+            IModelCallback callback = new IModelCallback.Stub() {
+                @Override
+                public void onChunk(GenerationChunk chunk) {
+                    // Media results are committed only from the final typed result.
+                }
+
+                @Override
+                public void onCompleted(InferenceResult value) {
+                    holder.result = value;
+                    completed.countDown();
+                }
+
+                @Override
+                public void onError(int code, String message) {
+                    holder.errorCode = code;
+                    completed.countDown();
+                }
+            };
+
+            ModelRequest request = new ModelRequest();
+            request.requestId = "media:" + job.id + ":" + job.generation;
+            request.capability = prepared.capability;
+            request.workload = "media_background";
+            String locale = Locale.getDefault().getLanguage();
+            request.language = "es".equals(locale) ? "es" : "en";
+            request.maxOutputTokens = 1024;
+            request.deadlineElapsedRealtimeMillis =
+                    SystemClock.elapsedRealtime() + 30_000L;
+            request.allowFallback = true;
+
+            try {
+                sessionId = service.createSession(request, callback);
+                if (sessionId <= 0L) {
+                    return new Result(
+                            null,
+                            holder.errorCode == 0
+                                    ? ERROR_BROKER_UNAVAILABLE : holder.errorCode,
+                            "model_session_rejected");
+                }
+                service.submitMedia(
+                        sessionId,
+                        prepared.descriptor,
+                        prepared.submittedMimeType,
+                        true);
+                long timeoutAt = SystemClock.elapsedRealtime()
+                        + TimeUnit.MINUTES.toMillis(INFERENCE_TIMEOUT_MINUTES);
+                while (completed.getCount() != 0L) {
+                    blocked = constraints.blockedReason();
+                    if (blocked != null) {
+                        cancelActiveSession();
+                        return new Result(null, ERROR_CONSTRAINT_BLOCKED, blocked);
+                    }
+                    long remaining = timeoutAt - SystemClock.elapsedRealtime();
+                    if (remaining <= 0L) {
+                        cancelActiveSession();
+                        return new Result(
+                                null, ERROR_INFERENCE_TIMEOUT, "media_inference_timeout");
+                    }
+                    completed.await(
+                            Math.min(CONSTRAINT_RECHECK_MILLIS, remaining),
+                            TimeUnit.MILLISECONDS);
+                }
+                return new Result(
+                        holder.result,
+                        holder.errorCode,
+                        holder.result == null ? "model_runtime_error" : null);
+            } catch (RemoteException error) {
+                throw new IOException("Model Broker binder failed", error);
+            }
+        }
+    }
+
+    private static final class PreparedMedia implements AutoCloseable {
+        final String capability;
+        final String submittedMimeType;
+        final ParcelFileDescriptor descriptor;
+        final File temporary;
+
+        private PreparedMedia(
+                String capability,
+                String submittedMimeType,
+                ParcelFileDescriptor descriptor,
+                File temporary) {
+            this.capability = capability;
+            this.submittedMimeType = submittedMimeType;
+            this.descriptor = descriptor;
+            this.temporary = temporary;
+        }
+
+        static PreparedMedia open(
+                Context context,
+                MediaJobStore.PendingJob job,
+                MediaConstraintProbe constraints) throws IOException, InterruptedException {
+            String capability = MediaInputPolicy.capability(job.mimeType);
+            String submittedMimeType = MediaInputPolicy.submittedMimeType(job.mimeType);
+            if (capability == null || submittedMimeType == null) {
+                throw new VideoStoryboard.InvalidVideoException(
+                        "queued media type is unsupported");
             }
             Uri uri = Uri.parse(job.uri);
-            try (ParcelFileDescriptor media =
-                         context.getContentResolver().openFileDescriptor(uri, "r")) {
-                if (media == null) {
-                    throw new IOException("cannot open queued media");
+            if (MediaInputPolicy.isImage(job.mimeType)) {
+                ParcelFileDescriptor descriptor =
+                        context.getContentResolver().openFileDescriptor(uri, "r");
+                if (descriptor == null) {
+                    throw new FileNotFoundException("cannot open queued image");
                 }
-                service.submitMedia(sessionId, media, job.mimeType, true);
+                return new PreparedMedia(
+                        capability, submittedMimeType, descriptor, null);
             }
-            long timeoutAt = SystemClock.elapsedRealtime()
-                    + TimeUnit.MINUTES.toMillis(INFERENCE_TIMEOUT_MINUTES);
-            while (completed.getCount() != 0L) {
-                blocked = constraints.blockedReason();
-                if (blocked != null) {
-                    cancelActiveSession();
-                    return new Result(null, ERROR_CONSTRAINT_BLOCKED, blocked);
-                }
-                long remaining = timeoutAt - SystemClock.elapsedRealtime();
-                if (remaining <= 0L) {
-                    cancelActiveSession();
-                    return new Result(
-                            null, ERROR_INFERENCE_TIMEOUT, "media_inference_timeout");
-                }
-                completed.await(
-                        Math.min(CONSTRAINT_RECHECK_MILLIS, remaining),
-                        TimeUnit.MILLISECONDS);
+            File storyboard = VideoStoryboard.create(context, uri, constraints);
+            try {
+                ParcelFileDescriptor descriptor = ParcelFileDescriptor.open(
+                        storyboard, ParcelFileDescriptor.MODE_READ_ONLY);
+                return new PreparedMedia(
+                        capability, submittedMimeType, descriptor, storyboard);
+            } catch (IOException | RuntimeException error) {
+                storyboard.delete();
+                throw error;
             }
-            return new Result(
-                    holder.result,
-                    holder.errorCode,
-                    holder.result == null ? "model_runtime_error" : null);
-        } catch (RemoteException error) {
-            throw new IOException("Model Broker binder failed", error);
+        }
+
+        @Override
+        public void close() {
+            try {
+                descriptor.close();
+            } catch (IOException error) {
+                Log.w(TAG, "cannot close prepared media descriptor", error);
+            }
+            if (VideoStoryboard.isStoryboard(temporary)
+                    && temporary.exists()
+                    && !temporary.delete()) {
+                Log.w(TAG, "cannot erase temporary video storyboard");
+            }
         }
     }
 

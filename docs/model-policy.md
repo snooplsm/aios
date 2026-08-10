@@ -14,8 +14,8 @@ predicts quality or speed.
 - Receptionist reasoning and call summary: Gemma text model.
 - TTS: the current candidate is the digest-locked bilingual Supertonic 3 int8
   bundle through the replaceable Sherpa-ONNX provider.
-- Photo/video understanding: Gemma multimodal model, preemptible and normally
-  deferred.
+- Photo/video understanding: Gemma multimodal model; videos use one bounded
+  twenty-keyframe storyboard and all media work is preemptible.
 
 Using a dedicated ASR path keeps first words and spam cues available while Gemma
 is cold or media inference is unloading.
@@ -74,8 +74,9 @@ unbenchmarked or proprietary model.
   English/Spanish/noisy-call cohorts, peak RSS, and energy per call minute.
 - Receptionist: time to first token, tokens/second, tool-call validity, task
   completion, unsafe-action rate, peak RSS, and energy.
-- Media: time/image, video minutes processed/hour, thermal throttling, peak RSS,
-  and metadata round-trip preservation.
+- Media: cold and warm time/image, twenty-keyframe extraction time, storyboard
+  inference time, videos/hour, thermal throttling, peak RSS, source-digest
+  preservation, and temporary-storyboard cleanup.
 - System: missed audio frames and UI jank while a call preempts media inference.
 
 No device/model mapping graduates from `candidate` to `supported` without these

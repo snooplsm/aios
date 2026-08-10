@@ -25,7 +25,7 @@
     {
       "id": "gemma4-e2b-mobile-multimodal",
       "family": "gemma4",
-      "capabilities": ["image_understanding", "audio_understanding"],
+      "capabilities": ["image_understanding", "video_understanding", "audio_understanding"],
       "languages": ["en", "es"],
       "runtime": "litert_lm",
       "allowed_backends": ["gpu", "cpu"],
@@ -53,7 +53,7 @@
     {
       "id": "gemma4-e4b-mobile-multimodal",
       "family": "gemma4",
-      "capabilities": ["image_understanding", "audio_understanding"],
+      "capabilities": ["image_understanding", "video_understanding", "audio_understanding"],
       "languages": ["en", "es"],
       "runtime": "litert_lm",
       "allowed_backends": ["gpu", "cpu"],

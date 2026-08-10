@@ -8,7 +8,7 @@ if [[ "$(gradle --version | sed -n 's/^Gradle \([0-9.]*\)$/\1/p' | head -n1)" !=
   echo "Gradle 8.11.1 is required." >&2
   exit 1
 fi
-if [[ ! -s gradle.lockfile || ! -s gradle/verification-metadata.xml ]]; then
+if [[ ! -s app/gradle.lockfile || ! -s gradle/verification-metadata.xml ]]; then
   echo "Reviewed dependency locks are absent; run bootstrap_dependency_locks.sh first." >&2
   exit 1
 fi

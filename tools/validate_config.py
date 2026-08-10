@@ -252,6 +252,8 @@ def validate_catalog(catalog: dict[str, Any]) -> None:
                 f"{tier['id']}: text model lacks call_classification")
         require("image_understanding" in model_by_id[tier["media_model"]]["capabilities"],
                 f"{tier['id']}: media model lacks image_understanding")
+        require("video_understanding" in model_by_id[tier["media_model"]]["capabilities"],
+                f"{tier['id']}: media model lacks video_understanding")
         require("speech_synthesis" in model_by_id[tier["tts_model"]]["capabilities"],
                 f"{tier['id']}: TTS model lacks speech_synthesis")
         require(all("streaming_asr" in model_by_id[item]["capabilities"]
@@ -330,8 +332,7 @@ def validate_model_benchmark_suite(root: Path) -> None:
         "schema_version", "suite_version", "required_observations",
         "required_role_coverage", "gate_profiles",
     } and suite["schema_version"] == 1
-            and isinstance(suite["suite_version"], int)
-            and suite["suite_version"] >= 1,
+            and suite["suite_version"] == 2,
             "unsupported model benchmark suite")
     observations = suite["required_observations"]
     require(isinstance(observations, list) and observations
@@ -376,6 +377,13 @@ def validate_model_benchmark_suite(root: Path) -> None:
             and {"en_wer", "es_wer"}
             <= {gate["metric"] for gate in profiles["asr_candidate"]},
             "benchmark suite must gate English and Spanish quality")
+    require({
+                "p95_image_latency_ms",
+                "p95_video_storyboard_inference_ms",
+                "video_invocation_success_rate",
+                "video_output_valid_rate",
+            } <= {gate["metric"] for gate in profiles["media_model"]},
+            "benchmark suite must separately gate image and storyboard-video inference")
 
 
 def benchmark_gate_passes(value: int | float | bool, operator: str,
@@ -723,6 +731,8 @@ def validate_aosp_overlay(root: Path) -> None:
         "runtime/litertlmprovider/settings.gradle.kts",
         "runtime/litertlmprovider/build.gradle.kts",
         "runtime/litertlmprovider/app/build.gradle.kts",
+        "runtime/litertlmprovider/app/gradle.lockfile",
+        "runtime/litertlmprovider/gradle/verification-metadata.xml",
         "runtime/litertlmprovider/app/src/main/AndroidManifest.xml",
         "runtime/litertlmprovider/app/src/main/java/com/aios/runtime/litertlm/LiteRtLmRuntimeService.kt",
         "runtime/litertlmprovider/bootstrap_dependency_locks.sh",
@@ -796,6 +806,10 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/mediaintelligence/src/com/aios/mediaintelligence/MediaObserverService.java",
         "services/mediaintelligence/src/com/aios/mediaintelligence/MediaInferenceJobService.java",
         "services/mediaintelligence/src/com/aios/mediaintelligence/MediaWorkPolicy.java",
+        "services/mediaintelligence/src/com/aios/mediaintelligence/MediaConstraintProbe.java",
+        "services/mediaintelligence/src/com/aios/mediaintelligence/MediaInputPolicy.java",
+        "services/mediaintelligence/src/com/aios/mediaintelligence/VideoStoryboardPlan.java",
+        "services/mediaintelligence/src/com/aios/mediaintelligence/VideoStoryboard.java",
         "services/mediaintelligence/src/com/aios/mediaintelligence/XmpProjection.java",
         "services/mediaintelligence/src/com/aios/mediaintelligence/MediaBrokerClient.java",
         "services/mediaintelligence/src/com/aios/mediaintelligence/MediaContent.java",
@@ -805,6 +819,8 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/mediaintelligence/src/com/aios/mediaintelligence/MediaMetadataCommitter.java",
         "services/mediaintelligence/tests/src/com/aios/mediaintelligence/JpegXmpInjectorTest.java",
         "services/mediaintelligence/tests/src/com/aios/mediaintelligence/MediaWorkPolicyTest.java",
+        "services/mediaintelligence/tests/src/com/aios/mediaintelligence/MediaInputPolicyTest.java",
+        "services/mediaintelligence/tests/src/com/aios/mediaintelligence/VideoStoryboardPlanTest.java",
         "permissions/default-permissions-aios.xml",
         "docs/media-metadata-schema.md",
     ]
@@ -879,8 +895,11 @@ def validate_aosp_overlay(root: Path) -> None:
             and "telecom.isInCall()" in benchmark_source
             and ".setCallActive(" not in benchmark_source
             and "IAiosModelService" in benchmark_source
+            and '"video_understanding"' in benchmark_source
+            and '"p95_image_latency_ms"' in benchmark_source
+            and '"p95_video_storyboard_inference_ms"' in benchmark_source
             and "aios_measurements_base64" in benchmark_source,
-            "model benchmark must be test-only, call-safe, and exercise Model Broker")
+            "model benchmark must be test-only, call-safe, and measure image/video Broker paths")
     overlay_text = "\n".join(
         path.read_text(encoding="utf-8", errors="ignore")
         for directory in (root / "products", root / "overlays")
@@ -1175,6 +1194,9 @@ def validate_aosp_overlay(root: Path) -> None:
             and '"synthesis".equals(format.direction)' in session_controller
             and "audioOutputAttached" in session_controller,
             "speech output must be capability-bound, format-checked, and single-attach")
+    require('"image_understanding".equals(capability)' in session_controller
+            and '"video_understanding".equals(capability)' in session_controller,
+            "broker media input must admit explicit image and storyboard-video capabilities")
 
     runtime_api = (root / "services" / "runtimeapi" / "aidl" / "com" / "aios" /
                    "runtime" / "IAiosRuntimeProvider.aidl").read_text(encoding="utf-8")
@@ -1263,6 +1285,11 @@ def validate_aosp_overlay(root: Path) -> None:
     require("automaticToolCalling = false" in provider_source
             and "conversation?.cancelProcess()" in provider_source,
             "runtime provider must disable tools and support native cancellation")
+    require('"video_understanding"' in provider_source
+            and "Content.ImageBytes(bytes)" in provider_source
+            and "chronological 5 by 4 storyboard" in provider_source
+            and "visionBackend" in provider_source,
+            "LiteRT-LM must process sampled video storyboards through the vision backend")
     require("TRIM_MEMORY_RUNNING_LOW" in provider_source
             and "sessions.isEmpty()" in provider_source
             and "closeEngine()" in provider_source,
@@ -1272,8 +1299,35 @@ def validate_aosp_overlay(root: Path) -> None:
     )
     require("litertlm-android:0.15.0" in provider_build
             and "lockAllConfigurations" in provider_build
-            and "dependency_verification_sha256" in provider_build,
-            "runtime build must pin LiteRT-LM and emit locked provenance")
+            and "dependency_verification_sha256" in provider_build
+            and "JavaVersion.VERSION_17" in provider_build
+            and "JvmTarget.JVM_17" in provider_build,
+            "runtime build must pin LiteRT-LM, use JVM 17, and emit locked provenance")
+    provider_bootstrap = (provider_root / "bootstrap_dependency_locks.sh").read_text(
+        encoding="utf-8"
+    )
+    provider_release_build = (provider_root / "build_provider.sh").read_text(
+        encoding="utf-8"
+    )
+    require(":app:dependencies" in provider_bootstrap
+            and "--dependency-verification=strict" in provider_bootstrap
+            and "app/gradle.lockfile" in provider_release_build,
+            "LiteRT-LM lock bootstrap must precede strict offline provenance build")
+    provider_lock = (provider_root / "app" / "gradle.lockfile").read_text(
+        encoding="utf-8"
+    )
+    provider_verification = (provider_root / "gradle" /
+                             "verification-metadata.xml").read_text(encoding="utf-8")
+    require("com.google.ai.edge.litertlm:litertlm-android:0.15.0=" in provider_lock
+            and "litertlm-android-0.15.0.aar" in provider_verification
+            and "b398c4745934a6035d192ffce5fdaf4f72a0009830a97b73c017c21f2a92b5bd"
+            in provider_verification,
+            "LiteRT-LM dependency lock and verification digest must match the reviewed AAR")
+    provider_properties = (provider_root / "gradle.properties").read_text(
+        encoding="utf-8"
+    )
+    require("org.gradle.configuration-cache=false" in provider_properties,
+            "runtime build must disable incompatible Gradle configuration caching")
 
     whisper_root = root / "runtime" / "whisperprovider"
     whisper_manifest = (whisper_root / "app" / "src" / "main" /
@@ -1670,6 +1724,11 @@ def validate_aosp_overlay(root: Path) -> None:
             "media execution policy must fail closed on runtime constraints")
     require("!motionPhoto" in media_policy and "!ultraHdr" in media_policy,
             "portable metadata policy must reject complex photos by default")
+    media_policy_test = (root / "services" / "mediaintelligence" / "tests" /
+                         "src" / "com" / "aios" / "mediaintelligence" /
+                         "MediaWorkPolicyTest.java").read_text(encoding="utf-8")
+    require("everyVideoIsDeferredRegardlessOfCaptureGroupSize" in media_policy_test,
+            "every video must remain deferred regardless of capture grouping")
 
     observer_source = (media_source_root / "MediaObserverService.java").read_text(
         encoding="utf-8"
@@ -1711,6 +1770,43 @@ def validate_aosp_overlay(root: Path) -> None:
             and "constraints.blockedReason()" in media_broker_source
             and "cancelActiveSession()" in media_broker_source,
             "media Broker client must periodically cancel work that loses constraints")
+    require("PreparedMedia.open" in media_broker_source
+            and "prepared.capability" in media_broker_source
+            and "prepared.submittedMimeType" in media_broker_source
+            and "VideoStoryboard.isStoryboard(temporary)" in media_broker_source,
+            "media Broker client must submit explicit inputs and erase private storyboards")
+
+    media_input_policy = (media_source_root / "MediaInputPolicy.java").read_text(
+        encoding="utf-8"
+    )
+    media_input_test = (root / "services" / "mediaintelligence" / "tests" /
+                        "src" / "com" / "aios" / "mediaintelligence" /
+                        "MediaInputPolicyTest.java").read_text(encoding="utf-8")
+    require('CAPABILITY_VIDEO = "video_understanding"' in media_input_policy
+            and 'STORYBOARD_MIME_TYPE = "image/jpeg"' in media_input_policy
+            and "videosUseAnExplicitJpegStoryboardContract" in media_input_test,
+            "video input must use an explicit JPEG-storyboard capability contract")
+
+    storyboard_source = (media_source_root / "VideoStoryboard.java").read_text(
+        encoding="utf-8"
+    )
+    storyboard_plan_test = (root / "services" / "mediaintelligence" / "tests" /
+                            "src" / "com" / "aios" / "mediaintelligence" /
+                            "VideoStoryboardPlanTest.java").read_text(encoding="utf-8")
+    require("MediaMetadataRetriever" in storyboard_source
+            and "STORYBOARD_WIDTH_PIXELS" in storyboard_source
+            and "GRID_COLUMNS = 5" in storyboard_source
+            and "GRID_ROWS = 4" in storyboard_source
+            and "getScaledFrameAtTime" in storyboard_source
+            and "requireAvailable(constraints)" in storyboard_source
+            and "eraseCached(context)" in storyboard_source
+            and "stream.getFD().sync()" in storyboard_source
+            and "samplesTwentyChronologicalSegmentMidpoints" in storyboard_plan_test
+            and "scalingBoundsLandscapePortraitAndRotation" in storyboard_plan_test,
+            "video storyboards must sample twenty bounded keyframes with constraint checks")
+    require("VideoStoryboard.InvalidVideoException" in job_source
+            and "store.markFailed(job.id)" in job_source,
+            "undecodable videos must fail permanently rather than retry forever")
 
     media_store_source = (media_source_root / "MediaJobStore.java").read_text(
         encoding="utf-8"
@@ -1751,6 +1847,8 @@ def validate_aosp_overlay(root: Path) -> None:
     )
     require("MediaMetadataCommitter(application).recover(store)" in boot_source,
             "boot handling must recover interrupted metadata commits")
+    require("VideoStoryboard.eraseCached(application)" in boot_source,
+            "boot handling must erase private storyboard remnants")
 
     xmp_source = (media_source_root / "XmpProjection.java").read_text(encoding="utf-8")
     require("https://aios.dev/ns/media/1.0/" in xmp_source,
@@ -1821,7 +1919,7 @@ def validate_authorized_clients(root: Path) -> None:
     require(benchmark is not None
             and set(benchmark["capabilities"]) == {
                 "streaming_asr", "text_generation", "image_understanding",
-                "speech_synthesis",
+                "video_understanding", "speech_synthesis",
             }
             and set(benchmark["workloads"])
             == {"call_rx", "call_agent", "media_background"}
@@ -2166,6 +2264,7 @@ def validate_release_configuration(root: Path) -> None:
         "retention.expiry_24_hours",
         "media.blocked_below_80_percent",
         "media.original_preserved",
+        "media.video_storyboard_indexed",
         "model.runtime_dependency_lock_verified",
         "model.runtime_identity_enforced",
         "model.runtime_crash_isolated",

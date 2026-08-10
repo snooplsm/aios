@@ -49,6 +49,7 @@
     "media.single_photo_queued": {"status": "not_run", "evidence": []},
     "media.burst_deferred": {"status": "not_run", "evidence": []},
     "media.video_deferred": {"status": "not_run", "evidence": []},
+    "media.video_storyboard_indexed": {"status": "not_run", "evidence": []},
     "media.blocked_off_charger": {"status": "not_run", "evidence": []},
     "media.blocked_below_80_percent": {"status": "not_run", "evidence": []},
     "media.call_preempts_job": {"status": "not_run", "evidence": []},

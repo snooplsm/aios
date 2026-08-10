@@ -198,9 +198,14 @@ class LiteRtLmRuntimeService : Service() {
         ) {
             enforceBrokerCaller()
             val session = requireSession(sessionId)
-            if (media == null || mimeType == null || !endOfInput
-                || session.request.capability !in setOf(
-                    "image_understanding", "audio_understanding")) {
+            val capability = session.request.capability
+            val validMedia = when (capability) {
+                "image_understanding", "video_understanding" ->
+                    mimeType?.startsWith("image/") == true
+                "audio_understanding" -> mimeType?.startsWith("audio/") == true
+                else -> false
+            }
+            if (media == null || !endOfInput || !validMedia) {
                 closeDescriptor(media)
                 fail(session, ERROR_INVALID_REQUEST, "invalid media input")
                 return
@@ -220,13 +225,13 @@ class LiteRtLmRuntimeService : Service() {
                 owned.use { descriptor ->
                     try {
                         val bytes = readBounded(descriptor, MAX_MEDIA_BYTES)
-                        val prompt = mediaPrompt(session.request.language)
-                        val contents = when {
-                            mimeType.startsWith("image/") -> Contents.of(
+                        val prompt = mediaPrompt(session.request.language, capability)
+                        val contents = when (capability) {
+                            "image_understanding", "video_understanding" -> Contents.of(
                                 Content.ImageBytes(bytes), Content.Text(prompt))
-                            mimeType.startsWith("audio/") -> Contents.of(
+                            "audio_understanding" -> Contents.of(
                                 Content.AudioBytes(bytes), Content.Text(prompt))
-                            else -> throw IOException("unsupported media MIME type")
+                            else -> throw IOException("unsupported media capability")
                         }
                         startGeneration(session) { conversation, callback ->
                             conversation.sendMessageAsync(
@@ -273,7 +278,8 @@ class LiteRtLmRuntimeService : Service() {
         if (session.cancelled.get() || session.completed.get()) return
         try {
             val model = verifiedModelFile(session.artifact)
-            val vision = session.request.capability == "image_understanding"
+            val vision = session.request.capability in setOf(
+                "image_understanding", "video_understanding")
             val audio = session.request.capability == "audio_understanding"
             val identity = EngineIdentity(
                 model.absolutePath,
@@ -285,8 +291,8 @@ class LiteRtLmRuntimeService : Service() {
             val engine = ensureEngine(identity)
             if (session.cancelled.get() || session.completed.get()) return
             val instruction = when (session.request.capability) {
-                "image_understanding", "audio_understanding" -> mediaPrompt(
-                    session.request.language)
+                "image_understanding", "video_understanding", "audio_understanding" ->
+                    mediaPrompt(session.request.language, session.request.capability)
                 "call_summary" -> "Summarize the call faithfully. Do not invent facts."
                 else -> "You are an on-device assistant. Do not claim to have used tools."
             }
@@ -384,7 +390,8 @@ class LiteRtLmRuntimeService : Service() {
             session.callback.asBinder().unlinkToDeath(session.deathRecipient, 0)
             val raw = synchronized(session.response) { session.response.toString().trim() }
             val output = if (session.request.capability in setOf(
-                    "call_classification", "image_understanding", "audio_understanding")) {
+                    "call_classification", "image_understanding", "video_understanding",
+                    "audio_understanding")) {
                 stripMarkdownFence(raw)
             } else {
                 JsonObject().apply {
@@ -478,7 +485,7 @@ class LiteRtLmRuntimeService : Service() {
             && request.maxOutputTokens in 1..4096
             && request.capability in setOf(
                 "text_generation", "call_classification", "call_summary",
-                "image_understanding", "audio_understanding")
+                "image_understanding", "video_understanding", "audio_understanding")
     }
 
     private fun verifiedModelFile(artifact: RuntimeArtifact): File {
@@ -517,9 +524,16 @@ class LiteRtLmRuntimeService : Service() {
         }
     }
 
-    private fun mediaPrompt(language: String): String {
+    private fun mediaPrompt(language: String, capability: String): String {
         val languageName = if (language == "es") "Spanish" else "English"
-        return "Return only one compact JSON object with exactly: " +
+        val source = if (capability == "video_understanding") {
+                "The image is a chronological 5 by 4 storyboard of twenty keyframes " +
+                    "sampled from one video. " +
+                "Describe the video across the frames without claiming to have heard audio. "
+        } else {
+            "Describe only the supplied media. "
+        }
+        return source + "Return only one compact JSON object with exactly: " +
             "schema_version=1, caption as a non-empty $languageName string, " +
             "tags as up to 64 unique short strings, language=\"$language\", and " +
             "confidence as a number from 0 to 1. Do not use Markdown."

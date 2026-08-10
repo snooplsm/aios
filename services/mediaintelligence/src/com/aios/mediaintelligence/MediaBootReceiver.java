@@ -3,8 +3,13 @@ package com.aios.mediaintelligence;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.util.Log;
+
+import java.io.IOException;
 
 public final class MediaBootReceiver extends BroadcastReceiver {
+    private static final String TAG = "AiosMediaBoot";
+
     @Override
     public void onReceive(Context context, Intent intent) {
         if (Intent.ACTION_BOOT_COMPLETED.equals(intent.getAction())) {
@@ -12,6 +17,11 @@ public final class MediaBootReceiver extends BroadcastReceiver {
             Context application = context.getApplicationContext();
             new Thread(() -> {
                 try (MediaJobStore store = new MediaJobStore(application)) {
+                    try {
+                        VideoStoryboard.eraseCached(application);
+                    } catch (IOException error) {
+                        Log.e(TAG, "cannot erase recovered video storyboards", error);
+                    }
                     store.recoverInterruptedWork();
                     new MediaMetadataCommitter(application).recover(store);
                 } finally {

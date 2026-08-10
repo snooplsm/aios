@@ -170,6 +170,12 @@ public final class MediaInferenceJobService extends JobService {
                 store.markPortableSkipped(portableJob.id);
                 portableJob = null;
             }
+        } catch (VideoStoryboard.InvalidVideoException error) {
+            if (job != null) {
+                Log.w(TAG, "video cannot produce a bounded storyboard", error);
+                store.markFailed(job.id);
+                job = null;
+            }
         } catch (JSONException error) {
             if (job != null) {
                 store.markFailed(job.id);

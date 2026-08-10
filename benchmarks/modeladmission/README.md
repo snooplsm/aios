@@ -14,7 +14,8 @@ The instrumentation runs five English and five Spanish iterations for each
 selected capability:
 
 - a known-answer text prompt through LiteRT-LM;
-- a deterministic red JPEG through multimodal LiteRT-LM;
+- a deterministic red JPEG through both the image and explicit sampled-video
+  storyboard capabilities of multimodal LiteRT-LM;
 - a fixed receptionist phrase through Supertonic TTS; and
 - the resampled TTS output through the selected Whisper ASR model.
 
@@ -23,6 +24,11 @@ bundle under `aios_measurements_base64`. Raw output has model/artifact identity
 and numeric measurements but contains no gate list or decision. PSS and thermal
 status are sampled throughout each invocation, rather than only after it. The
 host-side evaluator owns gate fields and decisions.
+
+Media output reports `p95_image_latency_ms` separately from
+`p95_video_storyboard_inference_ms`; the former is the current photo ETA metric.
+These are Broker/model times. The physical media gate additionally measures
+MediaStore settling, hashing, and twenty-keyframe extraction for end-to-end ETA.
 
 Normally run the complete capture path from the repository root:
 

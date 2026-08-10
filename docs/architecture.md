@@ -136,6 +136,18 @@ or a drop below 80% cancels the background Broker session and leaves the durable
 job pending for retry. Immediate photos ignore charging state but remain
 preemptible by calls and thermal pressure.
 
+A video is not submitted to a model as an unbounded stream. After all deferred
+constraints pass, Media Intelligence seeks the nearest sync frame at the
+midpoint of each of twenty equal-duration segments. It scales each frame to a
+maximum 224-pixel edge, lays the frames chronologically into one 5×4 private
+JPEG storyboard, and submits that single image using the explicit
+`video_understanding` capability. Constraints are checked between frame seeks
+and throughout inference. The storyboard is erased when the request closes;
+crash leftovers are removed at boot and before the next video attempt. The
+source video is read-only and remains index-only. Undecodable videos fail
+permanently instead of consuming an infinite retry loop. The prompt tells the
+model it has sampled frames and forbids claims about unheard audio.
+
 Metadata writes are two-phase:
 
 1. Store the full result in the encrypted index keyed by media ID, generation,
@@ -144,9 +156,9 @@ Metadata writes are two-phase:
    versioned XMP packet, validate pixels/container features and the original
    digest relationship, then atomically replace through `MediaStore`.
 
-JPEG/PNG/WebP are the first writable formats. Read support does not imply safe
-write support. Complex containers remain index-only until dedicated validators
-exist.
+Only structurally simple JPEG is currently writable. Read support does not
+imply safe write support. Complex photos and every video remain index-only
+until dedicated validators exist.
 
 ### Retention service
 

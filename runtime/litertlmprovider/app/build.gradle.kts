@@ -1,6 +1,7 @@
 import groovy.json.JsonOutput
 import java.security.MessageDigest
 import java.util.zip.ZipFile
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
     id("com.android.application")
@@ -24,6 +25,11 @@ android {
         buildConfig = false
     }
 
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
     sourceSets["main"].aidl.srcDirs(
         "../../../services/modelbroker/aidl",
         "../../../services/runtimeapi/aidl",
@@ -40,6 +46,12 @@ android {
     packaging {
         jniLibs.useLegacyPackaging = true
         resources.excludes += setOf("META-INF/DEPENDENCIES", "META-INF/*.kotlin_module")
+    }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget.set(JvmTarget.JVM_17)
     }
 }
 
@@ -72,6 +84,9 @@ val generatedNoticeDirectory = layout.buildDirectory.dir("generated/runtimeNotic
 android.sourceSets["main"].assets.srcDir(generatedNoticeDirectory)
 
 val extractRuntimeNotices = tasks.register("extractRuntimeNotices") {
+    notCompatibleWithConfigurationCache(
+        "Resolves the locked runtime classpath and extracts reviewed notices",
+    )
     val runtimeClasspath = configurations.named("releaseRuntimeClasspath")
     inputs.files(runtimeClasspath)
     outputs.dir(generatedNoticeDirectory)
@@ -121,6 +136,9 @@ val extractRuntimeNotices = tasks.register("extractRuntimeNotices") {
 tasks.named("preBuild").configure { dependsOn(extractRuntimeNotices) }
 
 tasks.register("writeRuntimeProvenance") {
+    notCompatibleWithConfigurationCache(
+        "Resolves the locked runtime classpath and writes provenance",
+    )
     dependsOn("assembleRelease")
     doLast {
         val verification = rootProject.file("gradle/verification-metadata.xml")

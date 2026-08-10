@@ -38,7 +38,11 @@ SDK, and an emulator-only managed-call fixture now verifies the real dialer-role
 results are explicitly excluded from physical-device release evidence.
 Simple JPEGs have a conservative, byte-preserving AIOS XMP writer with backup,
 verification, crash recovery, and self-write suppression; complex containers
-remain index-only. Device/model policy and host validators are also present.
+remain index-only. Deferred videos are represented by twenty nearest-sync
+keyframes sampled across the clip and composed into one private 5×4 JPEG
+storyboard; the original video is never rewritten, and the storyboard is erased
+after its bounded vision request. Device/model policy and host validators are
+also present.
 
 It has not yet been compiled by Soong or flashed. Android 17's official manifest
 does not contain the Pixel 9a `device/google/tegu` project, so the build strategy

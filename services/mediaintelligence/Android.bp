@@ -17,7 +17,9 @@ java_test_host {
     name: "aios_mediaintelligence_host_tests",
     srcs: [
         "src/com/aios/mediaintelligence/JpegXmpInjector.java",
+        "src/com/aios/mediaintelligence/MediaInputPolicy.java",
         "src/com/aios/mediaintelligence/MediaWorkPolicy.java",
+        "src/com/aios/mediaintelligence/VideoStoryboardPlan.java",
         "tests/src/**/*.java",
     ],
     static_libs: ["junit"],

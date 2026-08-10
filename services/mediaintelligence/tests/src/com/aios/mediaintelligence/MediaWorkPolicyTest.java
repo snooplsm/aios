@@ -15,6 +15,16 @@ public final class MediaWorkPolicyTest {
     }
 
     @Test
+    public void everyVideoIsDeferredRegardlessOfCaptureGroupSize() {
+        assertEquals(
+                MediaWorkPolicy.CLASS_DEFERRED,
+                MediaWorkPolicy.schedulingClass("video/mp4", 1));
+        assertEquals(
+                MediaWorkPolicy.CLASS_DEFERRED,
+                MediaWorkPolicy.schedulingClass("video/quicktime", 4));
+    }
+
+    @Test
     public void activeCallPreemptsEveryWorkClass() {
         assertEquals(
                 MediaWorkPolicy.BLOCK_ACTIVE_CALL,

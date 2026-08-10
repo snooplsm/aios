@@ -32,7 +32,7 @@ strictly verified:
 ```text
 cd vendor/aios/runtime/litertlmprovider
 ALLOW_DEPENDENCY_LOCK_UPDATE=1 ./bootstrap_dependency_locks.sh
-# Review and commit gradle.lockfile and gradle/verification-metadata.xml.
+# Review and commit app/gradle.lockfile and gradle/verification-metadata.xml.
 ./build_provider.sh
 ```
 

@@ -40,3 +40,21 @@ No code may equate `ExifInterface` read support with write safety. AndroidX
 documents broad read support but write support only for JPEG, PNG, and WebP, and
 advanced Android photo formats can contain additional images and offset-bearing
 metadata.
+
+## Video inference and device gate
+
+Videos never enter the portable commit protocol. The worker opens the original
+read-only, seeks twenty nearest-sync keyframes at uniformly spaced segment
+midpoints, and builds one app-private 5×4 JPEG storyboard. Each frame has a
+maximum 224-pixel edge. Only that bounded storyboard is submitted under
+`video_understanding`, and it is erased when inference completes, is cancelled,
+or fails. Boot recovery and the next video attempt also erase leftovers from a
+process crash. The authoritative record is still bound to the original video's
+MediaStore ID, generation, and SHA-256 digest.
+
+The `media.video_storyboard_indexed` physical-device gate uses a known short
+video and verifies chronological coverage, a valid English and Spanish result,
+an unchanged generation and digest, an index-only commit, and no remaining
+`aios_video_storyboard_*.jpg` cache file. Repeat while unplugging, dropping below
+80%, starting a call, and using an undecodable video; work must respectively
+retry or fail without modifying the source.

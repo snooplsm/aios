@@ -1,5 +1,6 @@
 package com.aios.modelbenchmark;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
@@ -95,6 +96,10 @@ public final class ModelAdmissionBenchmarkTest {
             IAiosModelService broker = connection.service;
             Map<String, ModelCapability> capabilities = waitForCapabilities(broker);
             requireCapabilities(capabilities);
+            assertEquals(
+                    "image and storyboard video must select the same admitted media model",
+                    capabilities.get("image_understanding").selectedModelId,
+                    capabilities.get("video_understanding").selectedModelId);
 
             JSONArray results = new JSONArray();
             results.put(benchmarkMedia(
@@ -116,7 +121,7 @@ public final class ModelAdmissionBenchmarkTest {
 
             JSONObject measurements = new JSONObject()
                     .put("schema_version", 1)
-                    .put("suite_version", 1)
+                    .put("suite_version", 2)
                     .put("results", results);
             Bundle output = new Bundle();
             output.putString(
@@ -177,38 +182,59 @@ public final class ModelAdmissionBenchmarkTest {
     private static JSONObject benchmarkMedia(
             Context context, IAiosModelService broker, Artifact artifact) throws Exception {
         Aggregate aggregate = new Aggregate();
-        List<Long> latency = new ArrayList<>();
+        List<Long> imageLatency = new ArrayList<>();
+        List<Long> videoLatency = new ArrayList<>();
         int valid = 0;
         int englishKnown = 0;
         int spanishKnown = 0;
+        int videoAttempts = 0;
+        int videoSuccesses = 0;
+        int videoValid = 0;
         byte[] redJpeg = redJpeg();
-        for (String language : List.of("en", "es")) {
-            for (int run = 0; run < RUNS_PER_LANGUAGE; run++) {
-                Invocation invocation;
-                try (ResourceSampler sampler = new ResourceSampler(context)) {
-                    invocation = invokeMedia(broker, language, redJpeg);
-                    aggregate.record(invocation, artifact, sampler.finish());
+        for (String capability : List.of(
+                "image_understanding", "video_understanding")) {
+            for (String language : List.of("en", "es")) {
+                for (int run = 0; run < RUNS_PER_LANGUAGE; run++) {
+                    Invocation invocation;
+                    try (ResourceSampler sampler = new ResourceSampler(context)) {
+                        invocation = invokeMedia(broker, capability, language, redJpeg);
+                        aggregate.record(invocation, artifact, sampler.finish());
+                    }
+                    JSONObject output = parseObject(invocation.result);
+                    boolean outputValid = output != null
+                            && output.optInt("schema_version", -1) == 1
+                            && language.equals(output.optString("language"))
+                            && !output.optString("caption").isBlank();
+                    if (outputValid) valid++;
+                    boolean known = outputValid && BenchmarkMath.containsNormalizedWord(
+                            output.toString(), language.equals("es") ? "rojo" : "red");
+                    if (language.equals("es") && known) spanishKnown++;
+                    if (language.equals("en") && known) englishKnown++;
+                    if ("video_understanding".equals(capability)) {
+                        videoAttempts++;
+                        if (invocation.succeeded()) videoSuccesses++;
+                        if (outputValid) videoValid++;
+                        videoLatency.add(invocation.elapsedOrTimeout());
+                    } else {
+                        imageLatency.add(invocation.elapsedOrTimeout());
+                    }
                 }
-                JSONObject output = parseObject(invocation.result);
-                boolean outputValid = output != null
-                        && output.optInt("schema_version", -1) == 1
-                        && language.equals(output.optString("language"))
-                        && !output.optString("caption").isBlank();
-                if (outputValid) valid++;
-                boolean known = outputValid && BenchmarkMath.containsNormalizedWord(
-                        output.toString(), language.equals("es") ? "rojo" : "red");
-                if (language.equals("es") && known) spanishKnown++;
-                if (language.equals("en") && known) englishKnown++;
-                latency.add(invocation.elapsedOrTimeout());
             }
         }
         JSONObject metrics = aggregate.commonMetrics()
                 .put("output_valid_rate", BenchmarkMath.rate(valid, aggregate.attempts))
-                .put("p95_latency_ms", BenchmarkMath.percentileLong(latency, 0.95))
+                .put("video_invocation_success_rate",
+                        BenchmarkMath.rate(videoSuccesses, videoAttempts))
+                .put("video_output_valid_rate", BenchmarkMath.rate(videoValid, videoAttempts))
+                .put("p95_latency_ms", BenchmarkMath.percentileLong(imageLatency, 0.95))
+                .put("p95_image_latency_ms",
+                        BenchmarkMath.percentileLong(imageLatency, 0.95))
+                .put("p95_video_storyboard_inference_ms",
+                        BenchmarkMath.percentileLong(videoLatency, 0.95))
                 .put("en_known_answer_rate",
-                        BenchmarkMath.rate(englishKnown, RUNS_PER_LANGUAGE))
+                        BenchmarkMath.rate(englishKnown, RUNS_PER_LANGUAGE * 2))
                 .put("es_known_answer_rate",
-                        BenchmarkMath.rate(spanishKnown, RUNS_PER_LANGUAGE));
+                        BenchmarkMath.rate(spanishKnown, RUNS_PER_LANGUAGE * 2));
         return result(artifact, metrics);
     }
 
@@ -334,12 +360,15 @@ public final class ModelAdmissionBenchmarkTest {
     }
 
     private static Invocation invokeMedia(
-            IAiosModelService broker, String language, byte[] media) throws Exception {
+            IAiosModelService broker,
+            String capability,
+            String language,
+            byte[] media) throws Exception {
         Invocation invocation = new Invocation();
         ParcelFileDescriptor[] pipe = null;
         try {
             long session = broker.createSession(request(
-                    "image_understanding", "media_background", language, 256),
+                    capability, "media_background", language, 256),
                     invocation.callback);
             invocation.sessionId = session;
             if (session > 0L) {
@@ -471,7 +500,7 @@ public final class ModelAdmissionBenchmarkTest {
                 values.put(capability.capability, capability);
             }
             latest = values;
-            if (List.of("text_generation", "image_understanding",
+            if (List.of("text_generation", "image_understanding", "video_understanding",
                     "speech_synthesis", "streaming_asr").stream()
                     .allMatch(values::containsKey)) {
                 return values;
@@ -483,7 +512,7 @@ public final class ModelAdmissionBenchmarkTest {
 
     private static void requireCapabilities(Map<String, ModelCapability> values) {
         for (String capability : List.of(
-                "text_generation", "image_understanding",
+                "text_generation", "image_understanding", "video_understanding",
                 "speech_synthesis", "streaming_asr")) {
             ModelCapability value = values.get(capability);
             assertNotNull("missing benchmark capability " + capability, value);
