@@ -23,11 +23,9 @@ import com.aios.model.GenerationChunk;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Set;
 
 public final class CallIntelligenceService extends Service {
     private static final String PERMISSION_CONTROL =
@@ -59,7 +57,8 @@ public final class CallIntelligenceService extends Service {
     private final Map<String, Integer> emergencyProtectedCalls = new HashMap<>();
     private final Map<String, CallCommunicationContextClient.PreparedContext>
             pendingCommunicationContexts = new HashMap<>();
-    private final Set<String> contextEligibleCalls = new HashSet<>();
+    private final CallRequestIdentityTracker communicationContextRequests =
+            new CallRequestIdentityTracker();
     private final Object telecomPresenceLock = new Object();
     private final TelecomCallPresenceTracker<IBinder> telecomPresence =
             new TelecomCallPresenceTracker<>(
@@ -79,6 +78,7 @@ public final class CallIntelligenceService extends Service {
     private boolean appliedTelecomPresence;
     private boolean telecomPresenceUpdateScheduled;
     private boolean telecomPresenceStopping;
+    private long nextSpeechRequestSerial;
 
     private final IAiosCallIntelligence.Stub binder = new IAiosCallIntelligence.Stub() {
         @Override
@@ -137,6 +137,7 @@ public final class CallIntelligenceService extends Service {
                     && decision.processingAllowed
                     && context.transientAddress != null
                     && !context.transientAddress.isBlank();
+            Object contextRequestIdentity = prepareContext ? new Object() : null;
             synchronized (telecomPresenceLock) {
                 if (telecomPresenceStopping
                         || !telecomPresence.ownsCall(ownerUid, context.callId)) {
@@ -158,22 +159,26 @@ public final class CallIntelligenceService extends Service {
                             new PendingIncomingCall(
                                     ownerUid, context.knownContact, decision.processingAllowed));
                     if (prepareContext) {
-                        if (!contextEligibleCalls.contains(context.callId)
-                                && contextEligibleCalls.size() >= MAX_CONTEXT_CALLS) {
+                        if (!communicationContextRequests.tryStart(
+                                context.callId,
+                                contextRequestIdentity,
+                                MAX_CONTEXT_CALLS)) {
                             prepareContext = false;
                         } else {
-                            contextEligibleCalls.add(context.callId);
+                            pendingCommunicationContexts.remove(context.callId);
                         }
                     }
                 }
             }
             if (prepareContext && !communicationContext.prepareCall(
                     context.callId,
+                    contextRequestIdentity,
                     context.transientAddress,
                     context.countryIso,
                     System.currentTimeMillis())) {
                 synchronized (sessions) {
-                    contextEligibleCalls.remove(context.callId);
+                    communicationContextRequests.finish(
+                            context.callId, contextRequestIdentity);
                 }
             }
             return decision;
@@ -270,7 +275,7 @@ public final class CallIntelligenceService extends Service {
                     } else {
                         emergencyProtectedCalls.put(callId, ownerUid);
                         pendingIncomingCalls.remove(callId);
-                        contextEligibleCalls.remove(callId);
+                        communicationContextRequests.remove(callId);
                         pendingCommunicationContexts.remove(callId);
                         stopped = sessions.remove(callId);
                     }
@@ -365,7 +370,7 @@ public final class CallIntelligenceService extends Service {
                 }
                 if (rejection == null) {
                     emergencyProtectedCalls.remove(callId, ownerUid);
-                    contextEligibleCalls.remove(callId);
+                    communicationContextRequests.remove(callId);
                     pendingContext = pendingCommunicationContexts.remove(callId);
                     ended = sessions.remove(callId);
                     if (ended != null && pendingContext != null) {
@@ -461,8 +466,9 @@ public final class CallIntelligenceService extends Service {
                     @Override
                     public void onContextReady(
                             String callId,
+                            Object requestIdentity,
                             CallCommunicationContextClient.PreparedContext context) {
-                        handleCommunicationContext(callId, context);
+                        handleCommunicationContext(callId, requestIdentity, context);
                     }
 
                     @Override
@@ -476,14 +482,19 @@ public final class CallIntelligenceService extends Service {
             public void onTranscript(
                     String callId,
                     String direction,
+                    Object streamIdentity,
                     String language,
                     GenerationChunk chunk) {
-                handleTranscript(callId, direction, language, chunk);
+                handleTranscript(callId, direction, streamIdentity, language, chunk);
             }
 
             @Override
-            public void onAsrStatus(String callId, String direction, String detail) {
-                notifyStatus(callId, 3, direction + ":" + detail);
+            public void onAsrStatus(
+                    String callId,
+                    String direction,
+                    Object streamIdentity,
+                    String detail) {
+                handleAsrStatus(callId, direction, streamIdentity, detail);
             }
         });
         asr.start();
@@ -535,7 +546,7 @@ public final class CallIntelligenceService extends Service {
             pendingIncomingCalls.clear();
             emergencyProtectedCalls.clear();
             pendingCommunicationContexts.clear();
-            contextEligibleCalls.clear();
+            communicationContextRequests.clear();
             for (ActiveSession session : sessions.values()) {
                 session.close();
             }
@@ -828,13 +839,13 @@ public final class CallIntelligenceService extends Service {
         }
         boolean hadWork = emergencyOwner != null
                 || pending != null
-                || contextEligibleCalls.contains(callId)
+                || communicationContextRequests.contains(callId)
                 || pendingCommunicationContexts.containsKey(callId)
                 || active != null;
         if (!hadWork) return false;
         emergencyProtectedCalls.remove(callId, ownerUid);
         pendingIncomingCalls.remove(callId);
-        contextEligibleCalls.remove(callId);
+        communicationContextRequests.remove(callId);
         pendingCommunicationContexts.remove(callId);
         sessions.remove(callId);
         if (active != null) active.close();
@@ -974,11 +985,13 @@ public final class CallIntelligenceService extends Service {
 
     private void handleCommunicationContext(
             String callId,
+            Object requestIdentity,
             CallCommunicationContextClient.PreparedContext prepared) {
-        if (callId == null || prepared == null || prepared.identity == null) return;
+        if (callId == null || requestIdentity == null
+                || prepared == null || prepared.identity == null) return;
         ActiveSession session;
         synchronized (sessions) {
-            if (!contextEligibleCalls.contains(callId)) return;
+            if (!communicationContextRequests.isCurrent(callId, requestIdentity)) return;
             session = sessions.get(callId);
             if (session == null) {
                 pendingCommunicationContexts.put(callId, prepared);
@@ -993,12 +1006,16 @@ public final class CallIntelligenceService extends Service {
     }
 
     private void handleTranscript(
-            String callId, String direction, String language, GenerationChunk chunk) {
+            String callId,
+            String direction,
+            Object streamIdentity,
+            String language,
+            GenerationChunk chunk) {
         ActiveSession session;
         synchronized (sessions) {
             session = sessions.get(callId);
         }
-        if (session == null) {
+        if (session == null || !session.acceptsAsrCallback(direction, streamIdentity)) {
             return;
         }
         try {
@@ -1035,6 +1052,17 @@ public final class CallIntelligenceService extends Service {
             } else {
                 classifier.observe(callId, language, chunk.text);
             }
+        }
+    }
+
+    private void handleAsrStatus(
+            String callId, String direction, Object streamIdentity, String detail) {
+        ActiveSession session;
+        synchronized (sessions) {
+            session = sessions.get(callId);
+        }
+        if (session != null && session.acceptsAsrCallback(direction, streamIdentity)) {
+            notifyStatus(callId, 3, direction + ":" + detail);
         }
     }
 
@@ -1093,7 +1121,7 @@ public final class CallIntelligenceService extends Service {
         SpeechSynthesisBrokerClient.Speech synthesized = null;
         CallerAudioUplink.Stream uplink = null;
         try {
-            long generation = session.nextSpeechGeneration();
+            long generation = nextSpeechRequestSerial();
             synthesized = speech.synthesize(
                     callId + ":tts:" + generation, language, text);
             uplink = callerAudio.open(
@@ -1101,7 +1129,7 @@ public final class CallIntelligenceService extends Service {
                     synthesized.takePcmInput(),
                     synthesized.sampleRateHz,
                     (completedCallId, detail) ->
-                            handleCallerAudioStatus(completedCallId, detail));
+                            handleCallerAudioStatus(completedCallId, session, detail));
             if (!session.attachAssistantAudio(synthesized, uplink)) {
                 throw new IOException("call ended during assistant audio setup");
             }
@@ -1115,15 +1143,17 @@ public final class CallIntelligenceService extends Service {
         }
     }
 
-    private void handleCallerAudioStatus(String callId, String detail) {
-        notifyStatus(callId, 7, detail);
-        if (!"caller_audio_complete".equals(detail)
-                && !"caller_audio_failed".equals(detail)) return;
+    private void handleCallerAudioStatus(
+            String callId, ActiveSession expectedSession, String detail) {
         ActiveSession session;
         synchronized (sessions) {
             session = sessions.get(callId);
         }
-        if (session != null) continueAfterAssistantOperation(callId, session);
+        if (session != expectedSession || !session.isOpen()) return;
+        notifyStatus(callId, 7, detail);
+        if (!"caller_audio_complete".equals(detail)
+                && !"caller_audio_failed".equals(detail)) return;
+        continueAfterAssistantOperation(callId, session);
     }
 
     private void continueAfterAssistantOperation(String callId, ActiveSession session) {
@@ -1207,6 +1237,13 @@ public final class CallIntelligenceService extends Service {
         return value;
     }
 
+    private synchronized long nextSpeechRequestSerial() throws IOException {
+        if (nextSpeechRequestSerial == Long.MAX_VALUE) {
+            throw new IOException("speech request identity exhausted");
+        }
+        return ++nextSpeechRequestSerial;
+    }
+
     private static java.io.OutputStream sink(AsrBrokerClient.Stream stream) {
         return stream == null ? null : stream.sink;
     }
@@ -1288,7 +1325,6 @@ public final class CallIntelligenceService extends Service {
                 new CallContextAccumulator();
         private CallCommunicationContextClient.PreparedContext communicationContext;
         private boolean closed;
-        private long speechGeneration;
         private SpeechSynthesisBrokerClient.Speech activeSpeech;
         private CallerAudioUplink.Stream activeUplink;
 
@@ -1372,6 +1408,14 @@ public final class CallIntelligenceService extends Service {
             return ownerUid == candidateUid;
         }
 
+        synchronized boolean acceptsAsrCallback(String direction, Object streamIdentity) {
+            if (closed || streamIdentity == null) return false;
+            AsrBrokerClient.Stream expected = "downlink".equals(direction)
+                    ? downlinkAsr
+                    : "uplink".equals(direction) ? uplinkAsr : null;
+            return expected != null && expected.identity == streamIdentity;
+        }
+
         synchronized TakeoverResult takeOver() {
             if (closed) return null;
             AssistantHandlingTracker.Update update = assistantHandling.takeOver();
@@ -1393,10 +1437,6 @@ public final class CallIntelligenceService extends Service {
                 String language, String text) {
             if (closed || !assistantHandling.isAiHandling()) return null;
             return turnQueue.offer(language, text);
-        }
-
-        synchronized long nextSpeechGeneration() {
-            return ++speechGeneration;
         }
 
         synchronized boolean attachAssistantAudio(

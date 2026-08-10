@@ -909,6 +909,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/callintelligence/src/com/aios/callintelligence/CallPolicyEngine.java",
         "services/callintelligence/src/com/aios/callintelligence/CallCommunicationContextClient.java",
         "services/callintelligence/src/com/aios/callintelligence/CallContextAccumulator.java",
+        "services/callintelligence/src/com/aios/callintelligence/CallRequestIdentityTracker.java",
         "services/callintelligence/src/com/aios/callintelligence/CallArtifactRetention.java",
         "services/callintelligence/src/com/aios/callintelligence/CallArtifactStore.java",
         "services/callintelligence/src/com/aios/callintelligence/TelephonyAudioCapture.java",
@@ -932,6 +933,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/callintelligence/tests/src/com/aios/callintelligence/AnswerDelayPolicyTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/CallArtifactRetentionTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/CallContextAccumulatorTest.java",
+        "services/callintelligence/tests/src/com/aios/callintelligence/CallRequestIdentityTrackerTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/Pcm16MonoToStereo48kTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/RequiredCaptureGateTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/PriorContextFormatterTest.java",
@@ -2010,6 +2012,8 @@ def validate_aosp_overlay(root: Path) -> None:
     call_context_client = (
         call_source_root / "CallCommunicationContextClient.java"
     ).read_text(encoding="utf-8")
+    asr_client = (call_source_root / "AsrBrokerClient.java").read_text(
+        encoding="utf-8")
     call_context_accumulator = (
         call_source_root / "CallContextAccumulator.java"
     ).read_text(encoding="utf-8")
@@ -2096,15 +2100,21 @@ def validate_aosp_overlay(root: Path) -> None:
             and "rejectsUnknownRowsAndEscapesJsonText"
             in prior_context_formatter_test,
             "call-context bounds and prompt serialization must remain host-tested")
-    require("CallCommunicationContextClient.java" in call_context_check_build
+    require("AsrBrokerClient.java" in call_context_check_build
+            and "CallClassifierClient.java" in call_context_check_build
+            and "CallCommunicationContextClient.java" in call_context_check_build
+            and "ReceptionistDialogueClient.java" in call_context_check_build
             and "../../services/contextintelligence/api" in call_context_check_build
             and "../../services/contextintelligence/aidl" in call_context_check_build
             and "../../services/contextintelligence/src" in call_context_check_build
+            and "../../services/modelbroker/aidl" in call_context_check_build
             and "ContextPolicyTest.java" in call_context_check_build
             and "RevisionGateTest.java" in call_context_check_build
             and "CallContextAccumulatorTest.java" in call_context_check_build
+            and "CallRequestIdentityTracker.java" in call_context_check_build
+            and "CallRequestIdentityTrackerTest.java" in call_context_check_build
             and "PriorContextFormatterTest.java" in call_context_check_build,
-            "the call-context Binder client and bounds tests need a public-SDK compile check")
+            "call-model/context Binder clients and bounds tests need a public-SDK compile check")
     require('"downlink".equals(direction)' in call_service
             and ".onRiskChanged(" in call_service
             and "appendAssessment(" in call_service,
@@ -2166,6 +2176,19 @@ def validate_aosp_overlay(root: Path) -> None:
             and "hasControlCharacter" in receptionist_reply_policy
             and "receptionist_timeout" in receptionist_source,
             "AI receptionist must be tool-free, injection-resistant, schema-bound, and timed out")
+    require("Object streamIdentity" in asr_client
+            and "nextStreamGeneration" in asr_client
+            and "expected.identity == streamIdentity" in call_service
+            and "state == pending.owner" in classifier_source
+            and "pending.requestSerial" in classifier_source
+            and "state == pending.owner" in receptionist_source
+            and "pending.requestSerial" in receptionist_source
+            and "activeRequests.isCurrent(callId, requestIdentity)" in call_context_client
+            and "communicationContextRequests.isCurrent(callId, requestIdentity)"
+            in call_service
+            and "session != expectedSession" in call_service
+            and "nextSpeechRequestSerial()" in call_service,
+            "restarted calls must reject stale ASR, model, context, TTS, and caller-audio generations")
     require("chunk.isFinal" in call_service
             and "session.isAiHandling()" in call_service
             and "receptionist.requestReply" in call_service

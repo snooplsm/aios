@@ -85,6 +85,11 @@ one of several same-UID tokens leaves the call running; releasing the final
 token stops any unfinished AI work. In the normal terminal sequence,
 `onCallEnded` finalizes/indexes the call first, so the following release is an
 idempotent presence update and does not delete that finalized context.
+Call IDs are stable only for Telecom correlation; they are not callback
+capabilities. Call Intelligence binds ASR, classifier, receptionist, prior-context,
+TTS/uplink, and status callbacks to the exact session/request generation. A
+replayed live call therefore cannot consume queued output from the pre-crash
+session, even when both sessions use the same call ID and artifact directory.
 
 ## Live call assessment
 

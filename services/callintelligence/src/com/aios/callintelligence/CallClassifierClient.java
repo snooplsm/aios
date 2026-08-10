@@ -78,13 +78,23 @@ final class CallClassifierClient implements AutoCloseable {
 
     private static final class PendingRequest {
         final String callId;
+        final CallState owner;
         final long generation;
+        final long requestSerial;
         final String language;
         final String prompt;
 
-        PendingRequest(String callId, long generation, String language, String prompt) {
+        PendingRequest(
+                String callId,
+                CallState owner,
+                long generation,
+                long requestSerial,
+                String language,
+                String prompt) {
             this.callId = callId;
+            this.owner = owner;
             this.generation = generation;
+            this.requestSerial = requestSerial;
             this.language = language;
             this.prompt = prompt;
         }
@@ -102,6 +112,7 @@ final class CallClassifierClient implements AutoCloseable {
     private IAiosModelService service;
     private boolean bound;
     private boolean closed;
+    private long nextRequestSerial;
 
     private final ServiceConnection connection = new ServiceConnection() {
         @Override
@@ -181,13 +192,16 @@ final class CallClassifierClient implements AutoCloseable {
                 || nowElapsed - state.lastRequestedElapsed < MIN_REQUEST_INTERVAL_MILLIS) {
             return null;
         }
+        if (nextRequestSerial == Long.MAX_VALUE) return null;
         state.inFlight = true;
         state.lastRequestedElapsed = nowElapsed;
         state.lastSubmittedRevision = state.transcriptRevision;
         long generation = ++state.generation;
         return new PendingRequest(
                 callId,
+                state,
                 generation,
+                ++nextRequestSerial,
                 language,
                 prompt(state.knownContact, language, state.transcript.toString()));
     }
@@ -196,7 +210,8 @@ final class CallClassifierClient implements AutoCloseable {
         IAiosModelService current;
         synchronized (this) {
             CallState state = calls.get(pending.callId);
-            if (closed || state == null || state.ended || state.generation != pending.generation) {
+            if (closed || state != pending.owner || state.ended
+                    || state.generation != pending.generation) {
                 return;
             }
             current = service;
@@ -208,7 +223,7 @@ final class CallClassifierClient implements AutoCloseable {
         long sessionId = -1L;
         try {
             ModelRequest request = new ModelRequest();
-            request.requestId = pending.callId + ":risk:" + pending.generation;
+            request.requestId = pending.callId + ":risk:" + pending.requestSerial;
             request.capability = "call_classification";
             request.workload = "call_agent";
             request.language = pending.language;
@@ -244,7 +259,7 @@ final class CallClassifierClient implements AutoCloseable {
         boolean timedOut;
         synchronized (this) {
             CallState state = calls.get(pending.callId);
-            timedOut = state != null && !state.ended && state.inFlight
+            timedOut = state == pending.owner && !state.ended && state.inFlight
                     && state.generation == pending.generation;
         }
         if (!timedOut) return;
@@ -269,7 +284,7 @@ final class CallClassifierClient implements AutoCloseable {
                 boolean deliver;
                 synchronized (CallClassifierClient.this) {
                     CallState state = calls.get(pending.callId);
-                    deliver = state != null && !state.ended
+                    deliver = state == pending.owner && !state.ended
                             && state.generation == pending.generation;
                     if (deliver) state.inFlight = false;
                 }
@@ -294,7 +309,8 @@ final class CallClassifierClient implements AutoCloseable {
         boolean deliver;
         synchronized (this) {
             CallState state = calls.get(pending.callId);
-            deliver = state != null && !state.ended && state.generation == pending.generation;
+            deliver = state == pending.owner && !state.ended
+                    && state.generation == pending.generation;
             if (deliver) state.inFlight = false;
         }
         if (deliver) listener.onClassifierStatus(pending.callId, detail);

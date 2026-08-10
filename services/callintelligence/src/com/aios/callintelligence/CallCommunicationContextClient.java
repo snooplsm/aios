@@ -22,7 +22,8 @@ import java.util.concurrent.Executors;
 /** Optional, fail-open client for caller history and expiring call-summary indexing. */
 final class CallCommunicationContextClient implements AutoCloseable {
     interface Listener {
-        void onContextReady(String callId, PreparedContext context);
+        void onContextReady(
+                String callId, Object requestIdentity, PreparedContext context);
         void onStatus(String callId, String detail);
     }
 
@@ -36,11 +37,22 @@ final class CallCommunicationContextClient implements AutoCloseable {
         }
     }
 
+    private static final class ResolvedCall {
+        final Object requestIdentity;
+        final PreparedContext context;
+
+        ResolvedCall(Object requestIdentity, PreparedContext context) {
+            this.requestIdentity = requestIdentity;
+            this.context = context;
+        }
+    }
+
     private static final String ACTION =
             "com.aios.context.COMMUNICATION_CONTEXT_SERVICE";
     private static final String PACKAGE = "com.aios.contextintelligence";
     private static final int MAX_CALL_ID_CHARS = 128;
     private static final int MAX_ADDRESS_CHARS = 256;
+    private static final int MAX_ACTIVE_CALLS = 64;
 
     private final Context context;
     private final Listener listener;
@@ -50,7 +62,9 @@ final class CallCommunicationContextClient implements AutoCloseable {
         return thread;
     });
     private ICommunicationContext service;
-    private final Map<String, PreparedContext> resolvedCalls = new HashMap<>();
+    private final CallRequestIdentityTracker activeRequests =
+            new CallRequestIdentityTracker();
+    private final Map<String, ResolvedCall> resolvedCalls = new HashMap<>();
     private boolean bound;
     private boolean closed;
 
@@ -90,15 +104,24 @@ final class CallCommunicationContextClient implements AutoCloseable {
     }
 
     boolean prepareCall(
-            String callId, String transientAddress, String countryIso, long nowEpochMillis) {
+            String callId,
+            Object requestIdentity,
+            String transientAddress,
+            String countryIso,
+            long nowEpochMillis) {
         ICommunicationContext candidate;
         synchronized (this) {
             candidate = service;
-            if (closed || !validCallId(callId) || transientAddress == null
+            if (closed || !validCallId(callId) || requestIdentity == null
+                    || transientAddress == null
                     || transientAddress.isBlank()
                     || transientAddress.length() > MAX_ADDRESS_CHARS
                     || nowEpochMillis <= 0L) {
                 return false;
+            }
+            if (candidate != null) {
+                if (!activeRequests.tryStart(
+                        callId, requestIdentity, MAX_ACTIVE_CALLS)) return false;
             }
         }
         if (candidate == null) {
@@ -107,7 +130,8 @@ final class CallCommunicationContextClient implements AutoCloseable {
         }
         String address = transientAddress;
         String iso = countryIso == null ? "" : countryIso;
-        worker.execute(() -> resolveAndQuery(candidate, callId, address, iso, nowEpochMillis));
+        worker.execute(() -> resolveAndQuery(
+                candidate, callId, requestIdentity, address, iso, nowEpochMillis));
         return true;
     }
 
@@ -120,6 +144,7 @@ final class CallCommunicationContextClient implements AutoCloseable {
             long expiresAtEpochMillis,
             String text,
             long nowEpochMillis) {
+        Object requestIdentity;
         synchronized (this) {
             if (closed || !validCallId(callId)
                     || sourceId == null || !sourceId.matches("[0-9a-f]{64}")
@@ -128,13 +153,19 @@ final class CallCommunicationContextClient implements AutoCloseable {
                     || text.isBlank() || text.length() > CallContextAccumulator.MAX_DOCUMENT_CHARS) {
                 return;
             }
+            requestIdentity = activeRequests.current(callId);
         }
         worker.execute(() -> {
             PreparedContext effective;
             ICommunicationContext candidate;
             synchronized (this) {
-                PreparedContext resolved = resolvedCalls.remove(callId);
-                effective = prepared == null ? resolved : prepared;
+                ResolvedCall resolved = resolvedCalls.get(callId);
+                PreparedContext matchingResolved = resolved != null
+                        && resolved.requestIdentity == requestIdentity
+                        ? resolved.context : null;
+                if (matchingResolved != null) resolvedCalls.remove(callId);
+                activeRequests.finish(callId, requestIdentity);
+                effective = prepared == null ? matchingResolved : prepared;
                 candidate = service;
             }
             if (effective == null || effective.identity == null) {
@@ -165,12 +196,12 @@ final class CallCommunicationContextClient implements AutoCloseable {
     void discardCall(String callId) {
         synchronized (this) {
             if (closed || !validCallId(callId)) return;
-        }
-        worker.execute(() -> {
-            synchronized (this) {
+            Object discarded = activeRequests.remove(callId);
+            ResolvedCall resolved = resolvedCalls.get(callId);
+            if (resolved != null && resolved.requestIdentity == discarded) {
                 resolvedCalls.remove(callId);
             }
-        });
+        }
     }
 
     @Override
@@ -179,6 +210,7 @@ final class CallCommunicationContextClient implements AutoCloseable {
             if (closed) return;
             closed = true;
             service = null;
+            activeRequests.clear();
             resolvedCalls.clear();
             if (bound) {
                 context.unbindService(connection);
@@ -191,6 +223,7 @@ final class CallCommunicationContextClient implements AutoCloseable {
     private void resolveAndQuery(
             ICommunicationContext candidate,
             String callId,
+            Object requestIdentity,
             String address,
             String countryIso,
             long nowEpochMillis) {
@@ -209,11 +242,14 @@ final class CallCommunicationContextClient implements AutoCloseable {
             PreparedContext prepared = new PreparedContext(
                     identity, PriorContextFormatter.format(values));
             synchronized (this) {
-                if (closed) return;
-                resolvedCalls.put(callId, prepared);
+                if (closed || !activeRequests.isCurrent(callId, requestIdentity)) return;
+                resolvedCalls.put(callId, new ResolvedCall(requestIdentity, prepared));
             }
-            listener.onContextReady(callId, prepared);
+            listener.onContextReady(callId, requestIdentity, prepared);
         } catch (RemoteException | RuntimeException error) {
+            synchronized (this) {
+                if (closed || !activeRequests.isCurrent(callId, requestIdentity)) return;
+            }
             listener.onStatus(callId, "communication_context_query_failed");
         }
     }

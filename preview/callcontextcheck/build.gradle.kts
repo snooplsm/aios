@@ -10,9 +10,15 @@ val generatedTest = layout.buildDirectory.dir("generated/call-context/test")
 val stageCallContextMain by tasks.registering(Sync::class) {
     from("../../services/callintelligence/src") {
         include(
+            "com/aios/callintelligence/AsrBrokerClient.java",
+            "com/aios/callintelligence/CallClassifierClient.java",
             "com/aios/callintelligence/CallCommunicationContextClient.java",
             "com/aios/callintelligence/CallContextAccumulator.java",
+            "com/aios/callintelligence/CallRequestIdentityTracker.java",
             "com/aios/callintelligence/PriorContextFormatter.java",
+            "com/aios/callintelligence/ReceptionistDialogueClient.java",
+            "com/aios/callintelligence/ReceptionistReplyPolicy.java",
+            "com/aios/callintelligence/SpamRiskEngine.java",
         )
     }
     from("../../services/contextintelligence/api") {
@@ -28,7 +34,10 @@ val stageCallContextTest by tasks.registering(Sync::class) {
     from("../../services/callintelligence/tests/src") {
         include(
             "com/aios/callintelligence/CallContextAccumulatorTest.java",
+            "com/aios/callintelligence/CallRequestIdentityTrackerTest.java",
             "com/aios/callintelligence/PriorContextFormatterTest.java",
+            "com/aios/callintelligence/ReceptionistReplyPolicyTest.java",
+            "com/aios/callintelligence/SpamRiskEngineTest.java",
         )
     }
     from("../../services/contextintelligence/tests/src") {
@@ -57,6 +66,7 @@ android {
             manifest.srcFile("src/main/AndroidManifest.xml")
             java.directories.add(generatedMain.get().asFile.absolutePath)
             aidl.directories.add("../../services/contextintelligence/aidl")
+            aidl.directories.add("../../services/modelbroker/aidl")
         }
         getByName("test") {
             java.directories.add(generatedTest.get().asFile.absolutePath)

@@ -30,17 +30,21 @@ final class AsrBrokerClient implements AutoCloseable {
         void onTranscript(
                 String callId,
                 String direction,
+                Object streamIdentity,
                 String language,
                 GenerationChunk chunk);
 
-        void onAsrStatus(String callId, String direction, String detail);
+        void onAsrStatus(
+                String callId, String direction, Object streamIdentity, String detail);
     }
 
     static final class Stream implements AutoCloseable {
         final OutputStream sink;
+        final Object identity;
 
-        Stream(OutputStream sink) {
+        Stream(OutputStream sink, Object identity) {
             this.sink = sink;
+            this.identity = identity;
         }
 
         @Override
@@ -66,6 +70,7 @@ final class AsrBrokerClient implements AutoCloseable {
     private boolean bound;
     private boolean callActive;
     private boolean closed;
+    private long nextStreamGeneration;
 
     private final ServiceConnection connection = new ServiceConnection() {
         @Override
@@ -107,23 +112,31 @@ final class AsrBrokerClient implements AutoCloseable {
     }
 
     synchronized Stream openStream(String callId, String direction) {
+        Object streamIdentity = new Object();
+        if (nextStreamGeneration == Long.MAX_VALUE) {
+            listener.onAsrStatus(
+                    callId, direction, streamIdentity, "asr_stream_generation_exhausted");
+            return null;
+        }
+        long streamGeneration = ++nextStreamGeneration;
         IAiosModelService current = service;
         if (current == null || !available) {
-            listener.onAsrStatus(callId, direction, "model_broker_unavailable");
+            listener.onAsrStatus(
+                    callId, direction, streamIdentity, "model_broker_unavailable");
             return null;
         }
         ParcelFileDescriptor[] pipe = null;
         try {
             pipe = ParcelFileDescriptor.createPipe();
             ModelRequest request = new ModelRequest();
-            request.requestId = callId + ":" + direction;
+            request.requestId = callId + ":" + direction + ":" + streamGeneration;
             request.capability = "streaming_asr";
             request.workload = "downlink".equals(direction) ? "call_rx" : "call_tx";
             request.language = "und";
             request.maxOutputTokens = 0;
             request.deadlineElapsedRealtimeMillis = SystemClock.elapsedRealtime() + 30_000L;
             request.allowFallback = true;
-            IModelCallback callback = callback(callId, direction);
+            IModelCallback callback = callback(callId, direction, streamIdentity);
             long sessionId = current.createSession(request, callback);
             if (sessionId <= 0L) {
                 closePipe(pipe);
@@ -137,10 +150,11 @@ final class AsrBrokerClient implements AutoCloseable {
             current.submitAudio(sessionId, pipe[0], format, false);
             pipe[0].close();
             OutputStream sink = new ParcelFileDescriptor.AutoCloseOutputStream(pipe[1]);
-            return new Stream(sink);
+            return new Stream(sink, streamIdentity);
         } catch (IOException | RemoteException | RuntimeException error) {
             closePipe(pipe);
-            listener.onAsrStatus(callId, direction, "asr_stream_unavailable");
+            listener.onAsrStatus(
+                    callId, direction, streamIdentity, "asr_stream_unavailable");
             return null;
         }
     }
@@ -188,23 +202,26 @@ final class AsrBrokerClient implements AutoCloseable {
         }
     }
 
-    private IModelCallback callback(String callId, String direction) {
+    private IModelCallback callback(
+            String callId, String direction, Object streamIdentity) {
         return new IModelCallback.Stub() {
             @Override
             public void onChunk(GenerationChunk chunk) {
                 if (chunk != null) {
-                    listener.onTranscript(callId, direction, chunk.language, chunk);
+                    listener.onTranscript(
+                            callId, direction, streamIdentity, chunk.language, chunk);
                 }
             }
 
             @Override
             public void onCompleted(InferenceResult result) {
-                listener.onAsrStatus(callId, direction, "asr_complete");
+                listener.onAsrStatus(callId, direction, streamIdentity, "asr_complete");
             }
 
             @Override
             public void onError(int code, String message) {
-                listener.onAsrStatus(callId, direction, "asr_error_" + code);
+                listener.onAsrStatus(
+                        callId, direction, streamIdentity, "asr_error_" + code);
             }
         };
     }

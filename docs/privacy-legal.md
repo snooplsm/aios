@@ -29,6 +29,8 @@ Engineering defaults for the research image are:
   maximum, and is never extended by a client restart.
 - An orderly dialer unbind must explicitly release every live presence
   assertion; the final release enforces the same stop rule as Binder death.
+- Late model, transcript, prior-context, and caller-audio callbacks are bound to
+  their originating session and are discarded after teardown or replacement.
 - No cloud transfer, analytics payload, or training use contains call content.
 - The assistant must not falsely claim to be the owner or another real person.
 - Emergency calls and emergency callback mode never use optional AI processing.

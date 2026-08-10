@@ -40,6 +40,14 @@ explicit final presence release applies the same teardown, so an orderly dialer
 unbind cannot leave capture running. A release after `onCallEnded` is idempotent
 and does not discard the already-finalized communication-context record.
 
+Every asynchronous result is generation-bound rather than trusted by call ID
+alone. ASR callbacks carry an opaque stream identity; classifier and receptionist
+requests retain their exact call-state object; context queries retain an opaque
+request identity; and caller-uplink completion retains its exact active session.
+Replacement sessions use monotonically unique broker request IDs. Late callbacks
+from a closed session are ignored and cannot append text, speak, update risk, or
+attach prior context to a restarted session that reused the same opaque call ID.
+
 ### Call Intelligence service
 
 A narrow privileged service owns the real-time call pipeline. As a preinstalled

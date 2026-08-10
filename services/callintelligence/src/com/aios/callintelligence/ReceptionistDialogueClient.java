@@ -76,13 +76,23 @@ final class ReceptionistDialogueClient implements AutoCloseable {
 
     private static final class PendingRequest {
         final String callId;
+        final CallState owner;
         final long generation;
+        final long requestSerial;
         final String language;
         final String prompt;
 
-        PendingRequest(String callId, long generation, String language, String prompt) {
+        PendingRequest(
+                String callId,
+                CallState owner,
+                long generation,
+                long requestSerial,
+                String language,
+                String prompt) {
             this.callId = callId;
+            this.owner = owner;
             this.generation = generation;
+            this.requestSerial = requestSerial;
             this.language = language;
             this.prompt = prompt;
         }
@@ -102,6 +112,7 @@ final class ReceptionistDialogueClient implements AutoCloseable {
     private boolean available;
     private boolean bound;
     private boolean closed;
+    private long nextRequestSerial;
 
     private final ServiceConnection connection = new ServiceConnection() {
         @Override
@@ -166,12 +177,15 @@ final class ReceptionistDialogueClient implements AutoCloseable {
                     || !available || !languages.contains(language)) {
                 return false;
             }
+            if (nextRequestSerial == Long.MAX_VALUE) return false;
             appendBounded(state.history, "caller[" + language + "]: " + normalized + "\n");
             state.inFlight = true;
             long generation = ++state.generation;
             pending = new PendingRequest(
                     callId,
+                    state,
                     generation,
+                    ++nextRequestSerial,
                     language,
                     prompt(
                             state.knownContact,
@@ -226,7 +240,7 @@ final class ReceptionistDialogueClient implements AutoCloseable {
         IAiosModelService broker;
         synchronized (this) {
             CallState state = calls.get(pending.callId);
-            if (closed || state == null || state.ended
+            if (closed || state != pending.owner || state.ended
                     || state.generation != pending.generation) return;
             broker = service;
         }
@@ -237,7 +251,7 @@ final class ReceptionistDialogueClient implements AutoCloseable {
         long sessionId = -1L;
         try {
             ModelRequest request = new ModelRequest();
-            request.requestId = pending.callId + ":dialogue:" + pending.generation;
+            request.requestId = pending.callId + ":dialogue:" + pending.requestSerial;
             request.capability = "text_generation";
             request.workload = "call_agent";
             request.language = pending.language;
@@ -252,7 +266,8 @@ final class ReceptionistDialogueClient implements AutoCloseable {
             }
             synchronized (this) {
                 CallState state = calls.get(pending.callId);
-                if (state == null || state.ended || state.generation != pending.generation) {
+                if (state != pending.owner || state.ended
+                        || state.generation != pending.generation) {
                     cancel(broker, sessionId);
                     return;
                 }
@@ -283,7 +298,7 @@ final class ReceptionistDialogueClient implements AutoCloseable {
                 boolean deliver;
                 synchronized (ReceptionistDialogueClient.this) {
                     CallState state = calls.get(pending.callId);
-                    deliver = state != null && !state.ended
+                    deliver = state == pending.owner && !state.ended
                             && state.generation == pending.generation;
                     if (deliver) {
                         state.inFlight = false;
@@ -313,7 +328,7 @@ final class ReceptionistDialogueClient implements AutoCloseable {
         boolean timedOut;
         synchronized (this) {
             CallState state = calls.get(pending.callId);
-            timedOut = state != null && !state.ended && state.inFlight
+            timedOut = state == pending.owner && !state.ended && state.inFlight
                     && state.generation == pending.generation
                     && state.sessionId == sessionId;
         }
@@ -326,7 +341,7 @@ final class ReceptionistDialogueClient implements AutoCloseable {
         boolean deliver;
         synchronized (this) {
             CallState state = calls.get(pending.callId);
-            deliver = state != null && !state.ended
+            deliver = state == pending.owner && !state.ended
                     && state.generation == pending.generation;
             if (deliver) {
                 state.inFlight = false;
