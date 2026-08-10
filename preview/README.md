@@ -16,6 +16,15 @@ source set also runs the Android-free dialer policy state machines. It must not
 be installed. The authoritative product build and host-test target remain the
 platform-signed Soong modules inside the locked AOSP tree.
 
+`messagingcheck` compiles, tests, assembles, and lints the real Messaging
+manifest/resources, every shared Kotlin/Compose source and test, both context
+Binder APIs, and every public-SDK-compatible platform helper. This includes the
+durable MMS operation store and bounded photo transcoder. Only the production
+factory and `PlatformMmsTransport` are excluded because they link AOSP's internal
+MMS PDU sources; a source-set-local factory always rejects MMS instead. The lane
+also verifies that provider-bound journals and context ledgers cannot migrate in
+backup or device transfer. It cannot replace the Soong or physical carrier gate.
+
 `callcontextcheck` stages every Communication Context service/API source, AIDL
 contract, pure test, production resource, and the real application manifest. It
 compiles, tests, assembles, and lints the complete opaque-identity, contact-

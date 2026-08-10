@@ -9,7 +9,11 @@ val generatedPlatform = layout.buildDirectory.dir("generated/messaging-platform/
 
 val stageMessagingPlatform by tasks.registering(Sync::class) {
     from("../../apps/messaging/platform/src") {
-        include("com/aios/messaging/mms/platform/MmsOperationStore.kt")
+        include("com/aios/messaging/mms/platform/**/*.kt")
+        exclude(
+            "com/aios/messaging/mms/platform/MmsTransportFactory.kt",
+            "com/aios/messaging/mms/platform/PlatformMmsTransport.kt",
+        )
     }
     into(generatedPlatform)
 }

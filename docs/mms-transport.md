@@ -22,6 +22,16 @@ and compiles against the public SDK. AOSP-only code is isolated under
 `apps/messaging/platform/src`. This prevents an emulator fixture from silently
 becoming the production carrier implementation.
 
+The `preview:messagingcheck` lane compiles the real role-capable manifest,
+resources, all shared sources/tests, the durable platform operation store, and
+the platform photo transcoder. It excludes only `PlatformMmsTransport` and its
+production factory, substituting a factory that always reports MMS unavailable;
+the validator enforces that exact boundary. The app-private MMS journal,
+provider payload files, and communication-context ledger are excluded from every
+cloud-backup and device-transfer domain because their provider IDs, callback
+tokens, and opaque identities are installation-bound. Only the locked Soong lane
+can compile the actual PDU transport against `framework-mms-shared-srcs`.
+
 ## Outbound photo path
 
 1. Require the user-selected SMS role and the exact active, non-opportunistic

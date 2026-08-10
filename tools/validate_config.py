@@ -767,6 +767,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "apps/phone/src/com/aios/phone/ui/theme/PhoneTheme.kt",
         "apps/messaging/Android.bp",
         "apps/messaging/AndroidManifest.xml",
+        "apps/messaging/res/xml/data_extraction_rules.xml",
         "apps/messaging/src/com/aios/messaging/AiosMessagingApplication.kt",
         "apps/messaging/src/com/aios/messaging/MessagingRuntime.kt",
         "apps/messaging/src/com/aios/messaging/model/MessagingContract.kt",
@@ -801,6 +802,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "patches/0002-framework-mms-aios-visibility.patch",
         "docs/mms-transport.md",
         "preview/messagingcheck/build.gradle.kts",
+        "preview/messagingcheck/src/main/java/com/aios/messaging/mms/platform/MmsTransportFactory.kt",
         "preview/callcontextcheck/build.gradle.kts",
         "preview/callservicecheck/build.gradle.kts",
         "preview/callservicecheck/src/main/java/com/aios/callintelligence/CallProductProperties.java",
@@ -1178,11 +1180,27 @@ def validate_aosp_overlay(root: Path) -> None:
     mms_store = (mms_platform /
                  "mms" / "platform" / "MmsOperationStore.kt").read_text(
                      encoding="utf-8")
+    mms_transcoder = (mms_platform /
+                      "mms" / "platform" / "MmsPhotoTranscoder.kt").read_text(
+                          encoding="utf-8")
+    mms_factory = (mms_platform /
+                   "mms" / "platform" / "MmsTransportFactory.kt").read_text(
+                       encoding="utf-8")
     mms_policy = (messaging_root / "src" / "com" / "aios" / "messaging" /
                   "mms" / "MmsOperationPolicy.kt").read_text(encoding="utf-8")
     mms_contract = (messaging_root / "src" / "com" / "aios" / "messaging" /
                     "mms" / "MmsTransport.kt").read_text(encoding="utf-8")
     messaging_bp = (messaging_root / "Android.bp").read_text(encoding="utf-8")
+    messaging_check_build = (
+        root / "preview" / "messagingcheck" / "build.gradle.kts"
+    ).read_text(encoding="utf-8")
+    messaging_check_factory = (
+        root / "preview" / "messagingcheck" / "src" / "main" / "java" / "com" /
+        "aios" / "messaging" / "mms" / "platform" / "MmsTransportFactory.kt"
+    ).read_text(encoding="utf-8")
+    messaging_extraction_rules = (
+        messaging_root / "res" / "xml" / "data_extraction_rules.xml"
+    ).read_text(encoding="utf-8")
     context_client = (messaging_root / "src" / "com" / "aios" / "messaging" /
                        "context" / "CommunicationContextClient.kt").read_text(
                            encoding="utf-8")
@@ -1230,6 +1248,38 @@ def validate_aosp_overlay(root: Path) -> None:
             and "debuggable AIOS builds until carrier gates pass" in mms_transport
             and "RESULT_ERROR_GENERIC_FAILURE" in mms_receiver,
             "photo drafts must use the picker and release MMS must fail closed")
+    messaging_extraction_domains = {
+        "root", "file", "database", "sharedpref", "external", "device_root",
+        "device_file", "device_database", "device_sharedpref",
+    }
+    require('manifest.srcFile("../../apps/messaging/AndroidManifest.xml")'
+            in messaging_check_build
+            and 'kotlin.directories.add("../../apps/messaging/src")'
+            in messaging_check_build
+            and 'kotlin.directories.add("../../apps/messaging/tests/src")'
+            in messaging_check_build
+            and 'res.directories.add("../../apps/messaging/res")'
+            in messaging_check_build
+            and '../../services/contextintelligence/aidl' in messaging_check_build
+            and '../../services/mediaintelligence/aidl' in messaging_check_build
+            and 'include("com/aios/messaging/mms/platform/**/*.kt")'
+            in messaging_check_build
+            and '"com/aios/messaging/mms/platform/MmsTransportFactory.kt"'
+            in messaging_check_build
+            and '"com/aios/messaging/mms/platform/PlatformMmsTransport.kt"'
+            in messaging_check_build
+            and "dependsOn(stageMessagingPlatform)" in messaging_check_build
+            and "MmsPhotoTranscoder" in mms_transcoder
+            and "MAX_DIMENSION = 4_096" in mms_transcoder
+            and "PlatformMmsTransport(context.applicationContext, listener)" in mms_factory
+            and "override val admitted = false" in messaging_check_factory
+            and "platform MMS unavailable" in messaging_check_factory
+            and "PlatformMmsTransport" not in messaging_check_factory
+            and all(messaging_extraction_rules.count(
+                f'<exclude domain="{domain}" path="." />') == 2
+                    for domain in messaging_extraction_domains)
+            and "abortOnError" not in messaging_check_build,
+            "Messaging compile-check must cover the full app and all public platform helpers while MMS transport fails closed")
     require(":framework-mms-shared-srcs" in messaging_bp
             and "PduPersister" in mms_transport
             and "sendMultimediaMessage" in mms_transport
