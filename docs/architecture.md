@@ -198,6 +198,17 @@ inference queue. AIOS playback must supply the renderer for its subtitle MIME;
 standard third-party subtitle presentation is not promised by this first
 container path.
 
+The derived-file transaction has its own durable journal because MediaStore and
+the private SQLite database cannot share one atomic transaction. A UUID/volume
+record is committed before insertion, copied into the pending row, and then bound
+to the returned output URI. The publish update clears `IS_PENDING` and the UUID
+marker together; only afterward does the service repair self-write suppression
+and remove the journal. Startup and boot recovery run under the same in-process
+export lock. They explicitly include pending MediaStore rows, delete only an
+owned MP4 with the expected marker, discover a crash between insert and URI
+attachment by marker, preserve already-published output, and retain unresolved
+journals when storage is unavailable.
+
 Metadata writes are two-phase:
 
 1. Store the full result in the encrypted index keyed by media ID, generation,

@@ -23,6 +23,7 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -79,6 +80,13 @@ public final class VideoEnhancedCopyService extends Service {
                 CHANNEL_ID,
                 "AI-enhanced video copies",
                 NotificationManager.IMPORTANCE_LOW));
+        executor.execute(() -> {
+            try (MediaJobStore store = new MediaJobStore(this)) {
+                VideoExportRecovery.recover(this, store);
+            } catch (RuntimeException error) {
+                Log.w(TAG, "cannot run enhanced-video startup recovery", error);
+            }
+        });
     }
 
     @Override
@@ -118,8 +126,15 @@ public final class VideoEnhancedCopyService extends Service {
     }
 
     private void export(Uri source, int startId) {
+        synchronized (VideoExportRecovery.LOCK) {
+            exportLocked(source, startId);
+        }
+    }
+
+    private void exportLocked(Uri source, int startId) {
         MediaJobStore store = new MediaJobStore(this);
         Uri output = null;
+        String exportToken = UUID.randomUUID().toString();
         try {
             ContentResolver resolver = getContentResolver();
             SourceInfo sourceInfo = querySource(resolver, source);
@@ -133,7 +148,14 @@ public final class VideoEnhancedCopyService extends Service {
                 throw new IOException("source video changed after AIOS processing");
             }
 
-            output = insertPendingOutput(resolver, sourceInfo);
+            store.beginVideoExport(
+                    exportToken,
+                    source.toString(),
+                    sourceInfo.generation,
+                    sourceInfo.volumeName,
+                    System.currentTimeMillis());
+            output = insertPendingOutput(resolver, sourceInfo, exportToken);
+            store.attachVideoExportOutput(exportToken, output.toString());
             long expires = Math.addExact(System.currentTimeMillis(), SUPPRESSION_MILLIS);
             store.beginOwnMutation(output.toString(), expires);
             try (ParcelFileDescriptor sourceDescriptor =
@@ -158,29 +180,25 @@ public final class VideoEnhancedCopyService extends Service {
             }
             ContentValues publish = new ContentValues();
             publish.put(MediaStore.MediaColumns.IS_PENDING, 0);
-            if (resolver.update(output, publish, null, null) != 1) {
+            publish.putNull(MediaStore.Video.VideoColumns.DESCRIPTION);
+            if (resolver.update(output, publish, VideoExportRecovery.includePending()) != 1) {
                 throw new IOException("cannot publish enhanced MP4");
             }
             long outputGeneration = MediaContent.generation(resolver, output);
             store.finishOwnMutation(output.toString(), outputGeneration, expires);
+            store.clearVideoExportJournal(exportToken);
             Uri published = output;
             output = null;
             publishSuccess(published);
         } catch (Exception error) {
             Log.e(TAG, "cannot create enhanced MP4", error);
-            if (output != null) {
-                try {
-                    getContentResolver().delete(output, null, null);
-                } catch (RuntimeException cleanupError) {
-                    Log.w(TAG, "cannot delete failed enhanced MP4", cleanupError);
-                }
-                try {
-                    store.clearOwnMutation(output.toString());
-                } catch (RuntimeException cleanupError) {
-                    Log.w(TAG, "cannot clear enhanced-video suppression", cleanupError);
-                }
+            boolean published = VideoExportRecovery.recoverToken(this, store, exportToken);
+            if (published && output != null) {
+                publishSuccess(output);
+                output = null;
+            } else {
+                publishFailure();
             }
-            publishFailure();
         } finally {
             store.close();
             if (pendingExports.decrementAndGet() == 0) {
@@ -224,7 +242,8 @@ public final class VideoEnhancedCopyService extends Service {
         }
     }
 
-    private Uri insertPendingOutput(ContentResolver resolver, SourceInfo source)
+    private Uri insertPendingOutput(
+            ContentResolver resolver, SourceInfo source, String exportToken)
             throws IOException {
         ContentValues values = new ContentValues();
         values.put(MediaStore.MediaColumns.DISPLAY_NAME, source.outputDisplayName);
@@ -233,6 +252,8 @@ public final class VideoEnhancedCopyService extends Service {
                 MediaStore.MediaColumns.RELATIVE_PATH,
                 Environment.DIRECTORY_MOVIES + "/AIOS");
         values.put(MediaStore.MediaColumns.IS_PENDING, 1);
+        values.put(MediaStore.Video.VideoColumns.DESCRIPTION,
+                VideoExportRecovery.marker(exportToken));
         if (source.dateTaken != null) {
             values.put(MediaStore.MediaColumns.DATE_TAKEN, source.dateTaken);
         }

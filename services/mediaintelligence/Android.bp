@@ -45,6 +45,7 @@ java_test_host {
         "src/com/aios/mediaintelligence/MediaTimingSummary.java",
         "src/com/aios/mediaintelligence/MediaWorkPolicy.java",
         "src/com/aios/mediaintelligence/VideoEmbeddedMetadata.java",
+        "src/com/aios/mediaintelligence/VideoExportRecoveryPolicy.java",
         "src/com/aios/mediaintelligence/VideoStoryboardPlan.java",
         "tests/src/**/*.java",
     ],

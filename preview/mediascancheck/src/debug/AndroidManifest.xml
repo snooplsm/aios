@@ -4,5 +4,8 @@
         <activity
             android:name="com.aios.mediaintelligence.VideoMuxerSmokeActivity"
             android:exported="true" />
+        <activity
+            android:name="com.aios.mediaintelligence.VideoExportRecoverySmokeActivity"
+            android:exported="true" />
     </application>
 </manifest>

@@ -71,5 +71,11 @@ video, and supported metadata samples without codecs, and adds two ISO-BMFF
 bounded timed subtitle-event JSON samples. The copy is published only after a
 second extractor proves that every source sample timestamp, sync flag, size, and
 digest matches and that the embedded samples round-trip exactly. Failures delete
-the pending copy; the original is never opened for writing. AIOS understands the
-custom subtitle MIME, but ordinary players are not required to display it.
+the pending copy; the original is never opened for writing. Before MediaStore
+insertion, a version-8 database journal records a UUID and output volume. The
+pending row carries that UUID until publication, then atomically clears it with
+`IS_PENDING`. Service startup and boot recovery delete only an owned, marked,
+still-pending row, including the insert-before-URI-attachment window; an already
+published verified copy is preserved and its self-write suppression is repaired.
+AIOS understands the custom subtitle MIME, but ordinary players are not required
+to display it.

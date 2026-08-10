@@ -91,8 +91,10 @@ camera application that created them.
   `Movies/AIOS` MP4 containing the AIOS description and timed subtitle tracks.
   The path must show owner confirmation, copy encoded audio/video samples without
   recompression, verify the remux before publication, and delete partial output
-  on failure. AIOS must render the custom subtitles; generic players are allowed
-  to ignore them.
+  on failure. A durable pre-insert journal and marker must recover process death
+  at startup or boot without deleting a published copy or trusting a reassigned
+  URI. AIOS must render the custom subtitles; generic players are allowed to
+  ignore them.
 
 The service produces a versioned structured record containing a caption, tags,
 language, model identifier, model digest, inference timestamp, and confidence.

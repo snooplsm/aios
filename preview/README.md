@@ -25,10 +25,13 @@ It is a compile check, not a replacement for the platform Soong or device gates.
 
 `mediascancheck` stages the production MediaStore generation scanner, durable
 queue/store, deletion-liveness scanner, embedded-video schema, verified MP4
-muxer, and owner-confirmed foreground export surface. It proves the missed-media,
-source-lifecycle, and enhanced-copy paths compile against the public Android SDK
-without duplicating source files. Actual MP4 remux/playback remains a physical
-device release gate.
+muxer, owner-confirmed foreground export surface, and version-8 crash journal.
+Its debug-only emulator fixtures exercise platform MP4 sample round trips plus
+attached-pending deletion, insert-before-URI-attachment recovery, and published
+output preservation. It proves the missed-media, source-lifecycle, and
+enhanced-copy paths compile against the public Android SDK without duplicating
+source files. Actual Pixel MP4 remux/playback and process-kill recovery remain
+physical-device release gates.
 
 `telecomsmoke` packages those same sources as `com.aios.phone` solely for an
 AOSP emulator. It is debug-signed, cannot use the signature-protected AIOS

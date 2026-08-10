@@ -22,6 +22,7 @@ public final class MediaBootReceiver extends BroadcastReceiver {
                     } catch (IOException error) {
                         Log.e(TAG, "cannot erase recovered video storyboards", error);
                     }
+                    VideoExportRecovery.recover(application, store);
                     store.recoverInterruptedWork();
                     new MediaMetadataCommitter(application).recover(store);
                 } finally {

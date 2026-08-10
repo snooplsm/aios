@@ -110,6 +110,19 @@ source changes, service timeout, or any verification error delete the pending
 copy. Self-write suppression prevents the derived video from entering the
 inference queue.
 
+Publication is also crash-safe across process death. A private version-8 SQLite
+journal records a random export token, source generation, and destination volume
+before the MediaStore insert. The `IS_PENDING=1` row stores the token in its
+description until its verified publish update atomically clears both fields. The
+output URI is attached to the journal immediately after insert. Recovery runs at
+export-service startup and boot. It includes pending rows explicitly in every
+MediaStore query/update/delete, since Android filters them by default. An owned
+MP4 whose pending marker matches is deleted; the narrow insert-before-URI-attach
+case is found by token and volume. An absent target is forgotten, an untrusted
+target is never deleted, and an already published owned MP4 is preserved while
+self-write suppression is repaired. A bounded recovery batch remains journaled
+for retry if its volume or provider is unavailable.
+
 The `media.simple_jpeg_xmp_round_trip` and `media.simple_png_xmp_round_trip`
 physical-device gates decode before/after fixtures, compare rendered pixels,
 and verify the expected XMP while checking the exact container-preservation
@@ -128,3 +141,9 @@ English and Spanish MP4 through the real confirmation UI, checks that the
 original generation/digest is unchanged, verifies encoded-sample fingerprints
 and both embedded MIME tracks, exercises audio-less video, and confirms playback,
 failure cleanup, notification behavior, and no self-requeue on a Pixel build.
+The separate `media.enhanced_video_interrupted_export_recovery` gate kills the
+export process before insert, after insert but before URI attachment, during
+remux, and immediately after publication. Reboot/startup recovery must leave no
+pending row or journal for the first three cases, preserve the verified published
+copy in the last case, refuse mismatched owner/marker fixtures, and never modify
+the source.

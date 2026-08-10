@@ -18,9 +18,11 @@ import java.util.regex.Pattern;
 /** Durable queue and encrypted-at-rest index (credential-encrypted app data). */
 final class MediaJobStore extends SQLiteOpenHelper {
     private static final String DATABASE = "media_intelligence.db";
-    private static final int VERSION = 7;
+    private static final int VERSION = 8;
     private static final Pattern VOLUME_NAME = Pattern.compile("[A-Za-z0-9_-]{1,128}");
     private static final Pattern DIGEST = Pattern.compile("[0-9a-f]{64}");
+    private static final Pattern EXPORT_TOKEN = Pattern.compile(
+            "[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}");
     private static final int ASSOCIATION_ACTIVE = 0;
     private static final int ASSOCIATION_DELETE_PENDING = 1;
     static final int STATUS_PENDING = 0;
@@ -78,6 +80,7 @@ final class MediaJobStore extends SQLiteOpenHelper {
         createResultDigestTable(database);
         createAssociationTables(database);
         createVideoSubtitleTables(database);
+        createVideoExportJournal(database);
     }
 
     @Override
@@ -140,6 +143,9 @@ final class MediaJobStore extends SQLiteOpenHelper {
                     "ALTER TABLE timing_samples ADD COLUMN video_audio_pipeline_ms"
                             + " INTEGER NOT NULL DEFAULT -1");
         }
+        if (oldVersion < 8) {
+            createVideoExportJournal(database);
+        }
     }
 
     private static void createTimingTable(SQLiteDatabase database) {
@@ -182,6 +188,20 @@ final class MediaJobStore extends SQLiteOpenHelper {
                         + "FOREIGN KEY(job_id) REFERENCES jobs(_id) ON DELETE CASCADE)");
         database.execSQL(
                 "CREATE INDEX result_digests_digest ON result_digests(content_digest)");
+    }
+
+    private static void createVideoExportJournal(SQLiteDatabase database) {
+        database.execSQL(
+                "CREATE TABLE video_export_journal ("
+                        + "token TEXT PRIMARY KEY,"
+                        + "source_uri TEXT NOT NULL,"
+                        + "source_generation INTEGER NOT NULL CHECK(source_generation>=0),"
+                        + "output_volume TEXT NOT NULL,"
+                        + "output_uri TEXT NOT NULL DEFAULT '',"
+                        + "created_at_epoch_ms INTEGER NOT NULL CHECK(created_at_epoch_ms>0))");
+        database.execSQL(
+                "CREATE INDEX video_export_journal_created"
+                        + " ON video_export_journal(created_at_epoch_ms)");
     }
 
     private static void createAssociationTables(SQLiteDatabase database) {
@@ -1109,6 +1129,127 @@ final class MediaJobStore extends SQLiteOpenHelper {
         markPortableState(jobId, PORTABLE_SKIPPED);
     }
 
+    void beginVideoExport(
+            String token,
+            String sourceUri,
+            long sourceGeneration,
+            String outputVolume,
+            long createdAtEpochMillis) {
+        validateExportToken(token);
+        validateVolumeName(outputVolume);
+        if (sourceUri == null || sourceUri.isBlank() || sourceUri.length() > 2_048
+                || sourceGeneration < 0L || createdAtEpochMillis <= 0L) {
+            throw new IllegalArgumentException("invalid enhanced-video export journal");
+        }
+        ContentValues values = new ContentValues();
+        values.put("token", token);
+        values.put("source_uri", sourceUri);
+        values.put("source_generation", sourceGeneration);
+        values.put("output_volume", outputVolume);
+        values.put("output_uri", "");
+        values.put("created_at_epoch_ms", createdAtEpochMillis);
+        getWritableDatabase().insertOrThrow("video_export_journal", null, values);
+    }
+
+    void attachVideoExportOutput(String token, String outputUri) {
+        validateExportToken(token);
+        if (outputUri == null || outputUri.isBlank() || outputUri.length() > 2_048) {
+            throw new IllegalArgumentException("invalid enhanced-video output URI");
+        }
+        ContentValues values = new ContentValues();
+        values.put("output_uri", outputUri);
+        int changed = getWritableDatabase().update(
+                "video_export_journal",
+                values,
+                "token=? AND output_uri=''",
+                new String[]{token});
+        if (changed != 1) {
+            throw new IllegalStateException("enhanced-video output cannot be attached");
+        }
+    }
+
+    List<PendingVideoExport> pendingVideoExports(int limit) {
+        if (limit <= 0 || limit > 128) {
+            throw new IllegalArgumentException("invalid enhanced-video recovery limit");
+        }
+        List<PendingVideoExport> result = new ArrayList<>();
+        try (Cursor cursor = getReadableDatabase().query(
+                "video_export_journal",
+                new String[]{
+                        "token", "source_uri", "source_generation", "output_volume",
+                        "output_uri", "created_at_epoch_ms"
+                },
+                null,
+                null,
+                null,
+                null,
+                "created_at_epoch_ms ASC,token ASC",
+                Integer.toString(limit))) {
+            while (cursor.moveToNext()) {
+                result.add(new PendingVideoExport(
+                        cursor.getString(0),
+                        cursor.getString(1),
+                        cursor.getLong(2),
+                        cursor.getString(3),
+                        cursor.getString(4),
+                        cursor.getLong(5)));
+            }
+        }
+        return result;
+    }
+
+    PendingVideoExport pendingVideoExport(String token) {
+        validateExportToken(token);
+        try (Cursor cursor = getReadableDatabase().query(
+                "video_export_journal",
+                new String[]{
+                        "token", "source_uri", "source_generation", "output_volume",
+                        "output_uri", "created_at_epoch_ms"
+                },
+                "token=?",
+                new String[]{token},
+                null,
+                null,
+                null)) {
+            if (!cursor.moveToFirst()) return null;
+            return new PendingVideoExport(
+                    cursor.getString(0),
+                    cursor.getString(1),
+                    cursor.getLong(2),
+                    cursor.getString(3),
+                    cursor.getString(4),
+                    cursor.getLong(5));
+        }
+    }
+
+    void clearVideoExportJournal(String token) {
+        validateExportToken(token);
+        getWritableDatabase().delete(
+                "video_export_journal", "token=?", new String[]{token});
+    }
+
+    void clearFailedVideoExport(String token, String outputUri) {
+        validateExportToken(token);
+        SQLiteDatabase database = getWritableDatabase();
+        database.beginTransaction();
+        try {
+            database.delete("video_export_journal", "token=?", new String[]{token});
+            if (outputUri != null && !outputUri.isBlank()) {
+                database.delete(
+                        "own_mutations", "media_uri=?", new String[]{outputUri});
+            }
+            database.setTransactionSuccessful();
+        } finally {
+            database.endTransaction();
+        }
+    }
+
+    private static void validateExportToken(String token) {
+        if (token == null || !EXPORT_TOKEN.matcher(token).matches()) {
+            throw new IllegalArgumentException("invalid enhanced-video export token");
+        }
+    }
+
     void beginOwnMutation(String uri, long expiresAtEpochMillis) {
         ContentValues values = new ContentValues();
         values.put("media_uri", uri);
@@ -1229,6 +1370,30 @@ final class MediaJobStore extends SQLiteOpenHelper {
         values.put("status", status);
         getWritableDatabase().update(
                 "jobs", values, "_id=?", new String[]{Long.toString(jobId)});
+    }
+
+    static final class PendingVideoExport {
+        final String token;
+        final String sourceUri;
+        final long sourceGeneration;
+        final String outputVolume;
+        final String outputUri;
+        final long createdAtEpochMillis;
+
+        PendingVideoExport(
+                String token,
+                String sourceUri,
+                long sourceGeneration,
+                String outputVolume,
+                String outputUri,
+                long createdAtEpochMillis) {
+            this.token = token;
+            this.sourceUri = sourceUri;
+            this.sourceGeneration = sourceGeneration;
+            this.outputVolume = outputVolume;
+            this.outputUri = outputUri;
+            this.createdAtEpochMillis = createdAtEpochMillis;
+        }
     }
 
     static final class PendingJob {

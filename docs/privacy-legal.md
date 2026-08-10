@@ -67,6 +67,11 @@ AIOS application-metadata tracks. The original is unchanged, no ZIP/sidecar is
 created, and the confirmation warns that generic players may not display the
 custom subtitles. The enhanced copy is ordinary owner-visible media and follows
 the owner's deletion/sharing choices rather than the 24-hour call-artifact rule.
+Its crash journal is credential-encrypted and contains the source URI/generation,
+random token, output volume/URI, and creation time only while publication is
+incomplete; success or verified cleanup removes the row. The token marker is
+visible only on the owner's pending MediaStore row and is cleared atomically when
+that copy is published.
 
 ## Model licensing
 

@@ -42,6 +42,7 @@
       "output_container": "video/mp4",
       "output_directory": "Movies/AIOS",
       "copy_encoded_audio_video_samples": true,
+      "crash_recovery": "durable_pending_journal",
       "description_track_mime": "application/vnd.aios.video-description+json",
       "subtitle_track_mime": "application/vnd.aios.subtitle+json",
       "generic_player_subtitle_support_required": false

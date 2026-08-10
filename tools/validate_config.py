@@ -126,6 +126,7 @@ def validate_product(policy: dict[str, Any]) -> None:
                 "output_container": "video/mp4",
                 "output_directory": "Movies/AIOS",
                 "copy_encoded_audio_video_samples": True,
+                "crash_recovery": "durable_pending_journal",
                 "description_track_mime":
                     "application/vnd.aios.video-description+json",
                 "subtitle_track_mime": "application/vnd.aios.subtitle+json",
@@ -951,6 +952,8 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/mediaintelligence/src/com/aios/mediaintelligence/VideoEnhancedCopyMuxer.java",
         "services/mediaintelligence/src/com/aios/mediaintelligence/VideoEnhancedCopyActivity.java",
         "services/mediaintelligence/src/com/aios/mediaintelligence/VideoEnhancedCopyService.java",
+        "services/mediaintelligence/src/com/aios/mediaintelligence/VideoExportRecovery.java",
+        "services/mediaintelligence/src/com/aios/mediaintelligence/VideoExportRecoveryPolicy.java",
         "services/mediaintelligence/src/com/aios/mediaintelligence/XmpProjection.java",
         "services/mediaintelligence/src/com/aios/mediaintelligence/MediaBrokerClient.java",
         "services/mediaintelligence/src/com/aios/mediaintelligence/MediaContent.java",
@@ -968,6 +971,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/mediaintelligence/tests/src/com/aios/mediaintelligence/VideoStoryboardPlanTest.java",
         "services/mediaintelligence/tests/src/com/aios/mediaintelligence/VideoTranscriptTest.java",
         "services/mediaintelligence/tests/src/com/aios/mediaintelligence/VideoEmbeddedMetadataTest.java",
+        "services/mediaintelligence/tests/src/com/aios/mediaintelligence/VideoExportRecoveryPolicyTest.java",
         "services/mediaintelligence/tests/src/com/aios/mediaintelligence/MediaTimingTest.java",
         "services/mediaintelligence/tests/src/com/aios/mediaintelligence/MediaGenerationReconcilerTest.java",
         "services/mediaintelligence/tests/src/com/aios/mediaintelligence/MediaLivenessReconcilerTest.java",
@@ -2293,6 +2297,8 @@ def validate_aosp_overlay(root: Path) -> None:
     require("MediaInferenceJobService.java" in media_preview_build
             and "VideoAudioExtractor.java" in media_preview_build
             and "VideoTranscript.java" in media_preview_build
+            and "VideoExportRecovery.java" in media_preview_build
+            and "MediaBootReceiver.java" in media_preview_build
             and not (root / "preview" / "mediascancheck" / "src" / "main" / "java" /
                      "com" / "aios" / "mediaintelligence" /
                      "MediaInferenceJobService.java").exists(),
@@ -2379,19 +2385,21 @@ def validate_aosp_overlay(root: Path) -> None:
     require("own_mutations" in media_store_source
             and "recoverInterruptedWork" in media_store_source,
             "media database must suppress self-writes and recover interrupted jobs")
-    require("VERSION = 7" in media_store_source
+    require("VERSION = 8" in media_store_source
             and "oldVersion < 2" in media_store_source
             and "oldVersion < 3" in media_store_source
             and "oldVersion < 4" in media_store_source
             and "oldVersion < 5" in media_store_source
             and "oldVersion < 6" in media_store_source
             and "oldVersion < 7" in media_store_source
+            and "oldVersion < 8" in media_store_source
             and "oldVersion >= 2 && oldVersion < 7" in media_store_source
             and "CREATE TABLE timing_samples" in media_store_source
             and "CREATE TABLE media_scan_state" in media_store_source
             and "CREATE TABLE result_digests" in media_store_source
             and "CREATE TABLE context_associations" in media_store_source
             and "CREATE TABLE video_subtitles" in media_store_source
+            and "CREATE TABLE video_export_journal" in media_store_source
             and "CREATE VIRTUAL TABLE video_subtitle_fts" in media_store_source
             and "video_subtitles_ad BEFORE DELETE" in media_store_source
             and "audio_status" in media_store_source
@@ -2432,6 +2440,16 @@ def validate_aosp_overlay(root: Path) -> None:
     enhanced_service = (
         media_source_root / "VideoEnhancedCopyService.java"
     ).read_text(encoding="utf-8")
+    export_recovery = (
+        media_source_root / "VideoExportRecovery.java"
+    ).read_text(encoding="utf-8")
+    export_recovery_policy = (
+        media_source_root / "VideoExportRecoveryPolicy.java"
+    ).read_text(encoding="utf-8")
+    export_recovery_test = (
+        root / "services" / "mediaintelligence" / "tests" / "src" / "com" /
+        "aios" / "mediaintelligence" / "VideoExportRecoveryPolicyTest.java"
+    ).read_text(encoding="utf-8")
     enhanced_manifest = (root / "services" / "mediaintelligence" /
                          "AndroidManifest.xml").read_text(encoding="utf-8")
     require('DESCRIPTION_MIME =' in embedded_video
@@ -2460,8 +2478,15 @@ def validate_aosp_overlay(root: Path) -> None:
             and 'Environment.DIRECTORY_MOVIES + "/AIOS"' in enhanced_service
             and "beginOwnMutation" in enhanced_service
             and "finishOwnMutation" in enhanced_service
+            and "beginVideoExport" in enhanced_service
+            and "attachVideoExportOutput" in enhanced_service
+            and "clearVideoExportJournal" in enhanced_service
+            and "QUERY_ARG_MATCH_PENDING" in export_recovery
+            and "deleteUnattachedOutput" in export_recovery
+            and "PRESERVE_PUBLISHED" in export_recovery_policy
+            and "deletesOnlyOwnedMarkedPendingMp4" in export_recovery_test
             and "VideoEnhancedCopyMuxer.create" in enhanced_service,
-            "enhanced MP4 publication must be source-bound, atomic, and self-suppressed")
+            "enhanced MP4 publication must be source-bound, crash-safe, and self-suppressed")
     require('android.intent.action.SEND' in enhanced_manifest
             and 'android:mimeType="video/mp4"' in enhanced_manifest
             and 'android:foregroundServiceType="dataSync"' in enhanced_manifest
@@ -2591,6 +2616,8 @@ def validate_aosp_overlay(root: Path) -> None:
     )
     require("MediaMetadataCommitter(application).recover(store)" in boot_source,
             "boot handling must recover interrupted metadata commits")
+    require("VideoExportRecovery.recover(application, store)" in boot_source,
+            "boot handling must recover interrupted enhanced-video exports")
     require("VideoStoryboard.eraseCached(application)" in boot_source,
             "boot handling must erase private storyboard remnants")
 
