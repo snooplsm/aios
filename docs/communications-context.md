@@ -34,6 +34,19 @@ the open composer to reply on the SIM that received it. The chosen subscription
 is passed explicitly to `SmsManager` and written to the Telephony provider; the
 transport never silently switches an explicit send to another active SIM.
 
+Messaging also treats the Telephony provider, not callback delivery, as the
+authoritative context source. While it holds `ROLE_SMS`, descendant observers
+trigger a complete reconciliation bounded to 128 provider rows per page. Each
+pass snapshots an SMS and MMS high-water ID, resumes page-by-page, and deletes
+context only after both snapshots finish. A private SQLite ledger stores only
+source type, provider ID, a per-install HMAC fingerprint, and the last completed
+sweep epoch; it never stores an address or message body. A persisted no-network
+job repeats the pass after boot or an SMS-role change. Failed/draft SMS, failed
+or in-flight MMS, and undownloaded MMS notifications are excluded.
+The context service exposes a random, non-identifying store-instance token; a
+new Messaging ledger or changed token forces a source reset and complete rebuild
+instead of treating a missing remote database as already synchronized.
+
 ## Conversation identity
 
 `AiosContextIntelligence` is a separate platform-signed service. Authorized
@@ -90,12 +103,15 @@ directory name, not a number, and its expiry is copied from the immutable local
 artifact metadata. A context write is skipped if that expiry has already passed.
 No separate context TTL can extend the 24-hour call-artifact lifetime.
 
-Every source has a monotonic revision. Deletion removes the entry and writes a
-tombstone, so a delayed stale indexing callback cannot resurrect it. SMS deletion
-is wired to that API. Normal call teardown now publishes the expiring call
-artifact. Call-artifact expiry is purged during queries and after boot. Durable
-Phone call events are also wired, while selected-photo metadata still needs its
-producer lifecycle before that context release gate can pass.
+Every source has a monotonic revision. Deletion removes the entry and advances a
+source watermark, so a delayed stale indexing callback cannot resurrect it.
+Direct message callbacks and provider reconciliation share one synchronously
+persisted revision clock. Provider deletion, restore-time edits, application
+restart, and SMS-role loss therefore converge without accumulating one durable
+tombstone for every deleted message. Normal call teardown now publishes the
+expiring call artifact. Call-artifact expiry is purged during queries and after
+boot. Durable Phone call events are also wired, while selected-photo metadata
+still needs its producer lifecycle before that context release gate can pass.
 
 Media Intelligence now removes its authoritative private result when the
 MediaStore source is deleted, including bounded restart reconciliation and
@@ -118,13 +134,13 @@ source-level delete watermark in the context database rather than accumulating
 an unbounded tombstone table. The next legitimate Phone write must have a newer
 global revision; delayed writes at or below the watermark remain rejected. The
 version-2 database migration folds any existing per-call tombstones into that
-watermark without dropping current entries.
+watermark without dropping current entries. The version-3 migration does the
+same for legacy SMS/MMS tombstones before provider reconciliation begins.
 
 ## Still required before daily use
 
 - compile the AOSP-only MMS source with Soong and carrier-test send, download,
   provider persistence, APN/roaming, crash recovery, and duplicate suppression;
-- reconcile provider changes made outside AIOS Messaging;
 - wire the selected-photo metadata producer;
 - exercise call-event reconciliation across deletion, reboot, role loss, and
   clock changes on Pixel hardware before passing `context.call_source_lifecycle`;

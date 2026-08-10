@@ -69,6 +69,10 @@ the physical carrier/device gate passes; the public-SDK preview uses a disabled
 transport fixture and does not claim carrier support. SMS and MMS share an
 explicit composer SIM selector: a valid owner choice or system default is used,
 a lone active SIM is automatic, and ambiguous dual-SIM routing fails closed.
+Its communication index now reconciles the authoritative SMS/MMS provider in
+bounded pages after restart and provider changes. A keyed private ledger detects
+edits without storing message text or numbers; deletions and SMS-role loss
+produce monotonic context watermarks rather than leaving stale RAG entries.
 See `docs/mms-transport.md`.
 Incoming calls now resolve their presented number transiently into the same
 opaque communication identity used by Messaging. The receptionist can consume

@@ -100,6 +100,11 @@ dark themes. The user explicitly selects the SMS role. The app must persist an
 incoming SMS before acknowledging delivery, persist accepted outbound SMS in the
 Telephony provider, support multipart text and respond-via-message, open AIOS
 Phone through a standard dial intent, and use the read-only system Photo Picker.
+The communication index must reconcile the complete authoritative provider in
+bounded restartable pages after process death, restore, external provider
+mutation, and deletion. It may store keyed change fingerprints but not raw
+numbers or message bodies in its reconciliation ledger. Losing the SMS role must
+remove all Messaging-owned context with a monotonic source watermark.
 
 For devices with multiple active subscriptions, the composer must show the
 outgoing SIM and pass its exact subscription ID to both SMS and MMS transports.

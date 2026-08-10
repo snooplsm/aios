@@ -33,10 +33,24 @@ public final class CommunicationContextService extends Service {
     static final String ACTION = "com.aios.context.COMMUNICATION_CONTEXT_SERVICE";
     private static final String PREFS = "opaque_identity";
     private static final String SECRET = "hmac_secret";
+    private static final String STORE_INSTANCE = "store_instance";
+    private static final int STORE_INSTANCE_BYTES = 16;
 
     private ContextStore store;
 
     private final ICommunicationContext.Stub binder = new ICommunicationContext.Stub() {
+        @Override
+        public String getStoreInstanceId() {
+            String caller = authorizedCaller();
+            if (!ContextPolicy.isClient(caller)) throw new SecurityException("unknown client");
+            long token = Binder.clearCallingIdentity();
+            try {
+                return storeInstanceId();
+            } finally {
+                Binder.restoreCallingIdentity(token);
+            }
+        }
+
         @Override
         public ConversationIdentity resolveIdentity(String rawAddress, String countryIso) {
             String caller = authorizedCaller();
@@ -81,6 +95,18 @@ public final class CommunicationContextService extends Service {
             long token = Binder.clearCallingIdentity();
             try {
                 store.deleteSource(sourceType, sourceId, revision);
+            } finally {
+                Binder.restoreCallingIdentity(token);
+            }
+        }
+
+        @Override
+        public long deleteSourceType(String sourceType, long revision) {
+            String caller = authorizedCaller();
+            ContextPolicy.validateDeleteType(caller, sourceType, revision);
+            long token = Binder.clearCallingIdentity();
+            try {
+                return store.deleteSourceType(sourceType, revision);
             } finally {
                 Binder.restoreCallingIdentity(token);
             }
@@ -248,7 +274,7 @@ public final class CommunicationContextService extends Service {
         }
     }
 
-    private byte[] secret() {
+    private synchronized byte[] secret() {
         SharedPreferences preferences = getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         String encoded = preferences.getString(SECRET, null);
         if (encoded != null) {
@@ -265,5 +291,19 @@ public final class CommunicationContextService extends Service {
                 SECRET, Base64.encodeToString(generated, Base64.NO_WRAP)).commit();
         if (!committed) throw new IllegalStateException("cannot persist identity secret");
         return generated;
+    }
+
+    private synchronized String storeInstanceId() {
+        SharedPreferences preferences = getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        String existing = preferences.getString(STORE_INSTANCE, null);
+        if (existing != null && existing.matches("[0-9a-f]{32}")) return existing;
+        byte[] generated = new byte[STORE_INSTANCE_BYTES];
+        new SecureRandom().nextBytes(generated);
+        StringBuilder encoded = new StringBuilder(STORE_INSTANCE_BYTES * 2);
+        for (byte item : generated) encoded.append(String.format("%02x", item & 0xff));
+        String value = encoded.toString();
+        boolean committed = preferences.edit().putString(STORE_INSTANCE, value).commit();
+        if (!committed) throw new IllegalStateException("cannot persist context store instance");
+        return value;
     }
 }

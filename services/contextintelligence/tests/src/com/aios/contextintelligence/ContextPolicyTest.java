@@ -19,9 +19,13 @@ public final class ContextPolicyTest {
                 NUMBER, CONTACT, new String[]{NUMBER}, 1_000L, 0L, "See you Tuesday");
         assertTrue(ContextPolicy.canQuery("com.aios.phone"));
         assertFalse(ContextPolicy.canQuery("com.aios.mediaintelligence"));
+        ContextPolicy.validateDeleteType(
+                "com.aios.messaging", ContextPolicy.SMS, 2L);
         assertSecurity(() -> ContextPolicy.validateWrite(
                 "com.aios.phone", ContextPolicy.SMS, "42", 1L,
                 NUMBER, CONTACT, new String[]{NUMBER}, 1_000L, 0L, "forged message"));
+        assertSecurity(() -> ContextPolicy.validateDeleteType(
+                "com.aios.phone", ContextPolicy.SMS, 2L));
     }
 
     @Test
@@ -51,6 +55,10 @@ public final class ContextPolicyTest {
         assertIllegal(() -> ContextPolicy.validateWrite(
                 "com.aios.messaging", ContextPolicy.SMS, "42", 1L,
                 NUMBER, "", new String[]{NUMBER}, 1L, 0L, "x".repeat(4_097)));
+        assertIllegal(() -> ContextPolicy.validateDeleteType(
+                "com.aios.messaging", ContextPolicy.SMS, 0L));
+        assertIllegal(() -> ContextPolicy.validateDeleteType(
+                "com.aios.mediaintelligence", ContextPolicy.MEDIA_METADATA, 1L));
     }
 
     private static void assertIllegal(Runnable operation) {

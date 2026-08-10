@@ -46,6 +46,12 @@ the owner's selected subscription ID is kept in app preferences; authoritative
 per-message subscription IDs remain in the
 Android Telephony provider.
 
+Messaging's provider-reconciliation ledger contains only SMS/MMS source type,
+provider row ID, a per-install HMAC fingerprint, and a sweep epoch. Addresses,
+message bodies, contact names, and reusable unkeyed content hashes are excluded.
+The ledger and communication index are cleared through monotonic source
+watermarks when the owner moves the SMS role to another application.
+
 ## Media metadata
 
 Portable metadata may leave the device when a photo is shared. Only deliberately

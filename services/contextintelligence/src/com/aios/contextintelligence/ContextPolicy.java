@@ -27,6 +27,8 @@ final class ContextPolicy {
             "com.aios.mediaintelligence", Set.of(MEDIA_METADATA));
     private static final Set<String> READERS = Set.of(
             "com.aios.messaging", "com.aios.phone", "com.aios.callintelligence");
+    private static final Set<String> BULK_DELETE_SOURCES = Set.of(
+            SMS, MMS, CALL_EVENT);
     private static final Pattern IDENTITY = Pattern.compile(
             "(?:number|contact):[0-9a-f]{64}");
 
@@ -74,13 +76,24 @@ final class ContextPolicy {
 
     static void validateDelete(
             String packageName, String sourceType, String sourceId, long revision) {
-        Set<String> allowed = WRITERS.get(packageName);
-        if (allowed == null || !allowed.contains(sourceType)) {
-            throw new SecurityException("caller cannot delete this context source");
-        }
+        validateWriter(packageName, sourceType);
         if (sourceId == null || sourceId.isBlank() || sourceId.length() > 128
                 || revision <= 0L) {
             throw new IllegalArgumentException("invalid communication context deletion");
+        }
+    }
+
+    static void validateDeleteType(String packageName, String sourceType, long revision) {
+        validateWriter(packageName, sourceType);
+        if (!BULK_DELETE_SOURCES.contains(sourceType) || revision <= 0L) {
+            throw new IllegalArgumentException("invalid communication context deletion");
+        }
+    }
+
+    private static void validateWriter(String packageName, String sourceType) {
+        Set<String> allowed = WRITERS.get(packageName);
+        if (allowed == null || !allowed.contains(sourceType)) {
+            throw new SecurityException("caller cannot delete this context source");
         }
     }
 

@@ -132,6 +132,7 @@ object MessagingRuntime {
             ?.isRoleHeld(RoleManager.ROLE_SMS) == true
         val hasPermission = application.checkSelfPermission(Manifest.permission.READ_PHONE_STATE) ==
             PackageManager.PERMISSION_GRANTED
+        contextIndex.setProviderReconciliationEnabled(held)
         updateSubscriptionListener(held && hasPermission)
         reduce {
             it.copy(
@@ -153,6 +154,14 @@ object MessagingRuntime {
                 selectedSubscriptionId = null,
             )
         }
+    }
+
+    fun reconcileMessageContext(completion: (Result<Unit>) -> Unit) = onMain {
+        if (!initialized) {
+            completion(Result.failure(IllegalStateException("Messaging is not initialized")))
+            return@onMain
+        }
+        contextIndex.requestProviderReconciliation(completion)
     }
 
     fun openAddress(address: String, initialBody: String = "") = onMain {

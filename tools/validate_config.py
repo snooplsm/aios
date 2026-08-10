@@ -703,6 +703,11 @@ def validate_aosp_overlay(root: Path) -> None:
         "apps/messaging/src/com/aios/messaging/model/SubscriptionSelectionPolicy.kt",
         "apps/messaging/src/com/aios/messaging/data/MessagingRepository.kt",
         "apps/messaging/src/com/aios/messaging/context/CommunicationContextClient.kt",
+        "apps/messaging/src/com/aios/messaging/context/MessageContextLedger.kt",
+        "apps/messaging/src/com/aios/messaging/context/MessageContextLifecycleReceiver.kt",
+        "apps/messaging/src/com/aios/messaging/context/MessageContextPolicy.kt",
+        "apps/messaging/src/com/aios/messaging/context/MessageContextProvider.kt",
+        "apps/messaging/src/com/aios/messaging/context/MessageContextReconcileJobService.kt",
         "apps/messaging/src/com/aios/messaging/telephony/SmsDeliverReceiver.kt",
         "apps/messaging/src/com/aios/messaging/telephony/MmsDeliverReceiver.kt",
         "apps/messaging/src/com/aios/messaging/telephony/MmsResultReceiver.kt",
@@ -719,6 +724,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "apps/messaging/src/com/aios/messaging/ui/theme/MessagingTheme.kt",
         "apps/messaging/tests/src/com/aios/messaging/model/MessagePolicyTest.kt",
         "apps/messaging/tests/src/com/aios/messaging/model/SubscriptionSelectionPolicyTest.kt",
+        "apps/messaging/tests/src/com/aios/messaging/context/MessageContextPolicyTest.kt",
         "apps/messaging/tests/src/com/aios/messaging/mms/MmsOperationPolicyTest.kt",
         "patches/0002-framework-mms-aios-visibility.patch",
         "docs/mms-transport.md",
@@ -1051,6 +1057,15 @@ def validate_aosp_overlay(root: Path) -> None:
     context_client = (messaging_root / "src" / "com" / "aios" / "messaging" /
                       "context" / "CommunicationContextClient.kt").read_text(
                           encoding="utf-8")
+    message_context_root = (messaging_root / "src" / "com" / "aios" / "messaging" /
+                            "context")
+    message_context_ledger = (message_context_root / "MessageContextLedger.kt").read_text(
+        encoding="utf-8")
+    message_context_provider = (message_context_root / "MessageContextProvider.kt").read_text(
+        encoding="utf-8")
+    message_context_job = (message_context_root /
+                           "MessageContextReconcileJobService.kt").read_text(
+                               encoding="utf-8")
     require('android.intent.action.SENDTO' in messaging_manifest
             and all(f'android:scheme="{scheme}"' in messaging_manifest
                     for scheme in ("sms", "smsto", "mms", "mmsto"))
@@ -1102,6 +1117,27 @@ def validate_aosp_overlay(root: Path) -> None:
             and "deleteSource" in context_client
             and "queryRecent" in context_client,
             "messaging must index, retrieve, and tombstone SMS/MMS context")
+    require("registerContentObserver" in context_client
+            and "provider.page" in context_client
+            and "provider::highWatermark" in context_client
+            and "staleBatch" in context_client
+            and "pendingMutations" in context_client
+            and "queuedMutations" in context_client
+            and "ledger.nextRevision(watermark)" in context_client
+            and "service.getStoreInstanceId()" in context_client
+            and "setProviderReconciliationEnabled(held)" in messaging_runtime
+            and "CREATE TABLE ledger" in message_context_ledger
+            and "fingerprint TEXT NOT NULL" in message_context_ledger
+            and "address TEXT" not in message_context_ledger
+            and "body TEXT" not in message_context_ledger
+            and "LIMIT $limit" in message_context_provider
+            and "MESSAGE_BOX_FAILED" not in message_context_provider
+            and ".setPersisted(true)" in message_context_job
+            and "NETWORK_TYPE_NONE" in message_context_job
+            and "DEFAULT_SMS_PACKAGE_CHANGED" in messaging_manifest
+            and "android.permission.RECEIVE_BOOT_COMPLETED" in messaging_manifest
+            and "android.permission.BIND_JOB_SERVICE" in messaging_manifest,
+            "Messaging context must durably reconcile bounded authoritative provider pages")
 
     context_root = root / "services" / "contextintelligence"
     context_manifest = (context_root / "AndroidManifest.xml").read_text(encoding="utf-8")
@@ -1114,6 +1150,8 @@ def validate_aosp_overlay(root: Path) -> None:
     context_policy = (context_root / "src" / "com" / "aios" /
                       "contextintelligence" / "ContextPolicy.java").read_text(
                           encoding="utf-8")
+    context_aidl = (context_root / "aidl" / "com" / "aios" / "context" /
+                    "ICommunicationContext.aidl").read_text(encoding="utf-8")
     require('protectionLevel="signature|privileged"' in context_manifest
             and 'android.permission.READ_CONTACTS' in context_manifest
             and "HmacSHA256" in context_service
@@ -1126,6 +1164,13 @@ def validate_aosp_overlay(root: Path) -> None:
             and "CREATE TABLE source_delete_watermarks" in context_store
             and "usesSourceDeleteWatermark" in context_store
             and "ContextPolicy.CALL_EVENT.equals(sourceType)" in context_store
+            and "ContextPolicy.SMS.equals(sourceType)" in context_store
+            and "ContextPolicy.MMS.equals(sourceType)" in context_store
+            and "deleteSourceType" in context_store
+            and "deleteSourceType" in context_service
+            and "long deleteSourceType" in context_aidl
+            and "getStoreInstanceId" in context_service
+            and "getStoreInstanceId" in context_aidl
             and "RevisionGate.accepts" in context_store
             and "identity.relatedConversationKeys" in context_store
             and "MAX_QUERY_RESULTS = 8" in context_policy

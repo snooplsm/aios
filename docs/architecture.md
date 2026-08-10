@@ -217,6 +217,16 @@ release `user` builds fail visibly until the carrier gate passes. It can launch
 AIOS Phone through the standard dial intent without sharing either
 application's private database.
 
+Messaging observes the SMS and MMS provider only while it owns `ROLE_SMS`. A
+persisted, no-network reconciliation job scans snapshot high-water IDs in
+bounded pages after boot, role changes, or process restart. The small local
+ledger contains provider IDs and keyed fingerprints only. Context mutations use
+one durable revision clock, and role loss bulk-deletes each Messaging source
+type through a source watermark so delayed Binder work cannot resurrect history
+and per-message tombstones cannot grow without bound. A random context-store
+instance token detects independent app-data reset and forces a provider rebuild;
+it contains no conversation or device identity.
+
 Communication retrieval crosses a signature-only Binder service. Raw numbers are
 normalized transiently and represented in storage by a per-install HMAC key.
 Current contact membership is resolved on every identity request into a bounded
