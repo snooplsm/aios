@@ -84,3 +84,13 @@ Intelligence, revalidates their generation, and parses only the two exact AIOS
 track MIME types. It returns bounded description/provenance fields and at most
 16 subtitle cues per Binder page; it never returns a raw descriptor, model
 artifact, source path, or arbitrary media bytes.
+
+`preview:mediascancheck` stages this entire production source tree, every pure
+unit test, both Media Intelligence AIDL surfaces, the production manifest, and
+production resources into one public-SDK Android build. A debug manifest overlay
+adds only the emulator smoke entry points. This catches source-list drift,
+component/resource mistakes, and unacknowledged privileged-permission lint
+failures; it does not prove platform grants, MediaStore behavior, or MP4 support
+on a physical Pixel. Media Intelligence disables backup and device transfer for
+every private app-data domain because those records and recovery artifacts are
+source- and device-bound.

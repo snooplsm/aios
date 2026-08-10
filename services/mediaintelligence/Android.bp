@@ -38,7 +38,7 @@ android_app {
         "aios_media_metadata_api",
         "aios_model_api",
     ],
-    resource_dirs: [],
+    resource_dirs: ["res"],
     platform_apis: true,
     certificate: "platform",
     privileged: true,

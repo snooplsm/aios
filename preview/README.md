@@ -37,14 +37,15 @@ always reports a non-debuggable build, so research-only admission cannot be
 enabled by the compile-check APK. Production continues to read the immutable
 `ro.debuggable` property through the platform adapter.
 
-`mediascancheck` stages the production MediaStore generation scanner, durable
-queue/store, deletion-liveness scanner, embedded-video schema, verified MP4
-muxer, owner-confirmed foreground export surface, and version-8 crash journal.
-Its debug-only emulator fixtures exercise platform MP4 sample round trips plus
-attached-pending deletion, insert-before-URI-attachment recovery, and published
-output preservation. It proves the missed-media, source-lifecycle, and
-enhanced-copy paths compile against the public Android SDK without duplicating
-source files. Actual Pixel MP4 remux/playback and process-kill recovery remain
+`mediascancheck` stages every production Media Intelligence Java source, test,
+Binder contract, resource, and the real application manifest. Its debug overlay
+only adds emulator fixtures for platform MP4 sample round trips plus attached-
+pending deletion, insert-before-URI-attachment recovery, and published-output
+preservation. The lane therefore compiles, tests, assembles, and lints the whole
+MediaStore observer, inference, subtitle-index, metadata-write, enhanced-copy,
+reader, and recovery boundary without duplicate implementation files. It also
+checks that the deliberately privileged media permissions and no-backup policy
+are explicit. Actual Pixel MP4 remux/playback and process-kill recovery remain
 physical-device release gates.
 
 `telecomsmoke` packages those same sources as `com.aios.phone` solely for an

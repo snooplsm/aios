@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
     package="com.aios.mediaintelligence">
 
     <permission
@@ -14,18 +15,30 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
-    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+    <!-- This privileged observer reads the complete on-device MediaStore rather
+         than presenting the user-selected-photo contract of a normal app. -->
+    <uses-permission
+        android:name="android.permission.READ_MEDIA_IMAGES"
+        tools:ignore="SelectedPhotoAccess" />
+    <uses-permission
+        android:name="android.permission.READ_MEDIA_VIDEO"
+        tools:ignore="SelectedPhotoAccess" />
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-    <uses-permission android:name="android.permission.WRITE_MEDIA_STORAGE" />
+    <!-- The product-specific, platform-signed Soong module is explicitly
+         allowlisted in privapp-permissions-aios.xml. -->
+    <uses-permission
+        android:name="android.permission.WRITE_MEDIA_STORAGE"
+        tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="com.aios.permission.USE_MODEL_BROKER" />
     <uses-permission android:name="com.aios.permission.USE_COMMUNICATION_CONTEXT" />
 
     <application
         android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
         android:directBootAware="false"
         android:hasCode="true"
+        android:icon="@drawable/ic_media_intelligence"
         android:label="AIOS Media Intelligence"
         android:persistent="true">
         <activity

@@ -808,7 +808,6 @@ def validate_aosp_overlay(root: Path) -> None:
         "preview/modelservicecheck/build.gradle.kts",
         "preview/modelservicecheck/src/main/java/com/aios/modelbroker/BrokerProductProperties.java",
         "preview/mediascancheck/build.gradle.kts",
-        "preview/mediascancheck/src/main/AndroidManifest.xml",
         "services/contextintelligence/Android.bp",
         "services/contextintelligence/AndroidManifest.xml",
         "services/contextintelligence/aidl/com/aios/context/ICommunicationContext.aidl",
@@ -950,7 +949,10 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/callintelligence/src/com/aios/callintelligence/ResilientFanoutOutputStream.java",
         "docs/dialer-integration.md",
         "docs/caller-audio-uplink.md",
+        "services/mediaintelligence/Android.bp",
         "services/mediaintelligence/AndroidManifest.xml",
+        "services/mediaintelligence/res/drawable/ic_media_intelligence.xml",
+        "services/mediaintelligence/res/xml/data_extraction_rules.xml",
         "services/mediaintelligence/aidl/com/aios/media/IMediaContextAssociation.aidl",
         "services/mediaintelligence/src/com/aios/mediaintelligence/MediaAssociationPolicy.java",
         "services/mediaintelligence/src/com/aios/mediaintelligence/MediaContextAssociationService.java",
@@ -2512,15 +2514,38 @@ def validate_aosp_overlay(root: Path) -> None:
     )
     media_preview_build = (root / "preview" / "mediascancheck" /
                            "build.gradle.kts").read_text(encoding="utf-8")
-    require("MediaInferenceJobService.java" in media_preview_build
-            and "VideoAudioExtractor.java" in media_preview_build
-            and "VideoTranscript.java" in media_preview_build
-            and "VideoExportRecovery.java" in media_preview_build
-            and "MediaBootReceiver.java" in media_preview_build
+    media_bp = (root / "services" / "mediaintelligence" /
+                "Android.bp").read_text(encoding="utf-8")
+    media_manifest = (root / "services" / "mediaintelligence" /
+                      "AndroidManifest.xml").read_text(encoding="utf-8")
+    media_extraction_rules = (
+        root / "services" / "mediaintelligence" / "res" / "xml" /
+        "data_extraction_rules.xml"
+    ).read_text(encoding="utf-8")
+    extraction_domains = {
+        "root", "file", "database", "sharedpref", "external", "device_root",
+        "device_file", "device_database", "device_sharedpref",
+    }
+    require('include("com/aios/mediaintelligence/**/*.java")' in media_preview_build
+            and 'include("com/aios/mediaintelligence/**/*Test.java")'
+            in media_preview_build
+            and 'manifest.srcFile("../../services/mediaintelligence/AndroidManifest.xml")'
+            in media_preview_build
+            and 'res.directories.add("../../services/mediaintelligence/res")'
+            in media_preview_build
+            and 'resource_dirs: ["res"]' in media_bp
+            and 'android:dataExtractionRules="@xml/data_extraction_rules"'
+            in media_manifest
+            and 'android:icon="@drawable/ic_media_intelligence"' in media_manifest
+            and 'tools:ignore="ProtectedPermissions"' in media_manifest
+            and media_manifest.count('tools:ignore="SelectedPhotoAccess"') == 2
+            and all(media_extraction_rules.count(
+                f'<exclude domain="{domain}" path="." />') == 2
+                    for domain in extraction_domains)
             and not (root / "preview" / "mediascancheck" / "src" / "main" / "java" /
                      "com" / "aios" / "mediaintelligence" /
                      "MediaInferenceJobService.java").exists(),
-            "media preview must compile the real inference and video-ASR implementation")
+            "media preview must compile the complete production service, manifest, and resources")
     require("setRequiresCharging(true)" in job_source,
             "deferred job must carry an OS charging constraint")
     require("telecom.isInCall()" in job_source
