@@ -836,6 +836,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "preview/telecomsmoke/src/debug/kotlin/com/aios/phone/smoke/EmulatorCallActivity.kt",
         "preview/telecomsmoke/src/debug/kotlin/com/aios/phone/smoke/EmulatorConnectionService.kt",
         "scripts/emulator-telecom-smoke.ps1",
+        "scripts/emulator-media-smoke.ps1",
         "services/modelbroker/Android.bp",
         "services/modelbroker/AndroidManifest.xml",
         "services/modelbroker/aidl/com/aios/model/IAiosModelService.aidl",
@@ -2615,6 +2616,9 @@ def validate_aosp_overlay(root: Path) -> None:
     )
     media_preview_build = (root / "preview" / "mediascancheck" /
                            "build.gradle.kts").read_text(encoding="utf-8")
+    media_smoke_script = (
+        root / "scripts" / "emulator-media-smoke.ps1"
+    ).read_text(encoding="utf-8")
     media_bp = (root / "services" / "mediaintelligence" /
                 "Android.bp").read_text(encoding="utf-8")
     media_manifest = (root / "services" / "mediaintelligence" /
@@ -2647,6 +2651,26 @@ def validate_aosp_overlay(root: Path) -> None:
                      "com" / "aios" / "mediaintelligence" /
                      "MediaInferenceJobService.java").exists(),
             "media preview must compile the complete production service, manifest, and resources")
+    require("^emulator-[0-9]+$" in media_smoke_script
+            and "ro.kernel.qemu" in media_smoke_script
+            and '$qemu -ne "1"' in media_smoke_script
+            and "$apiLevel -lt 35" in media_smoke_script
+            and "[Guid]::NewGuid()" in media_smoke_script
+            and "Get-FileHash -LiteralPath $apkPath -Algorithm SHA256"
+            in media_smoke_script
+            and "apk_sha256 = $apkSha256" in media_smoke_script
+            and "screenrecord --time-limit 2" in media_smoke_script
+            and "MEDIA_SCANNER_SCAN_FILE" in media_smoke_script
+            and "AIOS_MUX_SMOKE_OK" in media_smoke_script
+            and "AIOS_MUX_SMOKE_FAILED" in media_smoke_script
+            and "AIOS_VIDEO_RECOVERY_SMOKE_OK" in media_smoke_script
+            and "AIOS_VIDEO_RECOVERY_SMOKE_FAILED" in media_smoke_script
+            and "encoded_source_samples_verified = $true" in media_smoke_script
+            and "subtitle_renderer_exercised = $false" in media_smoke_script
+            and "physical_gate_evidence = $false" in media_smoke_script
+            and "content delete --uri $fixtureUri" in media_smoke_script
+            and "uninstall $package" in media_smoke_script,
+            "enhanced-video emulator smoke must be guarded, reproducible, self-cleaning, and non-physical")
     require("setRequiresCharging(true)" in job_source,
             "deferred job must carry an OS charging constraint")
     require("telecom.isInCall()" in job_source

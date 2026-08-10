@@ -94,3 +94,11 @@ failures; it does not prove platform grants, MediaStore behavior, or MP4 support
 on a physical Pixel. Media Intelligence disables backup and device transfer for
 every private app-data domain because those records and recovery artifacts are
 source- and device-bound.
+
+`scripts/emulator-media-smoke.ps1` provides the reproducible platform smoke
+entry point. It is hard-guarded to a QEMU serial, creates a temporary screen-
+recorded MP4, and executes both debug activities through its MediaStore URI. A
+passing run proves that Android's actual extractor/muxer round-trips unchanged
+encoded samples plus the AIOS description/timed-metadata tracks, and that the
+attached/unattached/published recovery cases behave as designed. It explicitly
+records `subtitle_renderer_exercised=false` and `physical_gate_evidence=false`.

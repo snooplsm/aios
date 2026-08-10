@@ -61,6 +61,13 @@ checks that the deliberately privileged media permissions and no-backup policy
 are explicit. Actual Pixel MP4 remux/playback and process-kill recovery remain
 physical-device release gates.
 
+With an API-35+ emulator running, `scripts/emulator-media-smoke.ps1` installs the
+compile-check APK, records a unique temporary MP4, discovers its canonical
+MediaStore URI, and runs the real no-reencode mux/read plus export-recovery
+fixtures. The script rejects non-emulator serials, marks its JSON as non-physical
+evidence, does not exercise a subtitle renderer, and removes the APK, source,
+derived rows, journals, and cached output when it finishes.
+
 `telecomsmoke` packages those same sources as `com.aios.phone` solely for an
 AOSP emulator. It is debug-signed, cannot use the signature-protected AIOS
 services, and must never be installed on a physical phone or treated as a
