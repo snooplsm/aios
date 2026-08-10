@@ -704,11 +704,22 @@ def validate_aosp_overlay(root: Path) -> None:
         "apps/messaging/src/com/aios/messaging/context/CommunicationContextClient.kt",
         "apps/messaging/src/com/aios/messaging/telephony/SmsDeliverReceiver.kt",
         "apps/messaging/src/com/aios/messaging/telephony/MmsDeliverReceiver.kt",
+        "apps/messaging/src/com/aios/messaging/telephony/MmsResultReceiver.kt",
         "apps/messaging/src/com/aios/messaging/telephony/RespondViaMessageService.kt",
+        "apps/messaging/src/com/aios/messaging/mms/MmsOperationPolicy.kt",
+        "apps/messaging/src/com/aios/messaging/mms/MmsPduProvider.kt",
+        "apps/messaging/src/com/aios/messaging/mms/MmsTransport.kt",
+        "apps/messaging/platform/src/com/aios/messaging/mms/platform/MmsOperationStore.kt",
+        "apps/messaging/platform/src/com/aios/messaging/mms/platform/MmsPhotoTranscoder.kt",
+        "apps/messaging/platform/src/com/aios/messaging/mms/platform/MmsTransportFactory.kt",
+        "apps/messaging/platform/src/com/aios/messaging/mms/platform/PlatformMmsTransport.kt",
         "apps/messaging/src/com/aios/messaging/ui/MainActivity.kt",
         "apps/messaging/src/com/aios/messaging/ui/MessagingScreens.kt",
         "apps/messaging/src/com/aios/messaging/ui/theme/MessagingTheme.kt",
         "apps/messaging/tests/src/com/aios/messaging/model/MessagePolicyTest.kt",
+        "apps/messaging/tests/src/com/aios/messaging/mms/MmsOperationPolicyTest.kt",
+        "patches/0002-framework-mms-aios-visibility.patch",
+        "docs/mms-transport.md",
         "preview/messagingcheck/build.gradle.kts",
         "preview/callcontextcheck/build.gradle.kts",
         "preview/callcontextcheck/src/main/AndroidManifest.xml",
@@ -1016,6 +1027,18 @@ def validate_aosp_overlay(root: Path) -> None:
                     "telephony" / "SmsDeliverReceiver.kt").read_text(encoding="utf-8")
     mms_receiver = (messaging_root / "src" / "com" / "aios" / "messaging" /
                     "telephony" / "MmsDeliverReceiver.kt").read_text(encoding="utf-8")
+    mms_platform = messaging_root / "platform" / "src" / "com" / "aios" / "messaging"
+    mms_transport = (mms_platform /
+                     "mms" / "platform" / "PlatformMmsTransport.kt").read_text(
+                         encoding="utf-8")
+    mms_store = (mms_platform /
+                 "mms" / "platform" / "MmsOperationStore.kt").read_text(
+                     encoding="utf-8")
+    mms_policy = (messaging_root / "src" / "com" / "aios" / "messaging" /
+                  "mms" / "MmsOperationPolicy.kt").read_text(encoding="utf-8")
+    mms_contract = (messaging_root / "src" / "com" / "aios" / "messaging" /
+                    "mms" / "MmsTransport.kt").read_text(encoding="utf-8")
+    messaging_bp = (messaging_root / "Android.bp").read_text(encoding="utf-8")
     context_client = (messaging_root / "src" / "com" / "aios" / "messaging" /
                       "context" / "CommunicationContextClient.kt").read_text(
                           encoding="utf-8")
@@ -1037,14 +1060,29 @@ def validate_aosp_overlay(root: Path) -> None:
     require("PickVisualMedia" in messaging_activity
             and "ImageOnly" in messaging_activity
             and "Intent.ACTION_DIAL" in messaging_activity
-            and "Photo sending waits for the carrier-tested MMS transport"
-            in messaging_runtime
+            and "Build.TYPE != \"user\"" in mms_transport
+            and "mmsTransport.admitted" in messaging_runtime
+            and "debuggable AIOS builds until carrier gates pass" in mms_transport
             and "RESULT_ERROR_GENERIC_FAILURE" in mms_receiver,
-            "photo drafts must use the system picker and unadmitted MMS must fail visibly")
+            "photo drafts must use the picker and release MMS must fail closed")
+    require(":framework-mms-shared-srcs" in messaging_bp
+            and "PduPersister" in mms_transport
+            and "sendMultimediaMessage" in mms_transport
+            and "downloadMultimediaMessage" in mms_transport
+            and "MMS_SENT" in mms_contract
+            and "MMS_DOWNLOADED" in mms_contract
+            and "CREATE TABLE operations" in mms_store
+            and all(state in mms_policy for state in (
+                "PREPARING", "PROVIDER_PERSISTED", "SUBMITTED",
+                "SUCCEEDED", "FAILED"))
+            and "pending.finish()" in mms_receiver,
+            "MMS must use AOSP PDU persistence and a durable carrier callback lifecycle")
     require("indexSms" in context_client
+            and "indexMms" in context_client
+            and "deleteMms" in context_client
             and "deleteSource" in context_client
             and "queryRecent" in context_client,
-            "messaging must index, retrieve, and tombstone SMS context")
+            "messaging must index, retrieve, and tombstone SMS/MMS context")
 
     context_root = root / "services" / "contextintelligence"
     context_manifest = (context_root / "AndroidManifest.xml").read_text(encoding="utf-8")
@@ -2585,6 +2623,7 @@ def validate_release_configuration(root: Path) -> None:
             and integration.get("manifest_revision") == "android-latest-release"
             and integration.get("product") == "aios_cf_x86_64_phone"
             and integration.get("physical_gate_evidence") is False
+            and "frameworks/base" in integration.get("required_projects", [])
             and "device/google/cuttlefish" in integration.get("required_projects", []),
             "latest AOSP must build on Cuttlefish and remain non-physical evidence")
     require(hardware.get("kind") == "physical_hardware"
@@ -2594,6 +2633,7 @@ def validate_release_configuration(root: Path) -> None:
             == "awaiting_pinned_platform_device_vendor_set"
             and hardware.get("allow_cross_release_device_tree") is False
             and hardware.get("physical_gate_evidence") is True
+            and "frameworks/base" in hardware.get("required_projects", [])
             and "device/google/tegu" in hardware.get("required_projects", []),
             "Pixel 9a lane must require a pinned compatible device/vendor set")
     dialer_reference = tracking.get("dialer_reference", {})
@@ -2610,6 +2650,25 @@ def validate_release_configuration(root: Path) -> None:
     require(len(dialer_patches) == 1
             and dialer_patches[0]["base_revision"] == dialer_reference["commit"],
             "Dialer patch base must match the tracked reference")
+    mms_reference = tracking.get("mms_reference", {})
+    mms_patches = [
+        patch for patch in series["patches"]
+        if patch["project"] == "frameworks/base"
+    ]
+    require(mms_reference.get("tag") == "android-17.0.0_r1"
+            and re.fullmatch(
+                r"[0-9a-f]{40}",
+                str(mms_reference.get("frameworks_base_commit", ""))) is not None
+            and len(mms_patches) == 1
+            and mms_patches[0]["base_revision"]
+            == mms_reference["frameworks_base_commit"],
+            "MMS source visibility patch must match the tracked Android 17 framework base")
+    mms_patch_text = (root / "patches" / mms_patches[0]["file"]).read_text(
+        encoding="utf-8"
+    )
+    require('"//vendor/aios/apps/messaging"' in mms_patch_text
+            and "framework-mms-shared-srcs" in mms_patch_text,
+            "MMS patch may only expose the maintained framework source group")
     dialer_patch_text = (root / "patches" / dialer_patches[0]["file"]).read_text(
         encoding="utf-8"
     )

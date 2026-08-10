@@ -61,8 +61,12 @@ losing their index, while a MediaProvider database identity change purges unsafe
 URI-keyed results before baselining again.
 AIOS Messaging now compiles as an SMS-role candidate with real SMS provider
 paths, respond-via-message, call launching, and read-only Photo Picker drafts.
-MMS remains visibly blocked and is a required carrier/device gate; the app does
-not claim that photo messaging is complete.
+Its AOSP-only debug transport persists outbound and inbound MMS through the
+Telephony provider, uses `SmsManager` carrier send/download callbacks, transcodes
+photos to measured carrier limits, and journals each operation so process death
+cannot silently resubmit a message. Release `user` builds still fail closed until
+the physical carrier/device gate passes; the public-SDK preview uses a disabled
+transport fixture and does not claim carrier support. See `docs/mms-transport.md`.
 Incoming calls now resolve their presented number transiently into the same
 opaque communication identity used by Messaging. The receptionist can consume
 at most eight identifier-free historical snippets without delaying Telecom, and

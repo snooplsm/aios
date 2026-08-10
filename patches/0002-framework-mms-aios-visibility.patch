@@ -1,0 +1,21 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: AIOS Project <aios@example.invalid>
+Date: Mon, 10 Aug 2026 00:00:00 +0000
+Subject: [PATCH] Export framework MMS sources to AIOS Messaging
+
+AIOS Messaging is a platform-signed SMS role candidate and needs the same
+maintained PDU codec and Telephony provider persister already shared with
+Bluetooth. Export the existing framework-mms-shared-srcs filegroup without
+changing framework runtime behavior or copying the protocol implementation into
+vendor code.
+---
+ telephony/common/Android.bp | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/telephony/common/Android.bp b/telephony/common/Android.bp
+index b0a812bf..3ab86b38 100644
+--- a/telephony/common/Android.bp
++++ b/telephony/common/Android.bp
+@@ -27,1 +27,2 @@
++        "//vendor/aios/apps/messaging",
+     ],

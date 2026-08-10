@@ -18,6 +18,7 @@ COMMIT_A = "a" * 40
 COMMIT_B = "b" * 40
 COMMIT_C = "c" * 40
 COMMIT_D = "d" * 40
+COMMIT_E = "e" * 40
 
 
 def manifest(projects):
@@ -41,6 +42,7 @@ class AospManifestContractTests(unittest.TestCase):
             ("platform/build", "build/make", COMMIT_A),
             ("device/google/cuttlefish", "device/google/cuttlefish", COMMIT_B),
             ("platform/packages/apps/Dialer", "packages/apps/Dialer", COMMIT_C),
+            ("platform/frameworks/base", "frameworks/base", COMMIT_E),
             ("aios", "vendor/aios", COMMIT_D),
         ]
 
@@ -74,7 +76,7 @@ class AospManifestContractTests(unittest.TestCase):
             output = Path(raw) / "manifest-lock.json"
             checker.check(path, ROOT, "android_latest_integration", output)
             value = json.loads(output.read_text(encoding="utf-8"))
-            self.assertEqual(4, value["project_count"])
+            self.assertEqual(5, value["project_count"])
             with self.assertRaisesRegex(checker.ManifestContractError, "overwrite"):
                 checker.check(path, ROOT, "android_latest_integration", output)
 

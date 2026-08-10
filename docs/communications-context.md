@@ -10,12 +10,19 @@ The first transport milestone sends multipart SMS, writes accepted outbound SMS
 to the Telephony provider, persists inbound SMS before acknowledging delivery,
 supports respond-via-message, resolves contact display names, launches the phone
 app with `ACTION_DIAL`, and uses the system Photo Picker for read-only attachment
-selection. It deliberately fails closed for MMS. Selecting a photo creates a
-draft, but Send explains that carrier-tested MMS is not admitted. The SMS-role
-prompt also warns that this is not ready to be a daily messaging app. Incoming
-MMS returns an error rather than pretending the PDU was persisted. MMS download,
-provider round trip, attachments, APN behavior, multi-SIM routing, delivery
-reports, and carrier tests are hard release gates.
+selection. A debug-only AOSP transport now persists MMS PDUs and parts through
+the Telephony provider, submits carrier send/download work through `SmsManager`,
+and completes it through an explicit durable callback journal. Selected photos
+are decoded with a bounded target size and repeatedly recompressed to the active
+subscription's carrier limit. Incoming notification indications are deduplicated
+by transaction ID before download, and a retrieved message is indexed only after
+provider persistence completes.
+
+The SMS-role prompt still warns that this is not ready to be a daily messaging
+app. `user` builds do not admit MMS until Soong compilation and real carrier,
+APN, roaming, multi-SIM, reboot, and provider round-trip tests pass. Delivery and
+read reports beyond the mandatory retrieve acknowledgement remain later work.
+The exact lifecycle and evidence boundary are in `mms-transport.md`.
 
 ## Conversation identity
 
@@ -105,7 +112,8 @@ watermark without dropping current entries.
 
 ## Still required before daily use
 
-- complete and carrier-test MMS send/download/provider persistence;
+- compile the AOSP-only MMS source with Soong and carrier-test send, download,
+  provider persistence, APN/roaming, crash recovery, and duplicate suppression;
 - expose explicit SIM selection when no single default SMS subscription exists;
 - reconcile provider changes made outside AIOS Messaging;
 - wire the selected-photo metadata producer;

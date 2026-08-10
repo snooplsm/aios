@@ -9,6 +9,15 @@
       "sha256": "0b9af3f85d212f810ffaed6d7d3e6643a78bf72a6814ad9834dfed9260a163ac",
       "reason": "Connect the complete Android 17 AOSP Dialer Telecom lifecycle to model priority and the fail-closed AIOS Call Intelligence policy and capture service.",
       "removal_condition": "Remove only if AOSP exposes an equivalent stable call-assistant lifecycle API requiring no Dialer source hook."
+    },
+    {
+      "id": "framework-mms-aios-visibility",
+      "project": "frameworks/base",
+      "file": "0002-framework-mms-aios-visibility.patch",
+      "base_revision": "94b4c163b7dfe5ce3607f7bb8456f9573f7de57d",
+      "sha256": "2054489549ce6d61dc0e3225de4c4c68eff233f0697ca67541c5fbf771e5ff0f",
+      "reason": "Allow the platform-signed AIOS Messaging app to statically link AOSP's maintained MMS codec and Telephony provider persister without copying protocol sources into vendor code.",
+      "removal_condition": "Remove when framework-mms-shared-srcs is public to product modules or AOSP provides an equivalent supported MMS codec and provider library."
     }
   ]
 }

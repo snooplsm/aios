@@ -13,11 +13,16 @@ import com.aios.messaging.model.ContextSnippetUiState
 import com.aios.messaging.model.ConversationUiState
 import com.aios.messaging.model.MessagePolicy
 import com.aios.messaging.model.MessageUiState
+import com.aios.messaging.model.MessageDeliveryState
+import com.aios.messaging.model.MessageTransport
 import com.aios.messaging.model.MessagingAction
 import com.aios.messaging.model.MessagingUiState
 import com.aios.messaging.model.SelectedPhotoUiState
 import com.aios.messaging.model.ThemePreference
 import com.aios.messaging.notifications.MessageNotificationCoordinator
+import com.aios.messaging.mms.MmsEvent
+import com.aios.messaging.mms.MmsTransport
+import com.aios.messaging.mms.platform.MmsTransportFactory
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -36,6 +41,7 @@ object MessagingRuntime {
     private lateinit var repository: MessagingRepository
     private lateinit var contextIndex: CommunicationContextClient
     private lateinit var notifications: MessageNotificationCoordinator
+    private lateinit var mmsTransport: MmsTransport
     private var initialized = false
 
     fun initialize(value: Application) {
@@ -44,6 +50,13 @@ object MessagingRuntime {
         repository = MessagingRepository(value)
         contextIndex = CommunicationContextClient(value).also { it.connect() }
         notifications = MessageNotificationCoordinator(value)
+        mmsTransport = MmsTransportFactory.create(value, object : MmsTransport.Listener {
+            override fun onCompleted(event: MmsEvent) = onMmsCompleted(event)
+            override fun onFailed(message: String) {
+                showNotice(message)
+                refresh()
+            }
+        })
         val preferences = value.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val theme = runCatching {
             ThemePreference.valueOf(preferences.getString(THEME, null).orEmpty())
@@ -51,6 +64,7 @@ object MessagingRuntime {
         mutableState.value = mutableState.value.copy(
             theme = theme,
             showRolePrompt = preferences.getBoolean(SHOW_ROLE, true),
+            isMmsAdmitted = mmsTransport.admitted,
         )
         initialized = true
         refreshRole()
@@ -71,7 +85,7 @@ object MessagingRuntime {
                 it.copy(bodyDraft = action.value.take(MessagePolicy.MAX_BODY_CHARS))
             }
             MessagingAction.Send -> send()
-            is MessagingAction.DeleteMessage -> delete(action.id)
+            is MessagingAction.DeleteMessage -> delete(action.id, action.transport)
             is MessagingAction.SelectPhoto -> reduce {
                 it.copy(selectedPhoto = SelectedPhotoUiState(action.uri, action.label))
             }
@@ -153,9 +167,33 @@ object MessagingRuntime {
         }
     }
 
-    fun reportMmsBlocked() = showNotice(
-        "An MMS arrived, but carrier-tested MMS download is not admitted yet",
-    )
+    fun receiveMms(
+        pdu: ByteArray,
+        subscriptionId: Int,
+        completion: (Boolean) -> Unit,
+    ) {
+        if (!initialized || !mmsTransport.admitted) {
+            showNotice("Incoming MMS requires a debuggable AIOS build until carrier gates pass")
+            completion(false)
+            return
+        }
+        mmsTransport.receiveWapPush(pdu, subscriptionId, completion)
+    }
+
+    fun completeMmsOperation(
+        action: String,
+        token: String,
+        resultCode: Int,
+        response: ByteArray?,
+        httpStatus: Int,
+        completion: (Boolean) -> Unit,
+    ) {
+        if (!initialized) {
+            completion(false)
+            return
+        }
+        mmsTransport.complete(action, token, resultCode, response, httpStatus, completion)
+    }
 
     private fun refresh() {
         if (!mutableState.value.isSmsRoleHeld) return
@@ -230,11 +268,31 @@ object MessagingRuntime {
             showNotice("Choose a conversation first")
             return
         }
-        if (current.selectedPhoto != null) {
-            showNotice("Photo sending waits for the carrier-tested MMS transport")
+        val body = MessagePolicy.normalizedBody(current.bodyDraft)
+        val photo = current.selectedPhoto
+        if (photo != null) {
+            if (!current.isMmsAdmitted) {
+                showNotice("Photo MMS is enabled only on debuggable builds until carrier tests pass")
+                return
+            }
+            if (!MessagePolicy.requiresMms(body, hasPhoto = true)) {
+                showNotice("The photo message is not valid")
+                return
+            }
+            mmsTransport.sendPhoto(conversation.address, body, photo.uri) { result ->
+                result.fold(
+                    onSuccess = { event ->
+                        reduce { it.copy(bodyDraft = "", selectedPhoto = null, notice = null) }
+                        refresh()
+                        if (event.threadId > 0L) {
+                            select(conversation.copy(threadId = event.threadId))
+                        }
+                    },
+                    onFailure = { showNotice(it.message ?: "Photo MMS could not be submitted") },
+                )
+            }
             return
         }
-        val body = MessagePolicy.normalizedBody(current.bodyDraft)
         if (!MessagePolicy.canSendSms(body, hasPhoto = false)) {
             showNotice("Write a message first")
             return
@@ -254,11 +312,15 @@ object MessagingRuntime {
         }
     }
 
-    private fun delete(id: Long) {
-        repository.deleteMessage(id) { result ->
+    private fun delete(id: Long, transport: MessageTransport) {
+        repository.deleteMessage(id, transport) { result ->
             result.fold(
                 onSuccess = {
-                    contextIndex.deleteSms(id, System.currentTimeMillis())
+                    if (transport == MessageTransport.SMS) {
+                        contextIndex.deleteSms(id, System.currentTimeMillis())
+                    } else {
+                        contextIndex.deleteMms(id, System.currentTimeMillis())
+                    }
                     mutableState.value.selected?.threadId?.let(::loadSelectedMessages)
                     refresh()
                 },
@@ -266,6 +328,39 @@ object MessagingRuntime {
             )
         }
     }
+
+    private fun onMmsCompleted(event: MmsEvent) = onMain {
+        indexMms(event)
+        val message = event.toUiState()
+        if (!event.outgoing) notifications.notifyIncoming(message)
+        refresh()
+        if (mutableState.value.selected?.threadId == event.threadId && event.threadId > 0L) {
+            loadSelectedMessages(event.threadId)
+        }
+    }
+
+    private fun indexMms(event: MmsEvent) {
+        contextIndex.indexMms(
+            event.providerId,
+            event.address,
+            event.text,
+            event.atEpochMillis,
+            event.hasPhoto,
+        )
+    }
+
+    private fun MmsEvent.toUiState() = MessageUiState(
+        id = providerId,
+        threadId = threadId,
+        address = address,
+        body = text,
+        atEpochMillis = atEpochMillis,
+        outgoing = outgoing,
+        read = outgoing,
+        transport = MessageTransport.MMS,
+        hasPhoto = hasPhoto,
+        deliveryState = MessageDeliveryState.COMPLETE,
+    )
 
     private fun loadSelectedMessages(threadId: Long) {
         if (threadId <= 0L) return

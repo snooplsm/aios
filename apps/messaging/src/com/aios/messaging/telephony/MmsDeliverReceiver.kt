@@ -7,11 +7,27 @@ import android.provider.Telephony
 import android.telephony.SmsManager
 import com.aios.messaging.MessagingRuntime
 
-/** Fail closed until carrier-tested PDU persistence and download are implemented. */
 class MmsDeliverReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != Telephony.Sms.Intents.WAP_PUSH_DELIVER_ACTION) return
-        MessagingRuntime.reportMmsBlocked()
-        resultCode = SmsManager.RESULT_ERROR_GENERIC_FAILURE
+        val data = intent.getByteArrayExtra("data")
+        if (intent.type != MMS_MIME || data == null || data.isEmpty()) {
+            resultCode = SmsManager.RESULT_ERROR_GENERIC_FAILURE
+            return
+        }
+        val pending = goAsync()
+        val subscriptionId = intent.getIntExtra("subscription", -1)
+        MessagingRuntime.receiveMms(data, subscriptionId) { stored ->
+            pending.resultCode = if (stored) {
+                android.app.Activity.RESULT_OK
+            } else {
+                SmsManager.RESULT_ERROR_GENERIC_FAILURE
+            }
+            pending.finish()
+        }
+    }
+
+    private companion object {
+        const val MMS_MIME = "application/vnd.wap.mms-message"
     }
 }

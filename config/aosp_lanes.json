@@ -12,6 +12,7 @@
       "required_projects": [
         "build/make",
         "device/google/cuttlefish",
+        "frameworks/base",
         "packages/apps/Dialer",
         "vendor/aios"
       ],
@@ -28,6 +29,7 @@
       "required_projects": [
         "build/make",
         "device/google/tegu",
+        "frameworks/base",
         "packages/apps/Dialer",
         "vendor/aios"
       ],

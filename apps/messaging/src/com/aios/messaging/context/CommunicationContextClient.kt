@@ -70,6 +70,41 @@ class CommunicationContextClient(private val context: Context) {
         }
     }
 
+    fun indexMms(
+        id: Long,
+        address: String,
+        body: String,
+        atEpochMillis: Long,
+        hasPhoto: Boolean,
+    ) {
+        if (id <= 0L || address.isBlank()) return
+        val text = buildString {
+            append(body.take(MAX_INDEX_CHARS))
+            if (hasPhoto && !body.contains("[Photo]")) append("\n[Photo]")
+        }.take(MAX_INDEX_CHARS).ifBlank { "[MMS]" }
+        withService { service ->
+            val identity = service.resolveIdentity(address, countryIso())
+            service.upsert(
+                ContextDocument(
+                    SOURCE_MMS,
+                    id.toString(),
+                    atEpochMillis.coerceAtLeast(1L),
+                    identity,
+                    atEpochMillis.coerceAtLeast(1L),
+                    0L,
+                    text,
+                ),
+            )
+        }
+    }
+
+    fun deleteMms(id: Long, revision: Long) {
+        if (id <= 0L) return
+        withService { service ->
+            service.deleteSource(SOURCE_MMS, id.toString(), revision.coerceAtLeast(1L))
+        }
+    }
+
     fun queryRecent(address: String, callback: (List<ContextSnippet>) -> Unit) {
         if (address.isBlank()) {
             callback(emptyList())
@@ -116,6 +151,7 @@ class CommunicationContextClient(private val context: Context) {
         const val SERVICE_CLASS =
             "com.aios.contextintelligence.CommunicationContextService"
         const val SOURCE_SMS = "sms"
+        const val SOURCE_MMS = "mms"
         const val MAX_INDEX_CHARS = 4_096
         const val MAX_PENDING_OPERATIONS = 128
     }

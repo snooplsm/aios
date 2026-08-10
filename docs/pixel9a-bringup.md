@@ -135,12 +135,17 @@ Run gates in this order:
 2. Basic cellular/data, incoming/outgoing call, eSIM, VoLTE, VoWiFi, Bluetooth,
    DTMF, and conference-call baselines with all AIOS features off.
 3. Dialer policy and emergency bypass.
-4. Downlink/uplink capture with synthetic, consented English and Spanish calls.
-5. Airplane-mode ASR and model-broker failure injection.
-6. Retention using a test-only shortened clock/injected time, followed by the
+4. SMS-role selection, two-way multipart SMS, then the controlled MMS matrix in
+   `docs/mms-transport.md` using a dedicated second handset and non-sensitive
+   photos. Reboot once after carrier submission but before callback observation,
+   verify that no duplicate is sent, and inspect both the Telephony provider and
+   the private operation journal before recording evidence.
+5. Downlink/uplink capture with synthetic, consented English and Spanish calls.
+6. Airplane-mode ASR and model-broker failure injection.
+7. Retention using a test-only shortened clock/injected time, followed by the
    real 24-hour soak.
-7. Media queue constraints and original-preservation corpus.
-8. Thermal, battery, memory-pressure, repeated-call, reboot, and crash tests.
+8. Media queue constraints and original-preservation corpus.
+9. Thermal, battery, memory-pressure, repeated-call, reboot, and crash tests.
 
 Every item in `config/release_gates.json` needs evidence. A failure in ordinary
 telephony, emergency bypass, retention, artifact integrity, or offline operation

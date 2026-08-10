@@ -208,9 +208,14 @@ UI cannot extend retention past the configured prototype maximum.
 
 AIOS Messaging is a separate Kotlin/Compose UDF application and may hold the SMS
 role only after user selection. It owns Telephony-provider SMS persistence; photo
-selection uses the read-only system picker, and unadmitted MMS transport fails
-visibly. It can launch AIOS Phone through the standard dial intent without
-sharing either application's private database.
+selection uses the read-only system picker. The shared app source compiles
+against the public SDK, while one explicit AOSP-only source root links the
+platform's maintained `framework-mms-shared-srcs` PDU codec and persister. A
+one-line exact-base visibility patch exposes that filegroup to the product
+module. Debug builds can exercise durable carrier send/download callbacks;
+release `user` builds fail visibly until the carrier gate passes. It can launch
+AIOS Phone through the standard dial intent without sharing either
+application's private database.
 
 Communication retrieval crosses a signature-only Binder service. Raw numbers are
 normalized transiently and represented in storage by a per-install HMAC key.

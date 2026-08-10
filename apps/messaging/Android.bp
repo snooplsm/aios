@@ -1,7 +1,11 @@
 android_app {
     name: "AiosMessaging",
     manifest: "AndroidManifest.xml",
-    srcs: ["src/**/*.kt"],
+    srcs: [
+        "src/**/*.kt",
+        "platform/src/**/*.kt",
+        ":framework-mms-shared-srcs",
+    ],
     resource_dirs: ["res"],
     static_libs: [
         "aios_context_api",
@@ -32,6 +36,7 @@ java_test_host {
     name: "aios_messaging_host_tests",
     srcs: [
         "src/com/aios/messaging/model/MessagePolicy.kt",
+        "src/com/aios/messaging/mms/MmsOperationPolicy.kt",
         "tests/src/**/*.kt",
     ],
     static_libs: ["junit"],

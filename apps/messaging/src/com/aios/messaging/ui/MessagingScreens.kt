@@ -30,6 +30,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.aios.messaging.model.ConversationUiState
 import com.aios.messaging.model.MessageUiState
+import com.aios.messaging.model.MessageDeliveryState
 import com.aios.messaging.model.MessagingAction
 import com.aios.messaging.model.MessagingUiState
 import com.aios.messaging.model.ThemePreference
@@ -96,8 +97,13 @@ private fun ConversationList(
                                 }) { Text("Dismiss") }
                             }
                             Text(
-                                "SMS is ready for device testing. Photo/MMS transport stays blocked " +
-                                    "until carrier tests pass, so do not use this as your daily SMS app yet.",
+                                if (state.isMmsAdmitted) {
+                                    "SMS and MMS are enabled for development testing. Carrier delivery " +
+                                        "is not a passed release gate, so do not use this as your daily app yet."
+                                } else {
+                                    "SMS is ready for testing. MMS stays disabled on release builds until " +
+                                        "the carrier/device gate passes."
+                                },
                             )
                             Button(onClick = requestRole) { Text("Choose SMS app") }
                         }
@@ -272,8 +278,10 @@ private fun ConversationThread(
                     }
                 }
             }
-            items(state.messages, key = { it.id }) { message ->
-                MessageBubble(message) { dispatch(MessagingAction.DeleteMessage(message.id)) }
+            items(state.messages, key = { "${it.transport}:${it.id}" }) { message ->
+                MessageBubble(message) {
+                    dispatch(MessagingAction.DeleteMessage(message.id, message.transport))
+                }
             }
             item { Spacer(Modifier.height(4.dp)) }
         }
@@ -295,9 +303,22 @@ private fun MessageBubble(message: MessageUiState, delete: () -> Unit) {
                         MaterialTheme.shapes.large,
                     )
                     .padding(horizontal = 14.dp, vertical = 10.dp),
-            ) { Text(message.body) }
+            ) {
+                Column {
+                    if (message.hasPhoto) {
+                        Text("Photo", fontWeight = FontWeight.SemiBold)
+                    }
+                    if (message.body != "[Photo]") Text(message.body)
+                }
+            }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(relativeTime(message.atEpochMillis), style = MaterialTheme.typography.bodySmall)
+                when (message.deliveryState) {
+                    MessageDeliveryState.SENDING -> Text(" · Sending")
+                    MessageDeliveryState.FAILED -> Text(" · Failed")
+                    MessageDeliveryState.WAITING_DOWNLOAD -> Text(" · Waiting")
+                    MessageDeliveryState.COMPLETE -> Unit
+                }
                 TextButton(onClick = delete) { Text("Delete") }
             }
         }

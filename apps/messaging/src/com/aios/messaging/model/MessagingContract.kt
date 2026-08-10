@@ -2,6 +2,7 @@ package com.aios.messaging.model
 
 data class MessagingUiState(
     val isSmsRoleHeld: Boolean = false,
+    val isMmsAdmitted: Boolean = false,
     val showRolePrompt: Boolean = true,
     val loading: Boolean = false,
     val conversations: List<ConversationUiState> = emptyList(),
@@ -32,7 +33,14 @@ data class MessageUiState(
     val atEpochMillis: Long,
     val outgoing: Boolean,
     val read: Boolean,
+    val transport: MessageTransport = MessageTransport.SMS,
+    val hasPhoto: Boolean = false,
+    val deliveryState: MessageDeliveryState = MessageDeliveryState.COMPLETE,
 )
+
+enum class MessageTransport { SMS, MMS }
+
+enum class MessageDeliveryState { COMPLETE, SENDING, FAILED, WAITING_DOWNLOAD }
 
 data class ContextSnippetUiState(
     val sourceType: String,
@@ -52,7 +60,7 @@ sealed interface MessagingAction {
     data object OpenRecipient : MessagingAction
     data class ChangeBody(val value: String) : MessagingAction
     data object Send : MessagingAction
-    data class DeleteMessage(val id: Long) : MessagingAction
+    data class DeleteMessage(val id: Long, val transport: MessageTransport) : MessagingAction
     data class SelectPhoto(val uri: String, val label: String) : MessagingAction
     data object ClearPhoto : MessagingAction
     data class ChangeTheme(val value: ThemePreference) : MessagingAction

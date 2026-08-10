@@ -14,6 +14,9 @@
     <uses-permission android:name="com.aios.permission.USE_COMMUNICATION_CONTEXT" />
 
     <uses-feature
+        android:name="android.hardware.telephony"
+        android:required="true" />
+    <uses-feature
         android:name="android.hardware.telephony.messaging"
         android:required="true" />
 
@@ -76,5 +79,15 @@
                 <data android:mimeType="application/vnd.wap.mms-message" />
             </intent-filter>
         </receiver>
+
+        <receiver
+            android:name=".telephony.MmsResultReceiver"
+            android:exported="false" />
+
+        <provider
+            android:name=".mms.MmsPduProvider"
+            android:authorities="com.aios.messaging.mms.pdu"
+            android:exported="false"
+            android:grantUriPermissions="true" />
     </application>
 </manifest>

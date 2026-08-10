@@ -101,9 +101,13 @@ incoming SMS before acknowledging delivery, persist accepted outbound SMS in the
 Telephony provider, support multipart text and respond-via-message, open AIOS
 Phone through a standard dial intent, and use the read-only system Photo Picker.
 
-Photo drafts may not be sent until the MMS download/send/provider pipeline has
-passed real carrier and multi-SIM testing. Unsupported MMS must fail visibly;
-the product may not label or count an unpersisted PDU as delivered.
+Debuggable research builds may send photo drafts only through the durable MMS
+test transport: the PDU must be persisted to the Telephony provider, bounded to
+the selected subscription's carrier limits, and completed by the carrier
+callback before it is indexed as sent or received. Release `user` builds may not
+admit MMS until send/download/provider persistence has passed real carrier and
+multi-SIM testing. Unsupported MMS must fail visibly; the product may not label
+or count an unpersisted PDU as delivered.
 The Photo Picker grants Messaging read access to a user-selected attachment; it
 does not discover new camera captures or initiate duplicate model inference.
 

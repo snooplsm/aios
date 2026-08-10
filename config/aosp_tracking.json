@@ -11,6 +11,11 @@
     "commit": "768ed834ced557e2d42476757776a26c68fed656",
     "patch_status": "exact_base_patch_created_uncompiled"
   },
+  "mms_reference": {
+    "tag": "android-17.0.0_r1",
+    "frameworks_base_commit": "94b4c163b7dfe5ce3607f7bb8456f9573f7de57d",
+    "patch_status": "exact_base_visibility_patch_created_uncompiled"
+  },
   "first_device": {
     "marketing_name": "Pixel 9a",
     "codename": "tegu",

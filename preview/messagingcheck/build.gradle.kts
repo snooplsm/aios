@@ -19,6 +19,7 @@ android {
         getByName("main") {
             manifest.srcFile("../../apps/messaging/AndroidManifest.xml")
             kotlin.directories.add("../../apps/messaging/src")
+            kotlin.directories.add("src/main/java")
             java.directories.add("../../services/contextintelligence/api")
             aidl.directories.add("../../services/contextintelligence/aidl")
             res.directories.add("../../apps/messaging/res")

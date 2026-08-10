@@ -15,6 +15,8 @@ import android.os.Handler
 import android.os.Looper
 import com.aios.messaging.model.ConversationUiState
 import com.aios.messaging.model.MessagePolicy
+import com.aios.messaging.model.MessageDeliveryState
+import com.aios.messaging.model.MessageTransport
 import com.aios.messaging.model.MessageUiState
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -37,22 +39,19 @@ class MessagingRepository(private val context: Context) {
                 while (cursor.moveToNext()) {
                     val message = message(cursor)
                     if (message.threadId <= 0L || message.address.isBlank()) continue
-                    val current = conversations[message.threadId]
-                    if (current == null) {
-                        conversations[message.threadId] = ConversationUiState(
-                            threadId = message.threadId,
-                            address = message.address,
-                            displayName = contactName(message.address) ?: message.address,
-                            lastBody = message.body,
-                            lastAtEpochMillis = message.atEpochMillis,
-                            unread = !message.outgoing && !message.read,
-                        )
-                    } else if (!message.outgoing && !message.read) {
-                        conversations[message.threadId] = current.copy(unread = true)
-                    }
+                    mergeConversation(conversations, message)
                 }
             }
-            conversations.values.toList()
+            context.contentResolver.query(
+                Telephony.Mms.CONTENT_URI,
+                MMS_PROJECTION,
+                null,
+                null,
+                "${Telephony.Mms.DATE} DESC LIMIT $MAX_SCANNED_MMS",
+            )?.use { cursor ->
+                while (cursor.moveToNext()) mergeConversation(conversations, mmsMessage(cursor))
+            }
+            conversations.values.sortedByDescending(ConversationUiState::lastAtEpochMillis)
         }
     }
 
@@ -67,7 +66,14 @@ class MessagingRepository(private val context: Context) {
                 arrayOf(threadId.toString()),
                 "${Telephony.Sms.DATE} DESC LIMIT $MAX_THREAD_MESSAGES",
             )?.use { cursor -> while (cursor.moveToNext()) messages += message(cursor) }
-            messages.asReversed()
+            context.contentResolver.query(
+                Telephony.Mms.CONTENT_URI,
+                MMS_PROJECTION,
+                "${Telephony.Mms.THREAD_ID}=?",
+                arrayOf(threadId.toString()),
+                "${Telephony.Mms.DATE} DESC LIMIT $MAX_THREAD_MESSAGES",
+            )?.use { cursor -> while (cursor.moveToNext()) messages += mmsMessage(cursor) }
+            messages.sortedBy(MessageUiState::atEpochMillis).takeLast(MAX_THREAD_MESSAGES)
         }
     }
 
@@ -82,6 +88,12 @@ class MessagingRepository(private val context: Context) {
                 Telephony.Sms.CONTENT_URI,
                 values,
                 "${Telephony.Sms.THREAD_ID}=? AND ${Telephony.Sms.READ}=0",
+                arrayOf(threadId.toString()),
+            )
+            context.contentResolver.update(
+                Telephony.Mms.CONTENT_URI,
+                values,
+                "${Telephony.Mms.THREAD_ID}=? AND ${Telephony.Mms.READ}=0",
                 arrayOf(threadId.toString()),
             )
         }
@@ -130,11 +142,20 @@ class MessagingRepository(private val context: Context) {
         }
     }
 
-    fun deleteMessage(id: Long, callback: (Result<Unit>) -> Unit) {
+    fun deleteMessage(
+        id: Long,
+        transport: MessageTransport,
+        callback: (Result<Unit>) -> Unit,
+    ) {
         background(callback) {
             requireSmsRole()
+            val root = if (transport == MessageTransport.SMS) {
+                Telephony.Sms.CONTENT_URI
+            } else {
+                Telephony.Mms.CONTENT_URI
+            }
             val deleted = context.contentResolver.delete(
-                ContentUris.withAppendedId(Telephony.Sms.CONTENT_URI, id), null, null)
+                ContentUris.withAppendedId(root, id), null, null)
             check(deleted == 1) { "Message is no longer available" }
         }
     }
@@ -209,6 +230,104 @@ class MessagingRepository(private val context: Context) {
         )
     }
 
+    private fun mmsMessage(cursor: Cursor): MessageUiState {
+        val id = cursor.getLong(cursor.getColumnIndexOrThrow(Telephony.Mms._ID))
+        val box = cursor.getInt(cursor.getColumnIndexOrThrow(Telephony.Mms.MESSAGE_BOX))
+        val type = cursor.getInt(cursor.getColumnIndexOrThrow(Telephony.Mms.MESSAGE_TYPE))
+        val outgoing = box != Telephony.Mms.MESSAGE_BOX_INBOX
+        val parts = mmsParts(id)
+        val body = when {
+            parts.text.isNotBlank() -> parts.text
+            parts.hasPhoto -> "[Photo]"
+            type == MMS_NOTIFICATION_IND -> "[MMS waiting to download]"
+            else -> "[MMS]"
+        }
+        return MessageUiState(
+            id = id,
+            threadId = cursor.getLong(cursor.getColumnIndexOrThrow(Telephony.Mms.THREAD_ID)),
+            address = mmsAddress(id, outgoing),
+            body = body,
+            atEpochMillis = cursor.getLong(
+                cursor.getColumnIndexOrThrow(Telephony.Mms.DATE),
+            ).toEpochMillis(),
+            outgoing = outgoing,
+            read = cursor.getInt(cursor.getColumnIndexOrThrow(Telephony.Mms.READ)) != 0,
+            transport = MessageTransport.MMS,
+            hasPhoto = parts.hasPhoto,
+            deliveryState = when {
+                type == MMS_NOTIFICATION_IND -> MessageDeliveryState.WAITING_DOWNLOAD
+                box == Telephony.Mms.MESSAGE_BOX_OUTBOX -> MessageDeliveryState.SENDING
+                box == Telephony.Mms.MESSAGE_BOX_FAILED -> MessageDeliveryState.FAILED
+                else -> MessageDeliveryState.COMPLETE
+            },
+        )
+    }
+
+    private fun mmsParts(messageId: Long): MmsParts {
+        val text = StringBuilder()
+        var hasPhoto = false
+        context.contentResolver.query(
+            Telephony.Mms.Part.CONTENT_URI,
+            arrayOf(Telephony.Mms.Part.CONTENT_TYPE, Telephony.Mms.Part.TEXT),
+            "${Telephony.Mms.Part.MSG_ID}=?",
+            arrayOf(messageId.toString()),
+            Telephony.Mms.Part._ID,
+        )?.use { cursor ->
+            while (cursor.moveToNext()) {
+                val contentType = cursor.getString(0).orEmpty()
+                if (contentType == "text/plain") {
+                    cursor.getString(1)?.takeIf(String::isNotBlank)?.let { value ->
+                        if (text.isNotEmpty()) text.append('\n')
+                        text.append(value)
+                    }
+                }
+                if (contentType.startsWith("image/")) hasPhoto = true
+            }
+        }
+        return MmsParts(text.toString(), hasPhoto)
+    }
+
+    private fun mmsAddress(messageId: Long, outgoing: Boolean): String {
+        val preferred = if (outgoing) MMS_ADDRESS_TO else MMS_ADDRESS_FROM
+        var fallback = ""
+        context.contentResolver.query(
+            Telephony.Mms.Addr.getAddrUriForMessage(messageId.toString()),
+            arrayOf(Telephony.Mms.Addr.ADDRESS, Telephony.Mms.Addr.TYPE),
+            null,
+            null,
+            null,
+        )?.use { cursor ->
+            while (cursor.moveToNext()) {
+                val value = cursor.getString(0).orEmpty().substringBefore("/TYPE=")
+                if (value.isBlank() || value == "insert-address-token") continue
+                if (fallback.isBlank()) fallback = value
+                if (cursor.getInt(1) == preferred) return value
+            }
+        }
+        return fallback
+    }
+
+    private fun mergeConversation(
+        conversations: MutableMap<Long, ConversationUiState>,
+        message: MessageUiState,
+    ) {
+        if (message.threadId <= 0L || message.address.isBlank()) return
+        val current = conversations[message.threadId]
+        val unread = current?.unread == true || (!message.outgoing && !message.read)
+        if (current == null || message.atEpochMillis > current.lastAtEpochMillis) {
+            conversations[message.threadId] = ConversationUiState(
+                threadId = message.threadId,
+                address = message.address,
+                displayName = contactName(message.address) ?: message.address,
+                lastBody = message.body,
+                lastAtEpochMillis = message.atEpochMillis,
+                unread = unread,
+            )
+        } else if (unread != current.unread) {
+            conversations[message.threadId] = current.copy(unread = unread)
+        }
+    }
+
     private fun contactName(address: String): String? {
         val uri = Uri.withAppendedPath(
             ContactsContract.PhoneLookup.CONTENT_FILTER_URI,
@@ -245,7 +364,11 @@ class MessagingRepository(private val context: Context) {
 
     private companion object {
         const val MAX_SCANNED_MESSAGES = 500
+        const val MAX_SCANNED_MMS = 200
         const val MAX_THREAD_MESSAGES = 200
+        const val MMS_NOTIFICATION_IND = 0x82
+        const val MMS_ADDRESS_FROM = 137
+        const val MMS_ADDRESS_TO = 151
         val SMS_PROJECTION = arrayOf(
             Telephony.Sms._ID,
             Telephony.Sms.THREAD_ID,
@@ -255,5 +378,18 @@ class MessagingRepository(private val context: Context) {
             Telephony.Sms.TYPE,
             Telephony.Sms.READ,
         )
+        val MMS_PROJECTION = arrayOf(
+            Telephony.Mms._ID,
+            Telephony.Mms.THREAD_ID,
+            Telephony.Mms.DATE,
+            Telephony.Mms.MESSAGE_BOX,
+            Telephony.Mms.READ,
+            Telephony.Mms.MESSAGE_TYPE,
+        )
     }
+
+    private data class MmsParts(val text: String, val hasPhoto: Boolean)
+
+    private fun Long.toEpochMillis(): Long =
+        coerceAtLeast(1L).coerceAtMost(Long.MAX_VALUE / 1_000L) * 1_000L
 }
