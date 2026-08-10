@@ -20,7 +20,20 @@ Media Intelligence separately retains the latest 100 completed photo timings and
 - queue-to-start: observation through worker claim, including intentional delay;
 - processing: worker claim through commit;
 - input preparation: media validation plus image/video input preparation; and
-- model request: Broker session creation through the final model callback.
+- model request: Broker session creation through the final model callback;
+- video-audio duration: the complete decoded primary-audio timeline;
+- video-audio pipeline: primary-audio decode, streaming Whisper ASR, and final
+  callback; and
+- video-audio real-time factor in permille: pipeline time divided by source-audio
+  duration, where 1000 is real time and 250 is four times faster than real time.
+
+Photo audio fields are null. A video with no primary audio reports zero duration
+and its measured setup/pipeline time but no real-time factor, avoiding a
+divide-by-zero or a false performance claim. The strict timing payload is schema
+version 2. Legacy video samples retained across the version-7 database migration
+report null audio fields until newer samples replace them. Separate measured-
+audio and valid-RTF sample counts accompany the percentiles, so legacy rows and
+audio-less videos cannot inflate the apparent evidence denominator.
 
 Only counts and integer durations are exported. The snapshot contains no media
 URI, filename, phone number, prompt, caption, transcript, contact, or model
@@ -47,3 +60,5 @@ of the build fingerprint. Review the cold/warm Broker metrics beside the
 end-to-end percentiles before making an ETA claim. Deferred video
 observed-to-index time is intentionally workload and charging dependent, so the
 processing and preparation fields are the useful compute-cost measurements.
+Use the video-audio real-time-factor percentiles to decide whether a candidate
+Whisper artifact can clear a realistic deferred-video queue on that exact phone.

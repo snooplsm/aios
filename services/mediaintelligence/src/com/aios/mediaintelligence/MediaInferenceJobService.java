@@ -131,6 +131,8 @@ public final class MediaInferenceJobService extends JobService {
             }
             VideoTranscript transcript = VideoTranscript.notApplicable();
             long totalModelRequestMillis = brokerResult.modelRequestMillis;
+            long videoAudioDurationMillis = MediaTiming.UNKNOWN_MILLIS;
+            long videoAudioPipelineMillis = MediaTiming.UNKNOWN_MILLIS;
             if (MediaInputPolicy.isVideo(job.mimeType)) {
                 MediaBrokerClient.AudioResult audioResult = activeClient.transcribeVideoAudio(
                         job, () -> currentBlockReason(workClass));
@@ -142,6 +144,8 @@ public final class MediaInferenceJobService extends JobService {
                     return;
                 }
                 transcript = audioResult.transcript;
+                videoAudioDurationMillis = audioResult.sourceAudioMillis;
+                videoAudioPipelineMillis = audioResult.modelRequestMillis;
                 totalModelRequestMillis = Math.addExact(
                         totalModelRequestMillis, audioResult.modelRequestMillis);
             }
@@ -178,7 +182,9 @@ public final class MediaInferenceJobService extends JobService {
                     completedAtEpochMillis,
                     processingMillis,
                     brokerResult.inputPreparationMillis,
-                    totalModelRequestMillis);
+                    totalModelRequestMillis,
+                    videoAudioDurationMillis,
+                    videoAudioPipelineMillis);
             String portableXmp = XmpProjection.build(
                     result.caption,
                     result.tags,

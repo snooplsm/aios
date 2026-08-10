@@ -20,6 +20,14 @@ final class MediaTimingSummary {
         final Long p95InputPreparationMillis;
         final Long p50ModelRequestMillis;
         final Long p95ModelRequestMillis;
+        final Long p50VideoAudioDurationMillis;
+        final Long p95VideoAudioDurationMillis;
+        final Long p50VideoAudioPipelineMillis;
+        final Long p95VideoAudioPipelineMillis;
+        final Long p50VideoAudioRealtimeFactorPermille;
+        final Long p95VideoAudioRealtimeFactorPermille;
+        final int videoAudioSampleCount;
+        final int videoAudioRealtimeFactorSampleCount;
 
         Group(List<MediaTiming.Sample> samples) {
             sampleCount = samples.size();
@@ -43,6 +51,21 @@ final class MediaTimingSummary {
                     values(samples, Value.MODEL_REQUEST), 0.50);
             p95ModelRequestMillis = nearestRankPercentile(
                     values(samples, Value.MODEL_REQUEST), 0.95);
+            p50VideoAudioDurationMillis = nearestRankPercentile(
+                    values(samples, Value.VIDEO_AUDIO_DURATION), 0.50);
+            p95VideoAudioDurationMillis = nearestRankPercentile(
+                    values(samples, Value.VIDEO_AUDIO_DURATION), 0.95);
+            p50VideoAudioPipelineMillis = nearestRankPercentile(
+                    values(samples, Value.VIDEO_AUDIO_PIPELINE), 0.50);
+            p95VideoAudioPipelineMillis = nearestRankPercentile(
+                    values(samples, Value.VIDEO_AUDIO_PIPELINE), 0.95);
+            p50VideoAudioRealtimeFactorPermille = nearestRankPercentile(
+                    values(samples, Value.VIDEO_AUDIO_REALTIME_FACTOR), 0.50);
+            p95VideoAudioRealtimeFactorPermille = nearestRankPercentile(
+                    values(samples, Value.VIDEO_AUDIO_REALTIME_FACTOR), 0.95);
+            videoAudioSampleCount = values(samples, Value.VIDEO_AUDIO_PIPELINE).size();
+            videoAudioRealtimeFactorSampleCount =
+                    values(samples, Value.VIDEO_AUDIO_REALTIME_FACTOR).size();
         }
     }
 
@@ -66,8 +89,8 @@ final class MediaTimingSummary {
         }
 
         String toJson() {
-            StringBuilder output = new StringBuilder(768);
-            output.append("{\"schema_version\":1")
+            StringBuilder output = new StringBuilder(1_024);
+            output.append("{\"schema_version\":2")
                     .append(",\"generated_at_epoch_ms\":")
                     .append(generatedAtEpochMillis)
                     .append(",\"max_samples_per_kind\":")
@@ -85,7 +108,10 @@ final class MediaTimingSummary {
         QUEUE_TO_START,
         PROCESSING,
         INPUT_PREPARATION,
-        MODEL_REQUEST
+        MODEL_REQUEST,
+        VIDEO_AUDIO_DURATION,
+        VIDEO_AUDIO_PIPELINE,
+        VIDEO_AUDIO_REALTIME_FACTOR
     }
 
     private MediaTimingSummary() {}
@@ -117,12 +143,31 @@ final class MediaTimingSummary {
                 case MODEL_REQUEST:
                     item = sample.modelRequestMillis;
                     break;
+                case VIDEO_AUDIO_DURATION:
+                    item = sample.videoAudioDurationMillis;
+                    break;
+                case VIDEO_AUDIO_PIPELINE:
+                    item = sample.videoAudioPipelineMillis;
+                    break;
+                case VIDEO_AUDIO_REALTIME_FACTOR:
+                    item = videoAudioRealtimeFactorPermille(sample);
+                    break;
                 default:
                     throw new AssertionError(value);
             }
             if (item >= 0L) values.add(item);
         }
         return values;
+    }
+
+    private static long videoAudioRealtimeFactorPermille(MediaTiming.Sample sample) {
+        if (sample.videoAudioDurationMillis <= 0L
+                || sample.videoAudioPipelineMillis < 0L) {
+            return MediaTiming.UNKNOWN_MILLIS;
+        }
+        return Math.max(0L, Math.round(
+                (double) sample.videoAudioPipelineMillis * 1_000.0d
+                        / sample.videoAudioDurationMillis));
     }
 
     private static Long nearestRankPercentile(List<Long> values, double fraction) {
@@ -144,7 +189,27 @@ final class MediaTimingSummary {
         appendMetric(output, "p95_input_preparation_ms", group.p95InputPreparationMillis);
         appendMetric(output, "p50_model_request_ms", group.p50ModelRequestMillis);
         appendMetric(output, "p95_model_request_ms", group.p95ModelRequestMillis);
-        output.append('}');
+        appendMetric(
+                output, "p50_video_audio_duration_ms", group.p50VideoAudioDurationMillis);
+        appendMetric(
+                output, "p95_video_audio_duration_ms", group.p95VideoAudioDurationMillis);
+        appendMetric(
+                output, "p50_video_audio_pipeline_ms", group.p50VideoAudioPipelineMillis);
+        appendMetric(
+                output, "p95_video_audio_pipeline_ms", group.p95VideoAudioPipelineMillis);
+        appendMetric(
+                output,
+                "p50_video_audio_realtime_factor_permille",
+                group.p50VideoAudioRealtimeFactorPermille);
+        appendMetric(
+                output,
+                "p95_video_audio_realtime_factor_permille",
+                group.p95VideoAudioRealtimeFactorPermille);
+        output.append(",\"video_audio_realtime_factor_sample_count\":")
+                .append(group.videoAudioRealtimeFactorSampleCount)
+                .append(",\"video_audio_sample_count\":")
+                .append(group.videoAudioSampleCount)
+                .append('}');
     }
 
     private static void appendMetric(StringBuilder output, String name, Long value) {

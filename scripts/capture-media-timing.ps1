@@ -47,17 +47,33 @@ function Assert-AiosTimingGroup {
     $expected = @(
         "p50_input_preparation_ms", "p50_model_request_ms",
         "p50_observed_to_index_ms", "p50_processing_ms", "p50_queue_to_start_ms",
+        "p50_video_audio_duration_ms", "p50_video_audio_pipeline_ms",
+        "p50_video_audio_realtime_factor_permille",
         "p95_input_preparation_ms", "p95_model_request_ms",
         "p95_observed_to_index_ms", "p95_processing_ms", "p95_queue_to_start_ms",
-        "sample_count"
+        "p95_video_audio_duration_ms", "p95_video_audio_pipeline_ms",
+        "p95_video_audio_realtime_factor_permille",
+        "sample_count", "video_audio_realtime_factor_sample_count",
+        "video_audio_sample_count"
     )
     $actual = @($Group.PSObject.Properties.Name | Sort-Object)
     if (($actual -join ",") -ne ($expected -join ",") -or
         $Group.sample_count -isnot [int] -or
-        $Group.sample_count -lt 0 -or $Group.sample_count -gt 100) {
+        $Group.sample_count -lt 0 -or $Group.sample_count -gt 100 -or
+        $Group.video_audio_sample_count -isnot [int] -or
+        $Group.video_audio_realtime_factor_sample_count -isnot [int] -or
+        $Group.video_audio_sample_count -lt 0 -or
+        $Group.video_audio_sample_count -gt $Group.sample_count -or
+        $Group.video_audio_realtime_factor_sample_count -lt 0 -or
+        $Group.video_audio_realtime_factor_sample_count -gt
+            $Group.video_audio_sample_count) {
         throw "$Name timing group is malformed"
     }
-    foreach ($field in $expected | Where-Object { $_ -ne "sample_count" }) {
+    $counts = @(
+        "sample_count", "video_audio_realtime_factor_sample_count",
+        "video_audio_sample_count"
+    )
+    foreach ($field in $expected | Where-Object { $_ -notin $counts }) {
         $value = $Group.$field
         if ($null -ne $value -and ($value -isnot [long] -and $value -isnot [int]) -or
             $null -ne $value -and $value -lt 0) {
@@ -65,6 +81,16 @@ function Assert-AiosTimingGroup {
         }
         if ($Group.sample_count -eq 0 -and $null -ne $value) {
             throw "$Name empty timing group must use null percentiles"
+        }
+    }
+    foreach ($prefix in @("p50", "p95")) {
+        if (($Group.video_audio_sample_count -eq 0) -ne
+            ($null -eq $Group."${prefix}_video_audio_duration_ms") -or
+            ($Group.video_audio_sample_count -eq 0) -ne
+            ($null -eq $Group."${prefix}_video_audio_pipeline_ms") -or
+            ($Group.video_audio_realtime_factor_sample_count -eq 0) -ne
+            ($null -eq $Group."${prefix}_video_audio_realtime_factor_permille")) {
+            throw "$Name video-audio timing denominator is inconsistent"
         }
     }
 }
@@ -110,7 +136,7 @@ $expectedRoot = @(
 )
 $actualRoot = @($timing.PSObject.Properties.Name | Sort-Object)
 if (($actualRoot -join ",") -ne ($expectedRoot -join ",") -or
-    $timing.schema_version -ne 1 -or
+    $timing.schema_version -ne 2 -or
     $timing.max_samples_per_kind -ne 100 -or
     $timing.generated_at_epoch_ms -le 0) {
     throw "media timing payload is malformed"

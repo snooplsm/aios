@@ -51,9 +51,9 @@ decoded as streaming 16 kHz mono PCM and passed through the same bilingual
 Whisper runtime used for calls, producing private timestamped subtitles in a
 source-linked full-text index. Subtitles are never written into the video or XMP.
 Device/model policy and host validators are also present. Debug builds can export
-bounded, identifier-free photo/video timing
-evidence so ETAs are based on the actual Pixel, build, model, and runtime rather
-than desktop estimates.
+bounded, identifier-free photo/video timing, including full-audio pipeline time
+and real-time factor, so ETAs are based on the actual Pixel, build, model, and
+runtime rather than desktop estimates.
 Media capture discovery is automatic and camera-independent: live MediaStore
 observation is backed by durable per-volume generation cursors that recover
 missed additions after process death or reboot without importing the existing

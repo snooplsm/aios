@@ -5,6 +5,7 @@ final class MediaTiming {
     static final String KIND_PHOTO = "photo";
     static final String KIND_VIDEO = "video";
     static final long UNKNOWN_MILLIS = -1L;
+    static final long MAX_VIDEO_AUDIO_DURATION_MILLIS = 24L * 60L * 60L * 1_000L;
 
     static final class Sample {
         final String mediaKind;
@@ -13,6 +14,8 @@ final class MediaTiming {
         final long processingMillis;
         final long inputPreparationMillis;
         final long modelRequestMillis;
+        final long videoAudioDurationMillis;
+        final long videoAudioPipelineMillis;
         final long completedAtEpochMillis;
 
         Sample(
@@ -22,15 +25,31 @@ final class MediaTiming {
                 long processingMillis,
                 long inputPreparationMillis,
                 long modelRequestMillis,
+                long videoAudioDurationMillis,
+                long videoAudioPipelineMillis,
                 long completedAtEpochMillis) {
-            if (!KIND_PHOTO.equals(mediaKind) && !KIND_VIDEO.equals(mediaKind)) {
+            boolean photo = KIND_PHOTO.equals(mediaKind);
+            boolean video = KIND_VIDEO.equals(mediaKind);
+            boolean legacyVideoAudio = video
+                    && videoAudioDurationMillis == UNKNOWN_MILLIS
+                    && videoAudioPipelineMillis == UNKNOWN_MILLIS;
+            boolean measuredVideoAudio = video
+                    && videoAudioDurationMillis >= 0L
+                    && videoAudioDurationMillis <= MAX_VIDEO_AUDIO_DURATION_MILLIS
+                    && videoAudioPipelineMillis >= 0L
+                    && videoAudioPipelineMillis <= modelRequestMillis;
+            if (!photo && !video) {
                 throw new IllegalArgumentException("unknown media timing kind");
             }
             requireWallDuration(observedToIndexMillis);
             requireWallDuration(queueToStartMillis);
             if (processingMillis < 0L || inputPreparationMillis < 0L
                     || modelRequestMillis < 0L
-                    || inputPreparationMillis + modelRequestMillis > processingMillis
+                    || modelRequestMillis > processingMillis
+                    || inputPreparationMillis > processingMillis - modelRequestMillis
+                    || (photo && (videoAudioDurationMillis != UNKNOWN_MILLIS
+                    || videoAudioPipelineMillis != UNKNOWN_MILLIS))
+                    || (video && !legacyVideoAudio && !measuredVideoAudio)
                     || completedAtEpochMillis <= 0L) {
                 throw new IllegalArgumentException("invalid media timing sample");
             }
@@ -40,6 +59,8 @@ final class MediaTiming {
             this.processingMillis = processingMillis;
             this.inputPreparationMillis = inputPreparationMillis;
             this.modelRequestMillis = modelRequestMillis;
+            this.videoAudioDurationMillis = videoAudioDurationMillis;
+            this.videoAudioPipelineMillis = videoAudioPipelineMillis;
             this.completedAtEpochMillis = completedAtEpochMillis;
         }
     }
@@ -53,7 +74,9 @@ final class MediaTiming {
             long completedAtEpochMillis,
             long processingMillis,
             long inputPreparationMillis,
-            long modelRequestMillis) {
+            long modelRequestMillis,
+            long videoAudioDurationMillis,
+            long videoAudioPipelineMillis) {
         return new Sample(
                 kind(mimeType),
                 wallDurationOrUnknown(observedAtEpochMillis, completedAtEpochMillis),
@@ -61,6 +84,8 @@ final class MediaTiming {
                 processingMillis,
                 inputPreparationMillis,
                 modelRequestMillis,
+                videoAudioDurationMillis,
+                videoAudioPipelineMillis,
                 completedAtEpochMillis);
     }
 

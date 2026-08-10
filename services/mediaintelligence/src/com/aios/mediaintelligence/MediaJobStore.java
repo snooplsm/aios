@@ -16,7 +16,7 @@ import java.util.regex.Pattern;
 /** Durable queue and encrypted-at-rest index (credential-encrypted app data). */
 final class MediaJobStore extends SQLiteOpenHelper {
     private static final String DATABASE = "media_intelligence.db";
-    private static final int VERSION = 6;
+    private static final int VERSION = 7;
     private static final Pattern VOLUME_NAME = Pattern.compile("[A-Za-z0-9_-]{1,128}");
     private static final Pattern DIGEST = Pattern.compile("[0-9a-f]{64}");
     private static final int ASSOCIATION_ACTIVE = 0;
@@ -130,6 +130,14 @@ final class MediaJobStore extends SQLiteOpenHelper {
                     "UPDATE jobs SET status=" + STATUS_PENDING
                             + " WHERE mime_type LIKE 'video/%' AND status=" + STATUS_INDEXED);
         }
+        if (oldVersion >= 2 && oldVersion < 7) {
+            database.execSQL(
+                    "ALTER TABLE timing_samples ADD COLUMN video_audio_duration_ms"
+                            + " INTEGER NOT NULL DEFAULT -1");
+            database.execSQL(
+                    "ALTER TABLE timing_samples ADD COLUMN video_audio_pipeline_ms"
+                            + " INTEGER NOT NULL DEFAULT -1");
+        }
     }
 
     private static void createTimingTable(SQLiteDatabase database) {
@@ -143,6 +151,10 @@ final class MediaJobStore extends SQLiteOpenHelper {
                         + "input_preparation_ms INTEGER NOT NULL"
                         + " CHECK(input_preparation_ms>=0),"
                         + "model_request_ms INTEGER NOT NULL CHECK(model_request_ms>=0),"
+                        + "video_audio_duration_ms INTEGER NOT NULL"
+                        + " CHECK(video_audio_duration_ms>=-1),"
+                        + "video_audio_pipeline_ms INTEGER NOT NULL"
+                        + " CHECK(video_audio_pipeline_ms>=-1),"
                         + "completed_at_epoch_ms INTEGER NOT NULL,"
                         + "FOREIGN KEY(job_id) REFERENCES jobs(_id) ON DELETE CASCADE)");
         database.execSQL(
@@ -870,6 +882,8 @@ final class MediaJobStore extends SQLiteOpenHelper {
             timingValues.put("processing_ms", timing.processingMillis);
             timingValues.put("input_preparation_ms", timing.inputPreparationMillis);
             timingValues.put("model_request_ms", timing.modelRequestMillis);
+            timingValues.put("video_audio_duration_ms", timing.videoAudioDurationMillis);
+            timingValues.put("video_audio_pipeline_ms", timing.videoAudioPipelineMillis);
             timingValues.put("completed_at_epoch_ms", timing.completedAtEpochMillis);
             long timingRow = database.insertWithOnConflict(
                     "timing_samples", null, timingValues, SQLiteDatabase.CONFLICT_REPLACE);
@@ -917,7 +931,9 @@ final class MediaJobStore extends SQLiteOpenHelper {
                 "timing_samples",
                 new String[]{
                         "observed_to_index_ms", "queue_to_start_ms", "processing_ms",
-                        "input_preparation_ms", "model_request_ms", "completed_at_epoch_ms"
+                        "input_preparation_ms", "model_request_ms",
+                        "video_audio_duration_ms", "video_audio_pipeline_ms",
+                        "completed_at_epoch_ms"
                 },
                 "media_kind=?",
                 new String[]{mediaKind},
@@ -933,7 +949,9 @@ final class MediaJobStore extends SQLiteOpenHelper {
                         cursor.getLong(2),
                         cursor.getLong(3),
                         cursor.getLong(4),
-                        cursor.getLong(5)));
+                        cursor.getLong(5),
+                        cursor.getLong(6),
+                        cursor.getLong(7)));
             }
         }
         return samples;

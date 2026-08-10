@@ -2305,12 +2305,14 @@ def validate_aosp_overlay(root: Path) -> None:
     require("own_mutations" in media_store_source
             and "recoverInterruptedWork" in media_store_source,
             "media database must suppress self-writes and recover interrupted jobs")
-    require("VERSION = 6" in media_store_source
+    require("VERSION = 7" in media_store_source
             and "oldVersion < 2" in media_store_source
             and "oldVersion < 3" in media_store_source
             and "oldVersion < 4" in media_store_source
             and "oldVersion < 5" in media_store_source
             and "oldVersion < 6" in media_store_source
+            and "oldVersion < 7" in media_store_source
+            and "oldVersion >= 2 && oldVersion < 7" in media_store_source
             and "CREATE TABLE timing_samples" in media_store_source
             and "CREATE TABLE media_scan_state" in media_store_source
             and "CREATE TABLE result_digests" in media_store_source
@@ -2319,6 +2321,8 @@ def validate_aosp_overlay(root: Path) -> None:
             and "CREATE VIRTUAL TABLE video_subtitle_fts" in media_store_source
             and "video_subtitles_ad BEFORE DELETE" in media_store_source
             and "audio_status" in media_store_source
+            and "video_audio_duration_ms" in media_store_source
+            and "video_audio_pipeline_ms" in media_store_source
             and "media_store_version" in media_store_source
             and "cannot durably enqueue media job" in media_store_source
             and "boolean purgeVolume" in media_store_source
@@ -2392,11 +2396,17 @@ def validate_aosp_overlay(root: Path) -> None:
                    "MediaTimingTest.java").read_text(encoding="utf-8")
     require("UNKNOWN_MILLIS = -1L" in timing_source
             and "elapsedDuration" in timing_source
+            and "videoAudioDurationMillis" in timing_source
+            and "videoAudioPipelineMillis" in timing_source
             and "MAX_SAMPLES_PER_KIND = 100" in timing_summary
             and "nearestRank" in timing_summary
+            and "videoAudioRealtimeFactorPermille" in timing_summary
+            and "p50_video_audio_realtime_factor_permille" in timing_summary
+            and "video_audio_realtime_factor_sample_count" in timing_summary
+            and "video_audio_sample_count" in timing_summary
             and "snapshotUsesBoundedNearestRankPercentilesAndNoMediaContent"
             in timing_test,
-            "media timing must separate clocks and export bounded aggregate percentiles")
+            "media timing must export bounded aggregate latency and video-audio RTF")
 
     observer_source = (media_source_root / "MediaObserverService.java").read_text(
         encoding="utf-8"
@@ -2410,6 +2420,9 @@ def validate_aosp_overlay(root: Path) -> None:
             and "dumpsys\", \"activity\", \"service\"" in media_timing_capture
             and "ro.debuggable" in media_timing_capture
             and "build_fingerprint_sha256" in media_timing_capture
+            and '$timing.schema_version -ne 2' in media_timing_capture
+            and "p95_video_audio_realtime_factor_permille" in media_timing_capture
+            and "video_audio_realtime_factor_sample_count" in media_timing_capture
             and "content://|caption|transcript|prompt|media_uri|phone"
             in media_timing_capture,
             "media timing evidence must be debug-only, device-bound, and privacy-minimized")

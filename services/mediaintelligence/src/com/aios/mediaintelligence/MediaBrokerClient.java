@@ -69,16 +69,19 @@ final class MediaBrokerClient implements AutoCloseable {
         final int errorCode;
         final String retryReason;
         final long modelRequestMillis;
+        final long sourceAudioMillis;
 
         AudioResult(
                 VideoTranscript transcript,
                 int errorCode,
                 String retryReason,
-                long modelRequestMillis) {
+                long modelRequestMillis,
+                long sourceAudioMillis) {
             this.transcript = transcript;
             this.errorCode = errorCode;
             this.retryReason = retryReason;
             this.modelRequestMillis = modelRequestMillis;
+            this.sourceAudioMillis = sourceAudioMillis;
         }
     }
 
@@ -218,13 +221,21 @@ final class MediaBrokerClient implements AutoCloseable {
             MediaConstraintProbe constraints)
             throws IOException, InterruptedException {
         if (!MediaInputPolicy.isVideo(job.mimeType)) {
-            return new AudioResult(VideoTranscript.notApplicable(), 0, null, 0L);
+            return new AudioResult(
+                    VideoTranscript.notApplicable(), 0, null, 0L, MediaTiming.UNKNOWN_MILLIS);
         }
         String blocked = constraints.blockedReason();
-        if (blocked != null) return new AudioResult(null, ERROR_CONSTRAINT_BLOCKED, blocked, 0L);
+        if (blocked != null) {
+            return new AudioResult(
+                    null, ERROR_CONSTRAINT_BLOCKED, blocked, 0L, MediaTiming.UNKNOWN_MILLIS);
+        }
         if (!ensureConnected()) {
             return new AudioResult(
-                    null, ERROR_BROKER_UNAVAILABLE, "model_broker_unavailable", 0L);
+                    null,
+                    ERROR_BROKER_UNAVAILABLE,
+                    "model_broker_unavailable",
+                    0L,
+                    MediaTiming.UNKNOWN_MILLIS);
         }
 
         CountDownLatch completed = new CountDownLatch(1);
@@ -280,7 +291,8 @@ final class MediaBrokerClient implements AutoCloseable {
                         null,
                         holder.errorCode == 0 ? ERROR_BROKER_UNAVAILABLE : holder.errorCode,
                         "video_asr_session_rejected",
-                        0L);
+                        0L,
+                        MediaTiming.UNKNOWN_MILLIS);
             }
             AudioStreamFormat format = new AudioStreamFormat();
             format.sampleRateHz = VideoAudioExtractor.OUTPUT_SAMPLE_RATE_HZ;
@@ -299,7 +311,12 @@ final class MediaBrokerClient implements AutoCloseable {
         } catch (VideoStoryboard.BlockedException error) {
             cancelActiveSession();
             closePipe(pipe);
-            return new AudioResult(null, ERROR_CONSTRAINT_BLOCKED, error.reason, 0L);
+            return new AudioResult(
+                    null,
+                    ERROR_CONSTRAINT_BLOCKED,
+                    error.reason,
+                    0L,
+                    MediaTiming.UNKNOWN_MILLIS);
         } catch (RemoteException error) {
             cancelActiveSession();
             closePipe(pipe);
@@ -316,13 +333,22 @@ final class MediaBrokerClient implements AutoCloseable {
             blocked = constraints.blockedReason();
             if (blocked != null) {
                 cancelActiveSession();
-                return new AudioResult(null, ERROR_CONSTRAINT_BLOCKED, blocked, 0L);
+                return new AudioResult(
+                        null,
+                        ERROR_CONSTRAINT_BLOCKED,
+                        blocked,
+                        0L,
+                        MediaTiming.UNKNOWN_MILLIS);
             }
             long remaining = timeoutAt - SystemClock.elapsedRealtime();
             if (remaining <= 0L) {
                 cancelActiveSession();
                 return new AudioResult(
-                        null, ERROR_INFERENCE_TIMEOUT, "video_asr_timeout", 0L);
+                        null,
+                        ERROR_INFERENCE_TIMEOUT,
+                        "video_asr_timeout",
+                        0L,
+                        MediaTiming.UNKNOWN_MILLIS);
             }
             completed.await(
                     Math.min(CONSTRAINT_RECHECK_MILLIS, remaining), TimeUnit.MILLISECONDS);
@@ -333,14 +359,16 @@ final class MediaBrokerClient implements AutoCloseable {
                     null,
                     holder.errorCode,
                     "video_asr_runtime_error",
-                    MediaTiming.elapsedDuration(started, SystemClock.elapsedRealtime()));
+                    MediaTiming.elapsedDuration(started, SystemClock.elapsedRealtime()),
+                    extraction.decodedDurationMillis);
         }
         if (!extraction.hasAudio) {
             return new AudioResult(
                     VideoTranscript.noAudio(),
                     0,
                     null,
-                    MediaTiming.elapsedDuration(started, SystemClock.elapsedRealtime()));
+                    MediaTiming.elapsedDuration(started, SystemClock.elapsedRealtime()),
+                    extraction.decodedDurationMillis);
         }
         List<GenerationChunk> chunks;
         synchronized (holder.chunks) {
@@ -356,7 +384,8 @@ final class MediaBrokerClient implements AutoCloseable {
                             holder.result, chunks, extraction.timelineOffsetMillis),
                     0,
                     null,
-                    MediaTiming.elapsedDuration(started, SystemClock.elapsedRealtime()));
+                    MediaTiming.elapsedDuration(started, SystemClock.elapsedRealtime()),
+                    extraction.decodedDurationMillis);
         } catch (IllegalArgumentException error) {
             throw new VideoStoryboard.InvalidVideoException(
                     "video ASR returned invalid timestamped subtitles");
