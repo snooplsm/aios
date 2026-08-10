@@ -700,6 +700,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "apps/messaging/src/com/aios/messaging/MessagingRuntime.kt",
         "apps/messaging/src/com/aios/messaging/model/MessagingContract.kt",
         "apps/messaging/src/com/aios/messaging/model/MessagePolicy.kt",
+        "apps/messaging/src/com/aios/messaging/model/SubscriptionSelectionPolicy.kt",
         "apps/messaging/src/com/aios/messaging/data/MessagingRepository.kt",
         "apps/messaging/src/com/aios/messaging/context/CommunicationContextClient.kt",
         "apps/messaging/src/com/aios/messaging/telephony/SmsDeliverReceiver.kt",
@@ -717,6 +718,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "apps/messaging/src/com/aios/messaging/ui/MessagingScreens.kt",
         "apps/messaging/src/com/aios/messaging/ui/theme/MessagingTheme.kt",
         "apps/messaging/tests/src/com/aios/messaging/model/MessagePolicyTest.kt",
+        "apps/messaging/tests/src/com/aios/messaging/model/SubscriptionSelectionPolicyTest.kt",
         "apps/messaging/tests/src/com/aios/messaging/mms/MmsOperationPolicyTest.kt",
         "patches/0002-framework-mms-aios-visibility.patch",
         "docs/mms-transport.md",
@@ -1023,6 +1025,13 @@ def validate_aosp_overlay(root: Path) -> None:
                             "data" / "MessagingRepository.kt").read_text(encoding="utf-8")
     messaging_activity = (messaging_root / "src" / "com" / "aios" / "messaging" /
                           "ui" / "MainActivity.kt").read_text(encoding="utf-8")
+    messaging_ui = (messaging_root / "src" / "com" / "aios" / "messaging" /
+                    "ui" / "MessagingScreens.kt").read_text(encoding="utf-8")
+    messaging_contract = (messaging_root / "src" / "com" / "aios" / "messaging" /
+                          "model" / "MessagingContract.kt").read_text(encoding="utf-8")
+    subscription_policy = (messaging_root / "src" / "com" / "aios" / "messaging" /
+                           "model" / "SubscriptionSelectionPolicy.kt").read_text(
+                               encoding="utf-8")
     sms_receiver = (messaging_root / "src" / "com" / "aios" / "messaging" /
                     "telephony" / "SmsDeliverReceiver.kt").read_text(encoding="utf-8")
     mms_receiver = (messaging_root / "src" / "com" / "aios" / "messaging" /
@@ -1057,6 +1066,15 @@ def validate_aosp_overlay(root: Path) -> None:
             and "sendMultipartTextMessage" in messaging_repository
             and "pending.finish()" in sms_receiver,
             "SMS delivery must be role-gated, provider-backed, multipart, and durable")
+    require('android.permission.READ_PHONE_STATE' in messaging_manifest
+            and "activeSubscriptionInfoList" in messaging_repository
+            and "createForSubscriptionId(subscriptionId)" in messaging_repository
+            and "SubscriptionSelectionPolicy.select" in messaging_runtime
+            and "SelectSubscription" in messaging_contract
+            and "SubscriptionPicker" in messaging_ui
+            and "preferredSubscriptionId" in subscription_policy
+            and "defaultSubscriptionId" in subscription_policy,
+            "AIOS Messaging must fail closed and expose explicit multi-SIM routing")
     require("PickVisualMedia" in messaging_activity
             and "ImageOnly" in messaging_activity
             and "Intent.ACTION_DIAL" in messaging_activity
@@ -1071,6 +1089,7 @@ def validate_aosp_overlay(root: Path) -> None:
             and "downloadMultimediaMessage" in mms_transport
             and "MMS_SENT" in mms_contract
             and "MMS_DOWNLOADED" in mms_contract
+            and "requireActiveSubscription(requestedSubscriptionId)" in mms_transport
             and "CREATE TABLE operations" in mms_store
             and all(state in mms_policy for state in (
                 "PREPARING", "PROVIDER_PERSISTED", "SUBMITTED",
@@ -2511,6 +2530,21 @@ def validate_security_surface(root: Path) -> None:
     require('package="com.aios.callintelligence"' in default_permissions_text
             and 'name="android.permission.RECORD_AUDIO"' in default_permissions_text,
             "Call Intelligence must receive its runtime microphone grant explicitly")
+    default_permissions = ET.parse(default_permissions_path).getroot()
+    messaging_defaults = [
+        package for package in default_permissions.findall("exception")
+        if package.attrib.get("package") == "com.aios.messaging"
+    ]
+    require(len(messaging_defaults) == 1,
+            "AIOS Messaging needs one explicit default-permissions exception")
+    messaging_default_grants = {
+        item.attrib.get("name"): item.attrib.get("fixed")
+        for item in messaging_defaults[0].findall("permission")
+    }
+    require(messaging_default_grants == {
+                "android.permission.READ_PHONE_STATE": "false",
+            },
+            "AIOS Messaging may receive only revocable SIM-routing access")
     bridge_holders = []
     voicemail_read_holders = []
     voicemail_write_holders = []

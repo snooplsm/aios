@@ -28,4 +28,13 @@
             fixed="true" />
     </exception>
 
+    <!-- AIOS Messaging needs subscription IDs and carrier labels to route SMS
+         and MMS through the owner's selected SIM. The grant is intentionally
+         revocable; sideloaded builds and revoked grants use the in-app fallback. -->
+    <exception package="com.aios.messaging">
+        <permission
+            name="android.permission.READ_PHONE_STATE"
+            fixed="false" />
+    </exception>
+
 </exceptions>

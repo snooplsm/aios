@@ -3,6 +3,7 @@ package com.aios.messaging.model
 data class MessagingUiState(
     val isSmsRoleHeld: Boolean = false,
     val isMmsAdmitted: Boolean = false,
+    val needsSubscriptionPermission: Boolean = false,
     val showRolePrompt: Boolean = true,
     val loading: Boolean = false,
     val conversations: List<ConversationUiState> = emptyList(),
@@ -12,6 +13,8 @@ data class MessagingUiState(
     val recipientDraft: String = "",
     val bodyDraft: String = "",
     val selectedPhoto: SelectedPhotoUiState? = null,
+    val subscriptions: List<SubscriptionUiState> = emptyList(),
+    val selectedSubscriptionId: Int? = null,
     val theme: ThemePreference = ThemePreference.SYSTEM,
     val notice: String? = null,
 )
@@ -23,6 +26,7 @@ data class ConversationUiState(
     val lastBody: String,
     val lastAtEpochMillis: Long,
     val unread: Boolean,
+    val subscriptionId: Int? = null,
 )
 
 data class MessageUiState(
@@ -36,6 +40,7 @@ data class MessageUiState(
     val transport: MessageTransport = MessageTransport.SMS,
     val hasPhoto: Boolean = false,
     val deliveryState: MessageDeliveryState = MessageDeliveryState.COMPLETE,
+    val subscriptionId: Int? = null,
 )
 
 enum class MessageTransport { SMS, MMS }
@@ -50,6 +55,13 @@ data class ContextSnippetUiState(
 
 data class SelectedPhotoUiState(val uri: String, val label: String)
 
+data class SubscriptionUiState(
+    val subscriptionId: Int,
+    val label: String,
+    val slotIndex: Int,
+    val embedded: Boolean,
+)
+
 enum class ThemePreference { SYSTEM, LIGHT, DARK }
 
 sealed interface MessagingAction {
@@ -63,6 +75,7 @@ sealed interface MessagingAction {
     data class DeleteMessage(val id: Long, val transport: MessageTransport) : MessagingAction
     data class SelectPhoto(val uri: String, val label: String) : MessagingAction
     data object ClearPhoto : MessagingAction
+    data class SelectSubscription(val subscriptionId: Int) : MessagingAction
     data class ChangeTheme(val value: ThemePreference) : MessagingAction
     data class ChangeRolePromptVisible(val visible: Boolean) : MessagingAction
     data object ClearNotice : MessagingAction

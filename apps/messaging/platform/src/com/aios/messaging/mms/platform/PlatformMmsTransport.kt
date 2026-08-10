@@ -1,11 +1,13 @@
 package com.aios.messaging.mms.platform
 
+import android.Manifest
 import android.app.PendingIntent
 import android.app.role.RoleManager
 import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.provider.Telephony
@@ -58,10 +60,13 @@ internal class PlatformMmsTransport(
         address: String,
         body: String,
         photoUri: String,
+        subscriptionId: Int,
         callback: (Result<MmsEvent>) -> Unit,
     ) {
         executor.execute {
-            val result = runCatching { sendPhoto(address, body, Uri.parse(photoUri)) }
+            val result = runCatching {
+                sendPhoto(address, body, Uri.parse(photoUri), subscriptionId)
+            }
             context.mainExecutor.execute { callback(result) }
             result.exceptionOrNull()?.let { notifyFailure("Photo message could not be submitted") }
         }
@@ -124,12 +129,17 @@ internal class PlatformMmsTransport(
         store.close()
     }
 
-    private fun sendPhoto(address: String, body: String, photoUri: Uri): MmsEvent {
+    private fun sendPhoto(
+        address: String,
+        body: String,
+        photoUri: Uri,
+        requestedSubscriptionId: Int,
+    ): MmsEvent {
         check(admitted) { "MMS is enabled only on debuggable AIOS builds until carrier gates pass" }
         requireSmsRole()
         val normalized = PhoneNumberUtils.normalizeNumber(address)
         require(normalized.isNotBlank()) { "A valid phone number is required" }
-        val subscriptionId = effectiveSubscription(SubscriptionManager.getDefaultSmsSubscriptionId())
+        val subscriptionId = requireActiveSubscription(requestedSubscriptionId)
         val manager = smsManager(subscriptionId)
         val limits = carrierLimits(manager)
         val normalizedBody = body.trim().take(4_096)
@@ -532,9 +542,14 @@ internal class PlatformMmsTransport(
         val id = ContentUris.parseId(uri)
         var threadId = 0L
         var dateSeconds = 0L
+        var subscriptionId = SubscriptionManager.INVALID_SUBSCRIPTION_ID
         context.contentResolver.query(
             uri,
-            arrayOf(Telephony.Mms.THREAD_ID, Telephony.Mms.DATE),
+            arrayOf(
+                Telephony.Mms.THREAD_ID,
+                Telephony.Mms.DATE,
+                Telephony.Mms.SUBSCRIPTION_ID,
+            ),
             null,
             null,
             null,
@@ -542,6 +557,7 @@ internal class PlatformMmsTransport(
             check(cursor.moveToFirst()) { "MMS provider row disappeared" }
             threadId = cursor.getLong(0)
             dateSeconds = cursor.getLong(1)
+            subscriptionId = cursor.getInt(2)
         } ?: error("MMS provider is unavailable")
         val text = StringBuilder()
         var hasPhoto = false
@@ -571,6 +587,7 @@ internal class PlatformMmsTransport(
             atEpochMillis = dateSeconds.toEpochMillis(),
             outgoing = outgoing,
             hasPhoto = hasPhoto,
+            subscriptionId = subscriptionId,
         )
     }
 
@@ -624,6 +641,21 @@ internal class PlatformMmsTransport(
             "Choose an SMS SIM in system settings"
         }
         return candidate
+    }
+
+    private fun requireActiveSubscription(requested: Int): Int {
+        check(context.checkSelfPermission(Manifest.permission.READ_PHONE_STATE) ==
+            PackageManager.PERMISSION_GRANTED) {
+            "Allow SIM access before sending messages"
+        }
+        require(SubscriptionManager.isValidSubscriptionId(requested)) {
+            "Choose an active SMS SIM"
+        }
+        val active = context.getSystemService(SubscriptionManager::class.java)
+            ?.activeSubscriptionInfoList.orEmpty()
+            .any { it.subscriptionId == requested && !it.isOpportunistic }
+        require(active) { "The selected SMS SIM is no longer active" }
+        return requested
     }
 
     private fun smsManager(subscriptionId: Int): SmsManager =

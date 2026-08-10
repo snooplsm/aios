@@ -8,6 +8,7 @@ data class MmsEvent(
     val atEpochMillis: Long,
     val outgoing: Boolean,
     val hasPhoto: Boolean,
+    val subscriptionId: Int,
 )
 
 interface MmsTransport {
@@ -17,6 +18,7 @@ interface MmsTransport {
         address: String,
         body: String,
         photoUri: String,
+        subscriptionId: Int,
         callback: (Result<MmsEvent>) -> Unit,
     )
 

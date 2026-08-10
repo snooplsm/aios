@@ -13,6 +13,7 @@ object MmsTransportFactory {
                 address: String,
                 body: String,
                 photoUri: String,
+                subscriptionId: Int,
                 callback: (Result<MmsEvent>) -> Unit,
             ) = callback(Result.failure(IllegalStateException("platform MMS unavailable")))
 

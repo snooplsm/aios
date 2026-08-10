@@ -24,7 +24,9 @@ becoming the production carrier implementation.
 
 ## Outbound photo path
 
-1. Require the user-selected SMS role and a valid effective SMS subscription.
+1. Require the user-selected SMS role and the exact active, non-opportunistic
+   subscription chosen in the shared SMS/MMS composer. There is no outgoing
+   fallback to a different SIM.
 2. Read maximum PDU size, image dimensions, and MMS behavior from that
    subscription's `SmsManager` carrier configuration.
 3. Decode the Photo Picker URI with a bounded target size, flatten transparency
@@ -79,7 +81,7 @@ physical SIM and eSIM where available:
 - carrier-limit transcoding for landscape, portrait, transparent, and very large
   inputs, with the original digest unchanged;
 - default-subscription selection and explicit failure when no valid default is
-  available;
+  available, including selecting and switching each active SIM in the composer;
 - mobile-data off, airplane mode, roaming allowed/blocked, invalid APN, timeout,
   and HTTP/carrier rejection behavior;
 - app-process death and device reboot before submission, after submission, and

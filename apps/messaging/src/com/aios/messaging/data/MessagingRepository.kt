@@ -1,9 +1,11 @@
 package com.aios.messaging.data
 
+import android.Manifest
 import android.app.role.RoleManager
 import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Context
+import android.content.pm.PackageManager
 import android.database.Cursor
 import android.net.Uri
 import android.provider.ContactsContract
@@ -18,6 +20,8 @@ import com.aios.messaging.model.MessagePolicy
 import com.aios.messaging.model.MessageDeliveryState
 import com.aios.messaging.model.MessageTransport
 import com.aios.messaging.model.MessageUiState
+import com.aios.messaging.model.SubscriptionSelectionPolicy
+import com.aios.messaging.model.SubscriptionUiState
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
@@ -77,6 +81,13 @@ class MessagingRepository(private val context: Context) {
         }
     }
 
+    fun loadSubscriptions(callback: (Result<SubscriptionInventory>) -> Unit) {
+        background(callback) {
+            requireSmsRole()
+            subscriptionInventory()
+        }
+    }
+
     fun markThreadRead(threadId: Long) {
         executor.execute {
             if (!isSmsRoleHeld()) return@execute
@@ -102,44 +113,71 @@ class MessagingRepository(private val context: Context) {
     fun sendSms(
         address: String,
         body: String,
+        subscriptionId: Int,
         callback: (Result<MessageUiState>) -> Unit,
     ) {
         background(callback) {
             requireSmsRole()
-            val normalizedAddress = PhoneNumberUtils.normalizeNumber(address)
-            val normalizedBody = MessagePolicy.normalizedBody(body)
-            require(normalizedAddress.isNotBlank() && normalizedBody.isNotBlank()) {
-                "A phone number and message are required"
+            val inventory = subscriptionInventory()
+            require(subscriptionId in inventory.subscriptions.map { it.subscriptionId }) {
+                "Choose an active SMS SIM"
             }
-            val subscriptionId = SubscriptionManager.getDefaultSmsSubscriptionId()
-            require(subscriptionId != SubscriptionManager.INVALID_SUBSCRIPTION_ID) {
-                "Choose a default SMS SIM in system settings"
-            }
-            val manager = checkNotNull(context.getSystemService(SmsManager::class.java)) {
-                "SMS service is unavailable"
-            }.createForSubscriptionId(subscriptionId)
-            val parts = manager.divideMessage(normalizedBody)
-            if (parts.size == 1) {
-                manager.sendTextMessage(normalizedAddress, null, normalizedBody, null, null)
-            } else {
-                manager.sendMultipartTextMessage(
-                    normalizedAddress,
-                    null,
-                    ArrayList(parts),
-                    null,
-                    null,
-                )
-            }
-            insertMessage(
-                Telephony.Sms.Sent.CONTENT_URI,
+            sendSms(address, body, subscriptionId)
+        }
+    }
+
+    fun sendQuickReply(
+        address: String,
+        body: String,
+        preferredSubscriptionId: Int?,
+        callback: (Result<MessageUiState>) -> Unit,
+    ) {
+        background(callback) {
+            requireSmsRole()
+            val inventory = subscriptionInventory()
+            val subscriptionId = requireNotNull(SubscriptionSelectionPolicy.select(
+                inventory.subscriptions.map { it.subscriptionId },
+                preferredSubscriptionId,
+                inventory.defaultSubscriptionId,
+            )) { "Choose a default SMS SIM before using quick reply" }
+            sendSms(address, body, subscriptionId)
+        }
+    }
+
+    private fun sendSms(
+        address: String,
+        body: String,
+        subscriptionId: Int,
+    ): MessageUiState {
+        val normalizedAddress = PhoneNumberUtils.normalizeNumber(address)
+        val normalizedBody = MessagePolicy.normalizedBody(body)
+        require(normalizedAddress.isNotBlank() && normalizedBody.isNotBlank()) {
+            "A phone number and message are required"
+        }
+        val manager = checkNotNull(context.getSystemService(SmsManager::class.java)) {
+            "SMS service is unavailable"
+        }.createForSubscriptionId(subscriptionId)
+        val parts = manager.divideMessage(normalizedBody)
+        if (parts.size == 1) {
+            manager.sendTextMessage(normalizedAddress, null, normalizedBody, null, null)
+        } else {
+            manager.sendMultipartTextMessage(
                 normalizedAddress,
-                normalizedBody,
-                System.currentTimeMillis(),
-                subscriptionId,
-                read = true,
-                outgoing = true,
+                null,
+                ArrayList(parts),
+                null,
+                null,
             )
         }
+        return insertMessage(
+            Telephony.Sms.Sent.CONTENT_URI,
+            normalizedAddress,
+            normalizedBody,
+            System.currentTimeMillis(),
+            subscriptionId,
+            read = true,
+            outgoing = true,
+        )
     }
 
     fun deleteMessage(
@@ -200,7 +238,7 @@ class MessagingRepository(private val context: Context) {
             put(Telephony.Sms.DATE, timestamp)
             put(Telephony.Sms.READ, if (read) 1 else 0)
             put(Telephony.Sms.SEEN, if (read) 1 else 0)
-            put("sub_id", subscriptionId)
+            put(Telephony.Sms.SUBSCRIPTION_ID, subscriptionId)
         }
         val inserted = checkNotNull(context.contentResolver.insert(destination, values)) {
             "SMS provider rejected the message"
@@ -214,7 +252,16 @@ class MessagingRepository(private val context: Context) {
             null,
             null,
         )?.use { cursor -> if (cursor.moveToFirst()) threadId = cursor.getLong(0) }
-        return MessageUiState(id, threadId, address, body, timestamp, outgoing, read)
+        return MessageUiState(
+            id = id,
+            threadId = threadId,
+            address = address,
+            body = body,
+            atEpochMillis = timestamp,
+            outgoing = outgoing,
+            read = read,
+            subscriptionId = subscriptionId,
+        )
     }
 
     private fun message(cursor: Cursor): MessageUiState {
@@ -227,6 +274,9 @@ class MessagingRepository(private val context: Context) {
             atEpochMillis = cursor.getLong(cursor.getColumnIndexOrThrow(Telephony.Sms.DATE)),
             outgoing = type != Telephony.Sms.MESSAGE_TYPE_INBOX,
             read = cursor.getInt(cursor.getColumnIndexOrThrow(Telephony.Sms.READ)) != 0,
+            subscriptionId = cursor.getInt(
+                cursor.getColumnIndexOrThrow(Telephony.Sms.SUBSCRIPTION_ID),
+            ).takeIf { SubscriptionManager.isValidSubscriptionId(it) },
         )
     }
 
@@ -260,6 +310,9 @@ class MessagingRepository(private val context: Context) {
                 box == Telephony.Mms.MESSAGE_BOX_FAILED -> MessageDeliveryState.FAILED
                 else -> MessageDeliveryState.COMPLETE
             },
+            subscriptionId = cursor.getInt(
+                cursor.getColumnIndexOrThrow(Telephony.Mms.SUBSCRIPTION_ID),
+            ).takeIf { SubscriptionManager.isValidSubscriptionId(it) },
         )
     }
 
@@ -322,6 +375,7 @@ class MessagingRepository(private val context: Context) {
                 lastBody = message.body,
                 lastAtEpochMillis = message.atEpochMillis,
                 unread = unread,
+                subscriptionId = message.subscriptionId,
             )
         } else if (unread != current.unread) {
             conversations[message.threadId] = current.copy(unread = unread)
@@ -355,6 +409,50 @@ class MessagingRepository(private val context: Context) {
     private fun isSmsRoleHeld(): Boolean =
         context.getSystemService(RoleManager::class.java)?.isRoleHeld(RoleManager.ROLE_SMS) == true
 
+    private fun subscriptionInventory(): SubscriptionInventory {
+        check(context.checkSelfPermission(Manifest.permission.READ_PHONE_STATE) ==
+            PackageManager.PERMISSION_GRANTED) {
+            "Allow SIM access before sending messages"
+        }
+        val manager = checkNotNull(context.getSystemService(SubscriptionManager::class.java)) {
+            "Subscription service is unavailable"
+        }
+        val subscriptions = manager.activeSubscriptionInfoList.orEmpty()
+            .asSequence()
+            .filterNot { it.isOpportunistic }
+            .map { info ->
+                val position = info.simSlotIndex
+                val kind = when {
+                    position >= 0 -> "SIM ${position + 1}"
+                    info.isEmbedded -> "eSIM"
+                    else -> "SIM"
+                }
+                val carrier = info.displayName?.toString()?.trim().orEmpty()
+                    .ifBlank { info.carrierName?.toString()?.trim().orEmpty() }
+                SubscriptionUiState(
+                    subscriptionId = info.subscriptionId,
+                    label = if (carrier.isBlank() || carrier.equals(kind, ignoreCase = true)) {
+                        kind
+                    } else {
+                        "$kind - $carrier"
+                    },
+                    slotIndex = position,
+                    embedded = info.isEmbedded,
+                )
+            }
+            .distinctBy(SubscriptionUiState::subscriptionId)
+            .sortedWith(compareBy<SubscriptionUiState> {
+                if (it.slotIndex < 0) Int.MAX_VALUE else it.slotIndex
+            }.thenBy(SubscriptionUiState::subscriptionId))
+            .toList()
+        val defaultId = SubscriptionManager.getDefaultSmsSubscriptionId()
+            .takeIf { candidate ->
+                SubscriptionManager.isValidSubscriptionId(candidate) &&
+                    subscriptions.any { it.subscriptionId == candidate }
+            }
+        return SubscriptionInventory(subscriptions, defaultId)
+    }
+
     private fun <T> background(callback: (Result<T>) -> Unit, operation: () -> T) {
         executor.execute {
             val result = runCatching(operation)
@@ -377,6 +475,7 @@ class MessagingRepository(private val context: Context) {
             Telephony.Sms.DATE,
             Telephony.Sms.TYPE,
             Telephony.Sms.READ,
+            Telephony.Sms.SUBSCRIPTION_ID,
         )
         val MMS_PROJECTION = arrayOf(
             Telephony.Mms._ID,
@@ -385,6 +484,7 @@ class MessagingRepository(private val context: Context) {
             Telephony.Mms.MESSAGE_BOX,
             Telephony.Mms.READ,
             Telephony.Mms.MESSAGE_TYPE,
+            Telephony.Mms.SUBSCRIPTION_ID,
         )
     }
 
@@ -393,3 +493,8 @@ class MessagingRepository(private val context: Context) {
     private fun Long.toEpochMillis(): Long =
         coerceAtLeast(1L).coerceAtMost(Long.MAX_VALUE / 1_000L) * 1_000L
 }
+
+data class SubscriptionInventory(
+    val subscriptions: List<SubscriptionUiState>,
+    val defaultSubscriptionId: Int?,
+)

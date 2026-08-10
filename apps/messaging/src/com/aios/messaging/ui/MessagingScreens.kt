@@ -33,6 +33,7 @@ import com.aios.messaging.model.MessageUiState
 import com.aios.messaging.model.MessageDeliveryState
 import com.aios.messaging.model.MessagingAction
 import com.aios.messaging.model.MessagingUiState
+import com.aios.messaging.model.SubscriptionUiState
 import com.aios.messaging.model.ThemePreference
 
 @Composable
@@ -40,13 +41,14 @@ fun MessagingScreen(
     state: MessagingUiState,
     dispatch: (MessagingAction) -> Unit,
     requestRole: () -> Unit,
+    requestSubscriptionPermission: () -> Unit,
     pickPhoto: () -> Unit,
     call: (String) -> Unit,
 ) {
     if (state.selected == null) {
-        ConversationList(state, dispatch, requestRole)
+        ConversationList(state, dispatch, requestRole, requestSubscriptionPermission)
     } else {
-        ConversationThread(state, dispatch, pickPhoto, call)
+        ConversationThread(state, dispatch, requestSubscriptionPermission, pickPhoto, call)
     }
 }
 
@@ -55,6 +57,7 @@ private fun ConversationList(
     state: MessagingUiState,
     dispatch: (MessagingAction) -> Unit,
     requestRole: () -> Unit,
+    requestSubscriptionPermission: () -> Unit,
 ) {
     Scaffold { insets ->
         LazyColumn(
@@ -106,6 +109,25 @@ private fun ConversationList(
                                 },
                             )
                             Button(onClick = requestRole) { Text("Choose SMS app") }
+                        }
+                    }
+                }
+            }
+            if (state.isSmsRoleHeld && state.needsSubscriptionPermission) {
+                item {
+                    Card(Modifier.fillMaxWidth()) {
+                        Column(
+                            Modifier.padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Text("SIM access", fontWeight = FontWeight.SemiBold)
+                            Text(
+                                "Allow phone-state access so AIOS Messages can list active SIMs " +
+                                    "and route each message through the SIM you choose.",
+                            )
+                            Button(onClick = requestSubscriptionPermission) {
+                                Text("Allow SIM access")
+                            }
                         }
                     }
                 }
@@ -179,6 +201,7 @@ private fun ConversationCard(conversation: ConversationUiState, open: () -> Unit
 private fun ConversationThread(
     state: MessagingUiState,
     dispatch: (MessagingAction) -> Unit,
+    requestSubscriptionPermission: () -> Unit,
     pickPhoto: () -> Unit,
     call: (String) -> Unit,
 ) {
@@ -208,6 +231,13 @@ private fun ConversationThread(
                     Modifier.fillMaxWidth().padding(12.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
+                    SubscriptionPicker(
+                        subscriptions = state.subscriptions,
+                        selectedSubscriptionId = state.selectedSubscriptionId,
+                        needsPermission = state.needsSubscriptionPermission,
+                        requestPermission = requestSubscriptionPermission,
+                        dispatch = dispatch,
+                    )
                     state.selectedPhoto?.let { photo ->
                         Row(
                             Modifier.fillMaxWidth(),
@@ -236,6 +266,7 @@ private fun ConversationThread(
                         }
                         Button(
                             onClick = { dispatch(MessagingAction.Send) },
+                            enabled = state.selectedSubscriptionId != null,
                             modifier = Modifier.weight(1f),
                         ) { Text(if (state.selectedPhoto == null) "Send SMS" else "Send photo") }
                     }
@@ -279,7 +310,12 @@ private fun ConversationThread(
                 }
             }
             items(state.messages, key = { "${it.transport}:${it.id}" }) { message ->
-                MessageBubble(message) {
+                val simLabel = message.subscriptionId?.let { subscriptionId ->
+                    state.subscriptions.firstOrNull {
+                        it.subscriptionId == subscriptionId
+                    }?.label
+                }
+                MessageBubble(message, simLabel) {
                     dispatch(MessagingAction.DeleteMessage(message.id, message.transport))
                 }
             }
@@ -289,7 +325,7 @@ private fun ConversationThread(
 }
 
 @Composable
-private fun MessageBubble(message: MessageUiState, delete: () -> Unit) {
+private fun MessageBubble(message: MessageUiState, simLabel: String?, delete: () -> Unit) {
     Row(
         Modifier.fillMaxWidth(),
         horizontalArrangement = if (message.outgoing) Arrangement.End else Arrangement.Start,
@@ -313,6 +349,9 @@ private fun MessageBubble(message: MessageUiState, delete: () -> Unit) {
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(relativeTime(message.atEpochMillis), style = MaterialTheme.typography.bodySmall)
+                if (simLabel != null && simLabel.isNotBlank()) {
+                    Text(" - $simLabel", style = MaterialTheme.typography.bodySmall)
+                }
                 when (message.deliveryState) {
                     MessageDeliveryState.SENDING -> Text(" · Sending")
                     MessageDeliveryState.FAILED -> Text(" · Failed")
@@ -322,6 +361,46 @@ private fun MessageBubble(message: MessageUiState, delete: () -> Unit) {
                 TextButton(onClick = delete) { Text("Delete") }
             }
         }
+    }
+}
+
+@Composable
+private fun SubscriptionPicker(
+    subscriptions: List<SubscriptionUiState>,
+    selectedSubscriptionId: Int?,
+    needsPermission: Boolean,
+    requestPermission: () -> Unit,
+    dispatch: (MessagingAction) -> Unit,
+) {
+    Text("Send with", style = MaterialTheme.typography.labelLarge)
+    when {
+        subscriptions.isEmpty() && needsPermission -> OutlinedButton(
+            onClick = requestPermission,
+        ) { Text("Allow SIM access") }
+        subscriptions.isEmpty() -> Text("No active SMS SIM")
+        subscriptions.size == 1 -> Text(subscriptions.single().label)
+        else -> Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            subscriptions.forEach { subscription ->
+                val choose = {
+                    dispatch(MessagingAction.SelectSubscription(subscription.subscriptionId))
+                }
+                if (subscription.subscriptionId == selectedSubscriptionId) {
+                    Button(onClick = choose, modifier = Modifier.weight(1f)) {
+                        Text(subscription.label, maxLines = 1)
+                    }
+                } else {
+                    OutlinedButton(onClick = choose, modifier = Modifier.weight(1f)) {
+                        Text(subscription.label, maxLines = 1)
+                    }
+                }
+            }
+        }
+    }
+    if (subscriptions.size > 1 && selectedSubscriptionId == null) {
+        Text("Choose a SIM before sending", color = MaterialTheme.colorScheme.error)
     }
 }
 

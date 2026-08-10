@@ -1,11 +1,14 @@
 package com.aios.messaging
 
+import android.Manifest
 import android.app.Application
 import android.app.role.RoleManager
 import android.content.Context
+import android.content.pm.PackageManager
 import android.os.Handler
 import android.os.Looper
 import android.telephony.PhoneNumberUtils
+import android.telephony.SubscriptionManager
 import androidx.core.content.edit
 import com.aios.messaging.context.CommunicationContextClient
 import com.aios.messaging.data.MessagingRepository
@@ -18,6 +21,7 @@ import com.aios.messaging.model.MessageTransport
 import com.aios.messaging.model.MessagingAction
 import com.aios.messaging.model.MessagingUiState
 import com.aios.messaging.model.SelectedPhotoUiState
+import com.aios.messaging.model.SubscriptionSelectionPolicy
 import com.aios.messaging.model.ThemePreference
 import com.aios.messaging.notifications.MessageNotificationCoordinator
 import com.aios.messaging.mms.MmsEvent
@@ -32,6 +36,8 @@ object MessagingRuntime {
     private const val PREFS = "messaging_ui"
     private const val THEME = "theme"
     private const val SHOW_ROLE = "show_sms_role_prompt"
+    private const val SELECTED_SUBSCRIPTION = "selected_subscription_id"
+    private const val NO_ACTIVE_SIM_NOTICE = "No active SMS SIM is available"
 
     private val main = Handler(Looper.getMainLooper())
     private val mutableState = MutableStateFlow(MessagingUiState())
@@ -42,7 +48,15 @@ object MessagingRuntime {
     private lateinit var contextIndex: CommunicationContextClient
     private lateinit var notifications: MessageNotificationCoordinator
     private lateinit var mmsTransport: MmsTransport
+    private var preferredSubscriptionId: Int? = null
+    private var subscriptionListenerRegistered = false
     private var initialized = false
+    private val subscriptionListener = object :
+        SubscriptionManager.OnSubscriptionsChangedListener() {
+        override fun onSubscriptionsChanged() {
+            if (initialized) onMain(::refreshSubscriptions)
+        }
+    }
 
     fun initialize(value: Application) {
         if (initialized) return
@@ -61,6 +75,8 @@ object MessagingRuntime {
         val theme = runCatching {
             ThemePreference.valueOf(preferences.getString(THEME, null).orEmpty())
         }.getOrDefault(ThemePreference.SYSTEM)
+        preferredSubscriptionId = preferences.getInt(SELECTED_SUBSCRIPTION, -1)
+            .takeIf { it >= 0 }
         mutableState.value = mutableState.value.copy(
             theme = theme,
             showRolePrompt = preferences.getBoolean(SHOW_ROLE, true),
@@ -72,7 +88,10 @@ object MessagingRuntime {
 
     fun dispatch(action: MessagingAction) = onMain {
         when (action) {
-            MessagingAction.Refresh -> refresh()
+            MessagingAction.Refresh -> {
+                refreshSubscriptions()
+                refresh()
+            }
             is MessagingAction.SelectConversation -> select(action.conversation)
             MessagingAction.CloseConversation -> reduce {
                 it.copy(selected = null, messages = emptyList(), context = emptyList())
@@ -90,6 +109,7 @@ object MessagingRuntime {
                 it.copy(selectedPhoto = SelectedPhotoUiState(action.uri, action.label))
             }
             MessagingAction.ClearPhoto -> reduce { it.copy(selectedPhoto = null) }
+            is MessagingAction.SelectSubscription -> selectSubscription(action.subscriptionId)
             is MessagingAction.ChangeTheme -> {
                 application.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit {
                     putString(THEME, action.value.name)
@@ -110,9 +130,28 @@ object MessagingRuntime {
         if (!initialized) return@onMain
         val held = application.getSystemService(RoleManager::class.java)
             ?.isRoleHeld(RoleManager.ROLE_SMS) == true
-        reduce { it.copy(isSmsRoleHeld = held) }
-        if (held) refresh() else reduce {
-            it.copy(loading = false, conversations = emptyList(), messages = emptyList())
+        val hasPermission = application.checkSelfPermission(Manifest.permission.READ_PHONE_STATE) ==
+            PackageManager.PERMISSION_GRANTED
+        updateSubscriptionListener(held && hasPermission)
+        reduce {
+            it.copy(
+                isSmsRoleHeld = held,
+                needsSubscriptionPermission = held && !hasPermission,
+            )
+        }
+        if (held) {
+            if (hasPermission) refreshSubscriptions() else reduce {
+                it.copy(subscriptions = emptyList(), selectedSubscriptionId = null)
+            }
+            refresh()
+        } else reduce {
+            it.copy(
+                loading = false,
+                conversations = emptyList(),
+                messages = emptyList(),
+                subscriptions = emptyList(),
+                selectedSubscriptionId = null,
+            )
         }
     }
 
@@ -140,6 +179,7 @@ object MessagingRuntime {
                 notifications.notifyIncoming(message)
                 refresh()
                 if (mutableState.value.selected?.threadId == message.threadId) {
+                    adoptIncomingSubscription(message.subscriptionId)
                     loadSelectedMessages(message.threadId)
                 }
                 completion(true)
@@ -155,7 +195,11 @@ object MessagingRuntime {
             completion(false)
             return
         }
-        repository.sendSms(address, body) { result ->
+        repository.sendQuickReply(
+            address,
+            body,
+            preferredSubscriptionId,
+        ) { result ->
             result.onSuccess { message ->
                 contextIndex.indexSms(message.id, message.address, message.body, message.atEpochMillis)
                 refresh()
@@ -210,8 +254,59 @@ object MessagingRuntime {
         }
     }
 
+    private fun refreshSubscriptions() {
+        if (!mutableState.value.isSmsRoleHeld ||
+            application.checkSelfPermission(Manifest.permission.READ_PHONE_STATE) !=
+            PackageManager.PERMISSION_GRANTED) return
+        repository.loadSubscriptions { result ->
+            result.fold(
+                onSuccess = { inventory ->
+                    reduce { current ->
+                        val activeIds = inventory.subscriptions.map { it.subscriptionId }
+                        val selected = current.selectedSubscriptionId
+                            ?.takeIf { it in activeIds }
+                            ?: SubscriptionSelectionPolicy.select(
+                                activeIds,
+                                preferredSubscriptionId,
+                                inventory.defaultSubscriptionId,
+                            )
+                        current.copy(
+                            subscriptions = inventory.subscriptions,
+                            selectedSubscriptionId = selected,
+                            needsSubscriptionPermission = false,
+                            notice = when {
+                                inventory.subscriptions.isEmpty() -> NO_ACTIVE_SIM_NOTICE
+                                current.notice == NO_ACTIVE_SIM_NOTICE -> null
+                                else -> current.notice
+                            },
+                        )
+                    }
+                },
+                onFailure = { error ->
+                    reduce {
+                        it.copy(
+                            subscriptions = emptyList(),
+                            selectedSubscriptionId = null,
+                            notice = error.message ?: "SIM subscriptions are unavailable",
+                        )
+                    }
+                },
+            )
+        }
+    }
+
     private fun select(conversation: ConversationUiState) {
-        reduce { it.copy(selected = conversation, messages = emptyList(), context = emptyList()) }
+        reduce { current ->
+            val conversationSubscription = conversation.subscriptionId?.takeIf { candidate ->
+                current.subscriptions.any { it.subscriptionId == candidate }
+            }
+            current.copy(
+                selected = conversation,
+                messages = emptyList(),
+                context = emptyList(),
+                selectedSubscriptionId = conversationSubscription ?: current.selectedSubscriptionId,
+            )
+        }
         repository.markThreadRead(conversation.threadId)
         loadSelectedMessages(conversation.threadId)
         contextIndex.queryRecent(conversation.address) { snippets ->
@@ -246,6 +341,7 @@ object MessagingRuntime {
                         lastBody = "",
                         lastAtEpochMillis = 0L,
                         unread = false,
+                        subscriptionId = it.selectedSubscriptionId,
                     ),
                     recipientDraft = "",
                     messages = emptyList(),
@@ -270,6 +366,10 @@ object MessagingRuntime {
         }
         val body = MessagePolicy.normalizedBody(current.bodyDraft)
         val photo = current.selectedPhoto
+        val subscriptionId = current.selectedSubscriptionId ?: run {
+            showNotice("Choose a SIM before sending")
+            return
+        }
         if (photo != null) {
             if (!current.isMmsAdmitted) {
                 showNotice("Photo MMS is enabled only on debuggable builds until carrier tests pass")
@@ -279,13 +379,21 @@ object MessagingRuntime {
                 showNotice("The photo message is not valid")
                 return
             }
-            mmsTransport.sendPhoto(conversation.address, body, photo.uri) { result ->
+            mmsTransport.sendPhoto(
+                conversation.address,
+                body,
+                photo.uri,
+                subscriptionId,
+            ) { result ->
                 result.fold(
                     onSuccess = { event ->
                         reduce { it.copy(bodyDraft = "", selectedPhoto = null, notice = null) }
                         refresh()
                         if (event.threadId > 0L) {
-                            select(conversation.copy(threadId = event.threadId))
+                            select(conversation.copy(
+                                threadId = event.threadId,
+                                subscriptionId = event.subscriptionId,
+                            ))
                         }
                     },
                     onFailure = { showNotice(it.message ?: "Photo MMS could not be submitted") },
@@ -297,14 +405,17 @@ object MessagingRuntime {
             showNotice("Write a message first")
             return
         }
-        repository.sendSms(conversation.address, body) { result ->
+        repository.sendSms(conversation.address, body, subscriptionId) { result ->
             result.fold(
                 onSuccess = { message ->
                     contextIndex.indexSms(message.id, message.address, message.body, message.atEpochMillis)
                     reduce { it.copy(bodyDraft = "", selectedPhoto = null, notice = null) }
                     refresh()
                     if (message.threadId > 0L) {
-                        select(conversation.copy(threadId = message.threadId))
+                        select(conversation.copy(
+                            threadId = message.threadId,
+                            subscriptionId = message.subscriptionId,
+                        ))
                     }
                 },
                 onFailure = { showNotice(it.message ?: "SMS could not be sent") },
@@ -335,6 +446,7 @@ object MessagingRuntime {
         if (!event.outgoing) notifications.notifyIncoming(message)
         refresh()
         if (mutableState.value.selected?.threadId == event.threadId && event.threadId > 0L) {
+            if (!event.outgoing) adoptIncomingSubscription(event.subscriptionId)
             loadSelectedMessages(event.threadId)
         }
     }
@@ -360,7 +472,50 @@ object MessagingRuntime {
         transport = MessageTransport.MMS,
         hasPhoto = hasPhoto,
         deliveryState = MessageDeliveryState.COMPLETE,
+        subscriptionId = subscriptionId.takeIf {
+            SubscriptionManager.isValidSubscriptionId(it)
+        },
     )
+
+    private fun selectSubscription(subscriptionId: Int) {
+        if (mutableState.value.subscriptions.none { it.subscriptionId == subscriptionId }) {
+            showNotice("The selected SIM is no longer active")
+            refreshSubscriptions()
+            return
+        }
+        preferredSubscriptionId = subscriptionId
+        application.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit {
+            putInt(SELECTED_SUBSCRIPTION, subscriptionId)
+        }
+        reduce { it.copy(selectedSubscriptionId = subscriptionId, notice = null) }
+    }
+
+    private fun adoptIncomingSubscription(subscriptionId: Int?) {
+        if (subscriptionId == null) return
+        reduce { current ->
+            if (current.subscriptions.any { it.subscriptionId == subscriptionId }) {
+                current.copy(selectedSubscriptionId = subscriptionId)
+            } else {
+                current
+            }
+        }
+    }
+
+    private fun updateSubscriptionListener(shouldListen: Boolean) {
+        val manager = application.getSystemService(SubscriptionManager::class.java) ?: return
+        if (shouldListen && !subscriptionListenerRegistered) {
+            subscriptionListenerRegistered = runCatching {
+                manager.addOnSubscriptionsChangedListener(
+                    application.mainExecutor,
+                    subscriptionListener,
+                )
+                true
+            }.getOrDefault(false)
+        } else if (!shouldListen && subscriptionListenerRegistered) {
+            runCatching { manager.removeOnSubscriptionsChangedListener(subscriptionListener) }
+            subscriptionListenerRegistered = false
+        }
+    }
 
     private fun loadSelectedMessages(threadId: Long) {
         if (threadId <= 0L) return

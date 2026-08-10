@@ -24,11 +24,15 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.StartActivityForResult(),
     ) {
         MessagingRuntime.refreshRole()
+        requestSubscriptionPermission()
         requestNotificationPermission()
     }
     private val notificationPermission = registerForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) {}
+    private val subscriptionPermission = registerForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { MessagingRuntime.refreshRole() }
     private val photoPicker = registerForActivityResult(
         ActivityResultContracts.PickVisualMedia(),
     ) { uri ->
@@ -52,6 +56,7 @@ class MainActivity : ComponentActivity() {
                     state = state,
                     dispatch = MessagingRuntime::dispatch,
                     requestRole = ::requestSmsRole,
+                    requestSubscriptionPermission = ::requestSubscriptionPermission,
                     pickPhoto = {
                         photoPicker.launch(
                             PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
@@ -89,6 +94,17 @@ class MainActivity : ComponentActivity() {
         val roles = getSystemService(RoleManager::class.java) ?: return
         if (roles.isRoleAvailable(RoleManager.ROLE_SMS)) {
             roleRequest.launch(roles.createRequestRoleIntent(RoleManager.ROLE_SMS))
+        }
+    }
+
+    private fun requestSubscriptionPermission() {
+        if (getSystemService(RoleManager::class.java)
+                ?.isRoleHeld(RoleManager.ROLE_SMS) != true) return
+        if (checkSelfPermission(Manifest.permission.READ_PHONE_STATE) !=
+            PackageManager.PERMISSION_GRANTED) {
+            subscriptionPermission.launch(Manifest.permission.READ_PHONE_STATE)
+        } else {
+            MessagingRuntime.refreshRole()
         }
     }
 

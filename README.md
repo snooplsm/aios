@@ -66,7 +66,10 @@ Telephony provider, uses `SmsManager` carrier send/download callbacks, transcode
 photos to measured carrier limits, and journals each operation so process death
 cannot silently resubmit a message. Release `user` builds still fail closed until
 the physical carrier/device gate passes; the public-SDK preview uses a disabled
-transport fixture and does not claim carrier support. See `docs/mms-transport.md`.
+transport fixture and does not claim carrier support. SMS and MMS share an
+explicit composer SIM selector: a valid owner choice or system default is used,
+a lone active SIM is automatic, and ambiguous dual-SIM routing fails closed.
+See `docs/mms-transport.md`.
 Incoming calls now resolve their presented number transiently into the same
 opaque communication identity used by Messaging. The receptionist can consume
 at most eight identifier-free historical snippets without delaying Telecom, and

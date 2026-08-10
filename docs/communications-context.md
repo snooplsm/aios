@@ -24,6 +24,16 @@ APN, roaming, multi-SIM, reboot, and provider round-trip tests pass. Delivery an
 read reports beyond the mandatory retrieve acknowledgement remain later work.
 The exact lifecycle and evidence boundary are in `mms-transport.md`.
 
+Outgoing SMS and MMS use one composer-level SIM choice. Messaging lists active,
+non-opportunistic subscriptions only after the owner grants phone-state access.
+An active saved choice wins, followed by a valid system SMS default; exactly one
+active subscription is selected automatically. Two active subscriptions with no
+choice or default leave Send disabled. Opening an existing conversation adopts
+the newest message's active subscription, and a newly received message updates
+the open composer to reply on the SIM that received it. The chosen subscription
+is passed explicitly to `SmsManager` and written to the Telephony provider; the
+transport never silently switches an explicit send to another active SIM.
+
 ## Conversation identity
 
 `AiosContextIntelligence` is a separate platform-signed service. Authorized
@@ -114,7 +124,6 @@ watermark without dropping current entries.
 
 - compile the AOSP-only MMS source with Soong and carrier-test send, download,
   provider persistence, APN/roaming, crash recovery, and duplicate suppression;
-- expose explicit SIM selection when no single default SMS subscription exists;
 - reconcile provider changes made outside AIOS Messaging;
 - wire the selected-photo metadata producer;
 - exercise call-event reconciliation across deletion, reboot, role loss, and

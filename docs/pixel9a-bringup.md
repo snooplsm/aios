@@ -139,7 +139,10 @@ Run gates in this order:
    `docs/mms-transport.md` using a dedicated second handset and non-sensitive
    photos. Reboot once after carrier submission but before callback observation,
    verify that no duplicate is sent, and inspect both the Telephony provider and
-   the private operation journal before recording evidence.
+   the private operation journal before recording evidence. With a physical SIM
+   and eSIM active, unset the system SMS default, verify Send remains disabled,
+   then select each SIM in turn and confirm the exact provider subscription ID
+   and carrier path for both SMS and MMS.
 5. Downlink/uplink capture with synthetic, consented English and Spanish calls.
 6. Airplane-mode ASR and model-broker failure injection.
 7. Retention using a test-only shortened clock/injected time, followed by the

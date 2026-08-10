@@ -37,6 +37,15 @@ Future third-party access requires a user-visible permission, quotas, foreground
 rules, and protection against using inference as a covert microphone or media
 exfiltration channel.
 
+The AIOS product image gives Messaging a revocable default phone-state grant;
+sideloaded builds, or a grant the owner revokes, fall back to asking only after
+the app holds the user-selected SMS role. Messaging uses that permission to
+enumerate active subscription IDs, slot positions, and carrier display labels
+for explicit SIM routing. It does not read or persist line phone numbers. Only
+the owner's selected subscription ID is kept in app preferences; authoritative
+per-message subscription IDs remain in the
+Android Telephony provider.
+
 ## Media metadata
 
 Portable metadata may leave the device when a photo is shared. Only deliberately

@@ -101,6 +101,11 @@ incoming SMS before acknowledging delivery, persist accepted outbound SMS in the
 Telephony provider, support multipart text and respond-via-message, open AIOS
 Phone through a standard dial intent, and use the read-only system Photo Picker.
 
+For devices with multiple active subscriptions, the composer must show the
+outgoing SIM and pass its exact subscription ID to both SMS and MMS transports.
+A valid saved choice or system default may be selected automatically, as may a
+single active SIM; ambiguous multi-SIM routing must stop for an explicit choice.
+
 Debuggable research builds may send photo drafts only through the durable MMS
 test transport: the PDU must be persisted to the Telephony provider, bounded to
 the selected subscription's carrier limits, and completed by the carrier
