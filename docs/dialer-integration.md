@@ -117,6 +117,15 @@ also fails closed unless call processing is enabled and the service reports that
 the caller-audio interaction transport is ready. The setting may be configured
 in advance, but it cannot override those runtime safety gates.
 
+Emergency protection is direction-independent. AIOS Phone latches the network
+emergency property, emergency callback mode, and the platform emergency-number
+check before it admits outgoing or incoming processing. If Telecom supplies a
+stronger emergency property after admission, the Phone client invalidates any
+in-flight number check, cancels automatic answer, and invokes the owner-bound
+emergency transaction. Call Intelligence stops capture and receptionist audio,
+discards pending context, and immediately erases the opaque call-artifact
+directory while leaving the Telecom call connected.
+
 The readiness check is part of each incoming-call decision, before the dialer
 schedules or performs a Telecom answer. If readiness disappears after that
 decision, `onCallAnswered` checks it again before starting receptionist audio.

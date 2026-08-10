@@ -64,8 +64,7 @@ class CallAssistantClient(
         val address: String,
         val direction: Int,
         var state: Int,
-        var emergencyCallbackMode: Boolean,
-        val networkIdentifiedEmergency: Boolean,
+        val emergency: EmergencyProcessingGate,
         var processingAllowed: Boolean? = null,
         var decisionRequested: Boolean = false,
         var answeredByAi: Boolean = false,
@@ -179,9 +178,10 @@ class CallAssistantClient(
                             callbacks.onPolicyChanged(policy.toUi())
                             announceEveryPresentCall(service)
                             sessions.values.forEach { session ->
-                                if (session.direction != Call.Details.DIRECTION_INCOMING) {
-                                    session.processingAllowed = processing
-                                    maybeNotifyAnswered(session)
+                                if (session.emergency.isProtected()) {
+                                    applyEmergencyProtection(session)
+                                } else if (session.direction != Call.Details.DIRECTION_INCOMING) {
+                                    requestOutgoingProcessingDecision(session, processing)
                                 } else {
                                     requestIncomingDecision(session)
                                 }
@@ -251,18 +251,21 @@ class CallAssistantClient(
                 details.callDirection
             },
             state = details.state,
-            emergencyCallbackMode = isPotentialEmergencyCallback(details),
-            networkIdentifiedEmergency = details.hasProperty(
-                Call.Details.PROPERTY_NETWORK_IDENTIFIED_EMERGENCY_CALL,
+            emergency = EmergencyProcessingGate(
+                networkIdentified = details.hasProperty(
+                    Call.Details.PROPERTY_NETWORK_IDENTIFIED_EMERGENCY_CALL,
+                ),
+                emergencyCallbackMode = isPotentialEmergencyCallback(details),
             ),
         )
         sessions[callId] = session
         announceCallPresence(session.callId, true)
-        if (session.direction == Call.Details.DIRECTION_INCOMING) {
+        if (session.emergency.isProtected()) {
+            applyEmergencyProtection(session)
+        } else if (session.direction == Call.Details.DIRECTION_INCOMING) {
             requestIncomingDecision(session)
         } else {
-            session.processingAllowed = ownerProcessingEnabled
-            maybeNotifyAnswered(session)
+            requestOutgoingProcessingDecision(session, ownerProcessingEnabled)
         }
     }
 
@@ -270,8 +273,14 @@ class CallAssistantClient(
         check(Looper.myLooper() == Looper.getMainLooper())
         values.forEach { value ->
             val session = sessions[value.id] ?: return@forEach
-            if (value.properties and Call.Details.PROPERTY_EMERGENCY_CALLBACK_MODE != 0) {
-                session.emergencyCallbackMode = true
+            val becameEmergencyProtected = session.emergency.observeTelecom(
+                networkIdentified = value.properties and
+                    Call.Details.PROPERTY_NETWORK_IDENTIFIED_EMERGENCY_CALL != 0,
+                emergencyCallbackMode = value.properties and
+                    Call.Details.PROPERTY_EMERGENCY_CALLBACK_MODE != 0,
+            )
+            if (becameEmergencyProtected) {
+                applyEmergencyProtection(session)
             }
             if (session.state != value.state) {
                 session.state = value.state
@@ -409,11 +418,15 @@ class CallAssistantClient(
         val service = remote ?: return
         if (session.decisionRequested || session.state != Call.STATE_RINGING) return
         session.decisionRequested = true
+        val numberCheck = session.emergency.beginNumberCheck()
         worker.execute {
             val knownContact = isKnownContact(session.address)
-            val emergency = session.networkIdentifiedEmergency || isEmergency(session.address)
+            val numberEmergency = isEmergency(session.address)
+            session.emergency.completeNumberCheck(numberCheck, numberEmergency)
+            val emergency = numberEmergency || session.emergency.isEmergencyCall()
+            val emergencyCallbackMode = session.emergency.isEmergencyCallbackMode()
             val contextAddress = session.address.takeIf {
-                ownerProcessingEnabled == true && !emergency
+                ownerProcessingEnabled == true && !emergency && !emergencyCallbackMode
             }.orEmpty()
             val contextValue = IncomingCallContext().apply {
                 callId = session.callId
@@ -426,7 +439,7 @@ class CallAssistantClient(
                 }
                 this.knownContact = knownContact
                 this.emergency = emergency
-                this.emergencyCallbackMode = session.emergencyCallbackMode
+                this.emergencyCallbackMode = emergencyCallbackMode
                 ringingSinceElapsedRealtimeMillis = SystemClock.elapsedRealtime()
             }
             try {
@@ -468,6 +481,10 @@ class CallAssistantClient(
 
     private fun applyDecision(callId: String, decision: CallHandlingDecision?) {
         val session = sessions[callId] ?: return
+        if (session.emergency.isProtected()) {
+            applyEmergencyProtection(session)
+            return
+        }
         if (decision == null) {
             session.processingAllowed = false
             return
@@ -493,6 +510,43 @@ class CallAssistantClient(
         }
         session.delayedAnswer = task
         if (!main.postDelayed(task, delay)) cancelDelayedAnswer(session)
+    }
+
+    private fun requestOutgoingProcessingDecision(
+        session: Session,
+        processingEnabled: Boolean?,
+    ) {
+        val numberCheck = session.emergency.beginNumberCheck()
+        worker.execute {
+            val numberEmergency = isEmergency(session.address)
+            main.post {
+                val current = sessions[session.callId]
+                if (current !== session ||
+                    !session.emergency.completeNumberCheck(numberCheck, numberEmergency)) {
+                    return@post
+                }
+                if (session.emergency.isProtected()) {
+                    applyEmergencyProtection(session)
+                } else {
+                    session.processingAllowed = processingEnabled
+                    maybeNotifyAnswered(session)
+                }
+            }
+        }
+    }
+
+    private fun applyEmergencyProtection(session: Session) {
+        cancelDelayedAnswer(session)
+        session.processingAllowed = false
+        maybeNotifyAnswered(session)
+        val service = remote ?: return
+        worker.execute {
+            try {
+                service.onEmergencyCallDetected(session.callId)
+            } catch (_: Exception) {
+                // Telephony remains authoritative even if optional AI cleanup fails.
+            }
+        }
     }
 
     private fun maybeNotifyAnswered(session: Session) {

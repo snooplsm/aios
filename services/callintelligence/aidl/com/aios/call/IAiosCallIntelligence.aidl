@@ -27,6 +27,9 @@ interface IAiosCallIntelligence {
 
     void onCallAnswered(String callId, boolean answeredByAi, boolean processingAllowed);
 
+    /** Immediately stop and erase optional AI processing for an emergency call. */
+    void onEmergencyCallDetected(String callId);
+
     /** Stop receptionist speech/replies while preserving capture and transcription. */
     boolean takeOverCall(String callId);
 

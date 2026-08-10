@@ -98,14 +98,15 @@ final class CallArtifactRetention {
         }
     }
 
-    private static void deleteTree(File file) {
+    static boolean deleteTree(File file) {
+        boolean removed = true;
         File[] children = file.listFiles();
         if (children != null) {
             for (File child : children) {
-                deleteTree(child);
+                removed &= deleteTree(child);
             }
         }
         // Best effort: an undeleted directory remains visible to the next sweep.
-        file.delete();
+        return (!file.exists() || file.delete()) && removed;
     }
 }

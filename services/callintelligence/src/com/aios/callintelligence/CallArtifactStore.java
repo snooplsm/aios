@@ -17,7 +17,7 @@ import java.security.NoSuchAlgorithmException;
 import java.util.HashMap;
 import java.util.Map;
 
-/** Credential-encrypted call artifacts with an immutable 24-hour expiry. */
+/** Credential-encrypted call artifacts with a 24-hour maximum and emergency erasure. */
 final class CallArtifactStore {
     private static final Object STORAGE_LOCK = new Object();
     private static final Map<File, Session> ACTIVE_SESSIONS = new HashMap<>();
@@ -60,6 +60,18 @@ final class CallArtifactStore {
         synchronized (STORAGE_LOCK) {
             return CallArtifactRetention.nextExpiry(callsDirectory,
                     CallArtifactStore::readExpiry);
+        }
+    }
+
+    /** Stops active writers and removes every artifact for one opaque call ID. */
+    void discard(String callId) throws IOException {
+        String sourceId = digest(callId);
+        synchronized (STORAGE_LOCK) {
+            File directory = new File(callsDirectory, sourceId).getAbsoluteFile();
+            closeActiveSession(directory);
+            if (!CallArtifactRetention.deleteTree(directory)) {
+                throw new IOException("cannot erase emergency call artifact");
+            }
         }
     }
 

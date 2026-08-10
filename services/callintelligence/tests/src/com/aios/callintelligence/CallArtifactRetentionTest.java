@@ -18,6 +18,19 @@ import java.util.Map;
 import java.util.Set;
 
 public final class CallArtifactRetentionTest {
+    @Test
+    public void immediateDeletionRemovesNestedArtifactTree() throws Exception {
+        File root = temporary.newFolder("aios-call-discard");
+        File session = new File(root, "session");
+        File nested = new File(session, "nested");
+        assertTrue(nested.mkdirs());
+        assertTrue(new File(nested, "rx.pcm").createNewFile());
+
+        assertTrue(CallArtifactRetention.deleteTree(session));
+
+        assertFalse(session.exists());
+    }
+
     @Rule public final TemporaryFolder temporary = new TemporaryFolder();
 
     @Test

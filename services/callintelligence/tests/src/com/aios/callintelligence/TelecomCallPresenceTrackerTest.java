@@ -8,6 +8,8 @@ import static org.junit.Assert.fail;
 
 import org.junit.Test;
 
+import java.util.Set;
+
 public final class TelecomCallPresenceTrackerTest {
     @Test
     public void multiCallPresenceChangesOnlyAtOuterEdges() {
@@ -72,6 +74,19 @@ public final class TelecomCallPresenceTrackerTest {
     }
 
     @Test
+    public void tokenCallSnapshotCannotMutateTrackerState() {
+        TelecomCallPresenceTracker<Object> tracker = new TelecomCallPresenceTracker<>(4, 8);
+        Object token = new Object();
+        tracker.setPresent(token, 100, "one", true);
+        tracker.setPresent(token, 100, "two", true);
+
+        assertEquals(Set.of("one", "two"), tracker.callIds(token));
+        assertUnsupportedOperation(() -> tracker.callIds(token).remove("one"));
+        assertTrue(tracker.ownsCall(100, "one"));
+        assertTrue(tracker.ownsCall(100, "two"));
+    }
+
+    @Test
     public void perTokenBoundRejectsAdditionalCallWithoutLosingState() {
         TelecomCallPresenceTracker<Object> tracker = new TelecomCallPresenceTracker<>(4, 2);
         Object token = new Object();
@@ -119,6 +134,15 @@ public final class TelecomCallPresenceTrackerTest {
             action.run();
             fail("expected SecurityException");
         } catch (SecurityException expected) {
+            // Expected.
+        }
+    }
+
+    private static void assertUnsupportedOperation(Runnable action) {
+        try {
+            action.run();
+            fail("expected UnsupportedOperationException");
+        } catch (UnsupportedOperationException expected) {
             // Expected.
         }
     }

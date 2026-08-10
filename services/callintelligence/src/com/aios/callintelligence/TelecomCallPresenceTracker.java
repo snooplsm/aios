@@ -88,6 +88,11 @@ final class TelecomCallPresenceTracker<T> {
         return existingOwner != null && existingOwner == ownerUid;
     }
 
+    synchronized Set<String> callIds(T token) {
+        ClientCalls calls = clients.get(token);
+        return calls == null ? Set.of() : Set.copyOf(calls.callIds);
+    }
+
     synchronized boolean isActive() {
         return totalCalls > 0;
     }

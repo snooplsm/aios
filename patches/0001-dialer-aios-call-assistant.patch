@@ -67,7 +67,7 @@ new file mode 100644
 index 0000000..577dab6
 --- /dev/null
 +++ b/java/com/android/incallui/aios/AiosCallAssistant.java
-@@ -0,0 +1,471 @@
+@@ -0,0 +1,497 @@
 +/*
 + * Copyright (C) 2026 The AIOS Project
 + *
@@ -147,6 +147,7 @@ index 0000000..577dab6
 +          service = connected;
 +          announceEveryPresentCall(connected);
 +          for (CallSession session : sessions.values()) {
++            session.signalEmergencyIfNeeded();
 +            session.evaluateIfPossible();
 +          }
 +        }
@@ -429,6 +430,21 @@ index 0000000..577dab6
 +          });
 +    }
 +
++    private void signalEmergencyIfNeeded() {
++      IAiosCallIntelligence remote = service;
++      if (ended || remote == null || !unsafeCall(call)) {
++        return;
++      }
++      worker.execute(
++          () -> {
++            try {
++              remote.onEmergencyCallDetected(callId);
++            } catch (RemoteException error) {
++              LogUtil.w("AiosCallAssistant.onEmergency", "status delivery failed");
++            }
++          });
++    }
++
 +    void cancelPendingAnswer() {
 +      main.removeCallbacks(answer);
 +    }
@@ -455,6 +471,11 @@ index 0000000..577dab6
 +
 +    @Override
 +    public void onDialerCallUpdate() {
++      if (unsafeCall(call)) {
++        cancelPendingAnswer();
++        signalEmergencyIfNeeded();
++        return;
++      }
 +      if (call.getState() != DialerCallState.INCOMING) {
 +        cancelPendingAnswer();
 +      }

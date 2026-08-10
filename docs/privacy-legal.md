@@ -26,7 +26,10 @@ Engineering defaults for the research image are:
 - Stored artifacts expire within 24 hours.
 - No cloud transfer, analytics payload, or training use contains call content.
 - The assistant must not falsely claim to be the owner or another real person.
-- Emergency calls and emergency callback mode never use the AI receptionist.
+- Emergency calls and emergency callback mode never use optional AI processing.
+  The dialer latches number-based and Telecom-provided emergency signals for
+  both call directions. A late signal stops AI audio/capture and requests
+  immediate deletion of any partial call artifact without ending the call.
 
 ## Access control
 

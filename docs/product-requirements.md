@@ -24,6 +24,11 @@ modes are:
 
 Emergency numbers, emergency callback mode, active emergency calls, and carrier
 supplementary-service dialogs bypass AI handling.
+This applies to both incoming and outgoing calls. If Telecom identifies an
+emergency or emergency-callback state after a call was admitted, AIOS must
+immediately stop capture, transcription, classification, receptionist output,
+and context preparation, then erase any artifact already created for that call.
+The carrier call itself continues under Telecom control.
 
 For an AI-handled call, incoming audio has the highest inference priority. The
 minimum v1 pipeline is voice activity detection, language identification,

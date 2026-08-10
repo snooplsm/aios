@@ -740,6 +740,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "apps/phone/Android.bp",
         "apps/phone/AndroidManifest.xml",
         "apps/phone/tests/src/com/aios/phone/intelligence/PendingAiAnswerGateTest.kt",
+        "apps/phone/tests/src/com/aios/phone/intelligence/EmergencyProcessingGateTest.kt",
         "apps/phone/tests/src/com/aios/phone/model/AssistantCallContractTest.kt",
         "apps/phone/tests/src/com/aios/phone/model/CallRiskContractTest.kt",
         "apps/phone/tests/src/com/aios/phone/context/CallEventContractTest.kt",
@@ -759,6 +760,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "apps/phone/src/com/aios/phone/notifications/CallNotificationCoordinator.kt",
         "apps/phone/src/com/aios/phone/notifications/CallActionReceiver.kt",
         "apps/phone/src/com/aios/phone/intelligence/CallAssistantClient.kt",
+        "apps/phone/src/com/aios/phone/intelligence/EmergencyProcessingGate.kt",
         "apps/phone/src/com/aios/phone/intelligence/PendingAiAnswerGate.kt",
         "apps/phone/src/com/aios/phone/ui/InCallActivity.kt",
         "apps/phone/src/com/aios/phone/ui/screens/PhoneScreens.kt",
@@ -1351,6 +1353,10 @@ def validate_aosp_overlay(root: Path) -> None:
     pending_answer_gate = (root / "apps" / "phone" / "src" / "com" / "aios" /
                            "phone" / "intelligence" /
                            "PendingAiAnswerGate.kt").read_text(encoding="utf-8")
+    emergency_processing_gate = (
+        root / "apps" / "phone" / "src" / "com" / "aios" / "phone" /
+        "intelligence" / "EmergencyProcessingGate.kt"
+    ).read_text(encoding="utf-8")
     call_event_contract = (root / "apps" / "phone" / "src" / "com" / "aios" /
                            "phone" / "context" /
                            "CallEventContract.kt").read_text(encoding="utf-8")
@@ -1363,6 +1369,10 @@ def validate_aosp_overlay(root: Path) -> None:
     pending_answer_test = (root / "apps" / "phone" / "tests" / "src" / "com" /
                            "aios" / "phone" / "intelligence" /
                            "PendingAiAnswerGateTest.kt").read_text(encoding="utf-8")
+    emergency_processing_test = (
+        root / "apps" / "phone" / "tests" / "src" / "com" / "aios" /
+        "phone" / "intelligence" / "EmergencyProcessingGateTest.kt"
+    ).read_text(encoding="utf-8")
     call_risk_test = (root / "apps" / "phone" / "tests" / "src" / "com" /
                       "aios" / "phone" / "model" /
                       "CallRiskContractTest.kt").read_text(encoding="utf-8")
@@ -1533,9 +1543,19 @@ def validate_aosp_overlay(root: Path) -> None:
             and "MAX_TRANSCRIPT_CHARS" in assistant_client,
             "AIOS Phone must minimize call identity and bound transcript callbacks")
     require("PROPERTY_EMERGENCY_CALLBACK_MODE" in assistant_client
+            and "PROPERTY_NETWORK_IDENTIFIED_EMERGENCY_CALL" in assistant_client
             and "EXTRA_LAST_EMERGENCY_CALLBACK_TIME_MILLIS" in assistant_client
-            and "cancelDelayedAnswer" in assistant_client,
-            "AIOS Phone must fail closed for emergency callbacks and cancel AI timers")
+            and "EmergencyProcessingGate(" in assistant_client
+            and "applyEmergencyProtection(session)" in assistant_client
+            and "service.onEmergencyCallDetected(session.callId)" in assistant_client
+            and "cancelDelayedAnswer" in assistant_client
+            and '"src/com/aios/phone/intelligence/EmergencyProcessingGate.kt"'
+            in phone_build
+            and "completeNumberCheck" in emergency_processing_gate
+            and "observeTelecom" in emergency_processing_gate
+            and "lateTelecomSignalInvalidatesPendingNumberResult"
+            in emergency_processing_test,
+            "AIOS Phone must stop and erase processing for emergency calls in either direction")
     require("service.onCallAnswered" in assistant_client
             and "service.onCallEnded" in assistant_client
             and "onServiceDisconnected" in assistant_client,
@@ -2145,6 +2165,14 @@ def validate_aosp_overlay(root: Path) -> None:
             and "session.ownedBy(ownerUid)" in call_service
             and "candidate.ownedBy(ownerUid)" in call_service,
             "call admission, capture, takeover, and teardown must retain dialer UID ownership")
+    require("void onEmergencyCallDetected(String callId)" in call_api
+            and "emergencyProtectedCalls.put(callId, ownerUid)" in call_service
+            and '"emergency_processing_blocked"' in call_service
+            and "stopped.takeOver()" in call_service
+            and "artifactStore.discard(callId)" in call_service
+            and "void discard(String callId)" in artifact_source
+            and "CallArtifactRetention.deleteTree(directory)" in artifact_source,
+            "late emergency detection must latch, stop AI audio, and erase call artifacts")
 
     caller_uplink = (call_source_root / "CallerAudioUplink.java").read_text(
         encoding="utf-8"
@@ -3101,6 +3129,7 @@ def validate_release_configuration(root: Path) -> None:
     )
     require("AiosCallAssistant implements CallList.Listener" in dialer_patch_text
             and "unsafeCall(call)" in dialer_patch_text
+            and "remote.onEmergencyCallDetected(callId)" in dialer_patch_text
             and "onBindingDied" in dialer_patch_text,
             "Dialer topic must use the call lifecycle and fail-safe cancellation")
     require("hashAddress(number)" in dialer_patch_text
