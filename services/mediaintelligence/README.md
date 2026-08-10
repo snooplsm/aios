@@ -58,6 +58,7 @@ Metadata has two layers:
   writer may commit it only after it validates that advanced container features
   and decoded content remain intact.
 
-JPEG, PNG, and WebP are candidates for the first safe writer. HEIC/HEIF, AVIF,
-DNG, Motion Photo, Ultra HDR, and video remain index-only until dedicated
-round-trip tests pass.
+Simple JPEG and non-animated PNG have format-specific, byte-preserving XMP
+writers. PNG CRC/order failures, APNG, signed PNG, unknown critical chunks,
+WebP, HEIC/HEIF, AVIF, DNG, Motion Photo, Ultra HDR, and video remain index-only
+until dedicated round-trip tests pass.

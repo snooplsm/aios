@@ -69,6 +69,7 @@
     {"id": "media.call_preempts_job", "category": "media", "required": true},
     {"id": "media.original_preserved", "category": "media", "required": true},
     {"id": "media.simple_jpeg_xmp_round_trip", "category": "media", "required": true},
+    {"id": "media.simple_png_xmp_round_trip", "category": "media", "required": true},
     {"id": "media.interrupted_write_recovery", "category": "media", "required": true},
     {"id": "media.advanced_photo_index_only", "category": "media", "required": true},
     {"id": "media.self_write_no_requeue", "category": "media", "required": true},

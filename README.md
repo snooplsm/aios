@@ -41,12 +41,12 @@ The production phone sources also build and lint against the Android 16 public
 SDK, and an emulator-only managed-call fixture now verifies the real dialer-role,
 `InCallService`, ringing notification, and Compose in-call UI path. Emulator
 results are explicitly excluded from physical-device release evidence.
-Simple JPEGs have a conservative, byte-preserving AIOS XMP writer with backup,
-verification, crash recovery, and self-write suppression; complex containers
-remain index-only. Deferred videos are represented by twenty nearest-sync
-keyframes sampled across the clip and composed into one private 5×4 JPEG
-storyboard; the original video is never rewritten, and the storyboard is erased
-after its bounded vision request. The complete primary audio track is separately
+Simple JPEGs and non-animated PNGs have conservative, byte-preserving AIOS XMP
+writers with backup, verification, crash recovery, and self-write suppression;
+complex containers remain index-only. Deferred videos are represented by twenty
+nearest-sync keyframes sampled across the clip and composed into one private 5×4
+JPEG storyboard; the original video is never rewritten, and the storyboard is
+erased after its bounded vision request. The complete primary audio track is separately
 decoded as streaming 16 kHz mono PCM and passed through the same bilingual
 Whisper runtime used for calls, producing private timestamped subtitles in a
 source-linked full-text index. Subtitles are never written into the video or XMP.

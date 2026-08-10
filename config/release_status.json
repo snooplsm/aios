@@ -69,6 +69,7 @@
     "media.call_preempts_job": {"status": "not_run", "evidence": []},
     "media.original_preserved": {"status": "not_run", "evidence": []},
     "media.simple_jpeg_xmp_round_trip": {"status": "not_run", "evidence": []},
+    "media.simple_png_xmp_round_trip": {"status": "not_run", "evidence": []},
     "media.interrupted_write_recovery": {"status": "not_run", "evidence": []},
     "media.advanced_photo_index_only": {"status": "not_run", "evidence": []},
     "media.self_write_no_requeue": {"status": "not_run", "evidence": []},

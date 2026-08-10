@@ -22,7 +22,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 
 /**
- * Conservatively commits portable AIOS XMP to simple JPEGs.
+ * Conservatively commits portable AIOS XMP to simple JPEG and PNG containers.
  *
  * <p>The encrypted result index remains authoritative. A source backup and a durable journal are
  * synced before MediaStore is opened for truncating output. Recovery either verifies the candidate
@@ -37,7 +37,9 @@ final class MediaMetadataCommitter {
 
     private static final String TAG = "AiosMediaMetadata";
     private static final String JOURNAL_DIRECTORY = "media_metadata_journal";
-    private static final long MAX_JPEG_BYTES = 128L * 1024L * 1024L;
+    private static final String JPEG_MIME_TYPE = "image/jpeg";
+    private static final String PNG_MIME_TYPE = "image/png";
+    private static final long MAX_MEDIA_BYTES = 128L * 1024L * 1024L;
     private static final long SUPPRESSION_MILLIS = 24L * 60L * 60L * 1000L;
     private static final int BUFFER_BYTES = 1024 * 1024;
 
@@ -50,7 +52,7 @@ final class MediaMetadataCommitter {
     }
 
     Outcome commit(MediaJobStore.PortableJob job, MediaJobStore store) throws IOException {
-        if (!"image/jpeg".equals(job.mimeType)) {
+        if (!isWritableMimeType(job.mimeType)) {
             store.markPortableSkipped(job.id);
             return Outcome.INDEX_ONLY;
         }
@@ -69,18 +71,19 @@ final class MediaMetadataCommitter {
 
         byte[] candidate;
         try {
-            candidate = JpegXmpInjector.inject(original, job.portableXmp);
-        } catch (JpegXmpInjector.UnsafeJpegException error) {
+            candidate = createCandidate(job.mimeType, original, job.portableXmp);
+        } catch (JpegXmpInjector.UnsafeJpegException
+                | PngXmpInjector.UnsafePngException error) {
             store.markPortableSkipped(job.id);
             return Outcome.INDEX_ONLY;
         }
-        if (candidate.length > MAX_JPEG_BYTES) {
+        if (candidate.length > MAX_MEDIA_BYTES) {
             store.markPortableSkipped(job.id);
             return Outcome.INDEX_ONLY;
         }
         String candidateDigest = sha256(candidate);
         Journal journal = new Journal(
-                job.id, job.uri, job.contentDigest, candidateDigest);
+                job.id, job.uri, job.mimeType, job.contentDigest, candidateDigest);
         ensureJournalDirectory();
         writeSynced(journal.backupFile(journalDirectory), original);
         try {
@@ -93,7 +96,8 @@ final class MediaMetadataCommitter {
 
         try {
             writeContent(uri, candidate);
-            long generation = verifyCandidate(uri, candidate, candidateDigest);
+            long generation = verifyCandidate(
+                    uri, candidate, candidateDigest, journal.mimeType);
             store.finishOwnMutation(job.uri, generation, suppressionExpiry());
         } catch (IOException error) {
             try {
@@ -137,7 +141,7 @@ final class MediaMetadataCommitter {
         byte[] current = readContent(uri);
         String currentDigest = sha256(current);
         if (currentDigest.equals(journal.candidateDigest)
-                && JpegXmpInjector.containsOneAiosPacket(current)) {
+                && containsOneAiosPacket(journal.mimeType, current)) {
             long generation = stableGeneration(uri, current);
             store.finishOwnMutation(journal.uri, generation, suppressionExpiry());
             store.markPortableWritten(journal.jobId, journal.candidateDigest);
@@ -172,16 +176,17 @@ final class MediaMetadataCommitter {
         deleteJournal(journal);
     }
 
-    private long verifyCandidate(Uri uri, byte[] expected, String expectedDigest)
+    private long verifyCandidate(
+            Uri uri, byte[] expected, String expectedDigest, String mimeType)
             throws IOException {
         long generationBefore = MediaContent.generation(resolver, uri);
         byte[] actual = readContent(uri);
         long generationAfter = MediaContent.generation(resolver, uri);
         if (!MessageDigest.isEqual(expected, actual)
                 || !sha256(actual).equals(expectedDigest)
-                || !JpegXmpInjector.containsOneAiosPacket(actual)
+                || !containsOneAiosPacket(mimeType, actual)
                 || generationBefore != generationAfter) {
-            throw new IOException("portable JPEG verification failed");
+            throw new IOException("portable media verification failed");
         }
         return generationAfter;
     }
@@ -194,7 +199,7 @@ final class MediaMetadataCommitter {
         if (!MessageDigest.isEqual(expected, actual)
                 || !sha256(actual).equals(expectedDigest)
                 || generationBefore != generationAfter) {
-            throw new IOException("restored JPEG verification failed");
+            throw new IOException("restored media verification failed");
         }
         return generationAfter;
     }
@@ -245,7 +250,7 @@ final class MediaMetadataCommitter {
                 continue;
             }
             total += read;
-            if (total > MAX_JPEG_BYTES) {
+            if (total > MAX_MEDIA_BYTES) {
                 throw new ContentTooLargeException();
             }
             output.write(buffer, 0, read);
@@ -328,17 +333,47 @@ final class MediaMetadataCommitter {
         return System.currentTimeMillis() + SUPPRESSION_MILLIS;
     }
 
+    private static boolean isWritableMimeType(String mimeType) {
+        return JPEG_MIME_TYPE.equals(mimeType) || PNG_MIME_TYPE.equals(mimeType);
+    }
+
+    private static byte[] createCandidate(String mimeType, byte[] original, String xmp)
+            throws JpegXmpInjector.UnsafeJpegException, PngXmpInjector.UnsafePngException {
+        if (JPEG_MIME_TYPE.equals(mimeType)) {
+            return JpegXmpInjector.inject(original, xmp);
+        }
+        if (PNG_MIME_TYPE.equals(mimeType)) {
+            return PngXmpInjector.inject(original, xmp);
+        }
+        throw new IllegalArgumentException("unsupported portable metadata MIME type");
+    }
+
+    private static boolean containsOneAiosPacket(String mimeType, byte[] candidate) {
+        if (JPEG_MIME_TYPE.equals(mimeType)) {
+            return JpegXmpInjector.containsOneAiosPacket(candidate);
+        }
+        return PNG_MIME_TYPE.equals(mimeType)
+                && PngXmpInjector.containsOneAiosPacket(candidate);
+    }
+
     private static final class ContentTooLargeException extends IOException {}
 
     private static final class Journal {
         final long jobId;
         final String uri;
+        final String mimeType;
         final String sourceDigest;
         final String candidateDigest;
 
-        Journal(long jobId, String uri, String sourceDigest, String candidateDigest) {
+        Journal(
+                long jobId,
+                String uri,
+                String mimeType,
+                String sourceDigest,
+                String candidateDigest) {
             this.jobId = jobId;
             this.uri = uri;
+            this.mimeType = mimeType;
             this.sourceDigest = sourceDigest;
             this.candidateDigest = candidateDigest;
         }
@@ -354,9 +389,10 @@ final class MediaMetadataCommitter {
         JSONObject toJson() throws IOException {
             try {
                 return new JSONObject()
-                        .put("schema_version", 1)
+                        .put("schema_version", 2)
                         .put("job_id", jobId)
                         .put("uri", uri)
+                        .put("mime_type", mimeType)
                         .put("source_digest", sourceDigest)
                         .put("candidate_digest", candidateDigest);
             } catch (JSONException impossible) {
@@ -365,19 +401,27 @@ final class MediaMetadataCommitter {
         }
 
         static Journal fromJson(JSONObject value) throws JSONException, IOException {
-            if (value.getInt("schema_version") != 1) {
+            int schemaVersion = value.getInt("schema_version");
+            if (schemaVersion != 1 && schemaVersion != 2) {
                 throw new IOException("unsupported metadata journal version");
             }
             long jobId = value.getLong("job_id");
+            String mimeType = schemaVersion == 1
+                    ? JPEG_MIME_TYPE : value.getString("mime_type");
             String sourceDigest = value.getString("source_digest");
             String candidateDigest = value.getString("candidate_digest");
             if (jobId <= 0L
+                    || !isWritableMimeType(mimeType)
                     || !sourceDigest.matches("[0-9a-f]{64}")
                     || !candidateDigest.matches("[0-9a-f]{64}")) {
                 throw new IOException("invalid metadata journal fields");
             }
             return new Journal(
-                    jobId, value.getString("uri"), sourceDigest, candidateDigest);
+                    jobId,
+                    value.getString("uri"),
+                    mimeType,
+                    sourceDigest,
+                    candidateDigest);
         }
     }
 }

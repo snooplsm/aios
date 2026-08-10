@@ -117,8 +117,8 @@ def validate_product(policy: dict[str, Any]) -> None:
     require(set(media["writable_mime_types"]).isdisjoint(
                 media["index_only_mime_types"]),
             "a MIME type cannot be writable and index-only")
-    require(media["writable_mime_types"] == ["image/jpeg"],
-            "only the validated simple-JPEG writer may mutate media")
+    require(media["writable_mime_types"] == ["image/jpeg", "image/png"],
+            "only validated simple JPEG and still-PNG writers may mutate media")
 
     broker = policy["broker"]
     require(broker["access"] == "signature_permission",
@@ -942,8 +942,10 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/mediaintelligence/src/com/aios/mediaintelligence/MediaTiming.java",
         "services/mediaintelligence/src/com/aios/mediaintelligence/MediaTimingSummary.java",
         "services/mediaintelligence/src/com/aios/mediaintelligence/JpegXmpInjector.java",
+        "services/mediaintelligence/src/com/aios/mediaintelligence/PngXmpInjector.java",
         "services/mediaintelligence/src/com/aios/mediaintelligence/MediaMetadataCommitter.java",
         "services/mediaintelligence/tests/src/com/aios/mediaintelligence/JpegXmpInjectorTest.java",
+        "services/mediaintelligence/tests/src/com/aios/mediaintelligence/PngXmpInjectorTest.java",
         "services/mediaintelligence/tests/src/com/aios/mediaintelligence/MediaWorkPolicyTest.java",
         "services/mediaintelligence/tests/src/com/aios/mediaintelligence/MediaInputPolicyTest.java",
         "services/mediaintelligence/tests/src/com/aios/mediaintelligence/VideoStoryboardPlanTest.java",
@@ -2491,6 +2493,18 @@ def validate_aosp_overlay(root: Path) -> None:
             and "appended payload after JPEG EOI" in jpeg_writer,
             "portable JPEG writer must preserve source bytes and reject trailers")
 
+    png_writer = (media_source_root / "PngXmpInjector.java").read_text(
+        encoding="utf-8"
+    )
+    require('"iTXt"' in png_writer and "XML:com.adobe.xmp" in png_writer
+            and "CRC32" in png_writer,
+            "portable PNG writer must use a CRC-protected standard XMP iTXt chunk")
+    require("lossless PNG byte-preservation check failed" in png_writer
+            and "animated PNG is not writable" in png_writer
+            and "digitally signed PNG is not writable" in png_writer
+            and "unknown critical PNG chunk" in png_writer,
+            "portable PNG writer must preserve source chunks and reject unsafe containers")
+
     metadata_committer = (media_source_root / "MediaMetadataCommitter.java").read_text(
         encoding="utf-8"
     )
@@ -2500,10 +2514,13 @@ def validate_aosp_overlay(root: Path) -> None:
     require("writeSynced(journal.backupFile" in metadata_committer
             and "verifyCandidate" in metadata_committer
             and "restoreOriginal" in metadata_committer,
-            "portable metadata writes must back up, verify, and recover JPEGs")
-    require('"image/jpeg".equals(job.mimeType)' in metadata_committer
+            "portable metadata writes must back up, verify, and recover supported images")
+    require('JPEG_MIME_TYPE = "image/jpeg"' in metadata_committer
+            and 'PNG_MIME_TYPE = "image/png"' in metadata_committer
+            and '.put("mime_type", mimeType)' in metadata_committer
+            and "schemaVersion == 1" in metadata_committer
             and '"media".equals(uri.getAuthority())' in metadata_committer,
-            "portable mutation must remain limited to JPEG MediaStore content")
+            "portable mutation must remain format-bound and recover legacy JPEG journals")
 
     boot_source = (media_source_root / "MediaBootReceiver.java").read_text(
         encoding="utf-8"

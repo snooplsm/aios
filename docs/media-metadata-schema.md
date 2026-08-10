@@ -19,21 +19,27 @@ profile data.
 ## Commit protocol
 
 The current implementation deliberately writes only structurally simple JPEG
-files. PNG, WebP, HEIF/HEIC, raw, Motion Photo, MPF, Ultra HDR/gain-map JPEG,
-files with unknown APP payloads, and videos remain in the encrypted index until
-there is a container-specific writer with equivalent preservation tests.
+files and valid, non-animated still PNG files. WebP, HEIF/HEIC, raw, Motion
+Photo, MPF, Ultra HDR/gain-map JPEG, APNG, digitally signed PNG, JPEG files with
+unknown APP payloads, and PNG files with bad CRC/order or unknown critical
+chunks remain in the encrypted index until there is a container-specific writer
+with equivalent preservation tests.
 
 1. Open the item through `MediaStore` and record its generation, byte digest,
    MIME type, dimensions, and recognized container features.
 2. Refuse portable mutation for an unsupported format, pending item, changed
    generation, Motion Photo, Ultra HDR, raw asset, or unknown auxiliary payload.
 3. Save and fsync an exact source backup plus an app-private write-ahead journal.
-4. Produce a candidate by inserting one standard AIOS XMP APP1 segment without
-   decoding or recompressing pixels. Verify removing that segment reproduces the
-   source byte-for-byte.
+4. Produce a format-specific candidate without decoding or recompressing pixels:
+   insert one standard AIOS XMP APP1 segment in JPEG, or one uncompressed UTF-8
+   `iTXt` chunk named `XML:com.adobe.xmp` immediately before PNG's first `IDAT`.
+   Verify that removing only the inserted segment/chunk reproduces the source
+   byte-for-byte; PNG also verifies every source CRC and preserves all original
+   chunks, including the complete `IDAT` stream.
 5. Replace through `MediaStore`, then reread and verify the exact candidate and
-   its one AIOS packet. Recover an interrupted commit on boot; preserve unknown
-   concurrent bytes before restoring the original.
+   its one AIOS packet with the journaled MIME-specific parser. Recover an
+   interrupted commit on boot; version-1 JPEG journals remain readable, and
+   unknown concurrent bytes are preserved before restoring the original.
 6. Mark `portable_metadata_written=1` in the index only after verification.
 
 The private index retains at most the inference-input digest and the verified
@@ -72,6 +78,11 @@ media job. Source deletion, trash/volume reconciliation, or generation
 replacement deletes both rows and search postings by foreign-key cascade. Full
 subtitle text is never added to the portable XMP packet. Any future SRT/VTT
 export must be an explicit owner action rather than an indexing side effect.
+
+The `media.simple_jpeg_xmp_round_trip` and `media.simple_png_xmp_round_trip`
+physical-device gates decode before/after fixtures, compare rendered pixels,
+and verify the expected XMP while checking the exact container-preservation
+rules above. Host parser tests are necessary but do not satisfy those gates.
 
 The `media.video_storyboard_indexed` and `media.video_subtitles_indexed`
 physical-device gates use known short English and Spanish videos and verify

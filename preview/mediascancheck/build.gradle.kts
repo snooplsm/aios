@@ -12,6 +12,7 @@ val stageMediaScanMain by tasks.registering(Sync::class) {
         include(
             "com/aios/mediaintelligence/CaptureCoalescer.java",
             "com/aios/mediaintelligence/JpegXmpInjector.java",
+            "com/aios/mediaintelligence/PngXmpInjector.java",
             "com/aios/mediaintelligence/MediaGenerationReconciler.java",
             "com/aios/mediaintelligence/MediaGenerationScanner.java",
             "com/aios/mediaintelligence/MediaAssociationPolicy.java",
@@ -44,11 +45,13 @@ val stageMediaScanMain by tasks.registering(Sync::class) {
 val stageMediaScanTest by tasks.registering(Sync::class) {
     from("../../services/mediaintelligence/tests/src") {
         include(
+            "com/aios/mediaintelligence/JpegXmpInjectorTest.java",
             "com/aios/mediaintelligence/MediaGenerationReconcilerTest.java",
             "com/aios/mediaintelligence/MediaAssociationPolicyTest.java",
             "com/aios/mediaintelligence/MediaLivenessReconcilerTest.java",
             "com/aios/mediaintelligence/MediaTimingTest.java",
             "com/aios/mediaintelligence/MediaWorkPolicyTest.java",
+            "com/aios/mediaintelligence/PngXmpInjectorTest.java",
             "com/aios/mediaintelligence/VideoStoryboardPlanTest.java",
             "com/aios/mediaintelligence/VideoTranscriptTest.java",
         )

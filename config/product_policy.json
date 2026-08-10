@@ -36,12 +36,11 @@
     "defer_videos": true,
     "deferred_requires_charging": true,
     "deferred_min_battery_percent": 80,
-    "writable_mime_types": ["image/jpeg"],
+    "writable_mime_types": ["image/jpeg", "image/png"],
     "index_only_mime_types": [
       "image/heic",
       "image/heif",
       "image/avif",
-      "image/png",
       "image/webp",
       "image/x-adobe-dng",
       "video/mp4"

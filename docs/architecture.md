@@ -188,13 +188,16 @@ Metadata writes are two-phase:
 
 1. Store the full result in the encrypted index keyed by media ID, generation,
    and digest.
-2. For an allowlisted writer, make a sibling temporary file, inject a compact
-   versioned XMP packet, validate pixels/container features and the original
-   digest relationship, then atomically replace through `MediaStore`.
+2. For an allowlisted writer, fsync an exact private backup and write-ahead
+   journal, inject a compact versioned XMP packet, validate container features
+   and the original digest relationship, then replace through `MediaStore` and
+   reread the exact candidate before committing index state.
 
-Only structurally simple JPEG is currently writable. Read support does not
-imply safe write support. Complex photos and every video remain index-only
-until dedicated validators exist.
+Only structurally simple JPEG and valid non-animated PNG are currently writable.
+The PNG path verifies CRCs and ordering, rejects APNG, digital signatures, and
+unknown critical chunks, and preserves every original chunk and compressed
+`IDAT` byte. Read support does not imply safe write support. Complex photos and
+every video remain index-only until dedicated validators exist.
 
 ### Retention service
 

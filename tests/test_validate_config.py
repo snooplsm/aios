@@ -139,9 +139,9 @@ class ProductPolicyTests(unittest.TestCase):
 
     def test_unvalidated_media_writer_is_rejected(self):
         policy = load("product_policy.json")
-        policy["media"]["index_only_mime_types"].remove("image/png")
-        policy["media"]["writable_mime_types"].append("image/png")
-        with self.assertRaisesRegex(validator.ValidationError, "simple-JPEG"):
+        policy["media"]["index_only_mime_types"].remove("image/webp")
+        policy["media"]["writable_mime_types"].append("image/webp")
+        with self.assertRaisesRegex(validator.ValidationError, "still-PNG"):
             validator.validate_product(policy)
 
     def test_call_policy_vectors_are_valid(self):
