@@ -43,6 +43,15 @@ final class CallArtifactRetention {
         }
     }
 
+    static boolean canResume(
+            long createdAtEpochMillis,
+            long storedExpiryEpochMillis,
+            long nowEpochMillis) {
+        return validatedExpiry(createdAtEpochMillis, storedExpiryEpochMillis)
+                == storedExpiryEpochMillis
+                && storedExpiryEpochMillis > nowEpochMillis;
+    }
+
     static void cleanup(
             File callsDirectory,
             long nowEpochMillis,

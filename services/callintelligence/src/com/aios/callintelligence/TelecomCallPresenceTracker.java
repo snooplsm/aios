@@ -8,6 +8,18 @@ import java.util.Set;
 
 /** Android-free state for UID-owned Telecom lifecycle tokens and opaque call IDs. */
 final class TelecomCallPresenceTracker<T> {
+    static final class DeadClient {
+        final Integer ownerUid;
+        final Set<String> orphanedCallIds;
+        final boolean activityChanged;
+
+        DeadClient(Integer ownerUid, Set<String> orphanedCallIds, boolean activityChanged) {
+            this.ownerUid = ownerUid;
+            this.orphanedCallIds = Set.copyOf(orphanedCallIds);
+            this.activityChanged = activityChanged;
+        }
+    }
+
     private static final class ClientCalls {
         final int ownerUid;
         final Set<String> callIds = new HashSet<>();
@@ -69,13 +81,26 @@ final class TelecomCallPresenceTracker<T> {
 
     /** Binder-death path; returns true only when overall presence changes. */
     synchronized boolean removeDead(T token) {
+        return removeDeadAndReport(token).activityChanged;
+    }
+
+    /** Atomically removes a dead token and reports calls with no surviving owner token. */
+    synchronized DeadClient removeDeadAndReport(T token) {
         Objects.requireNonNull(token, "lifecycle token");
         boolean wasActive = totalCalls > 0;
         ClientCalls removed = clients.remove(token);
-        if (removed != null) {
-            totalCalls -= removed.callIds.size();
+        if (removed == null) {
+            return new DeadClient(null, Set.of(), false);
         }
-        return wasActive != (totalCalls > 0);
+        totalCalls -= removed.callIds.size();
+        Set<String> orphaned = new HashSet<>();
+        for (String callId : removed.callIds) {
+            if (!ownsCall(removed.ownerUid, callId)) {
+                orphaned.add(callId);
+            }
+        }
+        return new DeadClient(
+                removed.ownerUid, orphaned, wasActive != (totalCalls > 0));
     }
 
     synchronized Integer ownerUid(T token) {

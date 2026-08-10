@@ -132,28 +132,38 @@ public final class CallIntelligenceService extends Service {
                 decision = deniedAutomaticAnswerDecision(
                         decision.processingAllowed, automaticAnswerUnavailableReason());
             }
-            synchronized (sessions) {
-                if (pendingIncomingCalls.size() >= 64
-                        && !pendingIncomingCalls.containsKey(context.callId)) {
-                    pendingIncomingCalls.clear();
-                }
-                pendingIncomingCalls.put(
-                        context.callId,
-                        new PendingIncomingCall(
-                                ownerUid, context.knownContact, decision.processingAllowed));
-            }
             boolean prepareContext = !context.emergency
                     && !context.emergencyCallbackMode
                     && decision.processingAllowed
                     && context.transientAddress != null
                     && !context.transientAddress.isBlank();
-            if (prepareContext) {
+            synchronized (telecomPresenceLock) {
+                if (telecomPresenceStopping
+                        || !telecomPresence.ownsCall(ownerUid, context.callId)) {
+                    return deniedDecision("telecom_call_not_registered");
+                }
                 synchronized (sessions) {
-                    if (!contextEligibleCalls.contains(context.callId)
-                            && contextEligibleCalls.size() >= MAX_CONTEXT_CALLS) {
-                        prepareContext = false;
-                    } else {
-                        contextEligibleCalls.add(context.callId);
+                    Integer emergencyOwner = emergencyProtectedCalls.get(context.callId);
+                    if (emergencyOwner != null) {
+                        return deniedDecision(emergencyOwner == ownerUid
+                                ? "emergency_processing_blocked"
+                                : "emergency_call_owned_by_another_uid");
+                    }
+                    if (pendingIncomingCalls.size() >= 64
+                            && !pendingIncomingCalls.containsKey(context.callId)) {
+                        pendingIncomingCalls.clear();
+                    }
+                    pendingIncomingCalls.put(
+                            context.callId,
+                            new PendingIncomingCall(
+                                    ownerUid, context.knownContact, decision.processingAllowed));
+                    if (prepareContext) {
+                        if (!contextEligibleCalls.contains(context.callId)
+                                && contextEligibleCalls.size() >= MAX_CONTEXT_CALLS) {
+                            prepareContext = false;
+                        } else {
+                            contextEligibleCalls.add(context.callId);
+                        }
                     }
                 }
             }
@@ -632,8 +642,22 @@ public final class CallIntelligenceService extends Service {
     private void beginCapture(
             String callId, int ownerUid, boolean answeredByAi, boolean knownContact) {
         ActiveSession started;
-        synchronized (sessions) {
-            started = beginCaptureLocked(callId, ownerUid, answeredByAi, knownContact);
+        synchronized (telecomPresenceLock) {
+            if (telecomPresenceStopping || !telecomPresence.ownsCall(ownerUid, callId)) {
+                notifyStatus(callId, -8, "telecom_call_not_owned_or_active");
+                return;
+            }
+            synchronized (sessions) {
+                Integer emergencyOwner = emergencyProtectedCalls.get(callId);
+                if (emergencyOwner != null) {
+                    notifyStatus(callId, emergencyOwner == ownerUid ? 0 : -8,
+                            emergencyOwner == ownerUid
+                                    ? "emergency_processing_blocked"
+                                    : "emergency_call_owned_by_another_uid");
+                    return;
+                }
+                started = beginCaptureLocked(callId, ownerUid, answeredByAi, knownContact);
+            }
         }
         if (started != null) {
             publishAssessment(callId, started, started.initialAssessment());
@@ -760,25 +784,51 @@ public final class CallIntelligenceService extends Service {
     }
 
     private void onTelecomPresenceTokenDied(IBinder token) {
+        List<String> orphanedCallIds = new ArrayList<>();
         synchronized (telecomPresenceLock) {
             if (telecomPresenceStopping) {
                 return;
             }
             telecomPresenceDeaths.remove(token);
-            Integer ownerUid = telecomPresence.ownerUid(token);
-            Set<String> removedCallIds = telecomPresence.callIds(token);
-            telecomPresence.removeDead(token);
-            if (ownerUid != null && !removedCallIds.isEmpty()) {
+            TelecomCallPresenceTracker.DeadClient dead =
+                    telecomPresence.removeDeadAndReport(token);
+            if (dead.ownerUid != null && !dead.orphanedCallIds.isEmpty()) {
                 synchronized (sessions) {
-                    for (String callId : removedCallIds) {
-                        if (!telecomPresence.ownsCall(ownerUid, callId)) {
-                            emergencyProtectedCalls.remove(callId, ownerUid);
+                    for (String callId : dead.orphanedCallIds) {
+                        emergencyProtectedCalls.remove(callId, dead.ownerUid);
+                        PendingIncomingCall pending = pendingIncomingCalls.get(callId);
+                        if (pending != null && pending.ownerUid == dead.ownerUid) {
+                            pendingIncomingCalls.remove(callId);
                         }
+                        contextEligibleCalls.remove(callId);
+                        pendingCommunicationContexts.remove(callId);
+                        ActiveSession active = sessions.get(callId);
+                        if (active != null && active.ownedBy(dead.ownerUid)) {
+                            sessions.remove(callId);
+                        } else {
+                            active = null;
+                        }
+                        if (active != null) active.close();
+                        classifier.endCall(callId);
+                        receptionist.endCall(callId);
+                        communicationContext.discardCall(callId);
+                        orphanedCallIds.add(callId);
                     }
                 }
             }
             scheduleTelecomPresenceReconciliationLocked();
         }
+        finishOrphanedCallCleanup(orphanedCallIds);
+    }
+
+    private void finishOrphanedCallCleanup(List<String> orphanedCallIds) {
+        if (orphanedCallIds.isEmpty()) return;
+        for (String callId : orphanedCallIds) {
+            notifyStatus(callId, -10, "dialer_process_died");
+        }
+        long now = System.currentTimeMillis();
+        artifactStore.cleanup(now);
+        RetentionAlarm.scheduleNext(this, artifactStore);
     }
 
     private void scheduleTelecomPresenceReconciliationLocked() {

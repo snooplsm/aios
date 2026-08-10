@@ -42,6 +42,19 @@ public final class CallArtifactRetentionTest {
     }
 
     @Test
+    public void restartCanResumeOnlyAnUnexpiredExactWindow() throws Exception {
+        long createdAt = 1_700_000_000_000L;
+        long expiresAt = CallArtifactRetention.expiresAt(createdAt);
+
+        assertTrue(CallArtifactRetention.canResume(
+                createdAt, expiresAt, expiresAt - 1L));
+        assertFalse(CallArtifactRetention.canResume(
+                createdAt, expiresAt, expiresAt));
+        assertFalse(CallArtifactRetention.canResume(
+                createdAt, expiresAt + 1L, createdAt + 1L));
+    }
+
+    @Test
     public void expiryOverflowFailsClosed() throws Exception {
         try {
             CallArtifactRetention.expiresAt(Long.MAX_VALUE);

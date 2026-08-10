@@ -19,6 +19,21 @@ import java.util.Map;
 
 /** Credential-encrypted call artifacts with a 24-hour maximum and emergency erasure. */
 final class CallArtifactStore {
+    private static final class SessionMetadata {
+        final long createdAtEpochMillis;
+        final long expiresAtEpochMillis;
+        final boolean answeredByAi;
+
+        SessionMetadata(
+                long createdAtEpochMillis,
+                long expiresAtEpochMillis,
+                boolean answeredByAi) {
+            this.createdAtEpochMillis = createdAtEpochMillis;
+            this.expiresAtEpochMillis = expiresAtEpochMillis;
+            this.answeredByAi = answeredByAi;
+        }
+    }
+
     private static final Object STORAGE_LOCK = new Object();
     private static final Map<File, Session> ACTIVE_SESSIONS = new HashMap<>();
 
@@ -39,10 +54,28 @@ final class CallArtifactStore {
             if (!directory.isDirectory() && !directory.mkdirs()) {
                 throw new IOException("cannot create private call session");
             }
+            long createdAt = nowEpochMillis;
             long expiresAt = CallArtifactRetention.expiresAt(nowEpochMillis);
-            writeMetadata(directory, nowEpochMillis, expiresAt, answeredByAi);
+            boolean storedAnsweredByAi = false;
+            try {
+                SessionMetadata existing = readMetadata(directory);
+                if (CallArtifactRetention.canResume(
+                        existing.createdAtEpochMillis,
+                        existing.expiresAtEpochMillis,
+                        nowEpochMillis)) {
+                    createdAt = existing.createdAtEpochMillis;
+                    expiresAt = existing.expiresAtEpochMillis;
+                    storedAnsweredByAi = existing.answeredByAi;
+                } else {
+                    resetDirectory(directory);
+                }
+            } catch (IOException | JSONException unreadable) {
+                resetDirectory(directory);
+            }
+            writeMetadata(
+                    directory, createdAt, expiresAt, storedAnsweredByAi || answeredByAi);
             Session session = new Session(
-                    directory, sourceId, nowEpochMillis, expiresAt);
+                    directory, sourceId, createdAt, expiresAt);
             ACTIVE_SESSIONS.put(directory.getAbsoluteFile(), session);
             return session;
         }
@@ -104,15 +137,31 @@ final class CallArtifactStore {
 
     private static long readExpiry(File directory) {
         try {
-            AtomicFile file = new AtomicFile(new File(directory, "session.json"));
-            String text = new String(file.readFully(), StandardCharsets.UTF_8);
-            JSONObject metadata = new JSONObject(text);
+            SessionMetadata metadata = readMetadata(directory);
             return CallArtifactRetention.validatedExpiry(
-                    metadata.getLong("created_at_epoch_ms"),
-                    metadata.getLong("expires_at_epoch_ms"));
+                    metadata.createdAtEpochMillis, metadata.expiresAtEpochMillis);
         } catch (IOException | JSONException error) {
             // An unreadable session cannot be proven unexpired, so delete it.
             return CallArtifactRetention.UNREADABLE_EXPIRY;
+        }
+    }
+
+    private static SessionMetadata readMetadata(File directory)
+            throws IOException, JSONException {
+        AtomicFile file = new AtomicFile(new File(directory, "session.json"));
+        String text = new String(file.readFully(), StandardCharsets.UTF_8);
+        JSONObject metadata = new JSONObject(text);
+        return new SessionMetadata(
+                metadata.getLong("created_at_epoch_ms"),
+                metadata.getLong("expires_at_epoch_ms"),
+                metadata.getBoolean("answered_by_ai"));
+    }
+
+    private static void resetDirectory(File directory) throws IOException {
+        closeActiveSession(directory.getAbsoluteFile());
+        if (!CallArtifactRetention.deleteTree(directory)
+                || (!directory.isDirectory() && !directory.mkdirs())) {
+            throw new IOException("cannot reset private call session");
         }
     }
 
@@ -159,7 +208,7 @@ final class CallArtifactStore {
         synchronized OutputStream openDownlink() throws IOException {
             if (downlink == null) {
                 downlink = new BufferedOutputStream(
-                        new FileOutputStream(new File(directory, "rx.pcm")), 64 * 1024);
+                        new FileOutputStream(new File(directory, "rx.pcm"), true), 64 * 1024);
             }
             return downlink;
         }
@@ -167,7 +216,7 @@ final class CallArtifactStore {
         synchronized OutputStream openUplink() throws IOException {
             if (uplink == null) {
                 uplink = new BufferedOutputStream(
-                        new FileOutputStream(new File(directory, "tx.pcm")), 64 * 1024);
+                        new FileOutputStream(new File(directory, "tx.pcm"), true), 64 * 1024);
             }
             return uplink;
         }

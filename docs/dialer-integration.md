@@ -72,7 +72,14 @@ Call IDs cannot be claimed by two different UIDs. Evaluation and capture require
 the calling UID to own the live call, and each capture session retains that UID
 for takeover and terminal cleanup. The dialer asks Call Intelligence to finalize
 the artifact before releasing its presence assertion; Binder death remains the
-fallback that clears a crashed dialer's full presence set.
+fallback that clears a crashed dialer's full presence set. When the final token
+for a call dies, Call Intelligence first removes the session from callback
+routing, then closes capture/ASR/caller audio and ends classifier, receptionist,
+and pending context work. It leaves any non-emergency partial artifact under the
+original 24-hour maximum rather than pretending the carrier call disconnected.
+Telecom itself remains connected and a restarted dialer can replay the live call.
+The new capture streams append to the same opaque artifact directory and reuse
+its original creation/expiry timestamps; a restart cannot refresh the TTL.
 
 ## Live call assessment
 

@@ -2031,13 +2031,27 @@ def validate_aosp_overlay(root: Path) -> None:
         encoding="utf-8")
     require("token.linkToDeath" in call_service
             and "onTelecomPresenceTokenDied" in call_service
+            and "telecomPresence.removeDeadAndReport(token)" in call_service
+            and "finishOrphanedCallCleanup(orphanedCallIds)" in call_service
+            and "if (active != null) active.close();" in call_service
+            and "telecomPresenceStopping || !telecomPresence.ownsCall(ownerUid, callId)"
+            in call_service
+            and '"dialer_process_died"' in call_service
             and "asr.setCallActive(desired)" in call_service
             and "MAX_TELECOM_LIFECYCLE_TOKENS" in call_service
             and "MAX_CALLS_PER_LIFECYCLE_TOKEN" in call_service
             and "ownerUid" in telecom_presence
             and "maxTokens" in telecom_presence
-            and "maxCallsPerToken" in telecom_presence,
-            "Telecom presence must be UID-owned, bounded, death-linked, and drive call priority")
+            and "maxCallsPerToken" in telecom_presence
+            and "orphanedCallIds" in telecom_presence,
+            "Telecom presence must be UID-owned, bounded, death-linked, stop orphaned capture, and drive call priority")
+    require("CallArtifactRetention.canResume(" in artifact_source
+            and 'new FileOutputStream(new File(directory, "rx.pcm"), true)'
+            in artifact_source
+            and 'new FileOutputStream(new File(directory, "tx.pcm"), true)'
+            in artifact_source
+            and "storedAnsweredByAi || answeredByAi" in artifact_source,
+            "dialer restart must append to the original bounded call artifact without extending expiry")
     require("String transientAddress" in incoming_call_api
             and "String countryIso" in incoming_call_api
             and incoming_call_api.index("ringingSinceElapsedRealtimeMillis")

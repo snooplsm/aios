@@ -24,6 +24,9 @@ Engineering defaults for the research image are:
   its device gate before it can authorize the Dialer to answer.
 - A persistent on-device indicator is shown during processing.
 - Stored artifacts expire within 24 hours.
+- Dialer Binder death immediately stops orphaned audio capture and model work;
+  a partial non-emergency artifact remains subject to its original 24-hour
+  maximum, and is never extended by a client restart.
 - No cloud transfer, analytics payload, or training use contains call content.
 - The assistant must not falsely claim to be the owner or another real person.
 - Emergency calls and emergency callback mode never use optional AI processing.

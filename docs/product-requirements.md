@@ -60,6 +60,10 @@ device in app-private encrypted storage. Each artifact receives an absolute
 expiry timestamp at creation. The default and maximum prototype retention is 24
 hours. Cleanup runs at boot, after a call, and periodically; expired records are
 not recoverable through the application.
+If the dialer dies while Telecom keeps a call connected, Call Intelligence stops
+the orphaned capture immediately. A reconnected dialer may start a fresh capture
+session for the same opaque call ID, but it must append to the existing artifact
+and preserve the original expiry rather than granting another 24-hour window.
 
 Raw call audio is never exposed through the shared-media filesystem. Other apps
 receive scoped model APIs, not access to call artifacts or model files.

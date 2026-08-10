@@ -30,8 +30,12 @@ held, and conferenced call to Call Intelligence with opaque call IDs and a
 process-owned Binder token. This signal is independent of transcription and AI
 settings: even a human-handled or emergency call immediately preempts background
 media inference. A service rebind replays all live calls, concurrent calls keep
-the gate asserted until the final call ends, and dialer process death clears its
-entire assertion automatically.
+the gate asserted until the final call ends, and dialer process death atomically
+clears its assertion. Any call ID without a surviving token is detached from
+Call Intelligence before another client can register: capture, ASR, receptionist
+speech, classification, and pending context stop, while Telecom and the carrier
+call remain outside that failure domain. A restarted dialer may then replay the
+still-live Telecom call and begin a fresh optional intelligence session.
 
 ### Call Intelligence service
 

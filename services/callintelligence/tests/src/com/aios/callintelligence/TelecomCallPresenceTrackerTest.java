@@ -43,6 +43,41 @@ public final class TelecomCallPresenceTrackerTest {
     }
 
     @Test
+    public void deathReportIncludesOnlyCallsWithoutASurvivingUidToken() {
+        TelecomCallPresenceTracker<Object> tracker = new TelecomCallPresenceTracker<>(4, 8);
+        Object dead = new Object();
+        Object survivor = new Object();
+        tracker.setPresent(dead, 100, "shared", true);
+        tracker.setPresent(dead, 100, "orphaned", true);
+        tracker.setPresent(survivor, 100, "shared", true);
+
+        TelecomCallPresenceTracker.DeadClient removed = tracker.removeDeadAndReport(dead);
+
+        assertEquals(Integer.valueOf(100), removed.ownerUid);
+        assertEquals(Set.of("orphaned"), removed.orphanedCallIds);
+        assertFalse(removed.activityChanged);
+        assertTrue(tracker.ownsCall(100, "shared"));
+        assertFalse(tracker.ownsCall(100, "orphaned"));
+
+        TelecomCallPresenceTracker.DeadClient finalRemoval =
+                tracker.removeDeadAndReport(survivor);
+        assertEquals(Set.of("shared"), finalRemoval.orphanedCallIds);
+        assertTrue(finalRemoval.activityChanged);
+    }
+
+    @Test
+    public void absentDeadTokenProducesEmptyIdempotentReport() {
+        TelecomCallPresenceTracker<Object> tracker = new TelecomCallPresenceTracker<>(4, 8);
+
+        TelecomCallPresenceTracker.DeadClient removed =
+                tracker.removeDeadAndReport(new Object());
+
+        assertNull(removed.ownerUid);
+        assertTrue(removed.orphanedCallIds.isEmpty());
+        assertFalse(removed.activityChanged);
+    }
+
+    @Test
     public void differentUidCannotReuseOrReleaseToken() {
         TelecomCallPresenceTracker<Object> tracker = new TelecomCallPresenceTracker<>(4, 8);
         Object token = new Object();
