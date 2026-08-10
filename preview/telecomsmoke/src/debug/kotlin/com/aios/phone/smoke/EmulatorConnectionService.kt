@@ -34,6 +34,7 @@ class EmulatorConnectionService : ConnectionService() {
     ): Connection {
         val address = request.address
             ?: Uri.fromParts(PhoneAccount.SCHEME_TEL, EmulatorCallActivity.DEFAULT_NUMBER, null)
+        fixtureEvents += "outgoing-account:${request.accountHandle?.id ?: "missing"}"
         return EmulatorConnection(address, incoming = false).also {
             fixtureConnections += it
             refreshConferenceableConnections()

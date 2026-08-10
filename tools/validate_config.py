@@ -1652,6 +1652,11 @@ def validate_aosp_overlay(root: Path) -> None:
             and "ACTION_ACTIVATE" in smoke_activity
             and "ACTION_POST_DIAL_WAIT" in smoke_activity
             and "POST_DIAL_SEQUENCE" in smoke_activity
+            and "SECONDARY_ACCOUNT_ID" in smoke_activity
+            and "unregisterPhoneAccount(phoneAccountHandle(SECONDARY_ACCOUNT_ID))"
+            in smoke_activity
+            and '"AIOS emulator primary"' in smoke_activity
+            and '"AIOS emulator secondary"' in smoke_activity
             and "override fun onNewIntent" in smoke_activity
             and "ACTION_RESET_AUDIT" in smoke_activity
             and "ACTION_EXPORT_AUDIT" in smoke_activity
@@ -1665,6 +1670,7 @@ def validate_aosp_overlay(root: Path) -> None:
             and "onStopDtmfTone" in smoke_connection
             and "onPostDialContinue" in smoke_connection
             and "setPostDialWait" in smoke_connection
+            and '"outgoing-account:${request.accountHandle?.id' in smoke_connection
             and "override fun onConference" in smoke_connection
             and "class EmulatorConference" in smoke_connection
             and "CAPABILITY_SEPARATE_FROM_CONFERENCE" in smoke_connection
@@ -1707,6 +1713,13 @@ def validate_aosp_overlay(root: Path) -> None:
             and 'Invoke-UiControl "Continue"' in smoke_script
             and 'Invoke-UiControl "Cancel"' in smoke_script
             and "$postDialUi -match '739164'" in smoke_script
+            and '$fixtureSecondaryAccount = "aios-emulator-smoke-secondary"'
+            in smoke_script
+            and "set-user-selected-outgoing-phone-account | Out-Null" in smoke_script
+            and 'Invoke-UiControl "AIOS emulator primary"' not in smoke_script
+            and 'Get-UiControl "AIOS emulator primary"' in smoke_script
+            and 'Invoke-UiControl "AIOS emulator secondary"' in smoke_script
+            and "state=SELECT_PHONE_ACCOUNT" in smoke_script
             and 'Invoke-UiControl "Merge calls"' in smoke_script
             and 'Invoke-UiControl "Separate call"' in smoke_script
             and 'Invoke-UiControl "End call"' in smoke_script
@@ -1719,6 +1732,10 @@ def validate_aosp_overlay(root: Path) -> None:
             and "post_dial_continue_callback" in smoke_script
             and "post_dial_cancel_callback" in smoke_script
             and "private_post_dial_audit_removed" in smoke_script
+            and "multi_account_selector_visible" in smoke_script
+            and "secondary_phone_account_selected" in smoke_script
+            and "selected_account_reached_connection_service" in smoke_script
+            and "private_account_selection_audit_removed" in smoke_script
             and "waiting_call_selected" in smoke_script
             and "waiting_answer_held_existing_call" in smoke_script
             and "conference_merge_separate_callbacks" in smoke_script

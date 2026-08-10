@@ -82,6 +82,7 @@ $package = "com.aios.phone"
 $fixtureActivity = "$package/com.aios.phone.smoke.EmulatorCallActivity"
 $fixtureService = "$package/com.aios.phone.smoke.EmulatorConnectionService"
 $fixtureAccount = "aios-emulator-smoke"
+$fixtureSecondaryAccount = "aios-emulator-smoke-secondary"
 $existingPackage = @(
     Invoke-Adb shell pm list packages --user 0 $package |
         Where-Object { $_ -eq "package:$package" }
@@ -526,6 +527,69 @@ try {
     }
     $callStarted = $false
 
+    Invoke-Adb shell cmd telecom set-phone-account-enabled `
+        $fixtureService $fixtureSecondaryAccount 0 | Out-Null
+    Invoke-Adb shell cmd telecom set-user-selected-outgoing-phone-account | Out-Null
+    Invoke-Adb shell cmd telecom wait-on-handlers | Out-Null
+    Invoke-Adb shell am start -a com.aios.phone.smoke.RESET_AUDIT `
+        -n $fixtureActivity | Out-Null
+    $multiAccountNumber = "15551230186"
+    Invoke-Adb shell am start -W -a android.intent.action.DIAL `
+        -d "tel:$multiAccountNumber" -n $mainActivity | Out-Null
+    Start-Sleep -Milliseconds 500
+    Invoke-UiControl "Call"
+    $callStarted = $true
+    Invoke-Adb shell cmd telecom wait-on-handlers | Out-Null
+    Start-Sleep -Milliseconds 750
+    $telecomChoosingAccount = Get-CurrentTelecomCalls
+    $primaryAccountControl = Get-UiControl "AIOS emulator primary"
+    $secondaryAccountControl = Get-UiControl "AIOS emulator secondary"
+    if ($telecomChoosingAccount -notmatch 'state=SELECT_PHONE_ACCOUNT' -or
+        -not $primaryAccountControl.enabled -or -not $secondaryAccountControl.enabled) {
+        throw "Telecom did not present both emulator accounts through the Compose selector"
+    }
+    Invoke-UiControl "AIOS emulator secondary"
+    Invoke-Adb shell cmd telecom wait-on-handlers | Out-Null
+    Start-Sleep -Milliseconds 750
+    if ((Get-CurrentTelecomCalls) -notmatch 'state=DIALING') {
+        throw "Selecting the secondary emulator account did not create a dialing connection"
+    }
+    Invoke-Adb shell am start -a com.aios.phone.smoke.ACTIVATE `
+        -n $fixtureActivity | Out-Null
+    Invoke-Adb shell cmd telecom wait-on-handlers | Out-Null
+    Start-Sleep -Milliseconds 500
+    if ((Get-CurrentTelecomCalls) -notmatch 'state=ACTIVE') {
+        throw "The secondary-account connection did not become active"
+    }
+    Invoke-Adb shell am start -a com.aios.phone.smoke.EXPORT_AUDIT `
+        -n $fixtureActivity | Out-Null
+    Start-Sleep -Milliseconds 200
+    $accountAudit = @(
+        Invoke-Adb shell run-as $package cat $privateAuditFile |
+            Where-Object { $_ }
+    ) -join "`n"
+    if ($accountAudit -ne "outgoing-account:$fixtureSecondaryAccount") {
+        $observedAccount = $accountAudit.Replace("`r", "\\r").Replace("`n", "\\n")
+        throw "The selected PhoneAccount did not reach ConnectionService; observed '$observedAccount'"
+    }
+    Invoke-Adb shell run-as $package rm -f $privateAuditFile | Out-Null
+    $remainingAudit = @(
+        Invoke-Adb shell run-as $package find cache -maxdepth 1 `
+            -name "aios-telecom-smoke-audit.txt" |
+            Where-Object { $_ }
+    )
+    if ($remainingAudit.Count -ne 0) {
+        throw "The private account-selection smoke audit survived verification"
+    }
+    Invoke-UiControl "End call"
+    Invoke-Adb shell cmd telecom wait-on-handlers | Out-Null
+    Start-Sleep -Milliseconds 500
+    if ((Get-CurrentTelecomCalls) -match 'state=(SELECT_PHONE_ACCOUNT|DIALING|ACTIVE)') {
+        throw "The secondary-account call survived the production End call control"
+    }
+    $callStarted = $false
+    $privateAuditRemoved = $true
+
     $evidence = [ordered]@{
         schema_version = 1
         serial = $Serial
@@ -564,9 +628,13 @@ try {
         waiting_call_selected = $true
         waiting_answer_held_existing_call = $true
         conference_merge_separate_callbacks = $true
+        multi_account_selector_visible = $true
+        secondary_phone_account_selected = $true
+        selected_account_reached_connection_service = $true
         private_dtmf_audit_removed = $privateAuditRemoved
         private_post_dial_audit_removed = $privateAuditRemoved
         private_conference_audit_removed = $privateAuditRemoved
+        private_account_selection_audit_removed = $privateAuditRemoved
         outgoing_end_call_disconnected = $true
         screenshot = [IO.Path]::GetFullPath($screenshot)
         outgoing_screenshot = [IO.Path]::GetFullPath($outgoingScreenshot)

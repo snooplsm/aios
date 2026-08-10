@@ -263,6 +263,16 @@ participants are ended through the production Compose control. This closes a
 repeatable emulator wiring gap, but real carrier supplementary-service behavior
 for call waiting and conferencing remains release-gated.
 
+Finally, the debug package registers a second disabled managed PhoneAccount. A
+dedicated transaction enables it, clears the temporary outgoing default, and
+places a new call. Telecom must put that call in `SELECT_PHONE_ACCOUNT`; Compose
+must display both fixture labels, and choosing the secondary label must pass its
+exact opaque handle through `Call.phoneAccountSelected` to
+`ConnectionService.onCreateOutgoingConnection`. The runner activates and ends
+that connection, deletes its private audit, and restores the exact original
+outgoing account. This proves chooser wiring without claiming physical dual-SIM,
+eSIM, carrier-subscription, or emergency-routing behavior.
+
 The separate `preview:prodcheck` lane compiles the complete role-capable Phone
 app against the public SDK using the production sources, tests, manifest,
 resources, and both AIOS Binder boundaries. Its backup policy excludes every

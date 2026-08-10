@@ -115,6 +115,13 @@ connection, **Merge calls** to reach the managed `onConference` callback, and
 the production surface. This is deterministic multi-call wiring evidence, not a
 substitute for carrier call-waiting or conference testing.
 
+A final transaction enables a second emulator-only PhoneAccount and clears the
+temporary outgoing default. Telecom must enter `SELECT_PHONE_ACCOUNT`, the
+production Compose surface must offer both fixture labels, and selecting the
+secondary label must deliver its exact handle to `onCreateOutgoingConnection`.
+The original outgoing account is restored afterward. This is account-chooser
+wiring evidence only, not physical dual-SIM/eSIM evidence.
+
 Open this directory in Android Studio, or run:
 
 ```text

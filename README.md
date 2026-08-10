@@ -41,8 +41,9 @@ The production phone sources also build and lint against the Android 16 public
 SDK, and an emulator-only managed-call fixture now verifies the real dialer-role,
 `InCallService`, ringing notification, incoming controls, and a Compose-originated
 outgoing call through connected mute, hold, bounded DTMF, redacted post-dial,
-waiting-call, conference merge/separate, and hang-up controls. Emulator results
-are explicitly excluded from physical-device release evidence.
+waiting-call, conference merge/separate, multi-account selection, and hang-up
+controls. Emulator results are explicitly excluded from physical-device release
+evidence.
 Simple JPEGs and non-animated PNGs have conservative, byte-preserving AIOS XMP
 writers with backup, verification, crash recovery, and self-write suppression;
 complex containers remain index-only. Deferred videos are represented by twenty

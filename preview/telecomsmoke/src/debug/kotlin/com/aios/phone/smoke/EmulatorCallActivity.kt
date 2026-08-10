@@ -37,7 +37,22 @@ class EmulatorCallActivity : Activity() {
     private fun handleCommand(command: Intent) {
         val telecom = getSystemService(TelecomManager::class.java)
         when (command.action) {
-            ACTION_REGISTER -> telecom.registerPhoneAccount(buildPhoneAccount())
+            ACTION_REGISTER -> {
+                telecom.registerPhoneAccount(
+                    buildPhoneAccount(
+                        ACCOUNT_ID,
+                        "AIOS emulator primary",
+                        "5550001000",
+                    ),
+                )
+                telecom.registerPhoneAccount(
+                    buildPhoneAccount(
+                        SECONDARY_ACCOUNT_ID,
+                        "AIOS emulator secondary",
+                        "5550002000",
+                    ),
+                )
+            }
             ACTION_INCOMING -> {
                 val number = command.getStringExtra(EXTRA_NUMBER) ?: DEFAULT_NUMBER
                 telecom.addNewIncomingCall(
@@ -61,7 +76,10 @@ class EmulatorCallActivity : Activity() {
                 Charsets.UTF_8,
             )
             ACTION_DISCONNECT -> EmulatorConnectionService.disconnectAll()
-            ACTION_UNREGISTER -> telecom.unregisterPhoneAccount(phoneAccountHandle())
+            ACTION_UNREGISTER -> {
+                telecom.unregisterPhoneAccount(phoneAccountHandle())
+                telecom.unregisterPhoneAccount(phoneAccountHandle(SECONDARY_ACCOUNT_ID))
+            }
             ACTION_SHOW -> startActivity(
                 Intent(this, InCallActivity::class.java).apply {
                     addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
@@ -71,16 +89,16 @@ class EmulatorCallActivity : Activity() {
         finish()
     }
 
-    private fun buildPhoneAccount(): PhoneAccount =
-        PhoneAccount.builder(phoneAccountHandle(), "AIOS emulator smoke")
-            .setAddress(Uri.fromParts(PhoneAccount.SCHEME_TEL, "5550001000", null))
+    private fun buildPhoneAccount(accountId: String, label: String, address: String): PhoneAccount =
+        PhoneAccount.builder(phoneAccountHandle(accountId), label)
+            .setAddress(Uri.fromParts(PhoneAccount.SCHEME_TEL, address, null))
             .setCapabilities(PhoneAccount.CAPABILITY_CALL_PROVIDER)
             .setSupportedUriSchemes(listOf(PhoneAccount.SCHEME_TEL))
             .build()
 
-    private fun phoneAccountHandle() = PhoneAccountHandle(
+    private fun phoneAccountHandle(accountId: String = ACCOUNT_ID) = PhoneAccountHandle(
         ComponentName(this, EmulatorConnectionService::class.java),
-        ACCOUNT_ID,
+        accountId,
     )
 
     private fun auditFile() = File(cacheDir, AUDIT_FILE_NAME)
@@ -103,6 +121,7 @@ class EmulatorCallActivity : Activity() {
         const val ACTION_SHOW = "com.aios.phone.smoke.SHOW"
         const val EXTRA_NUMBER = "number"
         const val ACCOUNT_ID = "aios-emulator-smoke"
+        const val SECONDARY_ACCOUNT_ID = "aios-emulator-smoke-secondary"
         const val DEFAULT_NUMBER = "15551230182"
         const val AUDIT_FILE_NAME = "aios-telecom-smoke-audit.txt"
         const val POST_DIAL_SEQUENCE = "739164"
