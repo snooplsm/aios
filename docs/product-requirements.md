@@ -70,6 +70,10 @@ camera application that created them.
   service death or reboot without processing the pre-install historical library.
 - Cursor progress is committed only after durable queue insertion, and may not
   skip an item that is still pending publication by its camera app.
+- Deleting or trashing a source must cascade out its private index result.
+  Restart recovery checks sources in bounded volume batches, retains data for
+  unmounted volumes, and purges URI-keyed results if MediaProvider's database
+  identity changes.
 - A single settled photo may be processed promptly when the call pipeline is
   idle and the device is thermally healthy.
 - Bursts, sustained capture sessions, and all video jobs are deferred.

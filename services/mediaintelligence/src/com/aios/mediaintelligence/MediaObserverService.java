@@ -3,7 +3,6 @@ package com.aios.mediaintelligence;
 import android.app.Service;
 import android.content.Intent;
 import android.database.ContentObserver;
-import android.database.Cursor;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Handler;
@@ -17,7 +16,6 @@ import java.io.FileDescriptor;
 import java.io.PrintWriter;
 import java.nio.charset.StandardCharsets;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Set;
 
 /** Watches completed media inserts without coupling AIOS to one camera app. */
@@ -27,21 +25,24 @@ public final class MediaObserverService extends Service {
 
     private HandlerThread thread;
     private Handler handler;
-    private CaptureCoalescer coalescer;
     private MediaJobStore store;
     private final Set<String> observedRoots = new HashSet<>();
     private final Runnable reconcileRunnable = this::reconcileAndSchedule;
+    private final Runnable livenessRunnable = this::reconcileLiveness;
     private volatile boolean shuttingDown;
+    private long livenessCursor;
+    private boolean fullLivenessSweep;
 
     private final ContentObserver observer = new ContentObserver(null) {
         @Override
         public void onChange(boolean selfChange, Uri uri) {
             if (!shuttingDown && !selfChange && uri != null && handler != null) {
                 handler.post(() -> {
-                    observeSettledItem(uri);
+                    reconcileExactSource(uri);
                     // Collection notifications, pending-row deletion, and
                     // provider-specific URI shapes are recovered by the scan.
                     requestReconcile(CaptureCoalescer.QUIET_PERIOD_MILLIS);
+                    requestLivenessBatch(CaptureCoalescer.QUIET_PERIOD_MILLIS);
                 });
             }
         }
@@ -54,7 +55,6 @@ public final class MediaObserverService extends Service {
         thread = new HandlerThread("aios-media-observer");
         thread.start();
         handler = new Handler(thread.getLooper());
-        coalescer = new CaptureCoalescer(handler, this::onCaptureGroupSettled);
         handler.post(this::initializeObservation);
     }
 
@@ -71,9 +71,6 @@ public final class MediaObserverService extends Service {
     @Override
     public void onDestroy() {
         shuttingDown = true;
-        if (coalescer != null) {
-            coalescer.close();
-        }
         if (handler != null) {
             handler.removeCallbacksAndMessages(null);
         }
@@ -92,56 +89,15 @@ public final class MediaObserverService extends Service {
         super.onDestroy();
     }
 
-    private void observeSettledItem(Uri uri) {
-        if (shuttingDown) return;
-        String[] projection = {
-                MediaStore.MediaColumns.GENERATION_MODIFIED,
-                MediaStore.MediaColumns.IS_PENDING,
-                MediaStore.MediaColumns.MIME_TYPE,
-                MediaStore.MediaColumns.SIZE
-        };
-        try (Cursor cursor = getContentResolver().query(
-                uri, projection, null, null, null)) {
-            if (cursor == null || !cursor.moveToFirst()) {
-                return;
-            }
-            long generation = cursor.getLong(0);
-            int pending = cursor.getInt(1);
-            String mimeType = cursor.getString(2);
-            long size = cursor.getLong(3);
-            if (pending != 0 || size <= 0L || mimeType == null) {
-                return;
-            }
-            if (!mimeType.startsWith("image/") && !mimeType.startsWith("video/")) {
-                return;
-            }
-            if (store.shouldSuppressOwnMutation(uri.toString(), generation)) {
-                return;
-            }
-            coalescer.add(new CaptureCoalescer.ObservedMedia(
-                    uri.toString(), generation, mimeType, System.currentTimeMillis()));
-        } catch (RuntimeException error) {
-            Log.w(TAG, "cannot inspect changed media", error);
-        }
-    }
-
-    private void onCaptureGroupSettled(List<CaptureCoalescer.ObservedMedia> group) {
+    private void reconcileExactSource(Uri notificationUri) {
         if (shuttingDown) return;
         try {
-            boolean immediate = false;
-            boolean deferred = false;
-            int groupSize = group.size();
-            for (CaptureCoalescer.ObservedMedia media : group) {
-                int workClass = MediaWorkPolicy.schedulingClass(media.mimeType, groupSize);
-                store.enqueue(media, workClass);
-                immediate |= workClass == MediaWorkPolicy.CLASS_IMMEDIATE;
-                deferred |= workClass == MediaWorkPolicy.CLASS_DEFERRED;
+            if (MediaLivenessScanner.reconcileExact(this, store, notificationUri)) {
+                fullLivenessSweep = true;
+                livenessCursor = 0L;
             }
-            scheduleClasses(immediate, deferred);
-            requestReconcile(0L);
         } catch (RuntimeException error) {
-            Log.w(TAG, "cannot persist settled media group", error);
-            requestReconcile(RECONCILE_RETRY_MILLIS);
+            Log.w(TAG, "cannot reconcile exact MediaStore source", error);
         }
     }
 
@@ -152,6 +108,7 @@ public final class MediaObserverService extends Service {
         scheduleScanResult(MediaGenerationScanner.reconcile(this, store));
         registerObservedVolumes();
         requestReconcile(0L);
+        startFullLivenessSweep();
     }
 
     private void reconcileAndSchedule() {
@@ -188,6 +145,47 @@ public final class MediaObserverService extends Service {
             handler.post(reconcileRunnable);
         } else {
             handler.postDelayed(reconcileRunnable, delayMillis);
+        }
+    }
+
+    private void startFullLivenessSweep() {
+        if (handler == null || shuttingDown) return;
+        fullLivenessSweep = true;
+        livenessCursor = 0L;
+        requestLivenessBatch(0L);
+    }
+
+    private void requestLivenessBatch(long delayMillis) {
+        if (handler == null || shuttingDown) return;
+        handler.removeCallbacks(livenessRunnable);
+        if (delayMillis <= 0L) {
+            handler.post(livenessRunnable);
+        } else {
+            handler.postDelayed(livenessRunnable, delayMillis);
+        }
+    }
+
+    private void reconcileLiveness() {
+        if (shuttingDown) return;
+        try {
+            MediaLivenessScanner.Result result =
+                    MediaLivenessScanner.reconcile(this, store, livenessCursor);
+            livenessCursor = result.nextJobId;
+            if (result.retry) {
+                fullLivenessSweep = true;
+                livenessCursor = 0L;
+                requestLivenessBatch(RECONCILE_RETRY_MILLIS);
+            } else if (fullLivenessSweep && result.more) {
+                requestLivenessBatch(0L);
+            } else {
+                fullLivenessSweep = false;
+                if (!result.more) livenessCursor = 0L;
+            }
+        } catch (RuntimeException error) {
+            Log.w(TAG, "cannot reconcile media source liveness", error);
+            fullLivenessSweep = true;
+            livenessCursor = 0L;
+            requestLivenessBatch(RECONCILE_RETRY_MILLIS);
         }
     }
 

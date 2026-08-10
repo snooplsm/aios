@@ -24,8 +24,9 @@ duplicate production source files.
 It is a compile check, not a replacement for the platform Soong or device gates.
 
 `mediascancheck` stages the production MediaStore generation scanner, durable
-queue/store, and pure cursor/policy tests. It proves the missed-media recovery
-path compiles against the public Android SDK without duplicating source files.
+queue/store, deletion-liveness scanner, and pure cursor/policy tests. It proves
+the missed-media and source-lifecycle recovery paths compile against the public
+Android SDK without duplicating source files.
 
 `telecomsmoke` packages those same sources as `com.aios.phone` solely for an
 AOSP emulator. It is debug-signed, cannot use the signature-protected AIOS

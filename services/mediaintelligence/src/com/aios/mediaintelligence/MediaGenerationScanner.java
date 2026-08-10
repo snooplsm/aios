@@ -58,8 +58,9 @@ final class MediaGenerationScanner {
         if (state == null || !version.equals(state.mediaStoreVersion)
                 || currentGeneration < state.generation) {
             // Installing AIOS or a provider-database rebuild must not enqueue the
-            // owner's entire historical library. The observer covers the race
-            // after this baseline is sampled.
+            // owner's entire historical library. An existing cursor whose
+            // provider identity changed cannot safely retain URI-keyed results.
+            if (state != null) store.purgeVolume(volumeName);
             store.writeScanState(
                     volumeName,
                     version,
@@ -143,7 +144,8 @@ final class MediaGenerationScanner {
                         MediaStore.MediaColumns.MIME_TYPE,
                         MediaStore.MediaColumns.SIZE,
                         mediaType,
-                        MediaStore.MediaColumns.DATE_ADDED
+                        MediaStore.MediaColumns.DATE_ADDED,
+                        MediaStore.MediaColumns.IS_TRASHED
                 },
                 arguments,
                 null)) {
@@ -157,10 +159,11 @@ final class MediaGenerationScanner {
                 long size = cursor.getLong(5);
                 int type = cursor.getInt(6);
                 long observedAt = epochMillis(cursor.getLong(7));
+                boolean trashed = cursor.getInt(8) != 0;
                 Uri base = type == MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE
                         ? MediaStore.Images.Media.getContentUri(volumeName)
                         : MediaStore.Video.Media.getContentUri(volumeName);
-                boolean eligible = id > 0L && size > 0L && mime != null
+                boolean eligible = !trashed && id > 0L && size > 0L && mime != null
                         && (mime.startsWith("image/") || mime.startsWith("video/"));
                 rows.add(new MediaGenerationReconciler.Row(
                         id,

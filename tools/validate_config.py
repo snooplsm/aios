@@ -853,6 +853,8 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/mediaintelligence/src/com/aios/mediaintelligence/MediaObserverService.java",
         "services/mediaintelligence/src/com/aios/mediaintelligence/MediaGenerationReconciler.java",
         "services/mediaintelligence/src/com/aios/mediaintelligence/MediaGenerationScanner.java",
+        "services/mediaintelligence/src/com/aios/mediaintelligence/MediaLivenessReconciler.java",
+        "services/mediaintelligence/src/com/aios/mediaintelligence/MediaLivenessScanner.java",
         "services/mediaintelligence/src/com/aios/mediaintelligence/MediaInferenceJobService.java",
         "services/mediaintelligence/src/com/aios/mediaintelligence/MediaWorkPolicy.java",
         "services/mediaintelligence/src/com/aios/mediaintelligence/MediaConstraintProbe.java",
@@ -874,6 +876,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/mediaintelligence/tests/src/com/aios/mediaintelligence/VideoStoryboardPlanTest.java",
         "services/mediaintelligence/tests/src/com/aios/mediaintelligence/MediaTimingTest.java",
         "services/mediaintelligence/tests/src/com/aios/mediaintelligence/MediaGenerationReconcilerTest.java",
+        "services/mediaintelligence/tests/src/com/aios/mediaintelligence/MediaLivenessReconcilerTest.java",
         "permissions/default-permissions-aios.xml",
         "docs/media-metadata-schema.md",
         "docs/media-performance.md",
@@ -2019,10 +2022,9 @@ def validate_aosp_overlay(root: Path) -> None:
             "media service must observe images from all camera apps")
     require("MediaStore.Video.Media.EXTERNAL_CONTENT_URI" in observer_source,
             "media service must observe videos")
-    require("GENERATION_MODIFIED" in observer_source and "IS_PENDING" in observer_source,
-            "media observer must track generations and ignore pending items")
-    require("shouldSuppressOwnMutation" in observer_source,
-            "media observer must suppress its own metadata writes")
+    require("requestReconcile(CaptureCoalescer.QUIET_PERIOD_MILLIS)" in observer_source
+            and "reconcileExactSource" in observer_source,
+            "media observer must debounce generation scans and remove deleted or trashed items")
     require("initializeObservation" in observer_source
             and "MediaGenerationScanner.reconcile" in observer_source
             and "registerObservedVolumes" in observer_source,
@@ -2042,13 +2044,39 @@ def validate_aosp_overlay(root: Path) -> None:
             and "MediaStore.getVersion" in generation_scanner
             and "MediaStore.getGeneration" in generation_scanner
             and "GENERATION_ADDED" in generation_scanner
+            and "GENERATION_MODIFIED" in generation_scanner
+            and "IS_PENDING" in generation_scanner
+            and "IS_TRASHED" in generation_scanner
+            and "shouldSuppressOwnMutation" in generation_scanner
             and "MAX_ROWS_PER_VOLUME = 512" in generation_scanner,
-            "media recovery must use bounded per-volume MediaStore generation scans")
+            "media recovery must use bounded settled, non-trashed generation scans")
     require("END_OF_GENERATION" in generation_reconciler
             and "thenComparingLong(row -> row.mediaId)" in generation_reconciler
             and "pendingInsertCannotBeSkipped" in generation_test
             and "truncatedBatchResumesWithinSharedGeneration" in generation_test,
             "media recovery cursor must handle pending and same-generation batch rows")
+
+    liveness_scanner = (media_source_root / "MediaLivenessScanner.java").read_text(
+        encoding="utf-8"
+    )
+    liveness_reconciler = (
+        media_source_root / "MediaLivenessReconciler.java"
+    ).read_text(encoding="utf-8")
+    liveness_test = (
+        root / "services" / "mediaintelligence" / "tests" / "src" / "com" /
+        "aios" / "mediaintelligence" / "MediaLivenessReconcilerTest.java"
+    ).read_text(encoding="utf-8")
+    require("MAX_ROWS = 128" in liveness_scanner
+            and "MediaStore.Files.getContentUri" in liveness_scanner
+            and "IS_TRASHED" in liveness_scanner
+            and "generationBefore != generationAfter" in liveness_scanner
+            and "successfullyProbedVolumes" in liveness_reconciler
+            and "deletesOnlyMissingRowsFromSuccessfullyProbedVolumes" in liveness_test
+            and "duplicateGenerationsDeleteOneSourceUri" in liveness_test,
+            "media deletion recovery must be bounded and use a stable mounted-volume snapshot")
+    require("startFullLivenessSweep" in observer_source
+            and "MediaLivenessScanner.reconcileExact" in observer_source,
+            "media observer must remove deleted canonical sources and sweep after restart")
 
     job_source = (media_source_root / "MediaInferenceJobService.java").read_text(
         encoding="utf-8"
@@ -2132,9 +2160,13 @@ def validate_aosp_overlay(root: Path) -> None:
             and "CREATE TABLE media_scan_state" in media_store_source
             and "media_store_version" in media_store_source
             and "cannot durably enqueue media job" in media_store_source
+            and "void purgeVolume" in media_store_source
+            and '"media_uri=? AND _id<>?"' in media_store_source
             and "MediaTimingSummary.MAX_SAMPLES_PER_KIND" in media_store_source
             and "timing_samples" in media_store_source.partition("commitResult(")[2],
             "media database must explicitly migrate timing and durable scan state")
+    require("if (state != null) store.purgeVolume(volumeName)" in generation_scanner,
+            "MediaProvider identity changes must purge stale URI-keyed media results")
 
     timing_source = (media_source_root / "MediaTiming.java").read_text(
         encoding="utf-8"

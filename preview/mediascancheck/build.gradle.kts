@@ -14,6 +14,8 @@ val stageMediaScanMain by tasks.registering(Sync::class) {
             "com/aios/mediaintelligence/MediaGenerationReconciler.java",
             "com/aios/mediaintelligence/MediaGenerationScanner.java",
             "com/aios/mediaintelligence/MediaJobStore.java",
+            "com/aios/mediaintelligence/MediaLivenessReconciler.java",
+            "com/aios/mediaintelligence/MediaLivenessScanner.java",
             "com/aios/mediaintelligence/MediaObserverService.java",
             "com/aios/mediaintelligence/MediaTiming.java",
             "com/aios/mediaintelligence/MediaTimingSummary.java",
@@ -27,6 +29,7 @@ val stageMediaScanTest by tasks.registering(Sync::class) {
     from("../../services/mediaintelligence/tests/src") {
         include(
             "com/aios/mediaintelligence/MediaGenerationReconcilerTest.java",
+            "com/aios/mediaintelligence/MediaLivenessReconcilerTest.java",
             "com/aios/mediaintelligence/MediaTimingTest.java",
             "com/aios/mediaintelligence/MediaWorkPolicyTest.java",
         )

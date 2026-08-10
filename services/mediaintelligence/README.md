@@ -18,6 +18,18 @@ new install or MediaProvider database rebuild baselines the current generation
 instead of importing the owner's historical library. A pending camera write is
 never crossed, and a queue insertion must be durable before the cursor advances.
 
+The encrypted index follows source lifetime. Exact delete or trash notifications
+remove all generations of that canonical media URI. A 128-row, per-volume liveness
+sweep runs after service restart and advances in bounded pages; an unmounted or
+failed volume is never interpreted as mass deletion. Each batch also verifies
+that the provider version and generation stayed stable across its Files query.
+If MediaProvider's database identity changes or its generation counter regresses,
+AIOS purges that volume's URI-keyed results before establishing a new baseline.
+A successful replacement inference removes superseded generations for the same
+source.
+Only `GENERATION_ADDED` drives new inference. Favorite, trash, and unrelated
+metadata changes can wake reconciliation but cannot themselves create a job.
+
 The SQLite queue survives process death and reboot. The worker atomically claims
 one item, verifies its `MediaStore` generation around content hashing and again
 after inference, submits a read-only descriptor to Model Broker, validates a

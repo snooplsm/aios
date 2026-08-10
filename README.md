@@ -55,6 +55,10 @@ observation is backed by durable per-volume generation cursors that recover
 missed additions after process death or reboot without importing the existing
 photo library. The Photo Picker is only a Messaging attachment boundary and
 never triggers duplicate inference.
+The private media index now follows source deletion or trash through exact
+notifications and bounded restart sweeps. Unmounted volumes fail closed without
+losing their index, while a MediaProvider database identity change purges unsafe
+URI-keyed results before baselining again.
 AIOS Messaging now compiles as an SMS-role candidate with real SMS provider
 paths, respond-via-message, call launching, and read-only Photo Picker drafts.
 MMS remains visibly blocked and is a required carrier/device gate; the app does

@@ -80,6 +80,13 @@ artifact. Call-artifact expiry is purged during queries and after boot. Durable
 Phone call events are also wired, while selected-photo metadata still needs its
 producer lifecycle before that context release gate can pass.
 
+Media Intelligence now removes its authoritative private result when the
+MediaStore source is deleted, including bounded restart reconciliation and
+provider-database invalidation. The later selected-photo context producer must
+reuse that lifecycle and emit its context tombstone before
+`context.photo_metadata_lifecycle` can pass; draft selection alone still does
+not publish conversation history.
+
 AIOS Phone observes CallLog only while it holds `ROLE_DIALER` and reconciles at
 most the newest 256 presented, non-emergency records. The phone number is used
 only as a transient input to `resolveIdentity`; stored call-event text contains

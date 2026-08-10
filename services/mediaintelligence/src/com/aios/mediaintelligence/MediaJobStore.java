@@ -8,11 +8,13 @@ import android.database.sqlite.SQLiteOpenHelper;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.regex.Pattern;
 
 /** Durable queue and encrypted-at-rest index (credential-encrypted app data). */
 final class MediaJobStore extends SQLiteOpenHelper {
     private static final String DATABASE = "media_intelligence.db";
     private static final int VERSION = 3;
+    private static final Pattern VOLUME_NAME = Pattern.compile("[A-Za-z0-9_-]{1,128}");
     static final int STATUS_PENDING = 0;
     static final int STATUS_RUNNING = 1;
     static final int STATUS_INDEXED = 2;
@@ -166,8 +168,58 @@ final class MediaJobStore extends SQLiteOpenHelper {
     }
 
     private static void validateVolumeName(String volumeName) {
-        if (volumeName == null || volumeName.isBlank() || volumeName.length() > 128) {
+        if (volumeName == null || !VOLUME_NAME.matcher(volumeName).matches()) {
             throw new IllegalArgumentException("invalid MediaStore volume");
+        }
+    }
+
+    List<SourceRef> sourceBatch(long afterJobId, int limit) {
+        if (afterJobId < 0L || limit < 1 || limit > 512) {
+            throw new IllegalArgumentException("invalid media liveness page");
+        }
+        List<SourceRef> sources = new ArrayList<>();
+        try (Cursor cursor = getReadableDatabase().query(
+                "jobs",
+                new String[]{"_id", "media_uri"},
+                "_id>?",
+                new String[]{Long.toString(afterJobId)},
+                null,
+                null,
+                "_id ASC",
+                Integer.toString(limit))) {
+            while (cursor.moveToNext()) {
+                sources.add(new SourceRef(cursor.getLong(0), cursor.getString(1)));
+            }
+        }
+        return sources;
+    }
+
+    void deleteMediaUri(String uri) {
+        if (uri == null || uri.isBlank()) {
+            throw new IllegalArgumentException("invalid media URI");
+        }
+        SQLiteDatabase database = getWritableDatabase();
+        database.beginTransaction();
+        try {
+            database.delete("jobs", "media_uri=?", new String[]{uri});
+            database.delete("own_mutations", "media_uri=?", new String[]{uri});
+            database.setTransactionSuccessful();
+        } finally {
+            database.endTransaction();
+        }
+    }
+
+    void purgeVolume(String volumeName) {
+        validateVolumeName(volumeName);
+        String prefix = "content://media/" + volumeName + "/*";
+        SQLiteDatabase database = getWritableDatabase();
+        database.beginTransaction();
+        try {
+            database.delete("jobs", "media_uri GLOB ?", new String[]{prefix});
+            database.delete("own_mutations", "media_uri GLOB ?", new String[]{prefix});
+            database.setTransactionSuccessful();
+        } finally {
+            database.endTransaction();
         }
     }
 
@@ -281,6 +333,10 @@ final class MediaJobStore extends SQLiteOpenHelper {
             if (changed != 1) {
                 throw new IllegalStateException("media job state changed during commit");
             }
+            database.delete(
+                    "jobs",
+                    "media_uri=? AND _id<>?",
+                    new String[]{job.uri, Long.toString(job.id)});
             database.setTransactionSuccessful();
         } finally {
             database.endTransaction();
@@ -523,6 +579,16 @@ final class MediaJobStore extends SQLiteOpenHelper {
             this.mediaStoreVersion = mediaStoreVersion;
             this.generation = generation;
             this.mediaId = mediaId;
+        }
+    }
+
+    static final class SourceRef {
+        final long jobId;
+        final String uri;
+
+        SourceRef(long jobId, String uri) {
+            this.jobId = jobId;
+            this.uri = uri;
         }
     }
 }

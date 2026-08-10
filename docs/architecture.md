@@ -141,6 +141,17 @@ succeed durably before the cursor moves. The system Photo Picker is used only
 when the owner selects a Messaging attachment; it is not part of capture
 discovery or model scheduling.
 
+Index retention follows MediaStore source lifetime. Exact item deletion or trash
+removes every queued/indexed generation of that URI. Only `GENERATION_ADDED`
+creates inference work, so favorite and unrelated metadata mutations do not
+reprocess a photo. Service startup also walks the job
+index in 128-row pages and verifies IDs with one Files query per mounted volume;
+an unmounted or failed volume is not treated as empty, and a provider generation
+change during the query makes the page retry instead of deleting. A MediaProvider
+database version change or generation regression invalidates and purges that
+volume's URI-keyed results before a new baseline is recorded. After a replacement
+result commits, older generations for that URI are deleted transactionally.
+
 Immediate photo work requires no active call, acceptable thermal state, and a
 small queue. Deferred burst/video work additionally requires external power and
 an observed battery level of at least 80%. The battery threshold is checked when
