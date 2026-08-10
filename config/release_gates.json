@@ -63,6 +63,7 @@
     {"id": "media.burst_deferred", "category": "media", "required": true},
     {"id": "media.video_deferred", "category": "media", "required": true},
     {"id": "media.video_storyboard_indexed", "category": "media", "required": true},
+    {"id": "media.video_subtitles_indexed", "category": "media", "required": true},
     {"id": "media.blocked_off_charger", "category": "media", "required": true},
     {"id": "media.blocked_below_80_percent", "category": "media", "required": true},
     {"id": "media.call_preempts_job", "category": "media", "required": true},

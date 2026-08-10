@@ -80,6 +80,9 @@ camera application that created them.
 - Deferred jobs require external power and battery level of at least 80%.
 - Each video uses twenty nearest-sync keyframes sampled uniformly across time
   and composed into one bounded 5×4 storyboard; AIOS never sends every frame.
+- The complete primary video audio track is streamed through on-device bilingual
+  ASR in bounded windows and stored as private timestamped, full-text-searchable
+  subtitles. Missing audio and no detected speech are recorded distinctly.
 - Every ringing, dialing, active, waiting, held, or conferenced call preempts all
   media inference, whether or not AI processing is enabled.
 - Originals remain viewable if inference fails or is interrupted.
@@ -91,7 +94,8 @@ be embedded only for formats that pass a lossless round-trip validator. HEIC,
 AVIF, DNG, Motion Photo, and Ultra HDR assets remain index-only until a
 format-specific writer proves byte-structure preservation. Videos remain
 index-only and are never remuxed merely to add a caption. Their temporary
-storyboards are app-private and are erased after inference.
+storyboards are app-private and are erased after inference. Full subtitles stay
+in the private source-linked index and are not embedded into portable metadata.
 
 ## Messaging and communication context
 
@@ -166,7 +170,8 @@ device:
    continues and the carrier call remains connected.
 6. Call artifacts disappear no later than 24 hours after creation.
 7. A new JPEG is indexed, a burst is deferred, and a deferred media job does not
-   run below 80% battery or off charger. A known video produces one indexed
-   result from twenty chronological keyframes without changing the original or
-   retaining its temporary storyboard.
+   run below 80% battery or off charger. Known English and Spanish videos produce
+   one indexed visual result from twenty chronological keyframes plus complete
+   timestamped primary-audio subtitles, without changing the original or
+   retaining temporary media.
 8. Airplane mode demonstrates that the entire feature set remains on-device.

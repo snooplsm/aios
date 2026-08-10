@@ -16,6 +16,8 @@ predicts quality or speed.
   bundle through the replaceable Sherpa-ONNX provider.
 - Photo/video understanding: Gemma multimodal model; videos use one bounded
   twenty-keyframe storyboard and all media work is preemptible.
+- Video subtitles: the selected Whisper ASR model under a lower-priority
+  `media_background` lease, using the same English/Spanish weights as calls.
 
 Using a dedicated ASR path keeps first words and spam cues available while Gemma
 is cold or media inference is unloading.
@@ -75,8 +77,9 @@ unbenchmarked or proprietary model.
 - Receptionist: time to first token, tokens/second, tool-call validity, task
   completion, unsafe-action rate, peak RSS, and energy.
 - Media: cold and warm time/image, twenty-keyframe extraction time, storyboard
-  inference time, videos/hour, thermal throttling, peak RSS, source-digest
-  preservation, and temporary-storyboard cleanup.
+  inference time, full-audio decode/ASR real-time factor, subtitle timestamp
+  validity, videos/hour, thermal throttling, peak RSS, source-digest preservation,
+  and temporary-storyboard cleanup.
 - System: missed audio frames and UI jank while a call preempts media inference.
 
 No device/model mapping graduates from `candidate` to `supported` without these

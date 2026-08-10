@@ -16,7 +16,7 @@ import java.util.regex.Pattern;
 /** Durable queue and encrypted-at-rest index (credential-encrypted app data). */
 final class MediaJobStore extends SQLiteOpenHelper {
     private static final String DATABASE = "media_intelligence.db";
-    private static final int VERSION = 5;
+    private static final int VERSION = 6;
     private static final Pattern VOLUME_NAME = Pattern.compile("[A-Za-z0-9_-]{1,128}");
     private static final Pattern DIGEST = Pattern.compile("[0-9a-f]{64}");
     private static final int ASSOCIATION_ACTIVE = 0;
@@ -61,6 +61,10 @@ final class MediaJobStore extends SQLiteOpenHelper {
                         + "inferred_at_epoch_ms INTEGER NOT NULL,"
                         + "portable_xmp TEXT NOT NULL,"
                         + "portable_metadata_written INTEGER NOT NULL DEFAULT 0,"
+                        + "audio_status TEXT NOT NULL,"
+                        + "audio_model_id TEXT NOT NULL,"
+                        + "audio_model_digest TEXT NOT NULL,"
+                        + "audio_language TEXT NOT NULL,"
                         + "FOREIGN KEY(job_id) REFERENCES jobs(_id) ON DELETE CASCADE)");
         database.execSQL(
                 "CREATE TABLE own_mutations ("
@@ -71,6 +75,7 @@ final class MediaJobStore extends SQLiteOpenHelper {
         createScanStateTable(database);
         createResultDigestTable(database);
         createAssociationTables(database);
+        createVideoSubtitleTables(database);
     }
 
     @Override
@@ -98,6 +103,32 @@ final class MediaJobStore extends SQLiteOpenHelper {
             database.execSQL(
                     "UPDATE association_state SET instance_id=lower(hex(randomblob(16)))"
                             + " WHERE singleton=1");
+        }
+        if (oldVersion < 6) {
+            database.execSQL(
+                    "ALTER TABLE results ADD COLUMN audio_status TEXT NOT NULL"
+                            + " DEFAULT 'not_applicable'");
+            database.execSQL(
+                    "ALTER TABLE results ADD COLUMN audio_model_id TEXT NOT NULL DEFAULT ''");
+            database.execSQL(
+                    "ALTER TABLE results ADD COLUMN audio_model_digest TEXT NOT NULL DEFAULT ''");
+            database.execSQL(
+                    "ALTER TABLE results ADD COLUMN audio_language TEXT NOT NULL DEFAULT ''");
+            createVideoSubtitleTables(database);
+            // Old videos have only the storyboard result. Requeue them once so the same
+            // generation gains a complete primary-audio subtitle pass.
+            database.execSQL(
+                    "DELETE FROM result_digests WHERE job_id IN"
+                            + " (SELECT _id FROM jobs WHERE mime_type LIKE 'video/%')");
+            database.execSQL(
+                    "DELETE FROM timing_samples WHERE job_id IN"
+                            + " (SELECT _id FROM jobs WHERE mime_type LIKE 'video/%')");
+            database.execSQL(
+                    "DELETE FROM results WHERE job_id IN"
+                            + " (SELECT _id FROM jobs WHERE mime_type LIKE 'video/%')");
+            database.execSQL(
+                    "UPDATE jobs SET status=" + STATUS_PENDING
+                            + " WHERE mime_type LIKE 'video/%' AND status=" + STATUS_INDEXED);
         }
     }
 
@@ -172,6 +203,36 @@ final class MediaJobStore extends SQLiteOpenHelper {
         database.execSQL(
                 "INSERT INTO association_state(singleton,revision,clear_pending,instance_id)"
                         + " VALUES(1,0,0,lower(hex(randomblob(16))))");
+    }
+
+    private static void createVideoSubtitleTables(SQLiteDatabase database) {
+        database.execSQL(
+                "CREATE TABLE video_subtitles ("
+                        + "_id INTEGER PRIMARY KEY AUTOINCREMENT,"
+                        + "job_id INTEGER NOT NULL,"
+                        + "sequence INTEGER NOT NULL,"
+                        + "language TEXT NOT NULL CHECK(language IN ('en','es')),"
+                        + "start_millis INTEGER NOT NULL CHECK(start_millis>=0),"
+                        + "end_millis INTEGER NOT NULL CHECK(end_millis>start_millis),"
+                        + "text TEXT NOT NULL,"
+                        + "confidence REAL NOT NULL CHECK(confidence>=0 AND confidence<=1),"
+                        + "UNIQUE(job_id,sequence),"
+                        + "FOREIGN KEY(job_id) REFERENCES jobs(_id) ON DELETE CASCADE)");
+        database.execSQL(
+                "CREATE INDEX video_subtitles_timeline"
+                        + " ON video_subtitles(job_id,start_millis,sequence)");
+        database.execSQL(
+                "CREATE VIRTUAL TABLE video_subtitle_fts"
+                        + " USING fts4(text,content='video_subtitles')");
+        database.execSQL(
+                "CREATE TRIGGER video_subtitles_ai AFTER INSERT ON video_subtitles BEGIN"
+                        + " INSERT INTO video_subtitle_fts(docid,text) VALUES(new._id,new.text);"
+                        + " END");
+        database.execSQL(
+                // FTS4 external-content deletion must run while the content row still exists.
+                "CREATE TRIGGER video_subtitles_ad BEFORE DELETE ON video_subtitles BEGIN"
+                        + " DELETE FROM video_subtitle_fts WHERE docid=old._id;"
+                        + " END");
     }
 
     void enqueue(CaptureCoalescer.ObservedMedia media, int workClass) {
@@ -751,9 +812,15 @@ final class MediaJobStore extends SQLiteOpenHelper {
             String modelDigest,
             long inferredAtEpochMillis,
             String portableXmp,
-            MediaTiming.Sample timing) {
+            MediaTiming.Sample timing,
+            VideoTranscript transcript) {
         if (!MediaTiming.kind(job.mimeType).equals(timing.mediaKind)
-                || timing.completedAtEpochMillis != inferredAtEpochMillis) {
+                || timing.completedAtEpochMillis != inferredAtEpochMillis
+                || transcript == null
+                || (MediaInputPolicy.isVideo(job.mimeType)
+                && VideoTranscript.STATUS_NOT_APPLICABLE.equals(transcript.status))
+                || (MediaInputPolicy.isImage(job.mimeType)
+                && !VideoTranscript.STATUS_NOT_APPLICABLE.equals(transcript.status))) {
             throw new IllegalArgumentException("media timing does not match committed result");
         }
         SQLiteDatabase database = getWritableDatabase();
@@ -768,6 +835,10 @@ final class MediaJobStore extends SQLiteOpenHelper {
             result.put("inferred_at_epoch_ms", inferredAtEpochMillis);
             result.put("portable_xmp", portableXmp);
             result.put("portable_metadata_written", 0);
+            result.put("audio_status", transcript.status);
+            result.put("audio_model_id", transcript.modelId);
+            result.put("audio_model_digest", transcript.modelDigest);
+            result.put("audio_language", transcript.language);
             long row = database.insertWithOnConflict(
                     "results", null, result, SQLiteDatabase.CONFLICT_REPLACE);
             if (row < 0L) {
@@ -776,6 +847,21 @@ final class MediaJobStore extends SQLiteOpenHelper {
             database.delete(
                     "result_digests", "job_id=?", new String[]{Long.toString(job.id)});
             insertResultDigest(database, job.id, contentDigest);
+            database.delete(
+                    "video_subtitles", "job_id=?", new String[]{Long.toString(job.id)});
+            for (VideoTranscript.Segment segment : transcript.segments) {
+                ContentValues subtitle = new ContentValues();
+                subtitle.put("job_id", job.id);
+                subtitle.put("sequence", segment.sequence);
+                subtitle.put("language", segment.language);
+                subtitle.put("start_millis", segment.startMillis);
+                subtitle.put("end_millis", segment.endMillis);
+                subtitle.put("text", segment.text);
+                subtitle.put("confidence", segment.confidence);
+                if (database.insertOrThrow("video_subtitles", null, subtitle) < 0L) {
+                    throw new IllegalStateException("cannot store video subtitle");
+                }
+            }
             ContentValues timingValues = new ContentValues();
             timingValues.put("job_id", job.id);
             timingValues.put("media_kind", timing.mediaKind);

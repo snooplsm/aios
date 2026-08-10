@@ -21,12 +21,21 @@ val stageMediaScanMain by tasks.registering(Sync::class) {
             "com/aios/mediaintelligence/MediaJobStore.java",
             "com/aios/mediaintelligence/MediaLivenessReconciler.java",
             "com/aios/mediaintelligence/MediaLivenessScanner.java",
+            "com/aios/mediaintelligence/MediaBrokerClient.java",
+            "com/aios/mediaintelligence/MediaConstraintProbe.java",
+            "com/aios/mediaintelligence/MediaInferenceJobService.java",
+            "com/aios/mediaintelligence/MediaInputPolicy.java",
             "com/aios/mediaintelligence/MediaMetadataCommitter.java",
             "com/aios/mediaintelligence/MediaObserverService.java",
             "com/aios/mediaintelligence/MediaTiming.java",
             "com/aios/mediaintelligence/MediaTimingSummary.java",
             "com/aios/mediaintelligence/MediaWorkPolicy.java",
             "com/aios/mediaintelligence/MediaResult.java",
+            "com/aios/mediaintelligence/VideoAudioExtractor.java",
+            "com/aios/mediaintelligence/VideoStoryboard.java",
+            "com/aios/mediaintelligence/VideoStoryboardPlan.java",
+            "com/aios/mediaintelligence/VideoTranscript.java",
+            "com/aios/mediaintelligence/XmpProjection.java",
         )
     }
     into(generatedMain)
@@ -40,6 +49,8 @@ val stageMediaScanTest by tasks.registering(Sync::class) {
             "com/aios/mediaintelligence/MediaLivenessReconcilerTest.java",
             "com/aios/mediaintelligence/MediaTimingTest.java",
             "com/aios/mediaintelligence/MediaWorkPolicyTest.java",
+            "com/aios/mediaintelligence/VideoStoryboardPlanTest.java",
+            "com/aios/mediaintelligence/VideoTranscriptTest.java",
         )
     }
     into(generatedTest)
@@ -64,6 +75,7 @@ android {
             java.directories.add("../../services/contextintelligence/api")
             aidl.directories.add("../../services/contextintelligence/aidl")
             aidl.directories.add("../../services/mediaintelligence/aidl")
+            aidl.directories.add("../../services/modelbroker/aidl")
         }
         getByName("test") {
             java.directories.add(generatedTest.get().asFile.absolutePath)

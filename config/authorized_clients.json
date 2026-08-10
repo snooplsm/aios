@@ -17,7 +17,12 @@
     },
     {
       "package": "com.aios.mediaintelligence",
-      "capabilities": ["image_understanding", "video_understanding", "audio_understanding"],
+      "capabilities": [
+        "image_understanding",
+        "video_understanding",
+        "audio_understanding",
+        "streaming_asr"
+      ],
       "workloads": ["media_background"],
       "max_sessions": 1,
       "max_output_tokens": 1024,

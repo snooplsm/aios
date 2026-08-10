@@ -46,8 +46,12 @@ verification, crash recovery, and self-write suppression; complex containers
 remain index-only. Deferred videos are represented by twenty nearest-sync
 keyframes sampled across the clip and composed into one private 5×4 JPEG
 storyboard; the original video is never rewritten, and the storyboard is erased
-after its bounded vision request. Device/model policy and host validators are
-also present. Debug builds can export bounded, identifier-free photo/video timing
+after its bounded vision request. The complete primary audio track is separately
+decoded as streaming 16 kHz mono PCM and passed through the same bilingual
+Whisper runtime used for calls, producing private timestamped subtitles in a
+source-linked full-text index. Subtitles are never written into the video or XMP.
+Device/model policy and host validators are also present. Debug builds can export
+bounded, identifier-free photo/video timing
 evidence so ETAs are based on the actual Pixel, build, model, and runtime rather
 than desktop estimates.
 Media capture discovery is automatic and camera-independent: live MediaStore

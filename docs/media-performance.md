@@ -9,7 +9,8 @@ request), `p50_warm_image_latency_ms`, `p95_image_latency_ms`, and
 `p95_video_storyboard_inference_ms`. Those isolate the bounded Model Broker
 request. They do not include the five-second capture-settle window, queue time,
 content hashing, JPEG preparation, twenty-keyframe video extraction, storyboard
-composition, metadata commit, or time intentionally deferred while a call is
+composition, complete primary-audio decode/Whisper transcription, subtitle-index
+commit, or time intentionally deferred while a call is
 active or the phone is not charging at 80% or higher.
 
 Media Intelligence separately retains the latest 100 completed photo timings and
@@ -30,8 +31,9 @@ output. User builds do not expose the dump endpoint.
 1. Install a debuggable AIOS build with the exact model pack being evaluated.
 2. Reboot, leave the model cold, and take one isolated photo. Wait for indexing.
 3. Take at least nine more isolated photos, waiting for each to settle and index.
-4. While plugged in at 80% battery or higher, record a representative video and
-   wait for its deferred twenty-keyframe storyboard job to finish.
+4. While plugged in at 80% battery or higher, record representative English and
+   Spanish videos and wait for each deferred storyboard plus full-audio subtitle
+   job to finish.
 5. Repeat video capture until the timing group has a useful sample size. Do not
    place calls during the nominal run; separately verify that a call preempts the
    media job and leaves it retryable.

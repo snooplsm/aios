@@ -46,6 +46,10 @@ java_test_host {
         "src/com/aios/mediaintelligence/VideoStoryboardPlan.java",
         "tests/src/**/*.java",
     ],
+    exclude_srcs: [
+        // Android model parcelables are exercised by the mediascancheck unit lane.
+        "tests/src/com/aios/mediaintelligence/VideoTranscriptTest.java",
+    ],
     static_libs: ["junit"],
     test_suites: ["general-tests"],
 }

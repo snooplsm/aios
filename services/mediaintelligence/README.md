@@ -7,6 +7,12 @@ charging. Before work starts and once per second during model inference, the
 worker rechecks battery >=80%, active-call state, and thermal state. Unplugging,
 falling below the threshold, a new call, or severe thermal pressure cancels the
 background Broker session and returns the durable queue item to retryable state.
+
+Every video gets two source-read-only passes: twenty chronological keyframes in
+one private 5×4 storyboard for vision, and the complete primary audio track as
+streaming PCM16 mono through the bilingual Whisper provider. Final timestamped
+subtitle segments are stored in an app-private FTS index and cascade-delete with
+the source. Neither subtitle text nor raw audio is written into portable metadata.
 Immediate isolated photos do not require external power, but calls and severe
 thermal pressure preempt them too.
 

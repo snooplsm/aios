@@ -734,7 +734,6 @@ def validate_aosp_overlay(root: Path) -> None:
         "preview/callcontextcheck/src/main/AndroidManifest.xml",
         "preview/mediascancheck/build.gradle.kts",
         "preview/mediascancheck/src/main/AndroidManifest.xml",
-        "preview/mediascancheck/src/main/java/com/aios/mediaintelligence/MediaInferenceJobService.java",
         "services/contextintelligence/Android.bp",
         "services/contextintelligence/AndroidManifest.xml",
         "services/contextintelligence/aidl/com/aios/context/ICommunicationContext.aidl",
@@ -885,6 +884,8 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/mediaintelligence/src/com/aios/mediaintelligence/MediaInputPolicy.java",
         "services/mediaintelligence/src/com/aios/mediaintelligence/VideoStoryboardPlan.java",
         "services/mediaintelligence/src/com/aios/mediaintelligence/VideoStoryboard.java",
+        "services/mediaintelligence/src/com/aios/mediaintelligence/VideoAudioExtractor.java",
+        "services/mediaintelligence/src/com/aios/mediaintelligence/VideoTranscript.java",
         "services/mediaintelligence/src/com/aios/mediaintelligence/XmpProjection.java",
         "services/mediaintelligence/src/com/aios/mediaintelligence/MediaBrokerClient.java",
         "services/mediaintelligence/src/com/aios/mediaintelligence/MediaContent.java",
@@ -898,6 +899,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/mediaintelligence/tests/src/com/aios/mediaintelligence/MediaWorkPolicyTest.java",
         "services/mediaintelligence/tests/src/com/aios/mediaintelligence/MediaInputPolicyTest.java",
         "services/mediaintelligence/tests/src/com/aios/mediaintelligence/VideoStoryboardPlanTest.java",
+        "services/mediaintelligence/tests/src/com/aios/mediaintelligence/VideoTranscriptTest.java",
         "services/mediaintelligence/tests/src/com/aios/mediaintelligence/MediaTimingTest.java",
         "services/mediaintelligence/tests/src/com/aios/mediaintelligence/MediaGenerationReconcilerTest.java",
         "services/mediaintelligence/tests/src/com/aios/mediaintelligence/MediaLivenessReconcilerTest.java",
@@ -1533,6 +1535,8 @@ def validate_aosp_overlay(root: Path) -> None:
     require('"image_understanding".equals(capability)' in session_controller
             and '"video_understanding".equals(capability)' in session_controller,
             "broker media input must admit explicit image and storyboard-video capabilities")
+    require('"media".equals(format.direction)' in session_controller,
+            "broker audio input must admit the background video timeline direction")
 
     runtime_api = (root / "services" / "runtimeapi" / "aidl" / "com" / "aios" /
                    "runtime" / "IAiosRuntimeProvider.aidl").read_text(encoding="utf-8")
@@ -1679,10 +1683,13 @@ def validate_aosp_overlay(root: Path) -> None:
             and "packages.size != 1" in whisper_source,
             "ASR runtime provider must admit only the exact broker UID")
     require("PriorityBlockingQueue" in whisper_source
-            and 'request.workload == "call_rx"' in whisper_source
+            and '"call_rx" -> 3' in whisper_source
+            and 'request.workload == "media_background"' in whisper_source
             and "MAX_PENDING_WINDOWS = 4" in whisper_source
+            and 'endOfTurn = session.isMedia' in whisper_source
+            and "Thread.sleep(10L)" in whisper_source
             and '"ASR fell behind real time"' in whisper_source,
-            "ASR runtime must prioritize incoming windows and bound lag")
+            "ASR runtime must prioritize incoming windows and bound live/offline lag")
     require("TRIM_MEMORY_RUNNING_LOW" in whisper_source
             and "synchronized(modelLock)" in whisper_source
             and "closeModelLocked()" in whisper_source,
@@ -2207,10 +2214,22 @@ def validate_aosp_overlay(root: Path) -> None:
     job_source = (media_source_root / "MediaInferenceJobService.java").read_text(
         encoding="utf-8"
     )
+    media_preview_build = (root / "preview" / "mediascancheck" /
+                           "build.gradle.kts").read_text(encoding="utf-8")
+    require("MediaInferenceJobService.java" in media_preview_build
+            and "VideoAudioExtractor.java" in media_preview_build
+            and "VideoTranscript.java" in media_preview_build
+            and not (root / "preview" / "mediascancheck" / "src" / "main" / "java" /
+                     "com" / "aios" / "mediaintelligence" /
+                     "MediaInferenceJobService.java").exists(),
+            "media preview must compile the real inference and video-ASR implementation")
     require("setRequiresCharging(true)" in job_source,
             "deferred job must carry an OS charging constraint")
-    require("telecom.isInCall()" in job_source,
-            "media jobs must yield while a call is active")
+    require("telecom.isInCall()" in job_source
+            and "checkSelfPermission(Manifest.permission.READ_PHONE_STATE)"
+            in job_source
+            and "catch (SecurityException denied)" in job_source,
+            "media jobs must fail closed when call state is active or unavailable")
     require("store.claimNext(workClass)" in job_source,
             "media worker must atomically claim persisted work")
     require("MediaContent.sha256" in job_source
@@ -2237,6 +2256,13 @@ def validate_aosp_overlay(root: Path) -> None:
             and "prepared.submittedMimeType" in media_broker_source
             and "VideoStoryboard.isStoryboard(temporary)" in media_broker_source,
             "media Broker client must submit explicit inputs and erase private storyboards")
+    require('request.capability = "streaming_asr"' in media_broker_source
+            and 'request.workload = "media_background"' in media_broker_source
+            and 'format.direction = "media"' in media_broker_source
+            and "VideoAudioExtractor.stream" in media_broker_source
+            and "VideoTranscript.fromInference" in media_broker_source
+            and "transcribeVideoAudio" in job_source,
+            "videos must stream their complete primary audio through background ASR")
 
     media_input_policy = (media_source_root / "MediaInputPolicy.java").read_text(
         encoding="utf-8"
@@ -2279,15 +2305,20 @@ def validate_aosp_overlay(root: Path) -> None:
     require("own_mutations" in media_store_source
             and "recoverInterruptedWork" in media_store_source,
             "media database must suppress self-writes and recover interrupted jobs")
-    require("VERSION = 5" in media_store_source
+    require("VERSION = 6" in media_store_source
             and "oldVersion < 2" in media_store_source
             and "oldVersion < 3" in media_store_source
             and "oldVersion < 4" in media_store_source
             and "oldVersion < 5" in media_store_source
+            and "oldVersion < 6" in media_store_source
             and "CREATE TABLE timing_samples" in media_store_source
             and "CREATE TABLE media_scan_state" in media_store_source
             and "CREATE TABLE result_digests" in media_store_source
             and "CREATE TABLE context_associations" in media_store_source
+            and "CREATE TABLE video_subtitles" in media_store_source
+            and "CREATE VIRTUAL TABLE video_subtitle_fts" in media_store_source
+            and "video_subtitles_ad BEFORE DELETE" in media_store_source
+            and "audio_status" in media_store_source
             and "media_store_version" in media_store_source
             and "cannot durably enqueue media job" in media_store_source
             and "boolean purgeVolume" in media_store_source
@@ -2295,6 +2326,23 @@ def validate_aosp_overlay(root: Path) -> None:
             and "MediaTimingSummary.MAX_SAMPLES_PER_KIND" in media_store_source
             and "timing_samples" in media_store_source.partition("commitResult(")[2],
             "media database must explicitly migrate timing and durable scan state")
+    video_audio_source = (media_source_root / "VideoAudioExtractor.java").read_text(
+        encoding="utf-8")
+    video_transcript_source = (media_source_root / "VideoTranscript.java").read_text(
+        encoding="utf-8")
+    video_transcript_test = (root / "services" / "mediaintelligence" / "tests" /
+                             "src" / "com" / "aios" / "mediaintelligence" /
+                             "VideoTranscriptTest.java").read_text(encoding="utf-8")
+    require("MediaExtractor" in video_audio_source
+            and "MediaCodec" in video_audio_source
+            and "OUTPUT_SAMPLE_RATE_HZ = 16_000" in video_audio_source
+            and "writeSilence" in video_audio_source
+            and "requireAvailable(constraints)" in video_audio_source
+            and "MAX_TIMELINE_MILLIS" in video_transcript_source
+            and "MAX_TRANSCRIPT_CHARS" in video_transcript_source
+            and "keepsOnlyFinalTimestampedEnglishAndSpanishSegments"
+            in video_transcript_test,
+            "video ASR must be full-track, timestamped, bilingual, bounded, and preemptible")
     require("state != null && store.purgeVolume(volumeName)" in generation_scanner,
             "MediaProvider identity changes must purge stale URI-keyed media results")
 
@@ -2453,6 +2501,9 @@ def validate_authorized_clients(root: Path) -> None:
     require(by_package["com.aios.mediaintelligence"]["workloads"]
             == ["media_background"],
             "Media Intelligence must remain background-only")
+    require("streaming_asr" in
+            by_package["com.aios.mediaintelligence"]["capabilities"],
+            "Media Intelligence needs background ASR for complete video subtitles")
     require(by_package["com.aios.callintelligence"]["can_control_call_state"] is True,
             "Call Intelligence must control the call-active gate")
     require(by_package["com.aios.mediaintelligence"]["can_control_call_state"] is False,
@@ -2874,6 +2925,7 @@ def validate_release_configuration(root: Path) -> None:
         "media.blocked_below_80_percent",
         "media.original_preserved",
         "media.video_storyboard_indexed",
+        "media.video_subtitles_indexed",
         "media.pixel9a_latency_profile",
         "model.runtime_dependency_lock_verified",
         "model.runtime_identity_enforced",

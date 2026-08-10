@@ -58,9 +58,25 @@ or fails. Boot recovery and the next video attempt also erase leftovers from a
 process crash. The authoritative record is still bound to the original video's
 MediaStore ID, generation, and SHA-256 digest.
 
-The `media.video_storyboard_indexed` physical-device gate uses a known short
-video and verifies chronological coverage, a valid English and Spanish result,
-an unchanged generation and digest, an index-only commit, and no remaining
+The worker also selects the primary/default audio track and decodes its complete
+timeline without remuxing the source. Decoded buffers are downmixed and resampled
+to streaming PCM16 mono at 16 kHz, with presentation-time gaps represented as
+silence so subtitle offsets remain aligned to the video. The existing
+English/Spanish Whisper provider consumes four-second bounded windows under the
+lower-priority `media_background` workload. Only final segments are committed,
+with language, start/end milliseconds, bounded text, and confidence. A missing
+audio track and an audio track with no detected speech are distinct states.
+
+Subtitle rows live in an app-private FTS4 external-content index keyed by the
+media job. Source deletion, trash/volume reconciliation, or generation
+replacement deletes both rows and search postings by foreign-key cascade. Full
+subtitle text is never added to the portable XMP packet. Any future SRT/VTT
+export must be an explicit owner action rather than an indexing side effect.
+
+The `media.video_storyboard_indexed` and `media.video_subtitles_indexed`
+physical-device gates use known short English and Spanish videos and verify
+chronological keyframe coverage, complete timestamped subtitles from the primary
+audio track, an unchanged generation and digest, an index-only commit, and no remaining
 `aios_video_storyboard_*.jpg` cache file. Repeat while unplugging, dropping below
 80%, starting a call, and using an undecodable video; work must respectively
 retry or fail without modifying the source.

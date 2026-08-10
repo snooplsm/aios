@@ -1,5 +1,6 @@
 package com.aios.mediaintelligence;
 
+import android.Manifest;
 import android.app.job.JobInfo;
 import android.app.job.JobParameters;
 import android.app.job.JobScheduler;
@@ -8,6 +9,7 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.pm.PackageManager;
 import android.os.BatteryManager;
 import android.os.PersistableBundle;
 import android.os.PowerManager;
@@ -127,6 +129,22 @@ public final class MediaInferenceJobService extends JobService {
                 reschedule = true;
                 return;
             }
+            VideoTranscript transcript = VideoTranscript.notApplicable();
+            long totalModelRequestMillis = brokerResult.modelRequestMillis;
+            if (MediaInputPolicy.isVideo(job.mimeType)) {
+                MediaBrokerClient.AudioResult audioResult = activeClient.transcribeVideoAudio(
+                        job, () -> currentBlockReason(workClass));
+                if (audioResult.transcript == null) {
+                    Log.i(TAG, "video ASR will retry: " + audioResult.retryReason);
+                    store.markPending(job.id);
+                    job = null;
+                    reschedule = true;
+                    return;
+                }
+                transcript = audioResult.transcript;
+                totalModelRequestMillis = Math.addExact(
+                        totalModelRequestMillis, audioResult.modelRequestMillis);
+            }
             blocked = currentBlockReason(workClass);
             if (blocked != null) {
                 Log.i(TAG, "completed media inference will retry: " + blocked);
@@ -160,7 +178,7 @@ public final class MediaInferenceJobService extends JobService {
                     completedAtEpochMillis,
                     processingMillis,
                     brokerResult.inputPreparationMillis,
-                    brokerResult.modelRequestMillis);
+                    totalModelRequestMillis);
             String portableXmp = XmpProjection.build(
                     result.caption,
                     result.tags,
@@ -177,7 +195,8 @@ public final class MediaInferenceJobService extends JobService {
                     brokerResult.inference.modelDigest,
                     completedAtEpochMillis,
                     portableXmp,
-                    timing);
+                    timing,
+                    transcript);
             MediaContextAssociationService.requestReconcile(this);
             Log.i(TAG, "indexed " + timing.mediaKind
                     + " observed_to_index_ms=" + timing.observedToIndexMillis
@@ -264,8 +283,21 @@ public final class MediaInferenceJobService extends JobService {
     }
 
     private boolean callIsActive() {
+        if (checkSelfPermission(Manifest.permission.READ_PHONE_STATE)
+                != PackageManager.PERMISSION_GRANTED) {
+            Log.w(TAG, "READ_PHONE_STATE unavailable; blocking background media inference");
+            return true;
+        }
         TelecomManager telecom = getSystemService(TelecomManager.class);
-        return telecom != null && telecom.isInCall();
+        if (telecom == null) {
+            return true;
+        }
+        try {
+            return telecom.isInCall();
+        } catch (SecurityException denied) {
+            Log.w(TAG, "Phone state unavailable; blocking background media inference", denied);
+            return true;
+        }
     }
 
     private boolean thermalPressureIsHigh() {

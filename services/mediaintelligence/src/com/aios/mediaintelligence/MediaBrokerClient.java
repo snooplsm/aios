@@ -4,6 +4,7 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.ServiceConnection;
+import android.media.AudioFormat;
 import android.net.Uri;
 import android.os.IBinder;
 import android.os.ParcelFileDescriptor;
@@ -12,6 +13,7 @@ import android.os.SystemClock;
 import android.util.Log;
 
 import com.aios.model.GenerationChunk;
+import com.aios.model.AudioStreamFormat;
 import com.aios.model.IAiosModelService;
 import com.aios.model.IModelCallback;
 import com.aios.model.InferenceResult;
@@ -20,6 +22,9 @@ import com.aios.model.ModelRequest;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.OutputStream;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -55,6 +60,24 @@ final class MediaBrokerClient implements AutoCloseable {
             this.errorCode = errorCode;
             this.retryReason = retryReason;
             this.inputPreparationMillis = inputPreparationMillis;
+            this.modelRequestMillis = modelRequestMillis;
+        }
+    }
+
+    static final class AudioResult {
+        final VideoTranscript transcript;
+        final int errorCode;
+        final String retryReason;
+        final long modelRequestMillis;
+
+        AudioResult(
+                VideoTranscript transcript,
+                int errorCode,
+                String retryReason,
+                long modelRequestMillis) {
+            this.transcript = transcript;
+            this.errorCode = errorCode;
+            this.retryReason = retryReason;
             this.modelRequestMillis = modelRequestMillis;
         }
     }
@@ -102,11 +125,7 @@ final class MediaBrokerClient implements AutoCloseable {
             if (blocked != null) {
                 return new Result(null, ERROR_CONSTRAINT_BLOCKED, blocked);
             }
-            Intent intent = new Intent("com.aios.model.MODEL_SERVICE")
-                    .setPackage("com.aios.modelbroker");
-            bound = context.bindService(intent, connection, Context.BIND_AUTO_CREATE);
-            if (!bound || !connected.await(BIND_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-                    || service == null) {
+            if (!ensureConnected()) {
                 return new Result(
                         null, ERROR_BROKER_UNAVAILABLE, "model_broker_unavailable");
             }
@@ -180,6 +199,7 @@ final class MediaBrokerClient implements AutoCloseable {
                             Math.min(CONSTRAINT_RECHECK_MILLIS, remaining),
                             TimeUnit.MILLISECONDS);
                 }
+                sessionId = -1L;
                 return new Result(
                         holder.result,
                         holder.errorCode,
@@ -191,6 +211,167 @@ final class MediaBrokerClient implements AutoCloseable {
                 throw new IOException("Model Broker binder failed", error);
             }
         }
+    }
+
+    AudioResult transcribeVideoAudio(
+            MediaJobStore.PendingJob job,
+            MediaConstraintProbe constraints)
+            throws IOException, InterruptedException {
+        if (!MediaInputPolicy.isVideo(job.mimeType)) {
+            return new AudioResult(VideoTranscript.notApplicable(), 0, null, 0L);
+        }
+        String blocked = constraints.blockedReason();
+        if (blocked != null) return new AudioResult(null, ERROR_CONSTRAINT_BLOCKED, blocked, 0L);
+        if (!ensureConnected()) {
+            return new AudioResult(
+                    null, ERROR_BROKER_UNAVAILABLE, "model_broker_unavailable", 0L);
+        }
+
+        CountDownLatch completed = new CountDownLatch(1);
+        Holder holder = new Holder();
+        IModelCallback callback = new IModelCallback.Stub() {
+            @Override
+            public void onChunk(GenerationChunk chunk) {
+                if (chunk == null || !chunk.isFinal) return;
+                synchronized (holder.chunks) {
+                    int length = chunk.text == null ? 0 : chunk.text.length();
+                    if (holder.chunks.size() >= VideoTranscript.MAX_SEGMENTS
+                            || length > VideoTranscript.MAX_SEGMENT_CHARS
+                            || holder.chunkChars > VideoTranscript.MAX_TRANSCRIPT_CHARS - length) {
+                        holder.invalidChunks = true;
+                    } else {
+                        holder.chunks.add(chunk);
+                        holder.chunkChars += length;
+                    }
+                }
+            }
+
+            @Override
+            public void onCompleted(InferenceResult value) {
+                holder.result = value;
+                completed.countDown();
+            }
+
+            @Override
+            public void onError(int code, String message) {
+                holder.errorCode = code;
+                completed.countDown();
+            }
+        };
+
+        ModelRequest request = new ModelRequest();
+        request.requestId = "video-asr:" + job.id + ":" + job.generation;
+        request.capability = "streaming_asr";
+        request.workload = "media_background";
+        request.language = "und";
+        request.maxOutputTokens = 0;
+        request.deadlineElapsedRealtimeMillis = SystemClock.elapsedRealtime() + 30_000L;
+        request.allowFallback = true;
+
+        ParcelFileDescriptor[] pipe = null;
+        long started = SystemClock.elapsedRealtime();
+        VideoAudioExtractor.Result extraction;
+        try {
+            pipe = ParcelFileDescriptor.createPipe();
+            sessionId = service.createSession(request, callback);
+            if (sessionId <= 0L) {
+                closePipe(pipe);
+                return new AudioResult(
+                        null,
+                        holder.errorCode == 0 ? ERROR_BROKER_UNAVAILABLE : holder.errorCode,
+                        "video_asr_session_rejected",
+                        0L);
+            }
+            AudioStreamFormat format = new AudioStreamFormat();
+            format.sampleRateHz = VideoAudioExtractor.OUTPUT_SAMPLE_RATE_HZ;
+            format.channelCount = 1;
+            format.pcmEncoding = AudioFormat.ENCODING_PCM_16BIT;
+            format.direction = "media";
+            service.submitAudio(sessionId, pipe[0], format, false);
+            pipe[0].close();
+            pipe[0] = null;
+            try (OutputStream sink =
+                         new ParcelFileDescriptor.AutoCloseOutputStream(pipe[1])) {
+                pipe[1] = null;
+                extraction = VideoAudioExtractor.stream(
+                        context, Uri.parse(job.uri), sink, constraints);
+            }
+        } catch (VideoStoryboard.BlockedException error) {
+            cancelActiveSession();
+            closePipe(pipe);
+            return new AudioResult(null, ERROR_CONSTRAINT_BLOCKED, error.reason, 0L);
+        } catch (RemoteException error) {
+            cancelActiveSession();
+            closePipe(pipe);
+            throw new IOException("Model Broker video ASR binder failed", error);
+        } catch (IOException | InterruptedException | RuntimeException error) {
+            cancelActiveSession();
+            closePipe(pipe);
+            throw error;
+        }
+
+        long timeoutAt = SystemClock.elapsedRealtime()
+                + TimeUnit.MINUTES.toMillis(INFERENCE_TIMEOUT_MINUTES);
+        while (completed.getCount() != 0L) {
+            blocked = constraints.blockedReason();
+            if (blocked != null) {
+                cancelActiveSession();
+                return new AudioResult(null, ERROR_CONSTRAINT_BLOCKED, blocked, 0L);
+            }
+            long remaining = timeoutAt - SystemClock.elapsedRealtime();
+            if (remaining <= 0L) {
+                cancelActiveSession();
+                return new AudioResult(
+                        null, ERROR_INFERENCE_TIMEOUT, "video_asr_timeout", 0L);
+            }
+            completed.await(
+                    Math.min(CONSTRAINT_RECHECK_MILLIS, remaining), TimeUnit.MILLISECONDS);
+        }
+        sessionId = -1L;
+        if (holder.result == null) {
+            return new AudioResult(
+                    null,
+                    holder.errorCode,
+                    "video_asr_runtime_error",
+                    MediaTiming.elapsedDuration(started, SystemClock.elapsedRealtime()));
+        }
+        if (!extraction.hasAudio) {
+            return new AudioResult(
+                    VideoTranscript.noAudio(),
+                    0,
+                    null,
+                    MediaTiming.elapsedDuration(started, SystemClock.elapsedRealtime()));
+        }
+        List<GenerationChunk> chunks;
+        synchronized (holder.chunks) {
+            chunks = List.copyOf(holder.chunks);
+            if (holder.invalidChunks) {
+                throw new VideoStoryboard.InvalidVideoException(
+                        "video ASR exceeded the private subtitle bound");
+            }
+        }
+        try {
+            return new AudioResult(
+                    VideoTranscript.fromInference(
+                            holder.result, chunks, extraction.timelineOffsetMillis),
+                    0,
+                    null,
+                    MediaTiming.elapsedDuration(started, SystemClock.elapsedRealtime()));
+        } catch (IllegalArgumentException error) {
+            throw new VideoStoryboard.InvalidVideoException(
+                    "video ASR returned invalid timestamped subtitles");
+        }
+    }
+
+    private boolean ensureConnected() throws InterruptedException {
+        if (service != null) return true;
+        if (!bound) {
+            Intent intent = new Intent("com.aios.model.MODEL_SERVICE")
+                    .setPackage("com.aios.modelbroker");
+            bound = context.bindService(intent, connection, Context.BIND_AUTO_CREATE);
+        }
+        return bound && connected.await(BIND_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                && service != null;
     }
 
     private static final class PreparedMedia implements AutoCloseable {
@@ -283,5 +464,20 @@ final class MediaBrokerClient implements AutoCloseable {
     private static final class Holder {
         volatile InferenceResult result;
         volatile int errorCode;
+        final List<GenerationChunk> chunks = new ArrayList<>();
+        int chunkChars;
+        boolean invalidChunks;
+    }
+
+    private static void closePipe(ParcelFileDescriptor[] pipe) {
+        if (pipe == null) return;
+        for (ParcelFileDescriptor descriptor : pipe) {
+            if (descriptor == null) continue;
+            try {
+                descriptor.close();
+            } catch (IOException ignored) {
+                // Best effort after stream setup or cancellation failure.
+            }
+        }
     }
 }

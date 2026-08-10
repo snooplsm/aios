@@ -1,6 +1,6 @@
-# Call ASR runtime
+# ASR runtime
 
-Call transcription uses a dedicated whisper.cpp provider, not Gemma. The
+Call and deferred video transcription use a dedicated whisper.cpp provider, not Gemma. The
 provider is pinned to whisper.cpp `v1.9.2` at
 `306c88f4d1286aec1bf96e544632897886af5501` and builds only `arm64-v8a` with
 NDK `28.2.13676358`. JNI and the model execute in the provider's own process.
@@ -52,3 +52,14 @@ Device gates must measure partial/final latency, endpoint misses, real-time
 factor, WER for English and Spanish telephony cohorts, thermal throttling, and
 queue lag. Tune windowing only from recorded evidence; do not silently drop
 incoming audio to improve benchmark numbers.
+
+## Deferred video mode
+
+Media Intelligence may request the same `streaming_asr` capability only with the
+`media_background` workload and `media` direction. The broker gives that lease
+the lowest priority and cancels it when any call becomes active. Unlike a live
+call stream, an offline video reader applies bounded backpressure instead of
+failing merely because decoding can supply PCM faster than real time. Each
+speech-bearing four-second window is final, which bounds subtitle size and gives
+stable video-timeline offsets. The worker streams the complete primary audio
+track; it does not sample audio alongside the twenty visual keyframes.

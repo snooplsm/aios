@@ -252,7 +252,8 @@ final class SessionController implements AutoCloseable {
                 && format.sampleRateHz != 48_000)
                 || format.channelCount != 1 || format.pcmEncoding != 2
                 || !("downlink".equals(format.direction)
-                || "uplink".equals(format.direction))) {
+                || "uplink".equals(format.direction)
+                || "media".equals(format.direction))) {
             closeDescriptor(pcmStream);
             failOwned(ownerUid, sessionId, ModelBrokerService.ERROR_INVALID_REQUEST,
                     "invalid PCM stream format");

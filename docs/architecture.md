@@ -162,17 +162,27 @@ or a drop below 80% cancels the background Broker session and leaves the durable
 job pending for retry. Immediate photos ignore charging state but remain
 preemptible by calls and thermal pressure.
 
-A video is not submitted to a model as an unbounded stream. After all deferred
-constraints pass, Media Intelligence seeks the nearest sync frame at the
-midpoint of each of twenty equal-duration segments. It scales each frame to a
-maximum 224-pixel edge, lays the frames chronologically into one 5×4 private
-JPEG storyboard, and submits that single image using the explicit
-`video_understanding` capability. Constraints are checked between frame seeks
-and throughout inference. The storyboard is erased when the request closes;
-crash leftovers are removed at boot and before the next video attempt. The
-source video is read-only and remains index-only. Undecodable videos fail
-permanently instead of consuming an infinite retry loop. The prompt tells the
-model it has sampled frames and forbids claims about unheard audio.
+A video has separate bounded visual and audio passes. Media Intelligence seeks
+the nearest sync frame at the midpoint of each of twenty equal-duration
+segments, scales each frame to a maximum 224-pixel edge, lays the frames
+chronologically into one 5×4 private JPEG storyboard, and submits that single
+image using `video_understanding`. The visual prompt says it has sampled frames
+and cannot infer unheard audio.
+
+The complete primary audio track is decoded read-only with `MediaExtractor` and
+`MediaCodec`, downmixed and resampled as streaming 16 kHz mono PCM, then sent to
+the existing Whisper provider as a `media_background` `streaming_asr` lease.
+Four-second speech windows become final English/Spanish subtitle segments with
+source-timeline timestamps. PCM, decoded frames, and the storyboard are bounded
+or streamed rather than accumulated for the clip. Calls preempt both passes;
+charging, 80% battery, call, and thermal constraints are checked throughout.
+The private subtitle rows are FTS-indexed and cascade-delete with the source
+video. They are never projected to XMP or silently exported as SRT/VTT.
+
+The storyboard is erased when its request closes; crash leftovers are removed
+at boot and before the next video attempt. The source video remains read-only
+and index-only. Undecodable video or primary audio fails permanently instead of
+consuming an infinite retry loop.
 
 Metadata writes are two-phase:
 
@@ -247,6 +257,8 @@ events contain no transcript or recording.
   Broker domain.
 - Call artifacts: credential-encrypted, app-private storage.
 - Media intelligence index: credential-encrypted system storage.
+- Video subtitles: source-linked rows and a private full-text index inside Media
+  Intelligence storage; never portable metadata.
 - Communication context index: credential-encrypted, opaque conversation keys,
   revisioned source documents, and deletion tombstones.
 - Portable media metadata: deliberately small XMP projection, never raw prompts,

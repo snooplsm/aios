@@ -83,7 +83,14 @@ class WhisperRuntimeService : Service() {
         @Volatile var reader: Thread? = null
 
         val priority: Int
-            get() = if (request.workload == "call_rx") 3 else 2
+            get() = when (request.workload) {
+                "call_rx" -> 3
+                "call_tx" -> 2
+                else -> 0
+            }
+
+        val isMedia: Boolean
+            get() = request.workload == "media_background"
     }
 
     private class DecodeWindow(
@@ -304,9 +311,11 @@ class WhisperRuntimeService : Service() {
                                         session,
                                         pcm16ToFloat(window, windowFilled),
                                         windowStartSamples,
-                                        endOfTurn = false,
+                                        // Offline video windows are independent final subtitle
+                                        // segments. This bounds accumulated text and replay size.
+                                        endOfTurn = session.isMedia,
                                     )
-                                    turnHasQueuedWindow = true
+                                    turnHasQueuedWindow = !session.isMedia
                                 }
                                 windowFilled = 0
                                 windowHasSpeech = false
@@ -424,9 +433,26 @@ class WhisperRuntimeService : Service() {
         endOfTurn: Boolean,
         endOfStream: Boolean,
     ) {
+        if (session.isMedia) {
+            while (session.pendingWindows.get() >= MAX_PENDING_WINDOWS
+                && !session.cancelled.get() && !session.completed.get() && !stopping) {
+                try {
+                    Thread.sleep(10L)
+                } catch (_: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                    cancelInternal(session.id)
+                    return
+                }
+            }
+            if (session.cancelled.get() || session.completed.get() || stopping) return
+        }
         if (session.pendingWindows.incrementAndGet() > MAX_PENDING_WINDOWS) {
             session.pendingWindows.decrementAndGet()
-            fail(session, ERROR_BUSY, "ASR fell behind real time")
+            fail(session, ERROR_BUSY, if (session.isMedia) {
+                "offline ASR queue admission failed"
+            } else {
+                "ASR fell behind real time"
+            })
             return
         }
         decodeQueue.put(
@@ -637,12 +663,13 @@ class WhisperRuntimeService : Service() {
             && request.requestId.isNotEmpty()
             && request.capability == "streaming_asr"
             && request.language == "und"
-            && request.workload in setOf("call_rx", "call_tx")
+            && request.workload in setOf("call_rx", "call_tx", "media_background")
     }
 
     private fun directionMatches(workload: String, direction: String?): Boolean =
         (workload == "call_rx" && direction == "downlink")
             || (workload == "call_tx" && direction == "uplink")
+            || (workload == "media_background" && direction == "media")
 
     private fun verifiedModelFile(artifact: RuntimeArtifact): File {
         val directory = MODEL_DIRECTORY.canonicalFile
