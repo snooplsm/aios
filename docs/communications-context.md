@@ -153,6 +153,15 @@ version-2 database migration folds any existing per-call tombstones into that
 watermark without dropping current entries. The version-3 migration does the
 same for legacy SMS/MMS tombstones before provider reconciliation begins.
 
+The public-SDK `preview:callcontextcheck` lane stages the complete production
+Communication Context service, API parcelables, AIDL, tests, resources, and real
+manifest. It also verifies that every private app-data domain is excluded from
+cloud backup and device transfer: opaque keys, source revisions, tombstones, and
+retrieval documents are meaningful only for the originating installation. The
+lane catches Android API/component/resource drift but does not prove the
+platform signature grant, contacts provider behavior, or physical-device
+lifecycle gates.
+
 ## Still required before daily use
 
 - compile the AOSP-only MMS source with Soong and carrier-test send, download,

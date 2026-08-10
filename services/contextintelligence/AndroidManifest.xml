@@ -11,8 +11,10 @@
 
     <application
         android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
         android:directBootAware="false"
         android:hasCode="true"
+        android:icon="@drawable/ic_context_intelligence"
         android:label="AIOS Communication Context">
         <service
             android:name=".CommunicationContextService"

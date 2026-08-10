@@ -16,12 +16,13 @@ source set also runs the Android-free dialer policy state machines. It must not
 be installed. The authoritative product build and host-test target remain the
 platform-signed Soong modules inside the locked AOSP tree.
 
-`callcontextcheck` stages the public-SDK Call Intelligence ASR, classifier,
-receptionist, and context clients, the communication-context service/store and
-API, and their pure tests into generated build directories. It compiles both
-Binder sides, runs policy, revision, formatter, and accumulator tests, assembles,
-and lints without maintaining duplicate production source files.
-It is a compile check, not a replacement for the platform Soong or device gates.
+`callcontextcheck` stages every Communication Context service/API source, AIDL
+contract, pure test, production resource, and the real application manifest. It
+compiles, tests, assembles, and lints the complete opaque-identity, contact-
+membership, revision/tombstone, retrieval, retention, and boot-cleanup boundary.
+Call-side context clients are covered by the full `callservicecheck` lane below,
+so this module has no duplicate partial Call Intelligence source list. It is a
+compile check, not a replacement for the platform Soong or device gates.
 
 `callservicecheck` stages every production Call Intelligence Java source and all
 three Binder APIs, then compiles, tests, assembles, and lints the complete service.

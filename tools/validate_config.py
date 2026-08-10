@@ -802,7 +802,6 @@ def validate_aosp_overlay(root: Path) -> None:
         "docs/mms-transport.md",
         "preview/messagingcheck/build.gradle.kts",
         "preview/callcontextcheck/build.gradle.kts",
-        "preview/callcontextcheck/src/main/AndroidManifest.xml",
         "preview/callservicecheck/build.gradle.kts",
         "preview/callservicecheck/src/main/java/com/aios/callintelligence/CallProductProperties.java",
         "preview/modelservicecheck/build.gradle.kts",
@@ -810,6 +809,8 @@ def validate_aosp_overlay(root: Path) -> None:
         "preview/mediascancheck/build.gradle.kts",
         "services/contextintelligence/Android.bp",
         "services/contextintelligence/AndroidManifest.xml",
+        "services/contextintelligence/res/drawable/ic_context_intelligence.xml",
+        "services/contextintelligence/res/xml/data_extraction_rules.xml",
         "services/contextintelligence/aidl/com/aios/context/ICommunicationContext.aidl",
         "services/contextintelligence/aidl/com/aios/context/ConversationIdentity.aidl",
         "services/contextintelligence/aidl/com/aios/context/ContextDocument.aidl",
@@ -2147,6 +2148,14 @@ def validate_aosp_overlay(root: Path) -> None:
     call_context_check_build = (
         root / "preview" / "callcontextcheck" / "build.gradle.kts"
     ).read_text(encoding="utf-8")
+    context_bp = (root / "services" / "contextintelligence" /
+                  "Android.bp").read_text(encoding="utf-8")
+    context_manifest = (root / "services" / "contextintelligence" /
+                        "AndroidManifest.xml").read_text(encoding="utf-8")
+    context_extraction_rules = (
+        root / "services" / "contextintelligence" / "res" / "xml" /
+        "data_extraction_rules.xml"
+    ).read_text(encoding="utf-8")
     telecom_presence = (call_source_root / "TelecomCallPresenceTracker.java").read_text(
         encoding="utf-8")
     require("token.linkToDeath" in call_service
@@ -2216,21 +2225,35 @@ def validate_aosp_overlay(root: Path) -> None:
             and "rejectsUnknownRowsAndEscapesJsonText"
             in prior_context_formatter_test,
             "call-context bounds and prompt serialization must remain host-tested")
-    require("AsrBrokerClient.java" in call_context_check_build
-            and "CallClassifierClient.java" in call_context_check_build
-            and "CallCommunicationContextClient.java" in call_context_check_build
-            and "ReceptionistDialogueClient.java" in call_context_check_build
-            and "../../services/contextintelligence/api" in call_context_check_build
-            and "../../services/contextintelligence/aidl" in call_context_check_build
-            and "../../services/contextintelligence/src" in call_context_check_build
-            and "../../services/modelbroker/aidl" in call_context_check_build
-            and "ContextPolicyTest.java" in call_context_check_build
-            and "RevisionGateTest.java" in call_context_check_build
-            and "CallContextAccumulatorTest.java" in call_context_check_build
-            and "CallRequestIdentityTracker.java" in call_context_check_build
-            and "CallRequestIdentityTrackerTest.java" in call_context_check_build
-            and "PriorContextFormatterTest.java" in call_context_check_build,
-            "call-model/context Binder clients and bounds tests need a public-SDK compile check")
+    context_extraction_domains = {
+        "root", "file", "database", "sharedpref", "external", "device_root",
+        "device_file", "device_database", "device_sharedpref",
+    }
+    require('include("com/aios/context/**/*.java")' in call_context_check_build
+            and 'include("com/aios/contextintelligence/**/*.java")'
+            in call_context_check_build
+            and 'include("com/aios/contextintelligence/**/*Test.java")'
+            in call_context_check_build
+            and 'manifest.srcFile("../../services/contextintelligence/AndroidManifest.xml")'
+            in call_context_check_build
+            and 'res.directories.add("../../services/contextintelligence/res")'
+            in call_context_check_build
+            and '../../services/contextintelligence/aidl' in call_context_check_build
+            and '../../services/callintelligence' not in call_context_check_build
+            and '../../services/modelbroker/aidl' not in call_context_check_build
+            and 'resource_dirs: ["res"]' in context_bp
+            and 'android:dataExtractionRules="@xml/data_extraction_rules"'
+            in context_manifest
+            and 'android:icon="@drawable/ic_context_intelligence"'
+            in context_manifest
+            and '.CommunicationContextService' in context_manifest
+            and '.ContextBootReceiver' in context_manifest
+            and all(context_extraction_rules.count(
+                f'<exclude domain="{domain}" path="." />') == 2
+                    for domain in context_extraction_domains)
+            and not (root / "preview" / "callcontextcheck" / "src" / "main" /
+                     "AndroidManifest.xml").exists(),
+            "Communication Context needs a complete production-service compile check")
     require('"downlink".equals(direction)' in call_service
             and ".onRiskChanged(" in call_service
             and "appendAssessment(" in call_service,
