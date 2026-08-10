@@ -12,7 +12,7 @@ import java.util.List;
 /** Durable queue and encrypted-at-rest index (credential-encrypted app data). */
 final class MediaJobStore extends SQLiteOpenHelper {
     private static final String DATABASE = "media_intelligence.db";
-    private static final int VERSION = 2;
+    private static final int VERSION = 3;
     static final int STATUS_PENDING = 0;
     static final int STATUS_RUNNING = 1;
     static final int STATUS_INDEXED = 2;
@@ -60,15 +60,20 @@ final class MediaJobStore extends SQLiteOpenHelper {
                         + "generation INTEGER NOT NULL,"
                         + "expires_at_epoch_ms INTEGER NOT NULL)");
         createTimingTable(database);
+        createScanStateTable(database);
     }
 
     @Override
     public void onUpgrade(SQLiteDatabase database, int oldVersion, int newVersion) {
-        if (oldVersion == 1 && newVersion == 2) {
-            createTimingTable(database);
-            return;
+        if (oldVersion < 1 || oldVersion > newVersion || newVersion != VERSION) {
+            throw new IllegalStateException("explicit media-index migration required");
         }
-        throw new IllegalStateException("explicit media-index migration required");
+        if (oldVersion < 2) {
+            createTimingTable(database);
+        }
+        if (oldVersion < 3) {
+            createScanStateTable(database);
+        }
     }
 
     private static void createTimingTable(SQLiteDatabase database) {
@@ -89,6 +94,15 @@ final class MediaJobStore extends SQLiteOpenHelper {
                         + " ON timing_samples(media_kind, completed_at_epoch_ms DESC)");
     }
 
+    private static void createScanStateTable(SQLiteDatabase database) {
+        database.execSQL(
+                "CREATE TABLE media_scan_state ("
+                        + "volume_name TEXT PRIMARY KEY,"
+                        + "media_store_version TEXT NOT NULL,"
+                        + "generation INTEGER NOT NULL CHECK(generation>=0),"
+                        + "media_id INTEGER NOT NULL CHECK(media_id>=0))");
+    }
+
     void enqueue(CaptureCoalescer.ObservedMedia media, int workClass) {
         ContentValues values = new ContentValues();
         values.put("media_uri", media.uri);
@@ -97,8 +111,64 @@ final class MediaJobStore extends SQLiteOpenHelper {
         values.put("work_class", workClass);
         values.put("status", STATUS_PENDING);
         values.put("created_at_epoch_ms", media.observedAtEpochMillis);
-        getWritableDatabase().insertWithOnConflict(
+        SQLiteDatabase database = getWritableDatabase();
+        long row = database.insertWithOnConflict(
                 "jobs", null, values, SQLiteDatabase.CONFLICT_IGNORE);
+        if (row < 0L && !hasJob(database, media.uri, media.generation)) {
+            throw new IllegalStateException("cannot durably enqueue media job");
+        }
+    }
+
+    private static boolean hasJob(SQLiteDatabase database, String uri, long generation) {
+        try (Cursor cursor = database.query(
+                "jobs",
+                new String[]{"1"},
+                "media_uri=? AND generation=?",
+                new String[]{uri, Long.toString(generation)},
+                null,
+                null,
+                null,
+                "1")) {
+            return cursor.moveToFirst();
+        }
+    }
+
+    ScanState scanState(String volumeName) {
+        validateVolumeName(volumeName);
+        try (Cursor cursor = getReadableDatabase().query(
+                "media_scan_state",
+                new String[]{"media_store_version", "generation", "media_id"},
+                "volume_name=?",
+                new String[]{volumeName},
+                null,
+                null,
+                null)) {
+            if (!cursor.moveToFirst()) return null;
+            return new ScanState(cursor.getString(0), cursor.getLong(1), cursor.getLong(2));
+        }
+    }
+
+    void writeScanState(
+            String volumeName, String mediaStoreVersion, long generation, long mediaId) {
+        validateVolumeName(volumeName);
+        if (mediaStoreVersion == null || mediaStoreVersion.isBlank()
+                || mediaStoreVersion.length() > 1_024 || generation < 0L || mediaId < 0L) {
+            throw new IllegalArgumentException("invalid MediaStore scan state");
+        }
+        ContentValues values = new ContentValues();
+        values.put("volume_name", volumeName);
+        values.put("media_store_version", mediaStoreVersion);
+        values.put("generation", generation);
+        values.put("media_id", mediaId);
+        long row = getWritableDatabase().insertWithOnConflict(
+                "media_scan_state", null, values, SQLiteDatabase.CONFLICT_REPLACE);
+        if (row < 0L) throw new IllegalStateException("cannot store MediaStore scan state");
+    }
+
+    private static void validateVolumeName(String volumeName) {
+        if (volumeName == null || volumeName.isBlank() || volumeName.length() > 128) {
+            throw new IllegalArgumentException("invalid MediaStore volume");
+        }
     }
 
     PendingJob claimNext(int workClass) {
@@ -441,6 +511,18 @@ final class MediaJobStore extends SQLiteOpenHelper {
             this.mimeType = mimeType;
             this.contentDigest = contentDigest;
             this.portableXmp = portableXmp;
+        }
+    }
+
+    static final class ScanState {
+        final String mediaStoreVersion;
+        final long generation;
+        final long mediaId;
+
+        ScanState(String mediaStoreVersion, long generation, long mediaId) {
+            this.mediaStoreVersion = mediaStoreVersion;
+            this.generation = generation;
+            this.mediaId = mediaId;
         }
     }
 }

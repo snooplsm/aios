@@ -64,6 +64,12 @@ receive scoped model APIs, not access to call artifacts or model files.
 The media service observes completed additions to `MediaStore` regardless of the
 camera application that created them.
 
+- New photos and videos are discovered automatically; choosing an attachment in
+  the system Photo Picker is not an inference trigger.
+- A per-volume MediaStore generation cursor reconciles additions missed during
+  service death or reboot without processing the pre-install historical library.
+- Cursor progress is committed only after durable queue insertion, and may not
+  skip an item that is still pending publication by its camera app.
 - A single settled photo may be processed promptly when the call pipeline is
   idle and the device is thermally healthy.
 - Bursts, sustained capture sessions, and all video jobs are deferred.
@@ -94,6 +100,8 @@ Phone through a standard dial intent, and use the read-only system Photo Picker.
 Photo drafts may not be sent until the MMS download/send/provider pipeline has
 passed real carrier and multi-SIM testing. Unsupported MMS must fail visibly;
 the product may not label or count an unpersisted PDU as delivered.
+The Photo Picker grants Messaging read access to a user-selected attachment; it
+does not discover new camera captures or initiate duplicate model inference.
 
 Phone numbers and contact relationships feed a shared on-device retrieval layer
 through per-install opaque identities. Only source-owning AIOS packages may

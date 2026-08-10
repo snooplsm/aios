@@ -50,6 +50,11 @@ after its bounded vision request. Device/model policy and host validators are
 also present. Debug builds can export bounded, identifier-free photo/video timing
 evidence so ETAs are based on the actual Pixel, build, model, and runtime rather
 than desktop estimates.
+Media capture discovery is automatic and camera-independent: live MediaStore
+observation is backed by durable per-volume generation cursors that recover
+missed additions after process death or reboot without importing the existing
+photo library. The Photo Picker is only a Messaging attachment boundary and
+never triggers duplicate inference.
 AIOS Messaging now compiles as an SMS-role candidate with real SMS provider
 paths, respond-via-message, call launching, and read-only Photo Picker drafts.
 MMS remains visibly blocked and is a required carrier/device gate; the app does

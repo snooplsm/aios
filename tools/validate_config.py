@@ -712,6 +712,9 @@ def validate_aosp_overlay(root: Path) -> None:
         "preview/messagingcheck/build.gradle.kts",
         "preview/callcontextcheck/build.gradle.kts",
         "preview/callcontextcheck/src/main/AndroidManifest.xml",
+        "preview/mediascancheck/build.gradle.kts",
+        "preview/mediascancheck/src/main/AndroidManifest.xml",
+        "preview/mediascancheck/src/main/java/com/aios/mediaintelligence/MediaInferenceJobService.java",
         "services/contextintelligence/Android.bp",
         "services/contextintelligence/AndroidManifest.xml",
         "services/contextintelligence/aidl/com/aios/context/ICommunicationContext.aidl",
@@ -848,6 +851,8 @@ def validate_aosp_overlay(root: Path) -> None:
         "docs/caller-audio-uplink.md",
         "services/mediaintelligence/AndroidManifest.xml",
         "services/mediaintelligence/src/com/aios/mediaintelligence/MediaObserverService.java",
+        "services/mediaintelligence/src/com/aios/mediaintelligence/MediaGenerationReconciler.java",
+        "services/mediaintelligence/src/com/aios/mediaintelligence/MediaGenerationScanner.java",
         "services/mediaintelligence/src/com/aios/mediaintelligence/MediaInferenceJobService.java",
         "services/mediaintelligence/src/com/aios/mediaintelligence/MediaWorkPolicy.java",
         "services/mediaintelligence/src/com/aios/mediaintelligence/MediaConstraintProbe.java",
@@ -868,6 +873,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/mediaintelligence/tests/src/com/aios/mediaintelligence/MediaInputPolicyTest.java",
         "services/mediaintelligence/tests/src/com/aios/mediaintelligence/VideoStoryboardPlanTest.java",
         "services/mediaintelligence/tests/src/com/aios/mediaintelligence/MediaTimingTest.java",
+        "services/mediaintelligence/tests/src/com/aios/mediaintelligence/MediaGenerationReconcilerTest.java",
         "permissions/default-permissions-aios.xml",
         "docs/media-metadata-schema.md",
         "docs/media-performance.md",
@@ -2017,6 +2023,32 @@ def validate_aosp_overlay(root: Path) -> None:
             "media observer must track generations and ignore pending items")
     require("shouldSuppressOwnMutation" in observer_source,
             "media observer must suppress its own metadata writes")
+    require("initializeObservation" in observer_source
+            and "MediaGenerationScanner.reconcile" in observer_source
+            and "registerObservedVolumes" in observer_source,
+            "media observer must reconcile missed additions across startup registration")
+
+    generation_scanner = (media_source_root / "MediaGenerationScanner.java").read_text(
+        encoding="utf-8"
+    )
+    generation_reconciler = (
+        media_source_root / "MediaGenerationReconciler.java"
+    ).read_text(encoding="utf-8")
+    generation_test = (
+        root / "services" / "mediaintelligence" / "tests" / "src" / "com" /
+        "aios" / "mediaintelligence" / "MediaGenerationReconcilerTest.java"
+    ).read_text(encoding="utf-8")
+    require("MediaStore.getExternalVolumeNames" in generation_scanner
+            and "MediaStore.getVersion" in generation_scanner
+            and "MediaStore.getGeneration" in generation_scanner
+            and "GENERATION_ADDED" in generation_scanner
+            and "MAX_ROWS_PER_VOLUME = 512" in generation_scanner,
+            "media recovery must use bounded per-volume MediaStore generation scans")
+    require("END_OF_GENERATION" in generation_reconciler
+            and "thenComparingLong(row -> row.mediaId)" in generation_reconciler
+            and "pendingInsertCannotBeSkipped" in generation_test
+            and "truncatedBatchResumesWithinSharedGeneration" in generation_test,
+            "media recovery cursor must handle pending and same-generation batch rows")
 
     job_source = (media_source_root / "MediaInferenceJobService.java").read_text(
         encoding="utf-8"
@@ -2093,12 +2125,16 @@ def validate_aosp_overlay(root: Path) -> None:
     require("own_mutations" in media_store_source
             and "recoverInterruptedWork" in media_store_source,
             "media database must suppress self-writes and recover interrupted jobs")
-    require("VERSION = 2" in media_store_source
-            and "oldVersion == 1 && newVersion == 2" in media_store_source
+    require("VERSION = 3" in media_store_source
+            and "oldVersion < 2" in media_store_source
+            and "oldVersion < 3" in media_store_source
             and "CREATE TABLE timing_samples" in media_store_source
+            and "CREATE TABLE media_scan_state" in media_store_source
+            and "media_store_version" in media_store_source
+            and "cannot durably enqueue media job" in media_store_source
             and "MediaTimingSummary.MAX_SAMPLES_PER_KIND" in media_store_source
             and "timing_samples" in media_store_source.partition("commitResult(")[2],
-            "media timing must migrate explicitly, stay bounded, and commit with results")
+            "media database must explicitly migrate timing and durable scan state")
 
     timing_source = (media_source_root / "MediaTiming.java").read_text(
         encoding="utf-8"

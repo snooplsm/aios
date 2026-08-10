@@ -17,6 +17,7 @@ java_test_host {
     name: "aios_mediaintelligence_host_tests",
     srcs: [
         "src/com/aios/mediaintelligence/JpegXmpInjector.java",
+        "src/com/aios/mediaintelligence/MediaGenerationReconciler.java",
         "src/com/aios/mediaintelligence/MediaInputPolicy.java",
         "src/com/aios/mediaintelligence/MediaTiming.java",
         "src/com/aios/mediaintelligence/MediaTimingSummary.java",

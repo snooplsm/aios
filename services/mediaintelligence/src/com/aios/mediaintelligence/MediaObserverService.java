@@ -16,22 +16,33 @@ import android.util.Log;
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
 import java.nio.charset.StandardCharsets;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /** Watches completed media inserts without coupling AIOS to one camera app. */
 public final class MediaObserverService extends Service {
     private static final String TAG = "AiosMediaObserver";
+    private static final long RECONCILE_RETRY_MILLIS = 30_000L;
 
     private HandlerThread thread;
     private Handler handler;
     private CaptureCoalescer coalescer;
     private MediaJobStore store;
+    private final Set<String> observedRoots = new HashSet<>();
+    private final Runnable reconcileRunnable = this::reconcileAndSchedule;
+    private volatile boolean shuttingDown;
 
     private final ContentObserver observer = new ContentObserver(null) {
         @Override
         public void onChange(boolean selfChange, Uri uri) {
-            if (!selfChange && uri != null && handler != null) {
-                handler.post(() -> observeSettledItem(uri));
+            if (!shuttingDown && !selfChange && uri != null && handler != null) {
+                handler.post(() -> {
+                    observeSettledItem(uri);
+                    // Collection notifications, pending-row deletion, and
+                    // provider-specific URI shapes are recovered by the scan.
+                    requestReconcile(CaptureCoalescer.QUIET_PERIOD_MILLIS);
+                });
             }
         }
     };
@@ -44,10 +55,7 @@ public final class MediaObserverService extends Service {
         thread.start();
         handler = new Handler(thread.getLooper());
         coalescer = new CaptureCoalescer(handler, this::onCaptureGroupSettled);
-        getContentResolver().registerContentObserver(
-                MediaStore.Images.Media.EXTERNAL_CONTENT_URI, true, observer);
-        getContentResolver().registerContentObserver(
-                MediaStore.Video.Media.EXTERNAL_CONTENT_URI, true, observer);
+        handler.post(this::initializeObservation);
     }
 
     @Override
@@ -62,9 +70,18 @@ public final class MediaObserverService extends Service {
 
     @Override
     public void onDestroy() {
-        getContentResolver().unregisterContentObserver(observer);
+        shuttingDown = true;
         if (coalescer != null) {
             coalescer.close();
+        }
+        if (handler != null) {
+            handler.removeCallbacksAndMessages(null);
+        }
+        synchronized (observedRoots) {
+            if (!observedRoots.isEmpty()) {
+                getContentResolver().unregisterContentObserver(observer);
+                observedRoots.clear();
+            }
         }
         if (store != null) {
             store.close();
@@ -76,6 +93,7 @@ public final class MediaObserverService extends Service {
     }
 
     private void observeSettledItem(Uri uri) {
+        if (shuttingDown) return;
         String[] projection = {
                 MediaStore.MediaColumns.GENERATION_MODIFIED,
                 MediaStore.MediaColumns.IS_PENDING,
@@ -103,16 +121,99 @@ public final class MediaObserverService extends Service {
             coalescer.add(new CaptureCoalescer.ObservedMedia(
                     uri.toString(), generation, mimeType, System.currentTimeMillis()));
         } catch (RuntimeException error) {
-            Log.w(TAG, "cannot inspect changed media: " + uri, error);
+            Log.w(TAG, "cannot inspect changed media", error);
         }
     }
 
     private void onCaptureGroupSettled(List<CaptureCoalescer.ObservedMedia> group) {
-        int groupSize = group.size();
-        for (CaptureCoalescer.ObservedMedia media : group) {
-            int workClass = MediaWorkPolicy.schedulingClass(media.mimeType, groupSize);
-            store.enqueue(media, workClass);
-            MediaInferenceJobService.schedule(this, workClass);
+        if (shuttingDown) return;
+        try {
+            boolean immediate = false;
+            boolean deferred = false;
+            int groupSize = group.size();
+            for (CaptureCoalescer.ObservedMedia media : group) {
+                int workClass = MediaWorkPolicy.schedulingClass(media.mimeType, groupSize);
+                store.enqueue(media, workClass);
+                immediate |= workClass == MediaWorkPolicy.CLASS_IMMEDIATE;
+                deferred |= workClass == MediaWorkPolicy.CLASS_DEFERRED;
+            }
+            scheduleClasses(immediate, deferred);
+            requestReconcile(0L);
+        } catch (RuntimeException error) {
+            Log.w(TAG, "cannot persist settled media group", error);
+            requestReconcile(RECONCILE_RETRY_MILLIS);
+        }
+    }
+
+    private void initializeObservation() {
+        if (shuttingDown) return;
+        // Scan before registration and once again after it. This closes the
+        // startup window without treating the pre-install library as new work.
+        scheduleScanResult(MediaGenerationScanner.reconcile(this, store));
+        registerObservedVolumes();
+        requestReconcile(0L);
+    }
+
+    private void reconcileAndSchedule() {
+        if (shuttingDown) return;
+        registerObservedVolumes();
+        MediaGenerationScanner.ScanResult result =
+                MediaGenerationScanner.reconcile(this, store);
+        scheduleScanResult(result);
+        if (result.more) {
+            requestReconcile(0L);
+        } else if (result.retry) {
+            requestReconcile(RECONCILE_RETRY_MILLIS);
+        }
+    }
+
+    private void scheduleScanResult(MediaGenerationScanner.ScanResult result) {
+        scheduleClasses(result.immediate, result.deferred);
+    }
+
+    private void scheduleClasses(boolean immediate, boolean deferred) {
+        if (shuttingDown) return;
+        if (immediate) {
+            MediaInferenceJobService.schedule(this, MediaWorkPolicy.CLASS_IMMEDIATE);
+        }
+        if (deferred) {
+            MediaInferenceJobService.schedule(this, MediaWorkPolicy.CLASS_DEFERRED);
+        }
+    }
+
+    private void requestReconcile(long delayMillis) {
+        if (handler == null || shuttingDown) return;
+        handler.removeCallbacks(reconcileRunnable);
+        if (delayMillis <= 0L) {
+            handler.post(reconcileRunnable);
+        } else {
+            handler.postDelayed(reconcileRunnable, delayMillis);
+        }
+    }
+
+    private void registerObservedVolumes() {
+        if (shuttingDown) return;
+        // Keep the synthetic aggregate roots for newly mounted public volumes,
+        // then register each current concrete volume for provider compatibility.
+        registerObserverRoot(MediaStore.Images.Media.EXTERNAL_CONTENT_URI);
+        registerObserverRoot(MediaStore.Video.Media.EXTERNAL_CONTENT_URI);
+        for (String volumeName : MediaGenerationScanner.externalVolumes(this)) {
+            registerObserverRoot(MediaStore.Images.Media.getContentUri(volumeName));
+            registerObserverRoot(MediaStore.Video.Media.getContentUri(volumeName));
+        }
+    }
+
+    private void registerObserverRoot(Uri root) {
+        if (shuttingDown) return;
+        String key = root.toString();
+        synchronized (observedRoots) {
+            if (shuttingDown || !observedRoots.add(key)) return;
+            try {
+                getContentResolver().registerContentObserver(root, true, observer);
+            } catch (RuntimeException error) {
+                observedRoots.remove(key);
+                Log.w(TAG, "cannot register MediaStore observer", error);
+            }
         }
     }
 

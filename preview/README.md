@@ -23,6 +23,10 @@ formatter, and accumulator tests, assembles, and lints without maintaining
 duplicate production source files.
 It is a compile check, not a replacement for the platform Soong or device gates.
 
+`mediascancheck` stages the production MediaStore generation scanner, durable
+queue/store, and pure cursor/policy tests. It proves the missed-media recovery
+path compiles against the public Android SDK without duplicating source files.
+
 `telecomsmoke` packages those same sources as `com.aios.phone` solely for an
 AOSP emulator. It is debug-signed, cannot use the signature-protected AIOS
 services, and must never be installed on a physical phone or treated as a
@@ -37,7 +41,8 @@ Open this directory in Android Studio, or run:
 
 ```text
 gradle :app:assembleDebug :prodcheck:testDebugUnitTest :prodcheck:lintDebug \
-  :callcontextcheck:testDebugUnitTest :callcontextcheck:lintDebug
+  :callcontextcheck:testDebugUnitTest :callcontextcheck:lintDebug \
+  :mediascancheck:testDebugUnitTest :mediascancheck:lintDebug
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 adb shell am start -n com.aios.phone.preview/.PreviewActivity
 ```

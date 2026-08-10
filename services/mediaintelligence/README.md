@@ -10,6 +10,14 @@ background Broker session and returns the durable queue item to retryable state.
 Immediate isolated photos do not require external power, but calls and severe
 thermal pressure preempt them too.
 
+The observer is the live trigger; the system Photo Picker is not an inference
+trigger. At startup and after settled capture groups, a bounded recovery scan
+uses each external volume's MediaStore version and `(GENERATION_ADDED, _ID)`
+cursor to durably enqueue additions missed during process death or reboot. A
+new install or MediaProvider database rebuild baselines the current generation
+instead of importing the owner's historical library. A pending camera write is
+never crossed, and a queue insertion must be durable before the cursor advances.
+
 The SQLite queue survives process death and reboot. The worker atomically claims
 one item, verifies its `MediaStore` generation around content hashing and again
 after inference, submits a read-only descriptor to Model Broker, validates a

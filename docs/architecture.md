@@ -130,6 +130,17 @@ inserted item is no longer pending and its size is stable. A capture-session
 coalescer groups rapid inserts into bursts. Work is persisted with the media ID,
 generation, content digest, and scheduling class.
 
+ContentObserver delivery is not treated as durable. On startup and after live
+capture groups, Media Intelligence reconciles each concrete external volume
+using MediaStore's database version plus a persisted `(GENERATION_ADDED, _ID)`
+cursor. Scans are limited to 512 rows per pass and resume within a shared
+generation, so large batches cannot be skipped. First install and a provider
+database rebuild establish a baseline instead of processing the historical
+library. A pending insert blocks cursor advancement, and job insertion must
+succeed durably before the cursor moves. The system Photo Picker is used only
+when the owner selects a Messaging attachment; it is not part of capture
+discovery or model scheduling.
+
 Immediate photo work requires no active call, acceptable thermal state, and a
 small queue. Deferred burst/video work additionally requires external power and
 an observed battery level of at least 80%. The battery threshold is checked when
