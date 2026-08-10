@@ -102,6 +102,13 @@ it is absent before activating **End call**. The exact original outgoing account
 is restored in cleanup, including the no-account case. These checks prove
 Telecom wiring, not carrier-side DTMF reception or physical call audio.
 
+The same outgoing connection is retained while a second fixture call rings. A
+pass requires Compose to select the waiting call, answering it to hold the first
+connection, **Merge calls** to reach the managed `onConference` callback, and
+**Separate call** to reach `onSeparate`; both participants are then ended from
+the production surface. This is deterministic multi-call wiring evidence, not a
+substitute for carrier call-waiting or conference testing.
+
 Open this directory in Android Studio, or run:
 
 ```text

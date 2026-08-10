@@ -243,6 +243,17 @@ and is deleted and checked absent before the run can pass. Finally, the labeled
 This proves app/Telecom wiring only; radio, IMS, carrier routing, remote DTMF
 recognition, call audio, and emergency behavior remain physical device gates.
 
+The run then injects another incoming call while the outgoing call is active.
+The registry must select the ringing call immediately—even if Telecom first adds
+it in another state and reports `RINGING` later—while non-ringing background
+calls must not steal the owner's current selection. Answering must leave exactly
+one active and one held connection. The selected call must expose **Merge
+calls**, reach the fixture's real `ConnectionService.onConference` callback,
+then expose **Separate call** and reach `Conference.onSeparate`. Both separated
+participants are ended through the production Compose control. This closes a
+repeatable emulator wiring gap, but real carrier supplementary-service behavior
+for call waiting and conferencing remains release-gated.
+
 The separate `preview:prodcheck` lane compiles the complete role-capable Phone
 app against the public SDK using the production sources, tests, manifest,
 resources, and both AIOS Binder boundaries. Its backup policy excludes every

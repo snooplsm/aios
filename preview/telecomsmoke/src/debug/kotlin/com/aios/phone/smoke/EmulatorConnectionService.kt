@@ -1,6 +1,8 @@
 package com.aios.phone.smoke
 
+import android.content.ComponentName
 import android.net.Uri
+import android.telecom.Conference
 import android.telecom.Connection
 import android.telecom.ConnectionRequest
 import android.telecom.ConnectionService
@@ -9,8 +11,8 @@ import android.telecom.PhoneAccount
 import android.telecom.PhoneAccountHandle
 import android.telecom.TelecomManager
 import java.util.Collections
-import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CopyOnWriteArrayList
 
 /** Supplies a managed synthetic call to Android Telecom for emulator testing. */
 class EmulatorConnectionService : ConnectionService() {
@@ -20,7 +22,10 @@ class EmulatorConnectionService : ConnectionService() {
     ): Connection {
         val address = request.address
             ?: Uri.fromParts(PhoneAccount.SCHEME_TEL, EmulatorCallActivity.DEFAULT_NUMBER, null)
-        return EmulatorConnection(address, incoming = true).also { connections += it }
+        return EmulatorConnection(address, incoming = true).also {
+            fixtureConnections += it
+            refreshConferenceableConnections()
+        }
     }
 
     override fun onCreateOutgoingConnection(
@@ -29,7 +34,32 @@ class EmulatorConnectionService : ConnectionService() {
     ): Connection {
         val address = request.address
             ?: Uri.fromParts(PhoneAccount.SCHEME_TEL, EmulatorCallActivity.DEFAULT_NUMBER, null)
-        return EmulatorConnection(address, incoming = false).also { connections += it }
+        return EmulatorConnection(address, incoming = false).also {
+            fixtureConnections += it
+            refreshConferenceableConnections()
+        }
+    }
+
+    override fun onConference(connection1: Connection, connection2: Connection) {
+        val first = connection1 as? EmulatorConnection ?: return
+        val second = connection2 as? EmulatorConnection ?: return
+        if (first === second || first.conference != null || second.conference != null) return
+
+        val conference = EmulatorConference(
+            PhoneAccountHandle(
+                ComponentName(this, EmulatorConnectionService::class.java),
+                EmulatorCallActivity.ACCOUNT_ID,
+            ),
+        )
+        conference.addConnection(first)
+        conference.addConnection(second)
+        first.setConferenceChild(true)
+        second.setConferenceChild(true)
+        conference.setActive()
+        fixtureConferences += conference
+        fixtureEvents += "conference"
+        addConference(conference)
+        refreshConferenceableConnections()
     }
 
     private class EmulatorConnection(address: Uri, incoming: Boolean) : Connection() {
@@ -44,7 +74,10 @@ class EmulatorConnectionService : ConnectionService() {
             if (incoming) setRinging() else setDialing()
         }
 
-        override fun onAnswer() = setActive()
+        override fun onAnswer() {
+            setActive()
+            refreshConferenceableConnections()
+        }
 
         override fun onReject() = end(DisconnectCause.REJECTED)
 
@@ -52,39 +85,120 @@ class EmulatorConnectionService : ConnectionService() {
 
         override fun onAbort() = end(DisconnectCause.CANCELED)
 
-        override fun onHold() = setOnHold()
+        override fun onHold() {
+            setOnHold()
+            refreshConferenceableConnections()
+        }
 
-        override fun onUnhold() = setActive()
+        override fun onUnhold() {
+            setActive()
+            refreshConferenceableConnections()
+        }
 
         override fun onPlayDtmfTone(c: Char) {
-            dtmfEvents += "play:$c"
+            fixtureEvents += "play:$c"
         }
 
         override fun onStopDtmfTone() {
-            dtmfEvents += "stop"
+            fixtureEvents += "stop"
         }
 
         fun end(code: Int) {
             setDisconnected(DisconnectCause(code))
             destroy()
-            connections -= this
+            fixtureConnections -= this
+            refreshConferenceableConnections()
         }
 
-        fun activate() = setActive()
+        fun activate() {
+            setActive()
+            refreshConferenceableConnections()
+        }
+
+        fun setConferenceChild(value: Boolean) {
+            connectionCapabilities = if (value) {
+                connectionCapabilities or CAPABILITY_SEPARATE_FROM_CONFERENCE
+            } else {
+                connectionCapabilities and CAPABILITY_SEPARATE_FROM_CONFERENCE.inv()
+            }
+        }
+    }
+
+    private class EmulatorConference(
+        phoneAccount: PhoneAccountHandle,
+    ) : Conference(phoneAccount) {
+        init {
+            connectionCapabilities = Connection.CAPABILITY_HOLD or
+                Connection.CAPABILITY_SUPPORT_HOLD or
+                Connection.CAPABILITY_MANAGE_CONFERENCE
+        }
+
+        override fun onDisconnect() {
+            connections.toList().forEach { connection ->
+                (connection as? EmulatorConnection)?.end(DisconnectCause.LOCAL)
+            }
+            end(DisconnectCause.LOCAL)
+        }
+
+        override fun onHold() = setOnHold()
+
+        override fun onUnhold() = setActive()
+
+        override fun onSeparate(connection: Connection) {
+            fixtureEvents += "separate"
+            removeConnection(connection)
+            (connection as? EmulatorConnection)?.setConferenceChild(false)
+            connection.setActive()
+            if (connections.size <= 1) {
+                connections.toList().forEach { remaining ->
+                    removeConnection(remaining)
+                    (remaining as? EmulatorConnection)?.setConferenceChild(false)
+                    remaining.setOnHold()
+                }
+                end(DisconnectCause.LOCAL)
+            }
+            refreshConferenceableConnections()
+        }
+
+        fun end(code: Int) {
+            setDisconnected(DisconnectCause(code))
+            destroy()
+            fixtureConferences -= this
+            refreshConferenceableConnections()
+        }
     }
 
     companion object {
-        private val connections = Collections.newSetFromMap(
+        private val fixtureConnections = Collections.newSetFromMap(
             ConcurrentHashMap<EmulatorConnection, Boolean>(),
         )
-        private val dtmfEvents = CopyOnWriteArrayList<String>()
+        private val fixtureConferences = Collections.newSetFromMap(
+            ConcurrentHashMap<EmulatorConference, Boolean>(),
+        )
+        private val fixtureEvents = CopyOnWriteArrayList<String>()
 
-        fun disconnectAll() = connections.toList().forEach { it.end(DisconnectCause.LOCAL) }
+        fun disconnectAll() {
+            fixtureConferences.toList().forEach { it.end(DisconnectCause.LOCAL) }
+            fixtureConnections.toList().forEach { it.end(DisconnectCause.LOCAL) }
+        }
 
-        fun activateAll() = connections.toList().forEach(EmulatorConnection::activate)
+        fun activateAll() = fixtureConnections.toList().forEach(EmulatorConnection::activate)
 
-        fun resetAudit() = dtmfEvents.clear()
+        fun resetAudit() = fixtureEvents.clear()
 
-        fun auditSnapshot(): String = dtmfEvents.joinToString(separator = "\n", postfix = "\n")
+        fun auditSnapshot(): String = fixtureEvents.joinToString(separator = "\n", postfix = "\n")
+
+        private fun refreshConferenceableConnections() {
+            val eligible = fixtureConnections.filter { connection ->
+                connection.conference == null &&
+                    connection.state in setOf(Connection.STATE_ACTIVE, Connection.STATE_HOLDING)
+            }
+            fixtureConnections.forEach { connection ->
+                connection.setConferenceableConnections(
+                    if (connection in eligible) eligible.filterNot { it === connection }
+                    else emptyList(),
+                )
+            }
+        }
     }
 }

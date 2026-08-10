@@ -49,7 +49,14 @@ class CallRegistry(
         idsByCall[call]?.let { return it }
         val id = "call-${UUID.randomUUID()}"
         val callback = object : Call.Callback() {
-            override fun onStateChanged(call: Call, state: Int) = onChanged()
+            override fun onStateChanged(call: Call, state: Int) {
+                selectedCallId = CallSelectionPolicy.afterStateChanged(
+                    currentSelection = selectedCallId,
+                    changedCallId = id(call),
+                    changedCallIsRinging = state == Call.STATE_RINGING,
+                )
+                onChanged()
+            }
             override fun onDetailsChanged(call: Call, details: Call.Details) = onChanged()
             override fun onParentChanged(call: Call, parent: Call?) = onChanged()
             override fun onChildrenChanged(call: Call, children: List<Call>) = onChanged()
@@ -103,7 +110,14 @@ class CallRegistry(
         callbacks[call] = callback
         call.registerCallback(callback)
         attachVideoCallback(call, call.videoCall)
-        selectedCallId = chooseSelected(selectedCallId)
+        val previousSelection = selectedCallId
+        selectedCallId = CallSelectionPolicy.afterCallAdded(
+            currentSelection = previousSelection,
+            newCallId = id,
+            newCallIsRinging = call.details.state == Call.STATE_RINGING,
+            currentSelectionStillPresent = previousSelection != null &&
+                callsById.containsKey(previousSelection),
+        )
         onChanged()
         call.rttCall?.let {
             rttModes[call] = it.rttAudioMode

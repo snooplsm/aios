@@ -408,11 +408,74 @@ try {
     }
     $privateAuditRemoved = $true
 
+    Invoke-UiControl "Hide keypad"
+    Start-Sleep -Milliseconds 200
+    Invoke-Adb shell am start -a com.aios.phone.smoke.INCOMING -n $fixtureActivity `
+        --es number 15551230185 | Out-Null
+    Invoke-Adb shell cmd telecom wait-on-handlers | Out-Null
+    Start-Sleep -Milliseconds 750
+    $telecomDuringWaiting = Get-CurrentTelecomCalls
+    if ([regex]::Matches($telecomDuringWaiting, 'state=ACTIVE').Count -ne 1 -or
+        [regex]::Matches($telecomDuringWaiting, 'state=RINGING').Count -ne 1 -or
+        -not (Get-UiControl "Answer").enabled) {
+        throw "A waiting call did not preempt the selected active call in Compose"
+    }
+
+    Invoke-UiControl "Answer"
+    Invoke-Adb shell cmd telecom wait-on-handlers | Out-Null
+    Start-Sleep -Milliseconds 750
+    $telecomAfterWaitingAnswer = Get-CurrentTelecomCalls
+    if ([regex]::Matches($telecomAfterWaitingAnswer, 'state=ACTIVE').Count -ne 1 -or
+        [regex]::Matches($telecomAfterWaitingAnswer, 'state=(ON_HOLD|HOLDING)').Count -ne 1) {
+        throw "Answering the waiting call did not retain one active and one held call"
+    }
+
+    Invoke-Adb shell am start -a com.aios.phone.smoke.RESET_AUDIT `
+        -n $fixtureActivity | Out-Null
+    Start-Sleep -Milliseconds 200
+    Invoke-UiControl "Merge calls"
+    Invoke-Adb shell cmd telecom wait-on-handlers | Out-Null
+    Start-Sleep -Milliseconds 750
+    if (-not (Get-UiControl "Separate call").enabled) {
+        throw "The managed Telecom conference did not expose child separation in Compose"
+    }
+    Invoke-UiControl "Separate call"
+    Invoke-Adb shell cmd telecom wait-on-handlers | Out-Null
+    Start-Sleep -Milliseconds 750
+    Invoke-Adb shell am start -a com.aios.phone.smoke.EXPORT_AUDIT `
+        -n $fixtureActivity | Out-Null
+    Start-Sleep -Milliseconds 200
+    $conferenceAudit = @(
+        Invoke-Adb shell run-as $package cat $privateAuditFile |
+            Where-Object { $_ }
+    ) -join "`n"
+    if ($conferenceAudit -ne "conference`nseparate") {
+        $observedConference = $conferenceAudit.Replace("`r", "\\r").Replace("`n", "\\n")
+        throw "Merge/separate did not reach the managed conference callbacks; observed '$observedConference'"
+    }
+    Invoke-Adb shell run-as $package rm -f $privateAuditFile | Out-Null
+    $remainingAudit = @(
+        Invoke-Adb shell run-as $package find cache -maxdepth 1 `
+            -name "aios-telecom-smoke-audit.txt" |
+            Where-Object { $_ }
+    )
+    if ($remainingAudit.Count -ne 0) {
+        throw "The private conference smoke audit survived verification"
+    }
+    $privateAuditRemoved = $true
+
     Invoke-UiControl "End call"
     Invoke-Adb shell cmd telecom wait-on-handlers | Out-Null
     Start-Sleep -Milliseconds 500
-    if ((Get-CurrentTelecomCalls) -match 'state=(DIALING|ACTIVE)') {
-        throw "The production End call control did not disconnect the outgoing call"
+    $afterFirstEnd = Get-CurrentTelecomCalls
+    if ([regex]::Matches($afterFirstEnd, 'state=(ACTIVE|ON_HOLD|HOLDING)').Count -ne 1) {
+        throw "Ending one separated participant did not retain exactly one managed call"
+    }
+    Invoke-UiControl "End call"
+    Invoke-Adb shell cmd telecom wait-on-handlers | Out-Null
+    Start-Sleep -Milliseconds 500
+    if ((Get-CurrentTelecomCalls) -match 'state=(DIALING|ACTIVE|ON_HOLD|HOLDING|RINGING)') {
+        throw "The production End call controls did not disconnect both separated calls"
     }
     $callStarted = $false
 
@@ -448,7 +511,11 @@ try {
         mute_unmute_round_trip = $true
         hold_resume_round_trip = $true
         dtmf_play_stop_callbacks = $true
+        waiting_call_selected = $true
+        waiting_answer_held_existing_call = $true
+        conference_merge_separate_callbacks = $true
         private_dtmf_audit_removed = $privateAuditRemoved
+        private_conference_audit_removed = $privateAuditRemoved
         outgoing_end_call_disconnected = $true
         screenshot = [IO.Path]::GetFullPath($screenshot)
         outgoing_screenshot = [IO.Path]::GetFullPath($outgoingScreenshot)

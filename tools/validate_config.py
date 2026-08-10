@@ -744,6 +744,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "apps/phone/tests/src/com/aios/phone/model/AssistantCallContractTest.kt",
         "apps/phone/tests/src/com/aios/phone/model/CallRiskContractTest.kt",
         "apps/phone/tests/src/com/aios/phone/context/CallEventContractTest.kt",
+        "apps/phone/tests/src/com/aios/phone/telecom/CallSelectionPolicyTest.kt",
         "apps/phone/src/com/aios/phone/PhoneRuntime.kt",
         "apps/phone/src/com/aios/phone/context/CallEventContract.kt",
         "apps/phone/src/com/aios/phone/context/CallEventContextClient.kt",
@@ -753,6 +754,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "apps/phone/src/com/aios/phone/model/AssistantCallContract.kt",
         "apps/phone/src/com/aios/phone/model/CallRiskContract.kt",
         "apps/phone/src/com/aios/phone/telecom/CallRegistry.kt",
+        "apps/phone/src/com/aios/phone/telecom/CallSelectionPolicy.kt",
         "apps/phone/src/com/aios/phone/telecom/AiosInCallService.kt",
         "apps/phone/src/com/aios/phone/telecom/ProximityLockController.kt",
         "apps/phone/src/com/aios/phone/telecom/RttSessionController.kt",
@@ -1405,6 +1407,14 @@ def validate_aosp_overlay(root: Path) -> None:
     phone_registry = (root / "apps" / "phone" / "src" / "com" / "aios" /
                       "phone" / "telecom" / "CallRegistry.kt").read_text(
                           encoding="utf-8")
+    call_selection_policy = (
+        root / "apps" / "phone" / "src" / "com" / "aios" / "phone" /
+        "telecom" / "CallSelectionPolicy.kt"
+    ).read_text(encoding="utf-8")
+    call_selection_test = (
+        root / "apps" / "phone" / "tests" / "src" / "com" / "aios" /
+        "phone" / "telecom" / "CallSelectionPolicyTest.kt"
+    ).read_text(encoding="utf-8")
     phone_runtime = (root / "apps" / "phone" / "src" / "com" / "aios" /
                      "phone" / "PhoneRuntime.kt").read_text(encoding="utf-8")
     in_call_service = (root / "apps" / "phone" / "src" / "com" / "aios" /
@@ -1522,6 +1532,13 @@ def validate_aosp_overlay(root: Path) -> None:
             and "conferenceableIds" in phone_registry
             and "var currentCall" not in phone_registry,
             "AIOS Phone must model all calls rather than one current-call singleton")
+    require("CallSelectionPolicy.afterCallAdded" in phone_registry
+            and "CallSelectionPolicy.afterStateChanged" in phone_registry
+            and "newCallIsRinging -> newCallId" in call_selection_policy
+            and "newRingingCallPreemptsTheSelectedActiveCall" in call_selection_test
+            and "backgroundCallDoesNotStealOwnerSelection" in call_selection_test
+            and "delayedRingingTransitionPreemptsTheSelectedCall" in call_selection_test,
+            "a waiting call must preempt the selected surface without background-call theft")
     require("onAvailableCallEndpointsChanged" in in_call_service
             and "requestCallEndpointChange" in in_call_service,
             "AIOS Phone must use modern audio endpoint callbacks")
@@ -1641,8 +1658,12 @@ def validate_aosp_overlay(root: Path) -> None:
             and "activateAll()" in smoke_connection
             and "onPlayDtmfTone" in smoke_connection
             and "onStopDtmfTone" in smoke_connection
+            and "override fun onConference" in smoke_connection
+            and "class EmulatorConference" in smoke_connection
+            and "CAPABILITY_SEPARATE_FROM_CONFERENCE" in smoke_connection
+            and 'fixtureEvents += "separate"' in smoke_connection
             and "auditSnapshot()" in smoke_connection,
-            "the debug Telecom fixture must model deterministic outgoing and DTMF transitions")
+            "the debug Telecom fixture must model outgoing, DTMF, and conference transitions")
     require("Intent(application, InCallActivity::class.java)" in phone_runtime
             and '"Call placed. Tap the active-call card to open controls"'
             in phone_runtime,
@@ -1675,13 +1696,19 @@ def validate_aosp_overlay(root: Path) -> None:
             and 'Invoke-UiControl "Hold"' in smoke_script
             and 'Invoke-UiControl "Resume"' in smoke_script
             and 'Invoke-UiControl "Keypad"' in smoke_script
+            and 'Invoke-UiControl "Merge calls"' in smoke_script
+            and 'Invoke-UiControl "Separate call"' in smoke_script
             and 'Invoke-UiControl "End call"' in smoke_script
             and "original_outgoing_account_restored" in smoke_script
             and "outgoing_connection_active" in smoke_script
             and "mute_unmute_round_trip" in smoke_script
             and "hold_resume_round_trip" in smoke_script
             and "dtmf_play_stop_callbacks" in smoke_script
+            and "waiting_call_selected" in smoke_script
+            and "waiting_answer_held_existing_call" in smoke_script
+            and "conference_merge_separate_callbacks" in smoke_script
             and "private_dtmf_audit_removed" in smoke_script
+            and "private_conference_audit_removed" in smoke_script
             and "run-as $package rm -f $privateAuditFile" in smoke_script
             and "phone_process_survived_answer" in smoke_script
             and "phone_call_foreground_service" in smoke_script
