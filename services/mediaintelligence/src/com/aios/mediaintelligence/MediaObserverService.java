@@ -5,12 +5,17 @@ import android.content.Intent;
 import android.database.ContentObserver;
 import android.database.Cursor;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.IBinder;
 import android.provider.MediaStore;
+import android.util.Base64;
 import android.util.Log;
 
+import java.io.FileDescriptor;
+import java.io.PrintWriter;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 /** Watches completed media inserts without coupling AIOS to one camera app. */
@@ -96,7 +101,7 @@ public final class MediaObserverService extends Service {
                 return;
             }
             coalescer.add(new CaptureCoalescer.ObservedMedia(
-                    uri.toString(), generation, mimeType));
+                    uri.toString(), generation, mimeType, System.currentTimeMillis()));
         } catch (RuntimeException error) {
             Log.w(TAG, "cannot inspect changed media: " + uri, error);
         }
@@ -108,6 +113,30 @@ public final class MediaObserverService extends Service {
             int workClass = MediaWorkPolicy.schedulingClass(media.mimeType, groupSize);
             store.enqueue(media, workClass);
             MediaInferenceJobService.schedule(this, workClass);
+        }
+    }
+
+    @Override
+    protected void dump(FileDescriptor descriptor, PrintWriter writer, String[] arguments) {
+        if ("user".equals(Build.TYPE)) {
+            writer.println("AIOS media timing is available only on debuggable builds");
+            return;
+        }
+        boolean timingJson = false;
+        for (String argument : arguments) {
+            if ("--timing-json".equals(argument)) timingJson = true;
+        }
+        if (!timingJson) {
+            writer.println("Use --timing-json for privacy-minimized aggregate latency data");
+            return;
+        }
+        try (MediaJobStore timingStore = new MediaJobStore(this)) {
+            String json = timingStore.timingSummary().toJson();
+            writer.println("AIOS_MEDIA_TIMING_BASE64=" + Base64.encodeToString(
+                    json.getBytes(StandardCharsets.UTF_8), Base64.NO_WRAP));
+        } catch (RuntimeException error) {
+            writer.println("AIOS_MEDIA_TIMING_ERROR=unavailable");
+            Log.w(TAG, "cannot produce aggregate media timing", error);
         }
     }
 }

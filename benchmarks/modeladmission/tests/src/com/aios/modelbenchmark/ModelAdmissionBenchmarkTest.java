@@ -221,6 +221,8 @@ public final class ModelAdmissionBenchmarkTest {
                 }
             }
         }
+        List<Long> warmImageLatency = imageLatency.size() > 1
+                ? imageLatency.subList(1, imageLatency.size()) : imageLatency;
         JSONObject metrics = aggregate.commonMetrics()
                 .put("output_valid_rate", BenchmarkMath.rate(valid, aggregate.attempts))
                 .put("video_invocation_success_rate",
@@ -229,6 +231,9 @@ public final class ModelAdmissionBenchmarkTest {
                 .put("p95_latency_ms", BenchmarkMath.percentileLong(imageLatency, 0.95))
                 .put("p95_image_latency_ms",
                         BenchmarkMath.percentileLong(imageLatency, 0.95))
+                .put("first_image_latency_ms", imageLatency.get(0))
+                .put("p50_warm_image_latency_ms",
+                        BenchmarkMath.percentileLong(warmImageLatency, 0.50))
                 .put("p95_video_storyboard_inference_ms",
                         BenchmarkMath.percentileLong(videoLatency, 0.95))
                 .put("en_known_answer_rate",

@@ -6,10 +6,13 @@ import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 import android.database.sqlite.SQLiteOpenHelper;
 
+import java.util.ArrayList;
+import java.util.List;
+
 /** Durable queue and encrypted-at-rest index (credential-encrypted app data). */
 final class MediaJobStore extends SQLiteOpenHelper {
     private static final String DATABASE = "media_intelligence.db";
-    private static final int VERSION = 1;
+    private static final int VERSION = 2;
     static final int STATUS_PENDING = 0;
     static final int STATUS_RUNNING = 1;
     static final int STATUS_INDEXED = 2;
@@ -56,11 +59,34 @@ final class MediaJobStore extends SQLiteOpenHelper {
                         + "media_uri TEXT PRIMARY KEY,"
                         + "generation INTEGER NOT NULL,"
                         + "expires_at_epoch_ms INTEGER NOT NULL)");
+        createTimingTable(database);
     }
 
     @Override
     public void onUpgrade(SQLiteDatabase database, int oldVersion, int newVersion) {
+        if (oldVersion == 1 && newVersion == 2) {
+            createTimingTable(database);
+            return;
+        }
         throw new IllegalStateException("explicit media-index migration required");
+    }
+
+    private static void createTimingTable(SQLiteDatabase database) {
+        database.execSQL(
+                "CREATE TABLE timing_samples ("
+                        + "job_id INTEGER PRIMARY KEY,"
+                        + "media_kind TEXT NOT NULL CHECK(media_kind IN ('photo','video')),"
+                        + "observed_to_index_ms INTEGER NOT NULL,"
+                        + "queue_to_start_ms INTEGER NOT NULL,"
+                        + "processing_ms INTEGER NOT NULL CHECK(processing_ms>=0),"
+                        + "input_preparation_ms INTEGER NOT NULL"
+                        + " CHECK(input_preparation_ms>=0),"
+                        + "model_request_ms INTEGER NOT NULL CHECK(model_request_ms>=0),"
+                        + "completed_at_epoch_ms INTEGER NOT NULL,"
+                        + "FOREIGN KEY(job_id) REFERENCES jobs(_id) ON DELETE CASCADE)");
+        database.execSQL(
+                "CREATE INDEX timing_samples_kind_completed"
+                        + " ON timing_samples(media_kind, completed_at_epoch_ms DESC)");
     }
 
     void enqueue(CaptureCoalescer.ObservedMedia media, int workClass) {
@@ -70,7 +96,7 @@ final class MediaJobStore extends SQLiteOpenHelper {
         values.put("mime_type", media.mimeType);
         values.put("work_class", workClass);
         values.put("status", STATUS_PENDING);
-        values.put("created_at_epoch_ms", System.currentTimeMillis());
+        values.put("created_at_epoch_ms", media.observedAtEpochMillis);
         getWritableDatabase().insertWithOnConflict(
                 "jobs", null, values, SQLiteDatabase.CONFLICT_IGNORE);
     }
@@ -82,7 +108,10 @@ final class MediaJobStore extends SQLiteOpenHelper {
             PendingJob result = null;
             try (Cursor cursor = database.query(
                     "jobs",
-                    new String[]{"_id", "media_uri", "generation", "mime_type"},
+                    new String[]{
+                            "_id", "media_uri", "generation", "mime_type",
+                            "created_at_epoch_ms"
+                    },
                     "work_class=? AND status=?",
                     new String[]{Integer.toString(workClass), Integer.toString(STATUS_PENDING)},
                     null,
@@ -92,7 +121,7 @@ final class MediaJobStore extends SQLiteOpenHelper {
                 if (cursor.moveToFirst()) {
                     result = new PendingJob(
                             cursor.getLong(0), cursor.getString(1), cursor.getLong(2),
-                            cursor.getString(3));
+                            cursor.getString(3), cursor.getLong(4));
                 }
             }
             if (result == null) {
@@ -135,7 +164,12 @@ final class MediaJobStore extends SQLiteOpenHelper {
             String modelId,
             String modelDigest,
             long inferredAtEpochMillis,
-            String portableXmp) {
+            String portableXmp,
+            MediaTiming.Sample timing) {
+        if (!MediaTiming.kind(job.mimeType).equals(timing.mediaKind)
+                || timing.completedAtEpochMillis != inferredAtEpochMillis) {
+            throw new IllegalArgumentException("media timing does not match committed result");
+        }
         SQLiteDatabase database = getWritableDatabase();
         database.beginTransaction();
         try {
@@ -152,6 +186,20 @@ final class MediaJobStore extends SQLiteOpenHelper {
                     "results", null, result, SQLiteDatabase.CONFLICT_REPLACE);
             if (row < 0L) {
                 throw new IllegalStateException("cannot store media result");
+            }
+            ContentValues timingValues = new ContentValues();
+            timingValues.put("job_id", job.id);
+            timingValues.put("media_kind", timing.mediaKind);
+            timingValues.put("observed_to_index_ms", timing.observedToIndexMillis);
+            timingValues.put("queue_to_start_ms", timing.queueToStartMillis);
+            timingValues.put("processing_ms", timing.processingMillis);
+            timingValues.put("input_preparation_ms", timing.inputPreparationMillis);
+            timingValues.put("model_request_ms", timing.modelRequestMillis);
+            timingValues.put("completed_at_epoch_ms", timing.completedAtEpochMillis);
+            long timingRow = database.insertWithOnConflict(
+                    "timing_samples", null, timingValues, SQLiteDatabase.CONFLICT_REPLACE);
+            if (timingRow < 0L) {
+                throw new IllegalStateException("cannot store media timing");
             }
             ContentValues indexed = new ContentValues();
             indexed.put("status", STATUS_INDEXED);
@@ -175,6 +223,41 @@ final class MediaJobStore extends SQLiteOpenHelper {
                 new String[]{Integer.toString(workClass), Integer.toString(STATUS_PENDING)})) {
             return cursor.moveToFirst();
         }
+    }
+
+    MediaTimingSummary.Snapshot timingSummary() {
+        return MediaTimingSummary.snapshot(
+                System.currentTimeMillis(),
+                timingSamples(MediaTiming.KIND_PHOTO),
+                timingSamples(MediaTiming.KIND_VIDEO));
+    }
+
+    private List<MediaTiming.Sample> timingSamples(String mediaKind) {
+        List<MediaTiming.Sample> samples = new ArrayList<>();
+        try (Cursor cursor = getReadableDatabase().query(
+                "timing_samples",
+                new String[]{
+                        "observed_to_index_ms", "queue_to_start_ms", "processing_ms",
+                        "input_preparation_ms", "model_request_ms", "completed_at_epoch_ms"
+                },
+                "media_kind=?",
+                new String[]{mediaKind},
+                null,
+                null,
+                "completed_at_epoch_ms DESC",
+                Integer.toString(MediaTimingSummary.MAX_SAMPLES_PER_KIND))) {
+            while (cursor.moveToNext()) {
+                samples.add(new MediaTiming.Sample(
+                        mediaKind,
+                        cursor.getLong(0),
+                        cursor.getLong(1),
+                        cursor.getLong(2),
+                        cursor.getLong(3),
+                        cursor.getLong(4),
+                        cursor.getLong(5)));
+            }
+        }
+        return samples;
     }
 
     PortableJob nextPortableMetadata(int workClass) {
@@ -321,12 +404,19 @@ final class MediaJobStore extends SQLiteOpenHelper {
         final String uri;
         final long generation;
         final String mimeType;
+        final long observedAtEpochMillis;
 
-        PendingJob(long id, String uri, long generation, String mimeType) {
+        PendingJob(
+                long id,
+                String uri,
+                long generation,
+                String mimeType,
+                long observedAtEpochMillis) {
             this.id = id;
             this.uri = uri;
             this.generation = generation;
             this.mimeType = mimeType;
+            this.observedAtEpochMillis = observedAtEpochMillis;
         }
     }
 

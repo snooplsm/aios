@@ -18,6 +18,8 @@ java_test_host {
     srcs: [
         "src/com/aios/mediaintelligence/JpegXmpInjector.java",
         "src/com/aios/mediaintelligence/MediaInputPolicy.java",
+        "src/com/aios/mediaintelligence/MediaTiming.java",
+        "src/com/aios/mediaintelligence/MediaTimingSummary.java",
         "src/com/aios/mediaintelligence/MediaWorkPolicy.java",
         "src/com/aios/mediaintelligence/VideoStoryboardPlan.java",
         "tests/src/**/*.java",

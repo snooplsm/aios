@@ -38,11 +38,24 @@ final class MediaBrokerClient implements AutoCloseable {
         final InferenceResult inference;
         final int errorCode;
         final String retryReason;
+        final long inputPreparationMillis;
+        final long modelRequestMillis;
 
         Result(InferenceResult inference, int errorCode, String retryReason) {
+            this(inference, errorCode, retryReason, 0L, 0L);
+        }
+
+        Result(
+                InferenceResult inference,
+                int errorCode,
+                String retryReason,
+                long inputPreparationMillis,
+                long modelRequestMillis) {
             this.inference = inference;
             this.errorCode = errorCode;
             this.retryReason = retryReason;
+            this.inputPreparationMillis = inputPreparationMillis;
+            this.modelRequestMillis = modelRequestMillis;
         }
     }
 
@@ -75,12 +88,15 @@ final class MediaBrokerClient implements AutoCloseable {
         if (blocked != null) {
             return new Result(null, ERROR_CONSTRAINT_BLOCKED, blocked);
         }
+        long preparationStarted = SystemClock.elapsedRealtime();
         PreparedMedia prepared;
         try {
             prepared = PreparedMedia.open(context, job, constraints);
         } catch (VideoStoryboard.BlockedException error) {
             return new Result(null, ERROR_CONSTRAINT_BLOCKED, error.reason);
         }
+        long inputPreparationMillis = MediaTiming.elapsedDuration(
+                preparationStarted, SystemClock.elapsedRealtime());
         try (prepared) {
             blocked = constraints.blockedReason();
             if (blocked != null) {
@@ -132,6 +148,7 @@ final class MediaBrokerClient implements AutoCloseable {
             request.allowFallback = true;
 
             try {
+                long modelRequestStarted = SystemClock.elapsedRealtime();
                 sessionId = service.createSession(request, callback);
                 if (sessionId <= 0L) {
                     return new Result(
@@ -166,7 +183,10 @@ final class MediaBrokerClient implements AutoCloseable {
                 return new Result(
                         holder.result,
                         holder.errorCode,
-                        holder.result == null ? "model_runtime_error" : null);
+                        holder.result == null ? "model_runtime_error" : null,
+                        inputPreparationMillis,
+                        MediaTiming.elapsedDuration(
+                                modelRequestStarted, SystemClock.elapsedRealtime()));
             } catch (RemoteException error) {
                 throw new IOException("Model Broker binder failed", error);
             }

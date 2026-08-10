@@ -61,6 +61,13 @@ if (-not (Get-AiosProperty -Name "ro.aios.version")) {
 
 $admissionPath = Join-Path $repositoryRoot "config\model_admission.json"
 $admission = Get-Content -Raw -LiteralPath $admissionPath | ConvertFrom-Json
+$suitePath = Join-Path $repositoryRoot "config\model_benchmark_suite.json"
+$suite = Get-Content -Raw -LiteralPath $suitePath | ConvertFrom-Json
+if ($suite.schema_version -ne 1 -or
+    $suite.suite_version -isnot [int] -or
+    $suite.suite_version -lt 1) {
+    throw "checked-in model benchmark suite is invalid"
+}
 $profile = @($admission.profiles | Where-Object { $_.id -eq $ProfileId })
 if ($profile.Count -ne 1) {
     throw "unknown admission profile: $ProfileId"
@@ -125,9 +132,9 @@ try {
     $expectedFields = @("results", "schema_version", "suite_version")
     if (($measurementFields -join ",") -ne ($expectedFields -join ",") -or
         $measurementDocument.schema_version -ne 1 -or
-        $measurementDocument.suite_version -ne 1 -or
+        $measurementDocument.suite_version -ne $suite.suite_version -or
         $null -eq $measurementDocument.results) {
-        throw "measurement input must contain only schema_version, suite_version, and results"
+        throw "measurement input must match the checked-in benchmark suite"
     }
 
     $rawDocument = [ordered]@{

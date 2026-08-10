@@ -17,6 +17,12 @@ strict result schema, and commits the encrypted result/index state in one SQLite
 transaction. Broker absence is retryable; changed/deleted media becomes stale;
 invalid model output fails closed.
 
+The same result transaction stores privacy-minimized timing for the latest 100
+photos and 100 videos. A debug-only dump exposes fixed p50/p95 counters for
+queueing, preparation, Broker inference, and end-to-end indexing; it never emits
+media identifiers or inferred content. See `docs/media-performance.md` for the
+physical Pixel evidence procedure.
+
 Metadata has two layers:
 
 - The credential-encrypted AIOS index is authoritative and may contain rich

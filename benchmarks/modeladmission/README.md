@@ -27,8 +27,11 @@ host-side evaluator owns gate fields and decisions.
 
 Media output reports `p95_image_latency_ms` separately from
 `p95_video_storyboard_inference_ms`; the former is the current photo ETA metric.
-These are Broker/model times. The physical media gate additionally measures
-MediaStore settling, hashing, and twenty-keyframe extraction for end-to-end ETA.
+It also reports `first_image_latency_ms` as the cold-start observation and
+`p50_warm_image_latency_ms` after excluding that first invocation. These are
+Broker/model times. The physical media timing path additionally measures
+MediaStore observation, queueing, hashing, twenty-keyframe preparation, and
+indexing for end-to-end ETA.
 
 Normally run the complete capture path from the repository root:
 

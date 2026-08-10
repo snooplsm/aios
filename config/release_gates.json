@@ -58,6 +58,7 @@
     {"id": "media.interrupted_write_recovery", "category": "media", "required": true},
     {"id": "media.advanced_photo_index_only", "category": "media", "required": true},
     {"id": "media.self_write_no_requeue", "category": "media", "required": true},
+    {"id": "media.pixel9a_latency_profile", "category": "media", "required": true},
     {"id": "model.artifact_digest_enforced", "category": "model", "required": true},
     {"id": "model.call_preempts_media", "category": "model", "required": true},
     {"id": "model.runtime_dependency_lock_verified", "category": "model", "required": true},

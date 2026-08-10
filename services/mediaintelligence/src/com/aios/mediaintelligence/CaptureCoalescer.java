@@ -17,11 +17,20 @@ final class CaptureCoalescer {
         final String uri;
         final long generation;
         final String mimeType;
+        final long observedAtEpochMillis;
 
-        ObservedMedia(String uri, long generation, String mimeType) {
+        ObservedMedia(
+                String uri,
+                long generation,
+                String mimeType,
+                long observedAtEpochMillis) {
+            if (observedAtEpochMillis <= 0L) {
+                throw new IllegalArgumentException("media observation time must be positive");
+            }
             this.uri = uri;
             this.generation = generation;
             this.mimeType = mimeType;
+            this.observedAtEpochMillis = observedAtEpochMillis;
         }
     }
 

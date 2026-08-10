@@ -765,6 +765,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "benchmarks/modeladmission/tests/AndroidManifest.xml",
         "benchmarks/modeladmission/tests/src/com/aios/modelbenchmark/ModelAdmissionBenchmarkTest.java",
         "scripts/capture-model-benchmark.ps1",
+        "scripts/capture-media-timing.ps1",
         "services/callintelligence/AndroidManifest.xml",
         "services/callintelligence/aidl/com/aios/call/IAiosCallIntelligence.aidl",
         "services/callintelligence/aidl/com/aios/call/ICallIntelligenceListener.aidl",
@@ -815,14 +816,18 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/mediaintelligence/src/com/aios/mediaintelligence/MediaContent.java",
         "services/mediaintelligence/src/com/aios/mediaintelligence/MediaResult.java",
         "services/mediaintelligence/src/com/aios/mediaintelligence/MediaJobStore.java",
+        "services/mediaintelligence/src/com/aios/mediaintelligence/MediaTiming.java",
+        "services/mediaintelligence/src/com/aios/mediaintelligence/MediaTimingSummary.java",
         "services/mediaintelligence/src/com/aios/mediaintelligence/JpegXmpInjector.java",
         "services/mediaintelligence/src/com/aios/mediaintelligence/MediaMetadataCommitter.java",
         "services/mediaintelligence/tests/src/com/aios/mediaintelligence/JpegXmpInjectorTest.java",
         "services/mediaintelligence/tests/src/com/aios/mediaintelligence/MediaWorkPolicyTest.java",
         "services/mediaintelligence/tests/src/com/aios/mediaintelligence/MediaInputPolicyTest.java",
         "services/mediaintelligence/tests/src/com/aios/mediaintelligence/VideoStoryboardPlanTest.java",
+        "services/mediaintelligence/tests/src/com/aios/mediaintelligence/MediaTimingTest.java",
         "permissions/default-permissions-aios.xml",
         "docs/media-metadata-schema.md",
+        "docs/media-performance.md",
     ]
     for relative in required_files:
         require((root / relative).is_file(), f"missing AOSP overlay file: {relative}")
@@ -897,9 +902,18 @@ def validate_aosp_overlay(root: Path) -> None:
             and "IAiosModelService" in benchmark_source
             and '"video_understanding"' in benchmark_source
             and '"p95_image_latency_ms"' in benchmark_source
+            and '"first_image_latency_ms"' in benchmark_source
+            and '"p50_warm_image_latency_ms"' in benchmark_source
             and '"p95_video_storyboard_inference_ms"' in benchmark_source
             and "aios_measurements_base64" in benchmark_source,
             "model benchmark must be test-only, call-safe, and measure image/video Broker paths")
+    benchmark_capture = (root / "scripts" /
+                         "capture-model-benchmark.ps1").read_text(encoding="utf-8")
+    require('"config\\model_benchmark_suite.json"' in benchmark_capture
+            and "$measurementDocument.suite_version -ne $suite.suite_version"
+            in benchmark_capture
+            and "$measurementDocument.suite_version -ne 1" not in benchmark_capture,
+            "device benchmark capture must follow the checked-in suite version")
     overlay_text = "\n".join(
         path.read_text(encoding="utf-8", errors="ignore")
         for directory in (root / "products", root / "overlays")
@@ -1817,6 +1831,45 @@ def validate_aosp_overlay(root: Path) -> None:
     require("own_mutations" in media_store_source
             and "recoverInterruptedWork" in media_store_source,
             "media database must suppress self-writes and recover interrupted jobs")
+    require("VERSION = 2" in media_store_source
+            and "oldVersion == 1 && newVersion == 2" in media_store_source
+            and "CREATE TABLE timing_samples" in media_store_source
+            and "MediaTimingSummary.MAX_SAMPLES_PER_KIND" in media_store_source
+            and "timing_samples" in media_store_source.partition("commitResult(")[2],
+            "media timing must migrate explicitly, stay bounded, and commit with results")
+
+    timing_source = (media_source_root / "MediaTiming.java").read_text(
+        encoding="utf-8"
+    )
+    timing_summary = (media_source_root / "MediaTimingSummary.java").read_text(
+        encoding="utf-8"
+    )
+    timing_test = (root / "services" / "mediaintelligence" / "tests" / "src" /
+                   "com" / "aios" / "mediaintelligence" /
+                   "MediaTimingTest.java").read_text(encoding="utf-8")
+    require("UNKNOWN_MILLIS = -1L" in timing_source
+            and "elapsedDuration" in timing_source
+            and "MAX_SAMPLES_PER_KIND = 100" in timing_summary
+            and "nearestRank" in timing_summary
+            and "snapshotUsesBoundedNearestRankPercentilesAndNoMediaContent"
+            in timing_test,
+            "media timing must separate clocks and export bounded aggregate percentiles")
+
+    observer_source = (media_source_root / "MediaObserverService.java").read_text(
+        encoding="utf-8"
+    )
+    media_timing_capture = (root / "scripts" /
+                            "capture-media-timing.ps1").read_text(encoding="utf-8")
+    require("Build.TYPE" in observer_source
+            and '"user".equals(Build.TYPE)' in observer_source
+            and '"--timing-json"' in observer_source
+            and "AIOS_MEDIA_TIMING_BASE64=" in observer_source
+            and "dumpsys\", \"activity\", \"service\"" in media_timing_capture
+            and "ro.debuggable" in media_timing_capture
+            and "build_fingerprint_sha256" in media_timing_capture
+            and "content://|caption|transcript|prompt|media_uri|phone"
+            in media_timing_capture,
+            "media timing evidence must be debug-only, device-bound, and privacy-minimized")
 
     jpeg_writer = (media_source_root / "JpegXmpInjector.java").read_text(
         encoding="utf-8"
@@ -2265,6 +2318,7 @@ def validate_release_configuration(root: Path) -> None:
         "media.blocked_below_80_percent",
         "media.original_preserved",
         "media.video_storyboard_indexed",
+        "media.pixel9a_latency_profile",
         "model.runtime_dependency_lock_verified",
         "model.runtime_identity_enforced",
         "model.runtime_crash_isolated",

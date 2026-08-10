@@ -11,6 +11,7 @@ import android.content.IntentFilter;
 import android.os.BatteryManager;
 import android.os.PersistableBundle;
 import android.os.PowerManager;
+import android.os.SystemClock;
 import android.telecom.TelecomManager;
 import android.util.Log;
 
@@ -85,6 +86,8 @@ public final class MediaInferenceJobService extends JobService {
         MediaJobStore store = new MediaJobStore(this);
         MediaJobStore.PendingJob job = null;
         MediaJobStore.PortableJob portableJob = null;
+        long processingStartedElapsedMillis = -1L;
+        long processingStartedEpochMillis = -1L;
         try {
             if (!MediaWorkPolicy.isKnownWorkClass(workClass)) {
                 return;
@@ -104,6 +107,8 @@ public final class MediaInferenceJobService extends JobService {
             if (job == null) {
                 return;
             }
+            processingStartedElapsedMillis = SystemClock.elapsedRealtime();
+            processingStartedEpochMillis = System.currentTimeMillis();
             UriState before = inspect(job);
             if (before.generation != job.generation) {
                 store.markStale(job.id);
@@ -144,13 +149,24 @@ public final class MediaInferenceJobService extends JobService {
                 job = null;
                 return;
             }
+            long completedAtEpochMillis = System.currentTimeMillis();
+            long processingMillis = MediaTiming.elapsedDuration(
+                    processingStartedElapsedMillis, SystemClock.elapsedRealtime());
+            MediaTiming.Sample timing = MediaTiming.completed(
+                    job.mimeType,
+                    job.observedAtEpochMillis,
+                    processingStartedEpochMillis,
+                    completedAtEpochMillis,
+                    processingMillis,
+                    brokerResult.inputPreparationMillis,
+                    brokerResult.modelRequestMillis);
             String portableXmp = XmpProjection.build(
                     result.caption,
                     result.tags,
                     result.language,
                     brokerResult.inference.modelId,
                     brokerResult.inference.modelDigest,
-                    System.currentTimeMillis(),
+                    completedAtEpochMillis,
                     result.confidence);
             store.commitResult(
                     job,
@@ -158,8 +174,14 @@ public final class MediaInferenceJobService extends JobService {
                     result.rawJson,
                     brokerResult.inference.modelId,
                     brokerResult.inference.modelDigest,
-                    System.currentTimeMillis(),
-                    portableXmp);
+                    completedAtEpochMillis,
+                    portableXmp,
+                    timing);
+            Log.i(TAG, "indexed " + timing.mediaKind
+                    + " observed_to_index_ms=" + timing.observedToIndexMillis
+                    + " processing_ms=" + timing.processingMillis
+                    + " preparation_ms=" + timing.inputPreparationMillis
+                    + " model_request_ms=" + timing.modelRequestMillis);
             job = null;
         } catch (FileNotFoundException error) {
             if (job != null) {
