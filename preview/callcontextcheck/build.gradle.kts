@@ -18,6 +18,9 @@ val stageCallContextMain by tasks.registering(Sync::class) {
     from("../../services/contextintelligence/api") {
         include("com/aios/context/**/*.java")
     }
+    from("../../services/contextintelligence/src") {
+        include("com/aios/contextintelligence/**/*.java")
+    }
     into(generatedMain)
 }
 
@@ -26,6 +29,12 @@ val stageCallContextTest by tasks.registering(Sync::class) {
         include(
             "com/aios/callintelligence/CallContextAccumulatorTest.java",
             "com/aios/callintelligence/PriorContextFormatterTest.java",
+        )
+    }
+    from("../../services/contextintelligence/tests/src") {
+        include(
+            "com/aios/contextintelligence/ContextPolicyTest.java",
+            "com/aios/contextintelligence/RevisionGateTest.java",
         )
     }
     into(generatedTest)

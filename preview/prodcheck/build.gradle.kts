@@ -20,6 +20,8 @@ android {
             manifest.srcFile("../../apps/phone/AndroidManifest.xml")
             kotlin.directories.add("../../apps/phone/src")
             aidl.directories.add("../../services/callintelligence/aidl")
+            aidl.directories.add("../../services/contextintelligence/aidl")
+            java.directories.add("../../services/contextintelligence/api")
             res.directories.add("../../apps/phone/res")
         }
         getByName("test") {

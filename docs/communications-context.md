@@ -77,15 +77,33 @@ Every source has a monotonic revision. Deletion removes the entry and writes a
 tombstone, so a delayed stale indexing callback cannot resurrect it. SMS deletion
 is wired to that API. Normal call teardown now publishes the expiring call
 artifact. Call-artifact expiry is purged during queries and after boot. Durable
-Phone call events and selected-photo metadata still need their producer
-lifecycles before those context release gates can pass.
+Phone call events are also wired, while selected-photo metadata still needs its
+producer lifecycle before that context release gate can pass.
+
+AIOS Phone observes CallLog only while it holds `ROLE_DIALER` and reconciles at
+most the newest 256 presented, non-emergency records. The phone number is used
+only as a transient input to `resolveIdentity`; stored call-event text contains
+the event kind, bounded duration, and video flag, but no number or contact name.
+A private 256-entry ledger stores only source IDs and keyed HMAC fingerprints.
+Provider deletions, rows aging out of the window, and loss of the dialer role all
+produce ordered tombstones. A synchronously persisted global revision clock
+prevents an older retry from winning after restart or call-log ID reuse.
+
+Because call-log IDs continually increase, `call_event` deletions use one
+source-level delete watermark in the context database rather than accumulating
+an unbounded tombstone table. The next legitimate Phone write must have a newer
+global revision; delayed writes at or below the watermark remain rejected. The
+version-2 database migration folds any existing per-call tombstones into that
+watermark without dropping current entries.
 
 ## Still required before daily use
 
 - complete and carrier-test MMS send/download/provider persistence;
 - expose explicit SIM selection when no single default SMS subscription exists;
 - reconcile provider changes made outside AIOS Messaging;
-- wire durable call-event and selected-photo metadata producers;
+- wire the selected-photo metadata producer;
+- exercise call-event reconciliation across deletion, reboot, role loss, and
+  clock changes on Pixel hardware before passing `context.call_source_lifecycle`;
 - add a user control to exclude a conversation or source from retrieval; and
 - run SMS/MMS, reboot, restore, deletion, lock-screen notification, and emergency
   interaction tests on the Pixel hardware lane.

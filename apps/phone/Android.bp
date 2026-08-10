@@ -5,6 +5,7 @@ android_app {
     resource_dirs: ["res"],
     static_libs: [
         "aios_call_api",
+        "aios_context_api",
         "androidx.activity_activity-compose",
         "androidx.compose.foundation_foundation",
         "androidx.compose.foundation_foundation-layout",
@@ -34,6 +35,7 @@ java_test_host {
         "src/com/aios/phone/model/AssistantCallContract.kt",
         "src/com/aios/phone/model/CallRiskContract.kt",
         "src/com/aios/phone/intelligence/PendingAiAnswerGate.kt",
+        "src/com/aios/phone/context/CallEventContract.kt",
         "tests/src/**/*.kt",
     ],
     static_libs: ["junit"],

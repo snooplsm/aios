@@ -17,7 +17,7 @@ import java.util.Locale;
 /** Credential-encrypted, revisioned lexical index for bounded local retrieval. */
 final class ContextStore extends SQLiteOpenHelper {
     private static final String DATABASE = "communication_context.db";
-    private static final int VERSION = 1;
+    private static final int VERSION = 2;
 
     ContextStore(Context context) {
         super(context, DATABASE, null, VERSION);
@@ -54,6 +54,7 @@ final class ContextStore extends SQLiteOpenHelper {
                         + "source_id TEXT NOT NULL,"
                         + "revision INTEGER NOT NULL,"
                         + "PRIMARY KEY(source_type, source_id))");
+        createSourceDeleteWatermarks(database);
         database.execSQL("CREATE VIRTUAL TABLE entries_fts USING fts4(body, content='entries')");
         database.execSQL(
                 "CREATE TRIGGER entries_after_insert AFTER INSERT ON entries BEGIN "
@@ -65,6 +66,17 @@ final class ContextStore extends SQLiteOpenHelper {
 
     @Override
     public void onUpgrade(SQLiteDatabase database, int oldVersion, int newVersion) {
+        if (oldVersion == 1 && newVersion == 2) {
+            createSourceDeleteWatermarks(database);
+            database.execSQL(
+                    "INSERT INTO source_delete_watermarks(source_type, revision) "
+                            + "SELECT source_type, MAX(revision) FROM tombstones "
+                            + "WHERE source_type=? GROUP BY source_type",
+                    new Object[]{ContextPolicy.CALL_EVENT});
+            database.delete(
+                    "tombstones", "source_type=?", new String[]{ContextPolicy.CALL_EVENT});
+            return;
+        }
         throw new IllegalStateException("explicit communication-index migration required");
     }
 
@@ -75,7 +87,9 @@ final class ContextStore extends SQLiteOpenHelper {
             long current = revision(database, "entries", document.sourceType, document.sourceId);
             long tombstone = revision(
                     database, "tombstones", document.sourceType, document.sourceId);
-            if (!RevisionGate.accepts(document.revision, current, tombstone)) {
+            long deleteWatermark = sourceDeleteWatermark(database, document.sourceType);
+            if (!RevisionGate.accepts(
+                    document.revision, current, tombstone, deleteWatermark)) {
                 database.setTransactionSuccessful();
                 return;
             }
@@ -109,7 +123,8 @@ final class ContextStore extends SQLiteOpenHelper {
         try {
             long current = revision(database, "entries", sourceType, sourceId);
             long tombstone = revision(database, "tombstones", sourceType, sourceId);
-            if (revision <= tombstone) {
+            long deleteWatermark = sourceDeleteWatermark(database, sourceType);
+            if (revision <= tombstone || revision <= deleteWatermark) {
                 database.setTransactionSuccessful();
                 return;
             }
@@ -120,10 +135,19 @@ final class ContextStore extends SQLiteOpenHelper {
             }
             ContentValues values = new ContentValues();
             values.put("source_type", sourceType);
-            values.put("source_id", sourceId);
             values.put("revision", revision);
-            database.insertWithOnConflict(
-                    "tombstones", null, values, SQLiteDatabase.CONFLICT_REPLACE);
+            if (usesSourceDeleteWatermark(sourceType)) {
+                database.insertWithOnConflict(
+                        "source_delete_watermarks",
+                        null,
+                        values,
+                        SQLiteDatabase.CONFLICT_REPLACE);
+                database.delete("tombstones", "source_type=?", new String[]{sourceType});
+            } else {
+                values.put("source_id", sourceId);
+                database.insertWithOnConflict(
+                        "tombstones", null, values, SQLiteDatabase.CONFLICT_REPLACE);
+            }
             database.setTransactionSuccessful();
         } finally {
             database.endTransaction();
@@ -192,6 +216,31 @@ final class ContextStore extends SQLiteOpenHelper {
                 null)) {
             return cursor.moveToFirst() ? cursor.getLong(0) : 0L;
         }
+    }
+
+    private static long sourceDeleteWatermark(SQLiteDatabase database, String sourceType) {
+        if (!usesSourceDeleteWatermark(sourceType)) return 0L;
+        try (Cursor cursor = database.query(
+                "source_delete_watermarks",
+                new String[]{"revision"},
+                "source_type=?",
+                new String[]{sourceType},
+                null,
+                null,
+                null)) {
+            return cursor.moveToFirst() ? cursor.getLong(0) : 0L;
+        }
+    }
+
+    private static boolean usesSourceDeleteWatermark(String sourceType) {
+        return ContextPolicy.CALL_EVENT.equals(sourceType);
+    }
+
+    private static void createSourceDeleteWatermarks(SQLiteDatabase database) {
+        database.execSQL(
+                "CREATE TABLE source_delete_watermarks ("
+                        + "source_type TEXT PRIMARY KEY,"
+                        + "revision INTEGER NOT NULL)");
     }
 
     static String ftsQuery(String value) {

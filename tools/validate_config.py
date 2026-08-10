@@ -673,7 +673,10 @@ def validate_aosp_overlay(root: Path) -> None:
         "apps/phone/tests/src/com/aios/phone/intelligence/PendingAiAnswerGateTest.kt",
         "apps/phone/tests/src/com/aios/phone/model/AssistantCallContractTest.kt",
         "apps/phone/tests/src/com/aios/phone/model/CallRiskContractTest.kt",
+        "apps/phone/tests/src/com/aios/phone/context/CallEventContractTest.kt",
         "apps/phone/src/com/aios/phone/PhoneRuntime.kt",
+        "apps/phone/src/com/aios/phone/context/CallEventContract.kt",
+        "apps/phone/src/com/aios/phone/context/CallEventContextClient.kt",
         "apps/phone/src/com/aios/phone/data/CallHistoryRepository.kt",
         "apps/phone/src/com/aios/phone/data/VoicemailRepository.kt",
         "apps/phone/src/com/aios/phone/model/PhoneContract.kt",
@@ -1054,6 +1057,9 @@ def validate_aosp_overlay(root: Path) -> None:
             "communication identities must be opaque and re-resolve current contact members")
     require("CREATE VIRTUAL TABLE entries_fts USING fts4" in context_store
             and "CREATE TABLE tombstones" in context_store
+            and "CREATE TABLE source_delete_watermarks" in context_store
+            and "usesSourceDeleteWatermark" in context_store
+            and "ContextPolicy.CALL_EVENT.equals(sourceType)" in context_store
             and "RevisionGate.accepts" in context_store
             and "identity.relatedConversationKeys" in context_store
             and "MAX_QUERY_RESULTS = 8" in context_policy
@@ -1103,6 +1109,15 @@ def validate_aosp_overlay(root: Path) -> None:
     pending_answer_gate = (root / "apps" / "phone" / "src" / "com" / "aios" /
                            "phone" / "intelligence" /
                            "PendingAiAnswerGate.kt").read_text(encoding="utf-8")
+    call_event_contract = (root / "apps" / "phone" / "src" / "com" / "aios" /
+                           "phone" / "context" /
+                           "CallEventContract.kt").read_text(encoding="utf-8")
+    call_event_client = (root / "apps" / "phone" / "src" / "com" / "aios" /
+                         "phone" / "context" /
+                         "CallEventContextClient.kt").read_text(encoding="utf-8")
+    call_event_test = (root / "apps" / "phone" / "tests" / "src" / "com" /
+                       "aios" / "phone" / "context" /
+                       "CallEventContractTest.kt").read_text(encoding="utf-8")
     pending_answer_test = (root / "apps" / "phone" / "tests" / "src" / "com" /
                            "aios" / "phone" / "intelligence" /
                            "PendingAiAnswerGateTest.kt").read_text(encoding="utf-8")
@@ -1186,6 +1201,36 @@ def validate_aosp_overlay(root: Path) -> None:
             and "MAX_ROWS = 50" in history_source
             and "NUMBER_PRESENTATION" in history_source,
             "AIOS Phone call history must be bounded, read-only, and presentation aware")
+    require('"aios_context_api"' in phone_build
+            and "CallEventContextClient(value)" in phone_runtime
+            and "contextEvents.setEnabled(held)" in phone_runtime
+            and "startWatchingMode(" in phone_runtime
+            and "AppOpsManager.OPSTR_READ_CALL_LOG" in phone_runtime
+            and "contextEvents.onCallLogMayHaveChanged()" in phone_runtime
+            and "registerContentObserver" in call_event_client
+            and "service.resolveIdentity(record.address, record.countryIso)"
+            in call_event_client
+            and "ContextDocument(" in call_event_client
+            and 'SOURCE_CALL_EVENT = "call_event"' in call_event_client
+            and "MAX_INDEXED_EVENTS = 256" in call_event_contract,
+            "the dialer role must reconcile a bounded durable call-event context source")
+    require("TelecomManager.PRESENTATION_ALLOWED" in call_event_client
+            and "telephony.isEmergencyNumber(address)" in call_event_client
+            and "CACHED_NAME" not in call_event_client
+            and "address=<redacted>" in call_event_contract
+            and "HmacSHA256" in call_event_contract
+            and "FINGERPRINT_SECRET_BYTES = 32" in call_event_client,
+            "call-event context must exclude hidden/emergency identities and protect its ledger")
+    require("saveLedger(updated)" in call_event_client
+            and "nextRevision()" in call_event_client
+            and ".commit()" in call_event_client
+            and "CallEventMutation.Delete" in call_event_client
+            and "reconciliationDeletesMissingAndUpsertsOnlyChangedRows"
+            in call_event_test
+            and "reconciliationKeepsOnlyNewestBoundedSet" in call_event_test
+            and "../../services/contextintelligence/aidl" in prodcheck_build
+            and "../../services/contextintelligence/api" in prodcheck_build,
+            "call-event changes and tombstones must be durable, monotonic, and compile checked")
     require("onCallDestroyed" in phone_registry
             and "InCallService.onCallRemoved is the canonical terminal event"
             in phone_registry,
@@ -1768,6 +1813,9 @@ def validate_aosp_overlay(root: Path) -> None:
     require("CallCommunicationContextClient.java" in call_context_check_build
             and "../../services/contextintelligence/api" in call_context_check_build
             and "../../services/contextintelligence/aidl" in call_context_check_build
+            and "../../services/contextintelligence/src" in call_context_check_build
+            and "ContextPolicyTest.java" in call_context_check_build
+            and "RevisionGateTest.java" in call_context_check_build
             and "CallContextAccumulatorTest.java" in call_context_check_build
             and "PriorContextFormatterTest.java" in call_context_check_build,
             "the call-context Binder client and bounds tests need a public-SDK compile check")

@@ -16,10 +16,11 @@ source set also runs the Android-free dialer policy state machines. It must not
 be installed. The authoritative product build and host-test target remain the
 platform-signed Soong modules inside the locked AOSP tree.
 
-`callcontextcheck` stages only the public-SDK Call Intelligence context client,
-its context AIDL/API, and the two pure bounds tests into generated build
-directories. It compiles the Binder client, runs the formatter/accumulator tests,
-assembles, and lints without maintaining duplicate production source files.
+`callcontextcheck` stages the public-SDK Call Intelligence context client, the
+communication-context service/store and API, and their pure tests into generated
+build directories. It compiles both Binder sides, runs policy, revision,
+formatter, and accumulator tests, assembles, and lints without maintaining
+duplicate production source files.
 It is a compile check, not a replacement for the platform Soong or device gates.
 
 `telecomsmoke` packages those same sources as `com.aios.phone` solely for an

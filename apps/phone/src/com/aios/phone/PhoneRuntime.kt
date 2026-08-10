@@ -3,6 +3,7 @@ package com.aios.phone
 import android.annotation.SuppressLint
 import android.Manifest
 import android.app.Application
+import android.app.AppOpsManager
 import android.app.role.RoleManager
 import android.content.Context
 import android.content.Intent
@@ -22,6 +23,7 @@ import android.telecom.TelecomManager
 import android.telecom.VideoProfile
 import android.telephony.PhoneNumberUtils
 import androidx.core.content.edit
+import com.aios.phone.context.CallEventContextClient
 import com.aios.phone.data.CallHistoryRepository
 import com.aios.phone.data.VoicemailRepository
 import com.aios.phone.intelligence.CallAssistantClient
@@ -68,6 +70,8 @@ object PhoneRuntime {
     private lateinit var rtt: RttSessionController
     @SuppressLint("StaticFieldLeak") // Repository receives only the Application context.
     private lateinit var history: CallHistoryRepository
+    @SuppressLint("StaticFieldLeak") // Client receives only the Application context.
+    private lateinit var contextEvents: CallEventContextClient
     @SuppressLint("StaticFieldLeak") // Repository receives only the Application context.
     private lateinit var voicemailRepository: VoicemailRepository
     @SuppressLint("StaticFieldLeak") // Controller receives only the Application context.
@@ -78,6 +82,10 @@ object PhoneRuntime {
     private val accountsById = linkedMapOf<String, PhoneAccountHandle>()
     private var telecomService: AiosInCallService? = null
     private var initialized = false
+    private val callLogOpChanged = AppOpsManager.OnOpChangedListener { operation, packageName ->
+        if (operation == AppOpsManager.OPSTR_READ_CALL_LOG &&
+            packageName == application.packageName) refreshRole()
+    }
 
     fun initialize(value: Application) {
         if (initialized) return
@@ -138,6 +146,7 @@ object PhoneRuntime {
                 },
             )
         }
+        contextEvents = CallEventContextClient(value)
         voicemailRepository = VoicemailRepository(value) { result ->
             result.fold(
                 onSuccess = { voicemails ->
@@ -271,6 +280,11 @@ object PhoneRuntime {
             }
         })
         initialized = true
+        value.getSystemService(AppOpsManager::class.java)?.startWatchingMode(
+            AppOpsManager.OPSTR_READ_CALL_LOG,
+            value.packageName,
+            callLogOpChanged,
+        )
         val preferences = value.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val savedTheme = preferences.getString(THEME, ThemePreference.SYSTEM.name)
         val theme = runCatching { ThemePreference.valueOf(savedTheme.orEmpty()) }
@@ -321,6 +335,7 @@ object PhoneRuntime {
             }
         }
         calls.remove(call)
+        contextEvents.onCallLogMayHaveChanged()
         publish()
     }
 
@@ -508,6 +523,7 @@ object PhoneRuntime {
         if (!initialized) return@onMain
         val roleManager = application.getSystemService(RoleManager::class.java)
         val held = roleManager?.isRoleHeld(RoleManager.ROLE_DIALER) == true
+        contextEvents.setEnabled(held)
         reduce { it.copy(isDialerRoleHeld = held) }
     }
 
