@@ -29,6 +29,33 @@ function Invoke-Adb {
     return $output
 }
 
+function Get-SelectedOutgoingAccount {
+    $dump = (Invoke-Adb shell dumpsys telecom) -join "`n"
+    $match = [regex]::Match(
+        $dump,
+        '(?m)^\s*defaultOutgoing:\s+(?:(?:ComponentInfo\{(?<component>[^}]+)\},\s*' +
+            '(?<id>[^,\r\n]+),\s*UserHandle\{(?<user>\d+)\})|null)\s*$')
+    if (-not $match.Success) {
+        throw "Could not read Telecom's selected outgoing phone account"
+    }
+    if (-not $match.Groups['component'].Success) {
+        return $null
+    }
+    return [pscustomobject]@{
+        component = $match.Groups['component'].Value.Trim()
+        id = $match.Groups['id'].Value.Trim()
+        user = [int]$match.Groups['user'].Value
+    }
+}
+
+function Get-OutgoingAccountKey {
+    param([AllowNull()]$Account)
+    if ($null -eq $Account) {
+        return "<none>"
+    }
+    return "$($Account.component)`n$($Account.id)`n$($Account.user)"
+}
+
 $qemu = (Invoke-Adb shell getprop ro.kernel.qemu | Select-Object -First 1).Trim()
 if ($qemu -ne "1") {
     throw "Refusing to run: $Serial does not report ro.kernel.qemu=1"
@@ -66,9 +93,11 @@ $originalHolders = @(
     Invoke-Adb shell cmd role get-role-holders --user 0 $role |
         Where-Object { $_ }
 )
+$originalOutgoingAccount = Get-SelectedOutgoingAccount
 $callStarted = $false
 $installed = $false
 $registered = $false
+$outgoingAccountChanged = $false
 $screenPrepared = $false
 $screenWasAwake = ((Invoke-Adb shell dumpsys power) -join "`n") -match 'mWakefulness=Awake'
 $evidence = $null
@@ -77,6 +106,7 @@ $smokeToken = [Guid]::NewGuid().ToString("N")
 $remoteScreenshot = "/sdcard/aios-telecom-smoke-$smokeToken.png"
 $remoteUiDump = "/sdcard/aios-telecom-smoke-$smokeToken.xml"
 $screenshot = $null
+$outgoingScreenshot = $null
 
 function Get-UiControl {
     param([Parameter(Mandatory)][string]$Text)
@@ -130,6 +160,15 @@ function Get-CurrentTelecomCalls {
     return $current -join "`n"
 }
 
+function Get-FocusedWindow {
+    return @(
+        Invoke-Adb shell dumpsys window |
+            Where-Object {
+                $_ -match '^\s*mCurrentFocus=' -or $_ -match '^\s*mFocusedApp='
+            }
+    ) -join "`n"
+}
+
 try {
     Invoke-Adb install -r $apkPath | Out-Null
     $installed = $true
@@ -156,7 +195,7 @@ try {
     Invoke-Adb shell cmd telecom wait-on-handlers | Out-Null
     Start-Sleep -Seconds 3
 
-    $focus = (Invoke-Adb shell dumpsys window) -join "`n"
+    $focus = Get-FocusedWindow
     $telecom = Get-CurrentTelecomCalls
     $services = (Invoke-Adb shell dumpsys activity services $package) -join "`n"
     $notifications = (Invoke-Adb shell dumpsys notification --noredact) -join "`n"
@@ -180,7 +219,7 @@ try {
         # production activity so the screenshot remains deterministic.
         Invoke-Adb shell am start -a com.aios.phone.smoke.SHOW -n $fixtureActivity | Out-Null
         Start-Sleep -Seconds 1
-        $focus = (Invoke-Adb shell dumpsys window) -join "`n"
+        $focus = Get-FocusedWindow
     }
     if ($focus -notmatch 'com\.aios\.phone/.+InCallActivity') {
         throw "AIOS InCallActivity could not be displayed for visual verification"
@@ -247,6 +286,64 @@ try {
     }
     $callStarted = $false
 
+    Invoke-Adb shell cmd telecom set-user-selected-outgoing-phone-account `
+        $fixtureService $fixtureAccount 0 | Out-Null
+    $outgoingAccountChanged = $true
+    Invoke-Adb shell cmd telecom wait-on-handlers | Out-Null
+    $outgoingNumber = "15551230184"
+    $mainActivity = "$package/com.aios.phone.ui.MainActivity"
+    Invoke-Adb shell am start -W -a android.intent.action.DIAL `
+        -d "tel:$outgoingNumber" -n $mainActivity | Out-Null
+    Start-Sleep -Seconds 1
+    Invoke-Adb shell uiautomator dump $remoteUiDump | Out-Null
+    $dialUi = (Invoke-Adb shell cat $remoteUiDump) -join "`n"
+    if ($dialUi -notmatch [regex]::Escape($outgoingNumber)) {
+        throw "The standard DIAL intent did not populate the production Compose dialer"
+    }
+    $phonePidBeforeOutgoing = (Invoke-Adb shell pidof $package |
+        Select-Object -First 1).Trim()
+    if ($phonePidBeforeOutgoing -notmatch '^[0-9]+$') {
+        throw "AIOS Phone has no stable process before the outgoing call check"
+    }
+    Invoke-UiControl "Call"
+    $callStarted = $true
+    Invoke-Adb shell cmd telecom wait-on-handlers | Out-Null
+    Start-Sleep -Seconds 1
+    $telecomAfterDial = Get-CurrentTelecomCalls
+    $focusAfterDial = Get-FocusedWindow
+    if ($telecomAfterDial -notmatch 'state=DIALING' -or
+        $telecomAfterDial -notmatch 'EmulatorConnectionService' -or
+        $focusAfterDial -notmatch 'com\.aios\.phone/.+InCallActivity') {
+        throw "Compose did not place and present the managed outgoing Telecom call"
+    }
+
+    Invoke-Adb shell am start -a com.aios.phone.smoke.ACTIVATE `
+        -n $fixtureActivity | Out-Null
+    Invoke-Adb shell cmd telecom wait-on-handlers | Out-Null
+    Start-Sleep -Milliseconds 500
+    $telecomAfterOutgoingActive = Get-CurrentTelecomCalls
+    $servicesAfterOutgoingActive = (
+        Invoke-Adb shell dumpsys activity services $package) -join "`n"
+    $phonePidAfterOutgoingActive = (Invoke-Adb shell pidof $package |
+        Select-Object -First 1).Trim()
+    if ($telecomAfterOutgoingActive -notmatch 'state=ACTIVE' -or
+        $phonePidAfterOutgoingActive -ne $phonePidBeforeOutgoing -or
+        $servicesAfterOutgoingActive -notmatch 'isForeground=true' -or
+        $servicesAfterOutgoingActive -notmatch 'types=0x00000004' -or
+        $servicesAfterOutgoingActive -notmatch 'channel=ongoing_calls_v1') {
+        throw "The outgoing call did not become active under the phoneCall foreground service"
+    }
+    $outgoingScreenshot = Join-Path $EvidenceDirectory "aios-telecom-outgoing-smoke.png"
+    Invoke-Adb shell screencap -p $remoteScreenshot | Out-Null
+    Invoke-Adb pull $remoteScreenshot $outgoingScreenshot | Out-Null
+    Invoke-UiControl "End call"
+    Invoke-Adb shell cmd telecom wait-on-handlers | Out-Null
+    Start-Sleep -Milliseconds 500
+    if ((Get-CurrentTelecomCalls) -match 'state=(DIALING|ACTIVE)') {
+        throw "The production End call control did not disconnect the outgoing call"
+    }
+    $callStarted = $false
+
     $evidence = [ordered]@{
         schema_version = 1
         serial = $Serial
@@ -270,7 +367,15 @@ try {
         ongoing_notification_posted = $true
         decline_disconnected_call = $true
         ai_action_fail_closed = $true
+        outgoing_dial_intent_populated = $true
+        outgoing_compose_call_action = $true
+        outgoing_connection_dialing = $true
+        outgoing_in_call_activity_visible = $true
+        outgoing_connection_active = $true
+        phone_process_survived_outgoing = $true
+        outgoing_end_call_disconnected = $true
         screenshot = [IO.Path]::GetFullPath($screenshot)
+        outgoing_screenshot = [IO.Path]::GetFullPath($outgoingScreenshot)
         physical_gate_evidence = $false
     }
     $evidencePath = Join-Path $EvidenceDirectory "aios-telecom-smoke.json"
@@ -278,6 +383,18 @@ try {
     if ($callStarted) {
         & $adb -s $Serial shell am start -a com.aios.phone.smoke.DISCONNECT `
             -n $fixtureActivity | Out-Null
+        & $adb -s $Serial shell cmd telecom wait-on-handlers | Out-Null
+    }
+    if ($outgoingAccountChanged) {
+        if ($null -eq $originalOutgoingAccount) {
+            & $adb -s $Serial shell cmd telecom `
+                set-user-selected-outgoing-phone-account | Out-Null
+        } else {
+            & $adb -s $Serial shell cmd telecom `
+                set-user-selected-outgoing-phone-account `
+                $originalOutgoingAccount.component $originalOutgoingAccount.id `
+                $originalOutgoingAccount.user | Out-Null
+        }
         & $adb -s $Serial shell cmd telecom wait-on-handlers | Out-Null
     }
     if ($registered) {
@@ -311,6 +428,11 @@ $restoredHolders = @(
 $expectedHolders = @($originalHolders | Sort-Object)
 if (($restoredHolders -join "`n") -ne ($expectedHolders -join "`n")) {
     throw "Telecom smoke did not restore the original dialer role holders"
+}
+$restoredOutgoingAccount = Get-SelectedOutgoingAccount
+if ((Get-OutgoingAccountKey $restoredOutgoingAccount) -ne
+    (Get-OutgoingAccountKey $originalOutgoingAccount)) {
+    throw "Telecom smoke did not restore the selected outgoing phone account"
 }
 $remainingPackage = @(
     Invoke-Adb shell pm list packages --user 0 $package |
@@ -346,6 +468,7 @@ if ($remoteUiDumpAfter.Count -ne 0) {
 
 $evidence["cleanup_verified"] = $true
 $evidence["original_role_holders_restored"] = $true
+$evidence["original_outgoing_account_restored"] = $true
 $evidence["fixture_phone_account_removed"] = $true
 $evidence["package_removed"] = -not $KeepInstalled
 $evidence["remote_screenshot_removed"] = $true

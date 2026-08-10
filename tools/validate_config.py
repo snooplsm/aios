@@ -1484,6 +1484,9 @@ def validate_aosp_overlay(root: Path) -> None:
     smoke_activity = (root / "preview" / "telecomsmoke" / "src" / "debug" /
                       "kotlin" / "com" / "aios" / "phone" / "smoke" /
                       "EmulatorCallActivity.kt").read_text(encoding="utf-8")
+    smoke_connection = (root / "preview" / "telecomsmoke" / "src" / "debug" /
+                        "kotlin" / "com" / "aios" / "phone" / "smoke" /
+                        "EmulatorConnectionService.kt").read_text(encoding="utf-8")
     smoke_script = (root / "scripts" /
                     "emulator-telecom-smoke.ps1").read_text(encoding="utf-8")
     require("data class PhoneUiState" in phone_contract
@@ -1626,8 +1629,17 @@ def validate_aosp_overlay(root: Path) -> None:
     require("private fun isEmulator()" in smoke_activity
             and "Build.HARDWARE" in smoke_activity
             and "ACTION_INCOMING" in smoke_activity
+            and "ACTION_ACTIVATE" in smoke_activity
             and "ACTION_DISCONNECT" in smoke_activity,
             "the Telecom fixture must refuse physical hardware and clean up calls")
+    require("onCreateOutgoingConnection" in smoke_connection
+            and "setDialing()" in smoke_connection
+            and "activateAll()" in smoke_connection,
+            "the debug Telecom fixture must model deterministic outgoing call transitions")
+    require("Intent(application, InCallActivity::class.java)" in phone_runtime
+            and '"Call placed. Tap the active-call card to open controls"'
+            in phone_runtime,
+            "a production outgoing dial action must open or recover to in-call controls")
     require("'^emulator-[0-9]+$'" in smoke_script
             and "ro.kernel.qemu" in smoke_script
             and "$apiLevel -lt 35" in smoke_script
@@ -1649,6 +1661,11 @@ def validate_aosp_overlay(root: Path) -> None:
             and 'Invoke-UiControl "Ignore"' in smoke_script
             and 'Invoke-UiControl "Answer"' in smoke_script
             and 'Invoke-UiControl "Decline"' in smoke_script
+            and 'android.intent.action.DIAL' in smoke_script
+            and 'Invoke-UiControl "Call"' in smoke_script
+            and 'Invoke-UiControl "End call"' in smoke_script
+            and "original_outgoing_account_restored" in smoke_script
+            and "outgoing_connection_active" in smoke_script
             and "phone_process_survived_answer" in smoke_script
             and "phone_call_foreground_service" in smoke_script
             and "ongoing_notification_posted" in smoke_script

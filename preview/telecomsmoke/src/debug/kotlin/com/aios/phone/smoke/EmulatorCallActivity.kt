@@ -38,6 +38,7 @@ class EmulatorCallActivity : Activity() {
                     },
                 )
             }
+            ACTION_ACTIVATE -> EmulatorConnectionService.activateAll()
             ACTION_DISCONNECT -> EmulatorConnectionService.disconnectAll()
             ACTION_UNREGISTER -> telecom.unregisterPhoneAccount(phoneAccountHandle())
             ACTION_SHOW -> startActivity(
@@ -70,6 +71,7 @@ class EmulatorCallActivity : Activity() {
     companion object {
         const val ACTION_REGISTER = "com.aios.phone.smoke.REGISTER"
         const val ACTION_INCOMING = "com.aios.phone.smoke.INCOMING"
+        const val ACTION_ACTIVATE = "com.aios.phone.smoke.ACTIVATE"
         const val ACTION_DISCONNECT = "com.aios.phone.smoke.DISCONNECT"
         const val ACTION_UNREGISTER = "com.aios.phone.smoke.UNREGISTER"
         const val ACTION_SHOW = "com.aios.phone.smoke.SHOW"

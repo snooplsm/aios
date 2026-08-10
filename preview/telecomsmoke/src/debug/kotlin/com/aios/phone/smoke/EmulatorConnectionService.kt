@@ -19,16 +19,28 @@ class EmulatorConnectionService : ConnectionService() {
     ): Connection {
         val address = request.address
             ?: Uri.fromParts(PhoneAccount.SCHEME_TEL, EmulatorCallActivity.DEFAULT_NUMBER, null)
-        return EmulatorConnection(address).also { connections += it }
+        return EmulatorConnection(address, incoming = true).also { connections += it }
     }
 
-    private class EmulatorConnection(address: Uri) : Connection() {
+    override fun onCreateOutgoingConnection(
+        connectionManagerPhoneAccount: PhoneAccountHandle?,
+        request: ConnectionRequest,
+    ): Connection {
+        val address = request.address
+            ?: Uri.fromParts(PhoneAccount.SCHEME_TEL, EmulatorCallActivity.DEFAULT_NUMBER, null)
+        return EmulatorConnection(address, incoming = false).also { connections += it }
+    }
+
+    private class EmulatorConnection(address: Uri, incoming: Boolean) : Connection() {
         init {
             setAddress(address, TelecomManager.PRESENTATION_ALLOWED)
-            setCallerDisplayName("AIOS Emulator Caller", TelecomManager.PRESENTATION_ALLOWED)
+            setCallerDisplayName(
+                if (incoming) "AIOS Emulator Caller" else "AIOS Emulator Destination",
+                TelecomManager.PRESENTATION_ALLOWED,
+            )
             connectionCapabilities = CAPABILITY_HOLD or CAPABILITY_SUPPORT_HOLD
             audioModeIsVoip = true
-            setRinging()
+            if (incoming) setRinging() else setDialing()
         }
 
         override fun onAnswer() = setActive()
@@ -48,6 +60,8 @@ class EmulatorConnectionService : ConnectionService() {
             destroy()
             connections -= this
         }
+
+        fun activate() = setActive()
     }
 
     companion object {
@@ -56,5 +70,7 @@ class EmulatorConnectionService : ConnectionService() {
         )
 
         fun disconnectAll() = connections.toList().forEach { it.end(DisconnectCause.LOCAL) }
+
+        fun activateAll() = connections.toList().forEach(EmulatorConnection::activate)
     }
 }

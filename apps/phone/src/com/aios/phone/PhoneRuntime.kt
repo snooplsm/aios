@@ -45,6 +45,7 @@ import com.aios.phone.telecom.CallRegistry
 import com.aios.phone.telecom.ProximityLockController
 import com.aios.phone.telecom.RttSessionController
 import com.aios.phone.telecom.VoicemailPlaybackController
+import com.aios.phone.ui.InCallActivity
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -553,8 +554,19 @@ object PhoneRuntime {
             }
         } catch (_: SecurityException) {
             showMessage("Choose AIOS Phone as your calling app first")
+            return
         } catch (_: RuntimeException) {
             showMessage("The call could not be placed")
+            return
+        }
+        runCatching {
+            application.startActivity(
+                Intent(application, InCallActivity::class.java).addFlags(
+                    Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP,
+                ),
+            )
+        }.onFailure {
+            showMessage("Call placed. Tap the active-call card to open controls")
         }
     }
 

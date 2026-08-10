@@ -228,6 +228,16 @@ the production `AiosInCallService` is foreground with type `0x4` and the ongoing
 channel. The **AI** control must remain disabled because emulator evidence cannot
 unlock the physical caller-audio gate.
 
+The fixture also becomes the emulator's selected outgoing account for one
+transaction, then restores the exact previous account. A standard `ACTION_DIAL`
+intent populates the production Compose number field; the labeled **Call**
+control must create a fixture-backed `DIALING` call and automatically open
+`InCallActivity`. The fixture advances that same connection to `ACTIVE`, the
+runner captures the connected surface, and the labeled **End call** control must
+remove it without restarting AIOS Phone. This proves app/Telecom wiring only;
+radio, IMS, carrier routing, call audio, and emergency behavior remain physical
+device gates.
+
 The separate `preview:prodcheck` lane compiles the complete role-capable Phone
 app against the public SDK using the production sources, tests, manifest,
 resources, and both AIOS Binder boundaries. Its backup policy excludes every

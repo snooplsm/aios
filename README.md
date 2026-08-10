@@ -39,7 +39,8 @@ Intelligence stops queued and in-flight AI speech while keeping both capture
 directions, live transcription, and advisory risk active.
 The production phone sources also build and lint against the Android 16 public
 SDK, and an emulator-only managed-call fixture now verifies the real dialer-role,
-`InCallService`, ringing notification, and Compose in-call UI path. Emulator
+`InCallService`, ringing notification, incoming controls, and a Compose-originated
+outgoing call through connected UI and hang-up. Emulator
 results are explicitly excluded from physical-device release evidence.
 Simple JPEGs and non-animated PNGs have conservative, byte-preserving AIOS XMP
 writers with backup, verification, crash recovery, and self-write suppression;

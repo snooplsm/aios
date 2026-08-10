@@ -92,6 +92,12 @@ Telecom call owned by the `phoneCall` foreground `AiosInCallService`, and
 **Decline** must remove a second managed call. The **AI** action remains disabled
 because an emulator cannot satisfy the caller-audio release gate.
 
+For the outgoing path, the runner temporarily selects the fixture account,
+opens AIOS Phone through a standard `ACTION_DIAL` intent, activates **Call**,
+verifies `DIALING` then `ACTIVE` in Telecom and the automatic in-call surface,
+and activates **End call**. The exact original outgoing account is restored in
+cleanup, including the no-account case.
+
 Open this directory in Android Studio, or run:
 
 ```text
