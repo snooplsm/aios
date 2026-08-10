@@ -210,6 +210,16 @@ integration coverage, but it does not exercise the cellular modem, IMS,
 emergency routing, carrier video/RTT, or a Pixel build and cannot pass any
 physical-device release gate.
 
+The separate `preview:prodcheck` lane compiles the complete role-capable Phone
+app against the public SDK using the production sources, tests, manifest,
+resources, and both AIOS Binder boundaries. Its backup policy excludes every
+private app-data domain. In particular, the per-install address-hashing salt and
+call-event context ledger/revision clock must never migrate independently from
+Communication Context, or a restored dialer could suppress valid reconciliation
+or reuse an identity secret on another installation. This lane catches source,
+component, resource, and public-API drift; it does not prove privileged grants,
+Telecom behavior, or any carrier/Pixel gate.
+
 ## Update strategy
 
 Because AIOS Phone is additive under `vendor/aios`, routine AOSP merges do not

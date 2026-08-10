@@ -10,11 +10,14 @@ implement `InCallService`, cannot request the dialer role, and uses simulated
 call state. It can be installed on a stock phone for visual iteration without
 replacing that phone's dialer.
 
-`prodcheck` compiles and lints the actual `apps/phone` sources and Call
-Intelligence AIDL against the installed public Android SDK. Its local unit-test
-source set also runs the Android-free dialer policy state machines. It must not
-be installed. The authoritative product build and host-test target remain the
-platform-signed Soong modules inside the locked AOSP tree.
+`prodcheck` compiles, tests, assembles, and lints the complete production Phone
+source/test closure, real role-capable manifest/resources, Call Intelligence
+AIDL, and Communication Context API/AIDL against the installed public Android
+SDK. It also enforces that the per-install address salt, call-context ledger,
+revision clock, AI settings, and UI preferences cannot migrate through backup or
+device transfer. It must not be installed. The authoritative product build and
+host-test target remain the platform-signed Soong modules inside the locked AOSP
+tree.
 
 `messagingcheck` compiles, tests, assembles, and lints the real Messaging
 manifest/resources, every shared Kotlin/Compose source and test, both context

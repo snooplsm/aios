@@ -765,6 +765,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "apps/phone/src/com/aios/phone/ui/InCallActivity.kt",
         "apps/phone/src/com/aios/phone/ui/screens/PhoneScreens.kt",
         "apps/phone/src/com/aios/phone/ui/theme/PhoneTheme.kt",
+        "apps/phone/res/xml/data_extraction_rules.xml",
         "apps/messaging/Android.bp",
         "apps/messaging/AndroidManifest.xml",
         "apps/messaging/res/xml/data_extraction_rules.xml",
@@ -1474,6 +1475,9 @@ def validate_aosp_overlay(root: Path) -> None:
                    "build.gradle.kts").read_text(encoding="utf-8")
     prodcheck_build = (root / "preview" / "prodcheck" /
                        "build.gradle.kts").read_text(encoding="utf-8")
+    phone_extraction_rules = (
+        root / "apps" / "phone" / "res" / "xml" / "data_extraction_rules.xml"
+    ).read_text(encoding="utf-8")
     smoke_manifest = (root / "preview" / "telecomsmoke" / "src" / "debug" /
                       "AndroidManifest.xml").read_text(encoding="utf-8")
     smoke_activity = (root / "preview" / "telecomsmoke" / "src" / "debug" /
@@ -1485,6 +1489,30 @@ def validate_aosp_overlay(root: Path) -> None:
             and "sealed interface PhoneAction" in phone_contract
             and "StateFlow<PhoneUiState>" in phone_runtime,
             "AIOS Phone must use immutable UDF state and typed actions")
+    phone_extraction_domains = {
+        "root", "file", "database", "sharedpref", "external", "device_root",
+        "device_file", "device_database", "device_sharedpref",
+    }
+    require('manifest.srcFile("../../apps/phone/AndroidManifest.xml")'
+            in prodcheck_build
+            and 'kotlin.directories.add("../../apps/phone/src")' in prodcheck_build
+            and 'kotlin.directories.add("../../apps/phone/tests/src")'
+            in prodcheck_build
+            and 'res.directories.add("../../apps/phone/res")' in prodcheck_build
+            and '../../services/callintelligence/aidl' in prodcheck_build
+            and '../../services/contextintelligence/aidl' in prodcheck_build
+            and '../../services/contextintelligence/api' in prodcheck_build
+            and 'srcs: ["src/**/*.kt"]' in phone_build
+            and 'resource_dirs: ["res"]' in phone_build
+            and 'android:dataExtractionRules="@xml/data_extraction_rules"'
+            in phone_manifest
+            and 'SALT_PREFS = "call_privacy"' in assistant_client
+            and 'PREFS = "call_event_context"' in call_event_client
+            and all(phone_extraction_rules.count(
+                f'<exclude domain="{domain}" path="." />') == 2
+                    for domain in phone_extraction_domains)
+            and "abortOnError" not in prodcheck_build,
+            "Phone compile-check and no-migration policy must cover the complete role app")
     require("linkedMapOf<String, Call>()" in phone_registry
             and "IdentityHashMap<Call, String>()" in phone_registry
             and "conferenceableIds" in phone_registry
