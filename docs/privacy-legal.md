@@ -60,6 +60,14 @@ and confidence. Faces, identity guesses, precise private location inferences,
 OCR secrets, embeddings, and internal prompts remain solely in the encrypted
 index unless the user explicitly exports them.
 
+Video indexing remains private and source-read-only. If the owner explicitly
+confirms **Create AI-enhanced copy**, the new MP4 contains the reviewed caption,
+tags, model provenance, source digest/generation, and timed transcript events in
+AIOS application-metadata tracks. The original is unchanged, no ZIP/sidecar is
+created, and the confirmation warns that generic players may not display the
+custom subtitles. The enhanced copy is ordinary owner-visible media and follows
+the owner's deletion/sharing choices rather than the 24-hour call-artifact rule.
+
 ## Model licensing
 
 An "open-weight" model is not necessarily OSI open source and does not inherit

@@ -12,7 +12,8 @@ Every video gets two source-read-only passes: twenty chronological keyframes in
 one private 5×4 storyboard for vision, and the complete primary audio track as
 streaming PCM16 mono through the bilingual Whisper provider. Final timestamped
 subtitle segments are stored in an app-private FTS index and cascade-delete with
-the source. Neither subtitle text nor raw audio is written into portable metadata.
+the source. Neither subtitle text nor raw audio is written during automatic
+indexing.
 Immediate isolated photos do not require external power, but calls and severe
 thermal pressure preempt them too.
 
@@ -60,5 +61,15 @@ Metadata has two layers:
 
 Simple JPEG and non-animated PNG have format-specific, byte-preserving XMP
 writers. PNG CRC/order failures, APNG, signed PNG, unknown critical chunks,
-WebP, HEIC/HEIF, AVIF, DNG, Motion Photo, Ultra HDR, and video remain index-only
-until dedicated round-trip tests pass.
+WebP, HEIC/HEIF, AVIF, DNG, Motion Photo, and Ultra HDR remain index-only until
+dedicated round-trip tests pass. A video also remains read-only during automatic
+indexing. The owner may later share one completed MP4 to the exported **Create
+AI-enhanced copy** activity. After a confirmation dialog, an internal foreground
+service creates a pending `Movies/AIOS` MP4, copies the original encoded audio,
+video, and supported metadata samples without codecs, and adds two ISO-BMFF
+`mett` tracks: one bounded description JSON sample and, when speech exists,
+bounded timed subtitle-event JSON samples. The copy is published only after a
+second extractor proves that every source sample timestamp, sync flag, size, and
+digest matches and that the embedded samples round-trip exactly. Failures delete
+the pending copy; the original is never opened for writing. AIOS understands the
+custom subtitle MIME, but ordinary players are not required to display it.

@@ -6,8 +6,9 @@
             fixed="true" />
     </exception>
 
-    <!-- Media Intelligence is a core, platform-signed component. These grants
-         provide read access; mutation still goes through MediaStore policy. -->
+    <!-- Media Intelligence is a core, platform-signed component. Media reads
+         are fixed; mutation still goes through MediaStore policy. Its export
+         notification is visible because every export is owner-initiated. -->
     <exception package="com.aios.mediaintelligence">
         <permission
             name="android.permission.READ_MEDIA_IMAGES"
@@ -17,6 +18,9 @@
             fixed="true" />
         <permission
             name="android.permission.READ_PHONE_STATE"
+            fixed="true" />
+        <permission
+            name="android.permission.POST_NOTIFICATIONS"
             fixed="true" />
     </exception>
 

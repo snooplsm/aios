@@ -184,6 +184,20 @@ at boot and before the next video attempt. The source video remains read-only
 and index-only. Undecodable video or primary audio fails permanently instead of
 consuming an infinite retry loop.
 
+An owner-initiated export is deliberately separate from this automatic pipeline.
+Media Intelligence exposes a `video/mp4` share target that confirms creation of
+a new file, then an internal data-sync foreground service writes an unpublished
+`MediaStore` row under `Movies/AIOS`. `MediaExtractor` and `MediaMuxer` copy the
+encoded source tracks without invoking codecs and append bounded application
+metadata (`mett`) tracks for the AIOS description and timed subtitle events. A
+second extraction must reproduce every source sample fingerprint and every AIOS
+sample before `IS_PENDING` is cleared. Source generation/digest changes and all
+write or verification failures delete the derived row. The original is never
+opened writable, and self-write suppression keeps the derived item out of the
+inference queue. AIOS playback must supply the renderer for its subtitle MIME;
+standard third-party subtitle presentation is not promised by this first
+container path.
+
 Metadata writes are two-phase:
 
 1. Store the full result in the encrypted index keyed by media ID, generation,
@@ -193,11 +207,13 @@ Metadata writes are two-phase:
    and the original digest relationship, then replace through `MediaStore` and
    reread the exact candidate before committing index state.
 
-Only structurally simple JPEG and valid non-animated PNG are currently writable.
+Only structurally simple JPEG and valid non-animated PNG are automatically
+writable in place.
 The PNG path verifies CRCs and ordering, rejects APNG, digital signatures, and
 unknown critical chunks, and preserves every original chunk and compressed
 `IDAT` byte. Read support does not imply safe write support. Complex photos and
-every video remain index-only until dedicated validators exist.
+source videos remain index-only; the explicitly requested enhanced MP4 is a new,
+verified derived item rather than a source mutation.
 
 ### Retention service
 

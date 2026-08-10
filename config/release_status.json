@@ -73,6 +73,7 @@
     "media.interrupted_write_recovery": {"status": "not_run", "evidence": []},
     "media.advanced_photo_index_only": {"status": "not_run", "evidence": []},
     "media.self_write_no_requeue": {"status": "not_run", "evidence": []},
+    "media.enhanced_video_copy_round_trip": {"status": "not_run", "evidence": []},
     "media.pixel9a_latency_profile": {"status": "not_run", "evidence": []},
     "model.artifact_digest_enforced": {"status": "not_run", "evidence": []},
     "model.call_preempts_media": {"status": "not_run", "evidence": []},

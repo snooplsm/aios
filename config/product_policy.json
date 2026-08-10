@@ -36,6 +36,16 @@
     "defer_videos": true,
     "deferred_requires_charging": true,
     "deferred_min_battery_percent": 80,
+    "automatic_video_mutation": false,
+    "enhanced_video_copy": {
+      "trigger": "owner_confirmed_share_action",
+      "output_container": "video/mp4",
+      "output_directory": "Movies/AIOS",
+      "copy_encoded_audio_video_samples": true,
+      "description_track_mime": "application/vnd.aios.video-description+json",
+      "subtitle_track_mime": "application/vnd.aios.subtitle+json",
+      "generic_player_subtitle_support_required": false
+    },
     "writable_mime_types": ["image/jpeg", "image/png"],
     "index_only_mime_types": [
       "image/heic",

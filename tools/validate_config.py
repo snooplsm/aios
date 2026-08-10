@@ -119,6 +119,19 @@ def validate_product(policy: dict[str, Any]) -> None:
             "a MIME type cannot be writable and index-only")
     require(media["writable_mime_types"] == ["image/jpeg", "image/png"],
             "only validated simple JPEG and still-PNG writers may mutate media")
+    enhanced_video = media["enhanced_video_copy"]
+    require(media["automatic_video_mutation"] is False
+            and enhanced_video == {
+                "trigger": "owner_confirmed_share_action",
+                "output_container": "video/mp4",
+                "output_directory": "Movies/AIOS",
+                "copy_encoded_audio_video_samples": True,
+                "description_track_mime":
+                    "application/vnd.aios.video-description+json",
+                "subtitle_track_mime": "application/vnd.aios.subtitle+json",
+                "generic_player_subtitle_support_required": False,
+            },
+            "video export must be an explicit embedded-track MP4 copy")
 
     broker = policy["broker"]
     require(broker["access"] == "signature_permission",
@@ -934,6 +947,10 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/mediaintelligence/src/com/aios/mediaintelligence/VideoStoryboard.java",
         "services/mediaintelligence/src/com/aios/mediaintelligence/VideoAudioExtractor.java",
         "services/mediaintelligence/src/com/aios/mediaintelligence/VideoTranscript.java",
+        "services/mediaintelligence/src/com/aios/mediaintelligence/VideoEmbeddedMetadata.java",
+        "services/mediaintelligence/src/com/aios/mediaintelligence/VideoEnhancedCopyMuxer.java",
+        "services/mediaintelligence/src/com/aios/mediaintelligence/VideoEnhancedCopyActivity.java",
+        "services/mediaintelligence/src/com/aios/mediaintelligence/VideoEnhancedCopyService.java",
         "services/mediaintelligence/src/com/aios/mediaintelligence/XmpProjection.java",
         "services/mediaintelligence/src/com/aios/mediaintelligence/MediaBrokerClient.java",
         "services/mediaintelligence/src/com/aios/mediaintelligence/MediaContent.java",
@@ -950,6 +967,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/mediaintelligence/tests/src/com/aios/mediaintelligence/MediaInputPolicyTest.java",
         "services/mediaintelligence/tests/src/com/aios/mediaintelligence/VideoStoryboardPlanTest.java",
         "services/mediaintelligence/tests/src/com/aios/mediaintelligence/VideoTranscriptTest.java",
+        "services/mediaintelligence/tests/src/com/aios/mediaintelligence/VideoEmbeddedMetadataTest.java",
         "services/mediaintelligence/tests/src/com/aios/mediaintelligence/MediaTimingTest.java",
         "services/mediaintelligence/tests/src/com/aios/mediaintelligence/MediaGenerationReconcilerTest.java",
         "services/mediaintelligence/tests/src/com/aios/mediaintelligence/MediaLivenessReconcilerTest.java",
@@ -2403,6 +2421,52 @@ def validate_aosp_overlay(root: Path) -> None:
             and "keepsOnlyFinalTimestampedEnglishAndSpanishSegments"
             in video_transcript_test,
             "video ASR must be full-track, timestamped, bilingual, bounded, and preemptible")
+
+    embedded_video = (media_source_root / "VideoEmbeddedMetadata.java").read_text(
+        encoding="utf-8")
+    enhanced_muxer = (media_source_root / "VideoEnhancedCopyMuxer.java").read_text(
+        encoding="utf-8")
+    enhanced_activity = (
+        media_source_root / "VideoEnhancedCopyActivity.java"
+    ).read_text(encoding="utf-8")
+    enhanced_service = (
+        media_source_root / "VideoEnhancedCopyService.java"
+    ).read_text(encoding="utf-8")
+    enhanced_manifest = (root / "services" / "mediaintelligence" /
+                         "AndroidManifest.xml").read_text(encoding="utf-8")
+    require('DESCRIPTION_MIME =' in embedded_video
+            and '"application/vnd.aios.video-description+json"' in embedded_video
+            and '"application/vnd.aios.subtitle+json"' in embedded_video
+            and "MAX_SAMPLE_BYTES = 64 * 1024" in embedded_video
+            and "source_sha256" in embedded_video
+            and "subtitle_track_mime" in embedded_video,
+            "enhanced MP4 metadata tracks must be bounded and source-bound")
+    require("new MediaMuxer" in enhanced_muxer
+            and "MediaExtractor" in enhanced_muxer
+            and "copySamples" in enhanced_muxer
+            and "verifyOutput" in enhanced_muxer
+            and "encoded MP4 samples changed during remux" in enhanced_muxer
+            and "SAMPLE_FLAG_ENCRYPTED" in enhanced_muxer
+            and "SAMPLE_FLAG_PARTIAL_FRAME" in enhanced_muxer,
+            "enhanced MP4 export must copy and verify encoded source samples")
+    require("Create AI-enhanced copy?" in enhanced_activity
+            and "The original stays unchanged" in enhanced_activity
+            and "players may ignore it" in enhanced_activity
+            and "startForegroundService" in enhanced_activity,
+            "enhanced MP4 export must require an explicit, compatibility-aware owner action")
+    require("MediaContent.sha256" in enhanced_service
+            and "MediaContent.generation" in enhanced_service
+            and "IS_PENDING" in enhanced_service
+            and 'Environment.DIRECTORY_MOVIES + "/AIOS"' in enhanced_service
+            and "beginOwnMutation" in enhanced_service
+            and "finishOwnMutation" in enhanced_service
+            and "VideoEnhancedCopyMuxer.create" in enhanced_service,
+            "enhanced MP4 publication must be source-bound, atomic, and self-suppressed")
+    require('android.intent.action.SEND' in enhanced_manifest
+            and 'android:mimeType="video/mp4"' in enhanced_manifest
+            and 'android:foregroundServiceType="dataSync"' in enhanced_manifest
+            and "android.permission.FOREGROUND_SERVICE_DATA_SYNC" in enhanced_manifest,
+            "Media Intelligence must expose only the confirmed MP4 share target and internal exporter")
     require("state != null && store.purgeVolume(volumeName)" in generation_scanner,
             "MediaProvider identity changes must purge stale URI-keyed media results")
 
@@ -2774,6 +2838,23 @@ def validate_security_surface(root: Path) -> None:
             and 'name="android.permission.RECORD_AUDIO"' in default_permissions_text,
             "Call Intelligence must receive its runtime microphone grant explicitly")
     default_permissions = ET.parse(default_permissions_path).getroot()
+    media_defaults = [
+        package for package in default_permissions.findall("exception")
+        if package.attrib.get("package") == "com.aios.mediaintelligence"
+    ]
+    require(len(media_defaults) == 1,
+            "Media Intelligence needs one explicit default-permissions exception")
+    media_default_grants = {
+        item.attrib.get("name"): item.attrib.get("fixed")
+        for item in media_defaults[0].findall("permission")
+    }
+    require(media_default_grants == {
+                "android.permission.READ_MEDIA_IMAGES": "true",
+                "android.permission.READ_MEDIA_VIDEO": "true",
+                "android.permission.READ_PHONE_STATE": "true",
+                "android.permission.POST_NOTIFICATIONS": "true",
+            },
+            "Media Intelligence defaults must match read, call-gate, and export notification access")
     messaging_defaults = [
         package for package in default_permissions.findall("exception")
         if package.attrib.get("package") == "com.aios.messaging"

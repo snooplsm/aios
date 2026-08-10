@@ -33,6 +33,10 @@ val stageMediaScanMain by tasks.registering(Sync::class) {
             "com/aios/mediaintelligence/MediaWorkPolicy.java",
             "com/aios/mediaintelligence/MediaResult.java",
             "com/aios/mediaintelligence/VideoAudioExtractor.java",
+            "com/aios/mediaintelligence/VideoEmbeddedMetadata.java",
+            "com/aios/mediaintelligence/VideoEnhancedCopyActivity.java",
+            "com/aios/mediaintelligence/VideoEnhancedCopyMuxer.java",
+            "com/aios/mediaintelligence/VideoEnhancedCopyService.java",
             "com/aios/mediaintelligence/VideoStoryboard.java",
             "com/aios/mediaintelligence/VideoStoryboardPlan.java",
             "com/aios/mediaintelligence/VideoTranscript.java",
@@ -53,6 +57,7 @@ val stageMediaScanTest by tasks.registering(Sync::class) {
             "com/aios/mediaintelligence/MediaWorkPolicyTest.java",
             "com/aios/mediaintelligence/PngXmpInjectorTest.java",
             "com/aios/mediaintelligence/VideoStoryboardPlanTest.java",
+            "com/aios/mediaintelligence/VideoEmbeddedMetadataTest.java",
             "com/aios/mediaintelligence/VideoTranscriptTest.java",
         )
     }

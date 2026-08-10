@@ -49,7 +49,13 @@ JPEG storyboard; the original video is never rewritten, and the storyboard is
 erased after its bounded vision request. The complete primary audio track is separately
 decoded as streaming 16 kHz mono PCM and passed through the same bilingual
 Whisper runtime used for calls, producing private timestamped subtitles in a
-source-linked full-text index. Subtitles are never written into the video or XMP.
+source-linked full-text index. Automatic indexing never rewrites a video. From
+the system share sheet, the owner can explicitly choose **Create AI-enhanced
+copy** to publish a new MP4 in `Movies/AIOS`; it copies the encoded audio/video
+samples without recompression and embeds bounded AIOS description and timed
+subtitle tracks. The camera original remains untouched. AIOS-aware playback can
+render those tracks, while generic players may play the copy without showing
+its custom subtitles.
 Device/model policy and host validators are also present. Debug builds can export
 bounded, identifier-free photo/video timing, including full-audio pipeline time
 and real-time factor, so ETAs are based on the actual Pixel, build, model, and

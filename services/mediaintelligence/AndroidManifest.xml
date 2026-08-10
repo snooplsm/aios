@@ -7,6 +7,9 @@
         android:protectionLevel="signature" />
 
     <uses-permission android:name="android.permission.MANAGE_MEDIA" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
@@ -21,9 +24,27 @@
         android:hasCode="true"
         android:label="AIOS Media Intelligence"
         android:persistent="true">
+        <activity
+            android:name=".VideoEnhancedCopyActivity"
+            android:excludeFromRecents="true"
+            android:exported="true"
+            android:label="Create AI-enhanced copy"
+            android:theme="@android:style/Theme.DeviceDefault.Dialog.Alert">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="video/mp4" />
+            </intent-filter>
+        </activity>
+
         <service
             android:name=".MediaObserverService"
             android:exported="false" />
+
+        <service
+            android:name=".VideoEnhancedCopyService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
 
         <service
             android:name=".MediaContextAssociationService"

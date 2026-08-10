@@ -86,6 +86,13 @@ camera application that created them.
 - Every ringing, dialing, active, waiting, held, or conferenced call preempts all
   media inference, whether or not AI processing is enabled.
 - Originals remain viewable if inference fails or is interrupted.
+- Automatic processing never modifies or duplicates a source video. After a
+  completed MP4 is indexed, an explicit share-sheet action may create a new
+  `Movies/AIOS` MP4 containing the AIOS description and timed subtitle tracks.
+  The path must show owner confirmation, copy encoded audio/video samples without
+  recompression, verify the remux before publication, and delete partial output
+  on failure. AIOS must render the custom subtitles; generic players are allowed
+  to ignore them.
 
 The service produces a versioned structured record containing a caption, tags,
 language, model identifier, model digest, inference timestamp, and confidence.
@@ -93,9 +100,10 @@ The encrypted AIOS media index is authoritative. A portable XMP projection may
 be embedded only for formats that pass a lossless round-trip validator. HEIC,
 AVIF, DNG, Motion Photo, and Ultra HDR assets remain index-only until a
 format-specific writer proves byte-structure preservation. Videos remain
-index-only and are never remuxed merely to add a caption. Their temporary
-storyboards are app-private and are erased after inference. Full subtitles stay
-in the private source-linked index and are not embedded into portable metadata.
+index-only during automatic processing and are never silently remuxed merely to
+add a caption. Their temporary storyboards are app-private and are erased after
+inference. Full subtitles stay private unless the owner confirms creation of the
+separate enhanced MP4 described above.
 
 ## Messaging and communication context
 

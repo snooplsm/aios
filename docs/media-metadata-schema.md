@@ -76,8 +76,39 @@ audio track and an audio track with no detected speech are distinct states.
 Subtitle rows live in an app-private FTS4 external-content index keyed by the
 media job. Source deletion, trash/volume reconciliation, or generation
 replacement deletes both rows and search postings by foreign-key cascade. Full
-subtitle text is never added to the portable XMP packet. Any future SRT/VTT
-export must be an explicit owner action rather than an indexing side effect.
+subtitle text is never added to the portable photo XMP packet or to a source
+video as an indexing side effect.
+
+### Owner-created enhanced MP4
+
+After a video has completed both inference passes, the Android share sheet offers
+**Create AI-enhanced copy** for a canonical `MediaStore` `video/mp4`. A dialog
+explains that this creates a new file and that generic players may ignore AIOS's
+custom subtitle track. Confirmation starts an internal foreground export; there
+is no automatic video mutation and no ZIP or sidecar output.
+
+The service revalidates the source generation and SHA-256 against the indexed
+record, creates an `IS_PENDING=1` item under `Movies/AIOS`, and remuxes without a
+decoder or encoder. All supported original audio, video, and metadata samples
+retain their encoded bytes and timestamps. The output adds:
+
+- one `application/vnd.aios.video-description+json` ISO-BMFF `mett` track with
+  caption, tags, language/confidence, source generation/digest, model identities,
+  inference time, and subtitle state; and
+- when speech exists, one `application/vnd.aios.subtitle+json` `mett` track with
+  timestamped `cue` and `clear` events. Each sample is at most 64 KiB.
+
+AIOS-aware playback can render these timed events. This is intentionally not a claim of generic
+WebVTT/`tx3g` compatibility: Android's platform MP4 muxer can author application
+metadata tracks, but not a standard text-subtitle sample entry. Generic players
+may therefore play the unchanged encoded media while ignoring the subtitles.
+
+Before publication, a fresh extractor verifies the exact embedded samples and a
+per-track fingerprint over every original sample's presentation timestamp, sync
+flag, encoded size, and encoded bytes. Unsupported/encrypted/partial samples,
+source changes, service timeout, or any verification error delete the pending
+copy. Self-write suppression prevents the derived video from entering the
+inference queue.
 
 The `media.simple_jpeg_xmp_round_trip` and `media.simple_png_xmp_round_trip`
 physical-device gates decode before/after fixtures, compare rendered pixels,
@@ -91,3 +122,9 @@ audio track, an unchanged generation and digest, an index-only commit, and no re
 `aios_video_storyboard_*.jpg` cache file. Repeat while unplugging, dropping below
 80%, starting a call, and using an undecodable video; work must respectively
 retry or fail without modifying the source.
+
+The `media.enhanced_video_copy_round_trip` physical-device gate shares a known
+English and Spanish MP4 through the real confirmation UI, checks that the
+original generation/digest is unchanged, verifies encoded-sample fingerprints
+and both embedded MIME tracks, exercises audio-less video, and confirms playback,
+failure cleanup, notification behavior, and no self-requeue on a Pixel build.

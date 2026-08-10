@@ -8,6 +8,8 @@ import android.database.sqlite.SQLiteOpenHelper;
 
 import com.aios.context.ConversationIdentity;
 
+import org.json.JSONException;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -923,6 +925,97 @@ final class MediaJobStore extends SQLiteOpenHelper {
                 System.currentTimeMillis(),
                 timingSamples(MediaTiming.KIND_PHOTO),
                 timingSamples(MediaTiming.KIND_VIDEO));
+    }
+
+    VideoEmbeddedMetadata.Data videoExportData(String mediaUri, long generation)
+            throws JSONException {
+        if (mediaUri == null || mediaUri.isBlank() || generation < 0L) {
+            throw new IllegalArgumentException("invalid enhanced-video lookup");
+        }
+        SQLiteDatabase database = getReadableDatabase();
+        database.beginTransaction();
+        try {
+            long jobId;
+            String contentDigest;
+            MediaResult result;
+            String visionModelId;
+            String visionModelDigest;
+            long inferredAtEpochMillis;
+            String audioStatus;
+            String audioModelId;
+            String audioModelDigest;
+            String audioLanguage;
+            try (Cursor cursor = database.rawQuery(
+                    "SELECT jobs._id,results.content_digest,results.result_json,"
+                            + "results.model_id,results.model_digest,"
+                            + "results.inferred_at_epoch_ms,results.audio_status,"
+                            + "results.audio_model_id,results.audio_model_digest,"
+                            + "results.audio_language"
+                            + " FROM jobs JOIN results ON results.job_id=jobs._id"
+                            + " WHERE jobs.media_uri=? AND jobs.generation=?"
+                            + " AND jobs.status=? AND jobs.mime_type='video/mp4' LIMIT 1",
+                    new String[]{
+                            mediaUri,
+                            Long.toString(generation),
+                            Integer.toString(STATUS_INDEXED)
+                    })) {
+                if (!cursor.moveToFirst()) {
+                    database.setTransactionSuccessful();
+                    return null;
+                }
+                jobId = cursor.getLong(0);
+                contentDigest = cursor.getString(1);
+                result = MediaResult.parse(cursor.getString(2));
+                visionModelId = cursor.getString(3);
+                visionModelDigest = cursor.getString(4);
+                inferredAtEpochMillis = cursor.getLong(5);
+                audioStatus = cursor.getString(6);
+                audioModelId = cursor.getString(7);
+                audioModelDigest = cursor.getString(8);
+                audioLanguage = cursor.getString(9);
+            }
+            List<VideoEmbeddedMetadata.Cue> cues = new ArrayList<>();
+            try (Cursor cursor = database.query(
+                    "video_subtitles",
+                    new String[]{
+                            "sequence", "language", "start_millis", "end_millis",
+                            "text", "confidence"
+                    },
+                    "job_id=?",
+                    new String[]{Long.toString(jobId)},
+                    null,
+                    null,
+                    "start_millis ASC,sequence ASC")) {
+                while (cursor.moveToNext()) {
+                    cues.add(new VideoEmbeddedMetadata.Cue(
+                            cursor.getInt(0),
+                            cursor.getString(1),
+                            cursor.getLong(2),
+                            cursor.getLong(3),
+                            cursor.getString(4),
+                            cursor.getFloat(5)));
+                }
+            }
+            VideoEmbeddedMetadata.Data data = new VideoEmbeddedMetadata.Data(
+                    generation,
+                    contentDigest,
+                    result.caption,
+                    result.tags,
+                    result.language,
+                    result.confidence,
+                    visionModelId,
+                    visionModelDigest,
+                    inferredAtEpochMillis,
+                    audioStatus,
+                    audioModelId,
+                    audioModelDigest,
+                    audioLanguage,
+                    cues);
+            database.setTransactionSuccessful();
+            return data;
+        } finally {
+            database.endTransaction();
+        }
     }
 
     private List<MediaTiming.Sample> timingSamples(String mediaKind) {
