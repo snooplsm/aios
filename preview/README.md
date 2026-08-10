@@ -86,6 +86,12 @@ screen state were restored, the temporary APK was uninstalled unless the
 explicit `-KeepInstalled` debugging switch was used, and the remote screenshot
 was erased. It remains explicitly non-physical evidence.
 
+The runner also drives the labeled production Compose controls. **Ignore** must
+retain the ringing call on the silent channel, **Answer** must produce a live
+Telecom call owned by the `phoneCall` foreground `AiosInCallService`, and
+**Decline** must remove a second managed call. The **AI** action remains disabled
+because an emulator cannot satisfy the caller-audio release gate.
+
 Open this directory in Android Studio, or run:
 
 ```text

@@ -219,6 +219,15 @@ filenames are unique and their deletion is verified after pulling. These
 postconditions make repeated emulator runs auditable without turning them into
 release claims.
 
+The same run locates the labeled Compose controls through UI Automator rather
+than fixed coordinates. It verifies that **Ignore** leaves the call ringing on
+the silent channel, **Answer** reaches Telecom `ACTIVE`, and **Decline** removes
+the second ringing call. Android 16 requires the answered call's `CallStyle`
+notification to belong to a `phoneCall` foreground service; the runner asserts
+the production `AiosInCallService` is foreground with type `0x4` and the ongoing
+channel. The **AI** control must remain disabled because emulator evidence cannot
+unlock the physical caller-audio gate.
+
 The separate `preview:prodcheck` lane compiles the complete role-capable Phone
 app against the public SDK using the production sources, tests, manifest,
 resources, and both AIOS Binder boundaries. Its backup policy excludes every

@@ -75,7 +75,60 @@ $evidence = $null
 $evidencePath = $null
 $smokeToken = [Guid]::NewGuid().ToString("N")
 $remoteScreenshot = "/sdcard/aios-telecom-smoke-$smokeToken.png"
+$remoteUiDump = "/sdcard/aios-telecom-smoke-$smokeToken.xml"
 $screenshot = $null
+
+function Get-UiControl {
+    param([Parameter(Mandatory)][string]$Text)
+
+    Invoke-Adb shell uiautomator dump $remoteUiDump | Out-Null
+    [xml]$hierarchy = (Invoke-Adb shell cat $remoteUiDump) -join "`n"
+    $labels = @(
+        $hierarchy.SelectNodes('//node') |
+            Where-Object { $_.text -eq $Text -or $_.'content-desc' -eq $Text }
+    )
+    if ($labels.Count -ne 1) {
+        throw "Expected exactly one '$Text' control, found $($labels.Count)"
+    }
+    $control = $labels[0].ParentNode
+    if ($null -eq $control -or $control.clickable -ne "true" -or
+        $control.bounds -notmatch '^\[(\d+),(\d+)\]\[(\d+),(\d+)\]$') {
+        throw "The '$Text' Compose control is not actionable"
+    }
+    return [pscustomobject]@{
+        enabled = $control.enabled -eq "true"
+        center_x = [int](([int]$Matches[1] + [int]$Matches[3]) / 2)
+        center_y = [int](([int]$Matches[2] + [int]$Matches[4]) / 2)
+    }
+}
+
+function Invoke-UiControl {
+    param([Parameter(Mandatory)][string]$Text)
+
+    $control = Get-UiControl $Text
+    if (-not $control.enabled) {
+        throw "The '$Text' Compose control is disabled"
+    }
+    Invoke-Adb shell input tap $control.center_x $control.center_y | Out-Null
+}
+
+function Get-CurrentTelecomCalls {
+    $capturing = $false
+    $current = @()
+    foreach ($line in @(Invoke-Adb shell dumpsys telecom)) {
+        if ($line.Trim() -eq "mCalls:") {
+            $capturing = $true
+            continue
+        }
+        if ($capturing -and $line.Trim() -eq "mCallAudioManager:") {
+            break
+        }
+        if ($capturing) {
+            $current += $line
+        }
+    }
+    return $current -join "`n"
+}
 
 try {
     Invoke-Adb install -r $apkPath | Out-Null
@@ -104,7 +157,7 @@ try {
     Start-Sleep -Seconds 3
 
     $focus = (Invoke-Adb shell dumpsys window) -join "`n"
-    $telecom = (Invoke-Adb shell dumpsys telecom) -join "`n"
+    $telecom = Get-CurrentTelecomCalls
     $services = (Invoke-Adb shell dumpsys activity services $package) -join "`n"
     $notifications = (Invoke-Adb shell dumpsys notification --noredact) -join "`n"
     if ($telecom -notmatch 'state=RINGING' -or $telecom -notmatch 'EmulatorConnectionService') {
@@ -138,6 +191,62 @@ try {
     Invoke-Adb shell screencap -p $remoteScreenshot | Out-Null
     Invoke-Adb pull $remoteScreenshot $screenshot | Out-Null
 
+    $aiControl = Get-UiControl "AI"
+    if ($aiControl.enabled) {
+        throw "AI answering must stay disabled without physical caller-audio evidence"
+    }
+    $phonePidBeforeActions = (Invoke-Adb shell pidof $package | Select-Object -First 1).Trim()
+    if ($phonePidBeforeActions -notmatch '^[0-9]+$') {
+        throw "AIOS Phone has no stable process before UI action checks"
+    }
+    Invoke-UiControl "Ignore"
+    Invoke-Adb shell cmd telecom wait-on-handlers | Out-Null
+    Start-Sleep -Milliseconds 500
+    $telecomAfterIgnore = Get-CurrentTelecomCalls
+    $notificationsAfterIgnore = (Invoke-Adb shell dumpsys notification --noredact) -join "`n"
+    if ($telecomAfterIgnore -notmatch 'state=RINGING' -or
+        $notificationsAfterIgnore -notmatch 'channel=incoming_calls_silent_v1') {
+        throw "Ignore did not preserve the ringing call on the silent notification channel"
+    }
+
+    Invoke-Adb shell am start -a com.aios.phone.smoke.SHOW -n $fixtureActivity | Out-Null
+    Start-Sleep -Milliseconds 500
+    Invoke-UiControl "Answer"
+    Invoke-Adb shell cmd telecom wait-on-handlers | Out-Null
+    Start-Sleep -Milliseconds 500
+    $telecomAfterAnswer = Get-CurrentTelecomCalls
+    $servicesAfterAnswer = (Invoke-Adb shell dumpsys activity services $package) -join "`n"
+    $phonePidAfterAnswer = (Invoke-Adb shell pidof $package | Select-Object -First 1).Trim()
+    if ($telecomAfterAnswer -notmatch 'state=ACTIVE' -or
+        $phonePidAfterAnswer -ne $phonePidBeforeActions -or
+        $servicesAfterAnswer -notmatch 'AiosInCallService' -or
+        $servicesAfterAnswer -notmatch 'isForeground=true' -or
+        $servicesAfterAnswer -notmatch 'types=0x00000004' -or
+        $servicesAfterAnswer -notmatch 'channel=ongoing_calls_v1') {
+        throw "Answer did not retain an active call under the phoneCall foreground service"
+    }
+
+    Invoke-Adb shell am start -a com.aios.phone.smoke.DISCONNECT `
+        -n $fixtureActivity | Out-Null
+    Invoke-Adb shell cmd telecom wait-on-handlers | Out-Null
+    $callStarted = $false
+    Start-Sleep -Milliseconds 500
+    Invoke-Adb shell am start -a com.aios.phone.smoke.INCOMING -n $fixtureActivity `
+        --es number 15551230183 | Out-Null
+    $callStarted = $true
+    Invoke-Adb shell cmd telecom wait-on-handlers | Out-Null
+    Start-Sleep -Milliseconds 750
+    Invoke-Adb shell am start -a com.aios.phone.smoke.SHOW -n $fixtureActivity | Out-Null
+    Start-Sleep -Milliseconds 500
+    Invoke-UiControl "Decline"
+    Invoke-Adb shell cmd telecom wait-on-handlers | Out-Null
+    Start-Sleep -Milliseconds 500
+    $telecomAfterDecline = Get-CurrentTelecomCalls
+    if ($telecomAfterDecline -match 'state=(RINGING|ACTIVE)') {
+        throw "Decline did not disconnect the managed Telecom call"
+    }
+    $callStarted = $false
+
     $evidence = [ordered]@{
         schema_version = 1
         serial = $Serial
@@ -153,6 +262,14 @@ try {
         full_screen_intent_launched_automatically = $fullScreenIntentVisible
         in_call_service_bound = $true
         incoming_notification_posted = $true
+        ignore_preserved_ringing_call = $true
+        ignore_selected_silent_channel = $true
+        answer_activated_call = $true
+        phone_process_survived_answer = $true
+        phone_call_foreground_service = $true
+        ongoing_notification_posted = $true
+        decline_disconnected_call = $true
+        ai_action_fail_closed = $true
         screenshot = [IO.Path]::GetFullPath($screenshot)
         physical_gate_evidence = $false
     }
@@ -184,7 +301,7 @@ try {
             & $adb -s $Serial shell input keyevent KEYCODE_POWER | Out-Null
         }
     }
-    & $adb -s $Serial shell rm -f $remoteScreenshot | Out-Null
+    & $adb -s $Serial shell rm -f $remoteScreenshot $remoteUiDump | Out-Null
 }
 
 $restoredHolders = @(
@@ -218,12 +335,21 @@ $remoteScreenshotAfter = @(
 if ($remoteScreenshotAfter.Count -ne 0) {
     throw "Telecom smoke remote screenshot survived cleanup"
 }
+$remoteUiDumpAfter = @(
+    Invoke-Adb shell find /sdcard -maxdepth 1 -type f -name (
+        "aios-telecom-smoke-$smokeToken.xml") |
+        Where-Object { $_ }
+)
+if ($remoteUiDumpAfter.Count -ne 0) {
+    throw "Telecom smoke remote UI dump survived cleanup"
+}
 
 $evidence["cleanup_verified"] = $true
 $evidence["original_role_holders_restored"] = $true
 $evidence["fixture_phone_account_removed"] = $true
 $evidence["package_removed"] = -not $KeepInstalled
 $evidence["remote_screenshot_removed"] = $true
+$evidence["remote_ui_dump_removed"] = $true
 $evidence["captured_at"] = [DateTime]::UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
 $utf8WithoutBom = [Text.UTF8Encoding]::new($false)
 [IO.File]::WriteAllText(

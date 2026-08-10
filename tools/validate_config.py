@@ -1526,8 +1526,13 @@ def validate_aosp_overlay(root: Path) -> None:
             and "SILENT_INCOMING_CHANNEL" in notification_source
             and "ONGOING_CHANNEL" in notification_source
             and "USAGE_NOTIFICATION_RINGTONE" in notification_source
+            and "promoteCallNotification" in notification_source
+            and "requiresPhoneCallForeground" in notification_source
+            and "FOREGROUND_SERVICE_TYPE_PHONE_CALL" in in_call_service
+            and 'android.permission.FOREGROUND_SERVICE_PHONE_CALL' in phone_manifest
+            and 'android:foregroundServiceType="phoneCall"' in phone_manifest
             and "onSilenceRinger" in in_call_service,
-            "AIOS Phone must own distinct ringing, silenced, and ongoing call channels")
+            "AIOS Phone must own call channels and foreground ongoing CallStyle notifications")
     require("PROXIMITY_SCREEN_OFF_WAKE_LOCK" in proximity_source
             and "TYPE_EARPIECE" in phone_runtime,
             "AIOS Phone must limit the proximity lock to active earpiece calls")
@@ -1640,6 +1645,13 @@ def validate_aosp_overlay(root: Path) -> None:
             and "cleanup_verified" in smoke_script
             and "rm -f $remoteScreenshot" in smoke_script
             and "remote_screenshot_removed" in smoke_script
+            and "Get-CurrentTelecomCalls" in smoke_script
+            and 'Invoke-UiControl "Ignore"' in smoke_script
+            and 'Invoke-UiControl "Answer"' in smoke_script
+            and 'Invoke-UiControl "Decline"' in smoke_script
+            and "phone_process_survived_answer" in smoke_script
+            and "phone_call_foreground_service" in smoke_script
+            and "ongoing_notification_posted" in smoke_script
             and "full_screen_intent_launched_automatically" in smoke_script
             and "[IO.File]::WriteAllText" in smoke_script,
             "the Telecom smoke script must be digest-bound, emulator-only, reversible, and non-release evidence")

@@ -323,7 +323,6 @@ object PhoneRuntime {
         if (id != null) {
             stopDtmf(id)
             assistant.onCallRemoved(id, call.details.disconnectCause.code)
-            notifications.cancel(id)
             reduce {
                 it.copy(
                     transcripts = it.transcripts - id,
@@ -782,7 +781,12 @@ object PhoneRuntime {
     private fun syncNotifications() {
         if (!initialized) return
         val current = mutableState.value
-        notifications.sync(current.calls, current.assistantCalls, current.risks)
+        notifications.sync(
+            current.calls,
+            current.assistantCalls,
+            current.risks,
+            telecomService,
+        )
     }
 
     private inline fun reduce(block: (PhoneUiState) -> PhoneUiState) {

@@ -7,19 +7,23 @@ import android.app.PendingIntent
 import android.app.Person
 import android.content.Context
 import android.content.Intent
+import android.telecom.Call
 import android.graphics.drawable.Icon
 import android.media.AudioAttributes
 import android.media.RingtoneManager
+import android.util.Log
 import com.aios.phone.R
 import com.aios.phone.model.AssistantCallUiState
 import com.aios.phone.model.CallUiState
 import com.aios.phone.model.RiskUiState
+import com.aios.phone.telecom.AiosInCallService
 import com.aios.phone.ui.InCallActivity
 
 class CallNotificationCoordinator(private val context: Context) {
     private val manager = context.getSystemService(NotificationManager::class.java)
     private val shown = mutableSetOf<String>()
     private val silenced = mutableSetOf<String>()
+    private var foregroundCallId: String? = null
 
     init {
         val ringtone = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
@@ -57,18 +61,42 @@ class CallNotificationCoordinator(private val context: Context) {
         ))
     }
 
-    fun showIncomingOrOngoing(callId: String, calls: List<CallUiState>) {
-        calls.firstOrNull { it.id == callId }?.let { show(it, null, null) }
-    }
-
     fun sync(
         calls: List<CallUiState>,
         assistantCalls: Map<String, AssistantCallUiState>,
         risks: Map<String, RiskUiState>,
+        service: AiosInCallService?,
     ) {
-        val live = calls.mapTo(mutableSetOf()) { it.id }
+        val visible = calls.filter { it.isRinging || requiresPhoneCallForeground(it) }
+        val foregroundCall = visible.firstOrNull(::requiresPhoneCallForeground)
+        val promotedId = if (foregroundCall != null && service != null) {
+            val notification = buildNotification(
+                foregroundCall,
+                assistantCalls[foregroundCall.id],
+                risks[foregroundCall.id],
+            )
+            if (service.promoteCallNotification(
+                    notificationId(foregroundCall.id), notification)) {
+                shown.add(foregroundCall.id)
+                foregroundCall.id
+            } else {
+                null
+            }
+        } else {
+            null
+        }
+        if (promotedId == null && foregroundCallId != null) {
+            service?.releaseCallNotification()
+        }
+        foregroundCallId = promotedId
+
+        val postable = visible.filter {
+            it.isRinging || (promotedId != null && it.id != promotedId)
+        }
+        val live = postable.mapTo(mutableSetOf()) { it.id }
+        promotedId?.let(live::add)
         shown.filterNot(live::contains).toList().forEach(::cancel)
-        calls.forEach { call -> show(call, assistantCalls[call.id], risks[call.id]) }
+        postable.forEach { call -> show(call, assistantCalls[call.id], risks[call.id]) }
     }
 
     fun cancel(callId: String) {
@@ -89,6 +117,25 @@ class CallNotificationCoordinator(private val context: Context) {
         assistantState: AssistantCallUiState?,
         risk: RiskUiState?,
     ) {
+        try {
+            manager?.notify(
+                notificationId(call.id),
+                buildNotification(call, assistantState, risk),
+            ) ?: return
+            shown.add(call.id)
+        } catch (error: RuntimeException) {
+            // Telecom owns the carrier call. A notification policy failure may
+            // reduce presentation, but it must never crash or end that call.
+            shown.remove(call.id)
+            Log.e(TAG, "Could not post the call notification", error)
+        }
+    }
+
+    private fun buildNotification(
+        call: CallUiState,
+        assistantState: AssistantCallUiState?,
+        risk: RiskUiState?,
+    ): Notification {
         val person = Person.Builder().setName(call.displayName).setImportant(true).build()
         val content = PendingIntent.getActivity(
             context,
@@ -138,8 +185,20 @@ class CallNotificationCoordinator(private val context: Context) {
         if (call.isRinging && !silent) {
             notification.flags = notification.flags or Notification.FLAG_INSISTENT
         }
-        manager?.notify(notificationId(call.id), notification)
-        shown.add(call.id)
+        return notification
+    }
+
+    private fun requiresPhoneCallForeground(call: CallUiState): Boolean = when (call.state) {
+        Call.STATE_CONNECTING,
+        Call.STATE_SELECT_PHONE_ACCOUNT,
+        Call.STATE_DIALING,
+        Call.STATE_ACTIVE,
+        Call.STATE_HOLDING,
+        Call.STATE_DISCONNECTING,
+        Call.STATE_PULLING_CALL,
+        Call.STATE_AUDIO_PROCESSING,
+        -> true
+        else -> false
     }
 
     private fun notificationText(
@@ -168,6 +227,7 @@ class CallNotificationCoordinator(private val context: Context) {
     private fun notificationId(callId: String): Int = 0x41000000 xor callId.hashCode()
 
     private companion object {
+        const val TAG = "AiosCallNotification"
         const val INCOMING_CHANNEL = "incoming_calls_v1"
         const val SILENT_INCOMING_CHANNEL = "incoming_calls_silent_v1"
         const val ONGOING_CHANNEL = "ongoing_calls_v1"
