@@ -101,6 +101,9 @@ write. Queries return at most eight bounded snippets. SMS deletion writes a
 monotonic tombstone, contact membership is re-resolved on every query identity,
 photo metadata must disappear when its source is deleted, and call transcripts
 or summaries may not remain retrievable after the 24-hour call-artifact expiry.
+Caller history retrieval must be optional, asynchronous, identifier-free at the
+model boundary, and unable to delay Telecom answer or capture. Historical
+snippets are private context and may not be quoted or disclosed to a caller.
 
 ## Model platform
 

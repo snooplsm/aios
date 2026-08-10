@@ -15,6 +15,7 @@ android_app {
     srcs: ["src/**/*.java"],
     static_libs: [
         "aios_call_api",
+        "aios_context_api",
         "aios_model_api",
     ],
     resource_dirs: [],
@@ -33,8 +34,10 @@ java_test_host {
         "src/com/aios/callintelligence/AnswerDelayPolicy.java",
         "src/com/aios/callintelligence/AssistantHandlingTracker.java",
         "src/com/aios/callintelligence/AssistantTurnQueue.java",
+        "src/com/aios/callintelligence/CallContextAccumulator.java",
         "src/com/aios/callintelligence/CallArtifactRetention.java",
         "src/com/aios/callintelligence/Pcm16MonoToStereo48k.java",
+        "src/com/aios/callintelligence/PriorContextFormatter.java",
         "src/com/aios/callintelligence/RequiredCaptureGate.java",
         "src/com/aios/callintelligence/ReceptionistReplyPolicy.java",
         "src/com/aios/callintelligence/RiskAssessmentTracker.java",

@@ -34,13 +34,15 @@ final class CallArtifactStore {
             if (!callsDirectory.isDirectory() && !callsDirectory.mkdirs()) {
                 throw new IOException("cannot create private call directory");
             }
-            File directory = new File(callsDirectory, digest(callId));
+            String sourceId = digest(callId);
+            File directory = new File(callsDirectory, sourceId);
             if (!directory.isDirectory() && !directory.mkdirs()) {
                 throw new IOException("cannot create private call session");
             }
             long expiresAt = CallArtifactRetention.expiresAt(nowEpochMillis);
             writeMetadata(directory, nowEpochMillis, expiresAt, answeredByAi);
-            Session session = new Session(directory, expiresAt);
+            Session session = new Session(
+                    directory, sourceId, nowEpochMillis, expiresAt);
             ACTIVE_SESSIONS.put(directory.getAbsoluteFile(), session);
             return session;
         }
@@ -125,12 +127,20 @@ final class CallArtifactStore {
 
     static final class Session implements AutoCloseable {
         private final File directory;
+        final String sourceId;
+        final long createdAtEpochMillis;
         final long expiresAtEpochMillis;
         private OutputStream downlink;
         private OutputStream uplink;
 
-        Session(File directory, long expiresAtEpochMillis) {
+        Session(
+                File directory,
+                String sourceId,
+                long createdAtEpochMillis,
+                long expiresAtEpochMillis) {
             this.directory = directory;
+            this.sourceId = sourceId;
+            this.createdAtEpochMillis = createdAtEpochMillis;
             this.expiresAtEpochMillis = expiresAtEpochMillis;
         }
 

@@ -16,6 +16,7 @@ import android.provider.ContactsContract
 import android.telecom.Call
 import android.telecom.TelecomManager
 import android.telephony.PhoneNumberUtils
+import android.telephony.TelephonyManager
 import android.util.Base64
 import androidx.core.content.edit
 import com.aios.call.CallHandlingDecision
@@ -38,6 +39,7 @@ import com.aios.phone.model.TranscriptUiState
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import java.security.SecureRandom
+import java.util.Locale
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
@@ -405,9 +407,18 @@ class CallAssistantClient(
         worker.execute {
             val knownContact = isKnownContact(session.address)
             val emergency = session.networkIdentifiedEmergency || isEmergency(session.address)
+            val contextAddress = session.address.takeIf {
+                ownerProcessingEnabled == true && !emergency
+            }.orEmpty()
             val contextValue = IncomingCallContext().apply {
                 callId = session.callId
                 normalizedAddressHash = addressHash(session.address)
+                transientAddress = contextAddress
+                countryIso = if (contextAddress.isEmpty()) {
+                    ""
+                } else {
+                    this@CallAssistantClient.countryIso()
+                }
                 this.knownContact = knownContact
                 this.emergency = emergency
                 this.emergencyCallbackMode = session.emergencyCallbackMode
@@ -559,6 +570,13 @@ class CallAssistantClient(
         digest.update(installSalt())
         digest.update(normalized.toByteArray(StandardCharsets.UTF_8))
         return digest.digest().joinToString("") { byte -> "%02x".format(byte) }
+    }
+
+    private fun countryIso(): String {
+        val network = context.getSystemService(TelephonyManager::class.java)
+            ?.networkCountryIso
+            ?.takeIf(String::isNotBlank)
+        return (network ?: Locale.getDefault().country).take(2)
     }
 
     @SuppressLint("ApplySharedPref")

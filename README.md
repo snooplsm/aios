@@ -54,6 +54,12 @@ AIOS Messaging now compiles as an SMS-role candidate with real SMS provider
 paths, respond-via-message, call launching, and read-only Photo Picker drafts.
 MMS remains visibly blocked and is a required carrier/device gate; the app does
 not claim that photo messaging is complete.
+Incoming calls now resolve their presented number transiently into the same
+opaque communication identity used by Messaging. The receptionist can consume
+at most eight identifier-free historical snippets without delaying Telecom, and
+normal teardown publishes a final-only bounded call summary with the existing
+artifact's 24-hour expiry. A dedicated public-SDK module compiles and tests this
+Binder client; physical behavior remains a Pixel release gate.
 
 It has not yet been compiled by Soong or flashed. Android 17's official manifest
 does not contain the Pixel 9a `device/google/tegu` project, so the build strategy

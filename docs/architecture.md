@@ -52,6 +52,7 @@ Telecom call -> policy -> answer/ring
                          |
 Telephony RX -> VAD/endpoint -> streaming ASR -> risk/events -> dialer overlay
 Telephony TX -> VAD -----------> queued ASR -----^              -> local session
+Opaque number -> bounded SMS/call history -> receptionist prompt
 Final caller turn -> Gemma reply+risk -> bounded TTS -> telephony TX -> caller
 ```
 
@@ -84,7 +85,10 @@ AI answering is fail-closed on processing, bilingual text/TTS availability, and
 transport readiness. Capture begins
 immediately after AI pickup, with no mandatory spoken disclosure. When the agent
 has a final caller turn, Call Intelligence gives Gemma only bounded, quoted,
-untrusted conversation data and accepts only an exact reply/risk schema. It then
+untrusted current-call data plus at most eight identifier-free historical
+snippets. Prior context is explicitly private and may inform continuity but may
+not be quoted or disclosed to the caller. The service accepts only an exact
+reply/risk schema. It then
 requests English or Spanish speech through Model Broker, converts the mono
 provider output to the device's 48 kHz stereo in-call format, and routes it only
 to `TYPE_TELEPHONY`. Reasoning and speech never overlap, and a caller turn that
@@ -193,8 +197,12 @@ set of opaque number keys, so contact edits invalidate grouping without storing
 a reversible alias. Source-specific writers publish revisioned documents; a
 tombstone prevents stale resurrection after deletion. Query consumers receive at
 most eight short snippets, never database handles or model-weight access. Call
-artifacts inherit the 24-hour retention boundary; durable call events contain no
-transcript or recording.
+artifacts inherit the 24-hour retention boundary; normal call teardown publishes
+only final bilingual transcript text, assistant replies, and validated risk
+events under the opaque call-directory digest. The presented number exists only
+long enough to resolve the HMAC identity and is never written to either store.
+Context lookup is asynchronous and cannot block answer or capture. Durable call
+events contain no transcript or recording.
 
 ## Storage boundaries
 

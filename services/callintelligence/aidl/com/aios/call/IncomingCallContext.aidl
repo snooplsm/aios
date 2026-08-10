@@ -7,4 +7,7 @@ parcelable IncomingCallContext {
     boolean emergency;
     boolean emergencyCallbackMode;
     long ringingSinceElapsedRealtimeMillis;
+    /** Optional compatibility-tail fields; present only during authorized processing. */
+    String transientAddress;
+    String countryIso;
 }

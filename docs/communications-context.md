@@ -51,18 +51,41 @@ each. Source documents are capped at 4,096 characters. The first implementation
 uses local FTS4 lexical retrieval; a later embedding index can replace ranking
 without changing identity, authorization, retention, or deletion semantics.
 
+For an incoming call, AIOS Phone appends the presented number and country ISO to
+the version-tolerant tail of `IncomingCallContext` only when the owner has enabled
+processing and the call is not an emergency or emergency callback. Call
+Intelligence passes that value directly to `resolveIdentity` on a background
+worker; it is not logged, added to a map, or written to the call-artifact
+directory. Retrieval never delays Telecom policy, pickup, or capture. If the
+context service is absent or slow, the call continues without history.
+
+An AI-handled call may receive the retrieved context before or after capture
+starts. The receptionist prompt receives an identifier-free JSON array with at
+most eight entries; each contains only source type, event time, and a 512-
+character excerpt. Source IDs and opaque identity keys are excluded. The prompt
+treats both prior context and caller speech as private untrusted data and forbids
+quoting or disclosing history to the caller.
+
+At normal call teardown, Call Intelligence indexes final English/Spanish
+transcript segments, assistant replies, and validated risk events in a bounded
+4,096-character `call_artifact` document. Its source ID is the same SHA-256 call
+directory name, not a number, and its expiry is copied from the immutable local
+artifact metadata. A context write is skipped if that expiry has already passed.
+No separate context TTL can extend the 24-hour call-artifact lifetime.
+
 Every source has a monotonic revision. Deletion removes the entry and writes a
 tombstone, so a delayed stale indexing callback cannot resurrect it. SMS deletion
-is wired to that API. Call-artifact expiry is purged during queries and after
-boot. Media and call producers must wire their own upsert/delete lifecycle before
-their context release gates can pass.
+is wired to that API. Normal call teardown now publishes the expiring call
+artifact. Call-artifact expiry is purged during queries and after boot. Durable
+Phone call events and selected-photo metadata still need their producer
+lifecycles before those context release gates can pass.
 
 ## Still required before daily use
 
 - complete and carrier-test MMS send/download/provider persistence;
 - expose explicit SIM selection when no single default SMS subscription exists;
 - reconcile provider changes made outside AIOS Messaging;
-- wire call event, expiring call artifact, and selected-photo metadata producers;
+- wire durable call-event and selected-photo metadata producers;
 - add a user control to exclude a conversation or source from retrieval; and
 - run SMS/MMS, reboot, restore, deletion, lock-screen notification, and emergency
   interaction tests on the Pixel hardware lane.

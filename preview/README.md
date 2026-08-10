@@ -16,6 +16,12 @@ source set also runs the Android-free dialer policy state machines. It must not
 be installed. The authoritative product build and host-test target remain the
 platform-signed Soong modules inside the locked AOSP tree.
 
+`callcontextcheck` stages only the public-SDK Call Intelligence context client,
+its context AIDL/API, and the two pure bounds tests into generated build
+directories. It compiles the Binder client, runs the formatter/accumulator tests,
+assembles, and lints without maintaining duplicate production source files.
+It is a compile check, not a replacement for the platform Soong or device gates.
+
 `telecomsmoke` packages those same sources as `com.aios.phone` solely for an
 AOSP emulator. It is debug-signed, cannot use the signature-protected AIOS
 services, and must never be installed on a physical phone or treated as a
@@ -29,7 +35,8 @@ and `prodcheck` builds.
 Open this directory in Android Studio, or run:
 
 ```text
-gradle :app:assembleDebug :prodcheck:testDebugUnitTest :prodcheck:lintDebug
+gradle :app:assembleDebug :prodcheck:testDebugUnitTest :prodcheck:lintDebug \
+  :callcontextcheck:testDebugUnitTest :callcontextcheck:lintDebug
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 adb shell am start -n com.aios.phone.preview/.PreviewActivity
 ```

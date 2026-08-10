@@ -23,9 +23,11 @@ import com.aios.model.GenerationChunk;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 public final class CallIntelligenceService extends Service {
     private static final String PERMISSION_CONTROL =
@@ -35,12 +37,16 @@ public final class CallIntelligenceService extends Service {
             "ro.aios.call_uplink_validated";
     private static final int MAX_TELECOM_LIFECYCLE_TOKENS = 4;
     private static final int MAX_CALLS_PER_LIFECYCLE_TOKEN = 8;
+    private static final int MAX_CONTEXT_CALLS = 64;
 
     private final RemoteCallbackList<ICallIntelligenceListener> listeners =
             new RemoteCallbackList<>();
     private final Object listenerBroadcastLock = new Object();
     private final Map<String, ActiveSession> sessions = new HashMap<>();
     private final Map<String, Boolean> pendingKnownContacts = new HashMap<>();
+    private final Map<String, CallCommunicationContextClient.PreparedContext>
+            pendingCommunicationContexts = new HashMap<>();
+    private final Set<String> contextEligibleCalls = new HashSet<>();
     private final Object telecomPresenceLock = new Object();
     private final TelecomCallPresenceTracker<IBinder> telecomPresence =
             new TelecomCallPresenceTracker<>(
@@ -55,6 +61,7 @@ public final class CallIntelligenceService extends Service {
     private ReceptionistDialogueClient receptionist;
     private CallerAudioUplink callerAudio;
     private SpeechSynthesisBrokerClient speech;
+    private CallCommunicationContextClient communicationContext;
     private Handler mainHandler;
     private boolean appliedTelecomPresence;
     private boolean telecomPresenceUpdateScheduled;
@@ -98,7 +105,36 @@ public final class CallIntelligenceService extends Service {
                     pendingKnownContacts.put(context.callId, context.knownContact);
                 }
             }
-            return currentPolicy().evaluate(context);
+            CallHandlingDecision decision = currentPolicy().evaluate(context);
+            boolean prepareContext = context != null
+                    && context.callId != null
+                    && !context.callId.isEmpty()
+                    && context.callId.length() <= 128
+                    && !context.emergency
+                    && !context.emergencyCallbackMode
+                    && decision.processingAllowed
+                    && context.transientAddress != null
+                    && !context.transientAddress.isBlank();
+            if (prepareContext) {
+                synchronized (sessions) {
+                    if (!contextEligibleCalls.contains(context.callId)
+                            && contextEligibleCalls.size() >= MAX_CONTEXT_CALLS) {
+                        prepareContext = false;
+                    } else {
+                        contextEligibleCalls.add(context.callId);
+                    }
+                }
+            }
+            if (prepareContext && !communicationContext.prepareCall(
+                    context.callId,
+                    context.transientAddress,
+                    context.countryIso,
+                    System.currentTimeMillis())) {
+                synchronized (sessions) {
+                    contextEligibleCalls.remove(context.callId);
+                }
+            }
+            return decision;
         }
 
         @Override
@@ -167,14 +203,36 @@ public final class CallIntelligenceService extends Service {
         public void onCallEnded(String callId, int disconnectCause) {
             enforceControlPermission();
             ActiveSession ended;
+            CallCommunicationContextClient.PreparedContext pendingContext;
             synchronized (sessions) {
                 pendingKnownContacts.remove(callId);
+                contextEligibleCalls.remove(callId);
+                pendingContext = pendingCommunicationContexts.remove(callId);
                 ended = sessions.remove(callId);
+                if (ended != null && pendingContext != null) {
+                    ended.setCommunicationContext(pendingContext);
+                }
             }
             classifier.endCall(callId);
             receptionist.endCall(callId);
+            long now = System.currentTimeMillis();
+            ActiveSession.ContextRecord contextRecord = ended == null
+                    ? null : ended.contextRecord(disconnectCause, now);
             if (ended != null) ended.close();
-            artifactStore.cleanup(System.currentTimeMillis());
+            if (contextRecord != null) {
+                communicationContext.indexCallArtifact(
+                        callId,
+                        contextRecord.prepared,
+                        contextRecord.sourceId,
+                        contextRecord.revision,
+                        contextRecord.eventAtEpochMillis,
+                        contextRecord.expiresAtEpochMillis,
+                        contextRecord.text,
+                        now);
+            } else {
+                communicationContext.discardCall(callId);
+            }
+            artifactStore.cleanup(now);
             RetentionAlarm.scheduleNext(CallIntelligenceService.this, artifactStore);
             notifyStatus(callId, 2, "call_ended");
         }
@@ -233,6 +291,22 @@ public final class CallIntelligenceService extends Service {
         artifactStore = new CallArtifactStore(this);
         artifactStore.cleanup(System.currentTimeMillis());
         RetentionAlarm.scheduleNext(this, artifactStore);
+        communicationContext = new CallCommunicationContextClient(
+                this,
+                new CallCommunicationContextClient.Listener() {
+                    @Override
+                    public void onContextReady(
+                            String callId,
+                            CallCommunicationContextClient.PreparedContext context) {
+                        handleCommunicationContext(callId, context);
+                    }
+
+                    @Override
+                    public void onStatus(String callId, String detail) {
+                        notifyStatus(callId, 9, detail);
+                    }
+                });
+        communicationContext.start();
         asr = new AsrBrokerClient(this, new AsrBrokerClient.Listener() {
             @Override
             public void onTranscript(
@@ -295,6 +369,8 @@ public final class CallIntelligenceService extends Service {
         stopTelecomPresenceTracking();
         synchronized (sessions) {
             pendingKnownContacts.clear();
+            pendingCommunicationContexts.clear();
+            contextEligibleCalls.clear();
             for (ActiveSession session : sessions.values()) {
                 session.close();
             }
@@ -303,6 +379,7 @@ public final class CallIntelligenceService extends Service {
         if (speech != null) speech.close();
         if (callerAudio != null) callerAudio.close();
         if (receptionist != null) receptionist.close();
+        if (communicationContext != null) communicationContext.close();
         listeners.kill();
         if (asr != null) asr.close();
         if (classifier != null) classifier.close();
@@ -405,6 +482,8 @@ public final class CallIntelligenceService extends Service {
         AsrBrokerClient.Stream uplinkAsr = null;
         TelephonyAudioCapture capture = null;
         try {
+            CallCommunicationContextClient.PreparedContext preparedContext =
+                    pendingCommunicationContexts.remove(callId);
             stored = artifactStore.create(callId, answeredByAi, System.currentTimeMillis());
             downlinkAsr = asr.openStream(callId, "downlink");
             uplinkAsr = asr.openStream(callId, "uplink");
@@ -418,10 +497,14 @@ public final class CallIntelligenceService extends Service {
                             stored.openUplink(), sink(uplinkAsr)));
             ActiveSession active = new ActiveSession(
                     stored, capture, downlinkAsr, uplinkAsr,
-                    new SpamRiskEngine(knownContact), answeredByAi, knownContact);
+                    new SpamRiskEngine(knownContact), answeredByAi, knownContact,
+                    preparedContext);
             sessions.put(callId, active);
             if (answeredByAi) {
-                receptionist.beginCall(callId, knownContact);
+                receptionist.beginCall(
+                        callId,
+                        knownContact,
+                        preparedContext == null ? "[]" : preparedContext.priorContextJson);
             } else {
                 classifier.beginCall(callId, knownContact);
             }
@@ -617,6 +700,26 @@ public final class CallIntelligenceService extends Service {
         }
     }
 
+    private void handleCommunicationContext(
+            String callId,
+            CallCommunicationContextClient.PreparedContext prepared) {
+        if (callId == null || prepared == null || prepared.identity == null) return;
+        ActiveSession session;
+        synchronized (sessions) {
+            if (!contextEligibleCalls.contains(callId)) return;
+            session = sessions.get(callId);
+            if (session == null) {
+                pendingCommunicationContexts.put(callId, prepared);
+            } else {
+                session.setCommunicationContext(prepared);
+            }
+        }
+        if (session != null && session.isAiHandling()) {
+            receptionist.updatePriorContext(callId, prepared.priorContextJson);
+        }
+        notifyStatus(callId, 9, "communication_context_ready");
+    }
+
     private void handleTranscript(
             String callId, String direction, String language, GenerationChunk chunk) {
         ActiveSession session;
@@ -638,6 +741,8 @@ public final class CallIntelligenceService extends Service {
         } catch (IOException error) {
             notifyStatus(callId, -2, "transcript_storage_failed");
         }
+        session.appendContextTranscript(
+                direction, language, chunk.text, chunk.isFinal);
         TranscriptSegment segment = new TranscriptSegment();
         segment.callId = callId;
         segment.direction = direction;
@@ -694,6 +799,7 @@ public final class CallIntelligenceService extends Service {
         } catch (IOException error) {
             notifyStatus(callId, -6, "assistant_reply_storage_failed");
         }
+        session.appendContextAssistantReply(reply.language, reply.text);
         speakToCaller(callId, session, reply.language, reply.text);
     }
 
@@ -787,6 +893,10 @@ public final class CallIntelligenceService extends Service {
         } catch (IOException error) {
             notifyStatus(callId, -3, "assessment_storage_failed");
         }
+        session.appendContextAssessment(
+                update.assessment.score,
+                update.assessment.label,
+                update.assessment.reasonCode);
         notifyRisk(toRiskAssessment(callId, update));
     }
 
@@ -830,6 +940,30 @@ public final class CallIntelligenceService extends Service {
     }
 
     private static final class ActiveSession implements AutoCloseable {
+        private static final class ContextRecord {
+            final CallCommunicationContextClient.PreparedContext prepared;
+            final String sourceId;
+            final long revision;
+            final long eventAtEpochMillis;
+            final long expiresAtEpochMillis;
+            final String text;
+
+            ContextRecord(
+                    CallCommunicationContextClient.PreparedContext prepared,
+                    String sourceId,
+                    long revision,
+                    long eventAtEpochMillis,
+                    long expiresAtEpochMillis,
+                    String text) {
+                this.prepared = prepared;
+                this.sourceId = sourceId;
+                this.revision = revision;
+                this.eventAtEpochMillis = eventAtEpochMillis;
+                this.expiresAtEpochMillis = expiresAtEpochMillis;
+                this.text = text;
+            }
+        }
+
         private static final class TakeoverResult {
             final AssistantHandlingTracker.Update update;
             final boolean knownContact;
@@ -877,6 +1011,9 @@ public final class CallIntelligenceService extends Service {
         private final AssistantHandlingTracker assistantHandling;
         private final boolean knownContact;
         private final AssistantTurnQueue turnQueue = new AssistantTurnQueue();
+        private final CallContextAccumulator communicationSummary =
+                new CallContextAccumulator();
+        private CallCommunicationContextClient.PreparedContext communicationContext;
         private boolean closed;
         private long speechGeneration;
         private SpeechSynthesisBrokerClient.Speech activeSpeech;
@@ -889,7 +1026,8 @@ public final class CallIntelligenceService extends Service {
                 AsrBrokerClient.Stream uplinkAsr,
                 SpamRiskEngine risk,
                 boolean answeredByAi,
-                boolean knownContact) {
+                boolean knownContact,
+                CallCommunicationContextClient.PreparedContext communicationContext) {
             this.stored = stored;
             this.capture = capture;
             this.downlinkAsr = downlinkAsr;
@@ -897,6 +1035,38 @@ public final class CallIntelligenceService extends Service {
             this.risk = new RiskAssessmentTracker(risk);
             assistantHandling = new AssistantHandlingTracker(answeredByAi);
             this.knownContact = knownContact;
+            this.communicationContext = communicationContext;
+        }
+
+        synchronized void setCommunicationContext(
+                CallCommunicationContextClient.PreparedContext prepared) {
+            if (!closed && prepared != null && prepared.identity != null) {
+                communicationContext = prepared;
+            }
+        }
+
+        void appendContextTranscript(
+                String direction, String language, String text, boolean isFinal) {
+            communicationSummary.appendTranscript(direction, language, text, isFinal);
+        }
+
+        void appendContextAssistantReply(String language, String text) {
+            communicationSummary.appendAssistantReply(language, text);
+        }
+
+        void appendContextAssessment(int score, String label, String reasonCode) {
+            communicationSummary.appendAssessment(score, label, reasonCode);
+        }
+
+        synchronized ContextRecord contextRecord(int disconnectCause, long revision) {
+            if (closed || revision <= 0L) return null;
+            return new ContextRecord(
+                    communicationContext,
+                    stored.sourceId,
+                    revision,
+                    stored.createdAtEpochMillis,
+                    stored.expiresAtEpochMillis,
+                    communicationSummary.finish(disconnectCause));
         }
 
         synchronized RiskAssessmentTracker.Update initialAssessment() {
