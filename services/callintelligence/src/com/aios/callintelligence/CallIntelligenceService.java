@@ -8,7 +8,6 @@ import android.os.IBinder;
 import android.os.Looper;
 import android.os.RemoteCallbackList;
 import android.os.RemoteException;
-import android.os.SystemProperties;
 
 import com.aios.call.CallHandlingDecision;
 import com.aios.call.CallAssistantPolicy;
@@ -31,8 +30,6 @@ public final class CallIntelligenceService extends Service {
     private static final String PERMISSION_CONTROL =
             "com.aios.permission.CONTROL_CALL_INTELLIGENCE";
     private static final long DEFAULT_MISSED_DELAY_MILLIS = 15_000L;
-    private static final String CALL_UPLINK_VALIDATION_PROPERTY =
-            "ro.aios.call_uplink_validated";
     private static final int MAX_TELECOM_LIFECYCLE_TOKENS = 4;
     private static final int MAX_CALLS_PER_LIFECYCLE_TOKEN = 8;
     private static final int MAX_CONTEXT_CALLS = 64;
@@ -613,7 +610,7 @@ public final class CallIntelligenceService extends Service {
     }
 
     private boolean callerInteractionTransportReady() {
-        return SystemProperties.getBoolean(CALL_UPLINK_VALIDATION_PROPERTY, false)
+        return CallProductProperties.callerUplinkValidated()
                 && asr != null
                 && asr.isAvailable()
                 && callerAudio != null
@@ -627,7 +624,7 @@ public final class CallIntelligenceService extends Service {
     }
 
     private String automaticAnswerUnavailableReason() {
-        if (!SystemProperties.getBoolean(CALL_UPLINK_VALIDATION_PROPERTY, false)) {
+        if (!CallProductProperties.callerUplinkValidated()) {
             return "caller_audio_injection_requires_physical_validation";
         }
         if (asr == null || !asr.isAvailable()) {
@@ -703,6 +700,7 @@ public final class CallIntelligenceService extends Service {
                 throw new IOException("incoming ASR is required for AI answering");
             }
             capture = new TelephonyAudioCapture(
+                    this,
                     new ResilientFanoutOutputStream(
                             stored.openDownlink(), sink(downlinkAsr)),
                     new ResilientFanoutOutputStream(

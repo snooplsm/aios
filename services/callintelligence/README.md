@@ -56,3 +56,11 @@ unvalidated. The checked-in product property
 answering locked until a physical Pixel carrier-call test proves complete remote
 audibility. English/Spanish TTS availability and a live telephony-route probe
 remain additional runtime gates.
+
+The Soong host-test target explicitly lists every Android-free production source
+needed by its tests. For faster drift detection outside a full AOSP checkout,
+`preview:callservicecheck` stages the entire privileged service and its call,
+model, and context AIDL into a public-SDK Gradle build. Only the narrow immutable
+product-property adapter is replaced, with a fail-closed implementation; the
+production Soong module still builds the real platform adapter. This compile lane
+does not replace a Soong build or any physical telephony release gate.

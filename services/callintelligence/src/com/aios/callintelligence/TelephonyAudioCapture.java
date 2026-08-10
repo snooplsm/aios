@@ -1,5 +1,9 @@
 package com.aios.callintelligence;
 
+import android.Manifest;
+import android.annotation.SuppressLint;
+import android.content.Context;
+import android.content.pm.PackageManager;
 import android.media.AudioFormat;
 import android.media.AudioRecord;
 import android.media.MediaRecorder;
@@ -18,11 +22,14 @@ final class TelephonyAudioCapture implements AutoCloseable {
     private static final int ENCODING = AudioFormat.ENCODING_PCM_16BIT;
     private static final long FIRST_PCM_TIMEOUT_MILLIS = 2_000L;
 
+    private final Context context;
     private final RequiredCaptureGate startup = new RequiredCaptureGate();
     private final CaptureDirection downlink;
     private final CaptureDirection uplink;
 
-    TelephonyAudioCapture(OutputStream downlinkSink, OutputStream uplinkSink) {
+    TelephonyAudioCapture(
+            Context context, OutputStream downlinkSink, OutputStream uplinkSink) {
+        this.context = context;
         downlink = new CaptureDirection(
                 RequiredCaptureGate.DOWNLINK,
                 MediaRecorder.AudioSource.VOICE_DOWNLINK,
@@ -36,6 +43,12 @@ final class TelephonyAudioCapture implements AutoCloseable {
     }
 
     void startRequired() throws IOException {
+        if (context.checkSelfPermission(Manifest.permission.RECORD_AUDIO)
+                        != PackageManager.PERMISSION_GRANTED
+                || context.checkSelfPermission(Manifest.permission.CAPTURE_AUDIO_OUTPUT)
+                        != PackageManager.PERMISSION_GRANTED) {
+            throw new IOException("required telephony capture permissions are unavailable");
+        }
         downlink.start();
         uplink.start();
         String failure = startup.await(FIRST_PCM_TIMEOUT_MILLIS);
@@ -73,6 +86,7 @@ final class TelephonyAudioCapture implements AutoCloseable {
             this.startup = startup;
         }
 
+        @SuppressLint("MissingPermission") // startRequired verifies both required grants first.
         boolean start() {
             if (!started.compareAndSet(false, true)) {
                 markFailure(name + "_capture_already_started");

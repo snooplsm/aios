@@ -803,6 +803,8 @@ def validate_aosp_overlay(root: Path) -> None:
         "preview/messagingcheck/build.gradle.kts",
         "preview/callcontextcheck/build.gradle.kts",
         "preview/callcontextcheck/src/main/AndroidManifest.xml",
+        "preview/callservicecheck/build.gradle.kts",
+        "preview/callservicecheck/src/main/java/com/aios/callintelligence/CallProductProperties.java",
         "preview/mediascancheck/build.gradle.kts",
         "preview/mediascancheck/src/main/AndroidManifest.xml",
         "services/contextintelligence/Android.bp",
@@ -897,6 +899,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "scripts/capture-model-benchmark.ps1",
         "scripts/capture-media-timing.ps1",
         "services/callintelligence/AndroidManifest.xml",
+        "services/callintelligence/Android.bp",
         "services/callintelligence/aidl/com/aios/call/IAiosCallIntelligence.aidl",
         "services/callintelligence/aidl/com/aios/call/ICallIntelligenceListener.aidl",
         "services/callintelligence/aidl/com/aios/call/CallAssistantState.aidl",
@@ -907,6 +910,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/callintelligence/src/com/aios/callintelligence/AssistantHandlingTracker.java",
         "services/callintelligence/src/com/aios/callintelligence/AssistantTurnQueue.java",
         "services/callintelligence/src/com/aios/callintelligence/CallPolicyEngine.java",
+        "services/callintelligence/src/com/aios/callintelligence/CallProductProperties.java",
         "services/callintelligence/src/com/aios/callintelligence/CallCommunicationContextClient.java",
         "services/callintelligence/src/com/aios/callintelligence/CallContextAccumulator.java",
         "services/callintelligence/src/com/aios/callintelligence/CallRequestIdentityTracker.java",
@@ -1979,6 +1983,25 @@ def validate_aosp_overlay(root: Path) -> None:
         root / "services" / "callintelligence" / "src" / "com" / "aios" /
         "callintelligence"
     )
+    call_service_bp = (root / "services" / "callintelligence" / "Android.bp").read_text(
+        encoding="utf-8")
+    call_service_compile_build = (
+        root / "preview" / "callservicecheck" / "build.gradle.kts"
+    ).read_text(encoding="utf-8")
+    call_product_properties = (
+        call_source_root / "CallProductProperties.java"
+    ).read_text(encoding="utf-8")
+    telephony_capture = (call_source_root / "TelephonyAudioCapture.java").read_text(
+        encoding="utf-8")
+    call_manifest = (
+        root / "services" / "callintelligence" / "AndroidManifest.xml"
+    ).read_text(encoding="utf-8")
+    call_compile_properties = (
+        root / "preview" / "callservicecheck" / "src" / "main" / "java" /
+        "com" / "aios" / "callintelligence" / "CallProductProperties.java"
+    ).read_text(encoding="utf-8")
+    preview_settings = (root / "preview" / "settings.gradle.kts").read_text(
+        encoding="utf-8")
     policy_source = (call_source_root / "CallPolicyEngine.java").read_text(encoding="utf-8")
     require("emergency_bypass" in policy_source and "emergencyCallbackMode" in policy_source,
             "call policy must bypass emergency states")
@@ -2009,6 +2032,37 @@ def validate_aosp_overlay(root: Path) -> None:
             "call risk scoring must be advisory, explainable, and English/Spanish aware")
     call_service = (call_source_root / "CallIntelligenceService.java").read_text(
         encoding="utf-8")
+    call_host_test = call_service_bp[call_service_bp.index("java_test_host {"):]
+    require('name: "aios_callintelligence_host_tests"' in call_host_test
+            and '"src/com/aios/callintelligence/CallRequestIdentityTracker.java"'
+            in call_host_test
+            and '"tests/src/**/*.java"' in call_host_test,
+            "Soong Call Intelligence host tests must include the full Android-free source closure")
+    require('include(":callservicecheck")' in preview_settings
+            and 'include("com/aios/callintelligence/**/*.java")'
+            in call_service_compile_build
+            and 'exclude("com/aios/callintelligence/CallProductProperties.java")'
+            in call_service_compile_build
+            and '../../services/callintelligence/aidl' in call_service_compile_build
+            and '../../services/contextintelligence/aidl' in call_service_compile_build
+            and '../../services/modelbroker/aidl' in call_service_compile_build
+            and 'android.os.SystemProperties' in call_product_properties
+            and '"ro.aios.call_uplink_validated"' in call_product_properties
+            and "return false;" in call_compile_properties
+            and "SystemProperties" not in call_compile_properties
+            and "CallProductProperties.callerUplinkValidated()" in call_service
+            and "SystemProperties" not in call_service
+            and 'disable += "ProtectedPermissions"' in call_service_compile_build
+            and 'disable += "MissingPermission"' not in call_service_compile_build
+            and "abortOnError" not in call_service_compile_build,
+            "the full Call Intelligence compile lane must replace only a fail-closed product-property adapter")
+    require("Manifest.permission.RECORD_AUDIO" in telephony_capture
+            and "Manifest.permission.CAPTURE_AUDIO_OUTPUT" in telephony_capture
+            and "context.checkSelfPermission" in telephony_capture
+            and "new TelephonyAudioCapture(\n                    this," in call_service
+            and 'android:name="android.hardware.telephony"' in call_manifest
+            and 'android:required="true"' in call_manifest,
+            "telephony capture must fail closed without both grants and declare phone hardware")
     call_context_client = (
         call_source_root / "CallCommunicationContextClient.java"
     ).read_text(encoding="utf-8")
@@ -2196,7 +2250,8 @@ def validate_aosp_overlay(root: Path) -> None:
             and "attachAssistantAudio" in call_service
             and "completeAssistantOperation" in call_service,
             "AI dialogue must start only at final caller turns and serialize reasoning and speech")
-    require("CALL_UPLINK_VALIDATION_PROPERTY" in call_service
+    require("CallProductProperties.callerUplinkValidated()" in call_service
+            and "CALL_UPLINK_VALIDATION_PROPERTY" in call_product_properties
             and "callerInteractionTransportReady()" in call_service
             and "caller_audio_injection_requires_physical_validation" in call_service
             and "AutomaticAnswerGate.mayAnswer" in call_service

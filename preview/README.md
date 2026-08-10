@@ -16,12 +16,19 @@ source set also runs the Android-free dialer policy state machines. It must not
 be installed. The authoritative product build and host-test target remain the
 platform-signed Soong modules inside the locked AOSP tree.
 
-`callcontextcheck` stages the public-SDK Call Intelligence context client, the
-communication-context service/store and API, and their pure tests into generated
-build directories. It compiles both Binder sides, runs policy, revision,
-formatter, and accumulator tests, assembles, and lints without maintaining
-duplicate production source files.
+`callcontextcheck` stages the public-SDK Call Intelligence ASR, classifier,
+receptionist, and context clients, the communication-context service/store and
+API, and their pure tests into generated build directories. It compiles both
+Binder sides, runs policy, revision, formatter, and accumulator tests, assembles,
+and lints without maintaining duplicate production source files.
 It is a compile check, not a replacement for the platform Soong or device gates.
+
+`callservicecheck` stages every production Call Intelligence Java source and all
+three Binder APIs, then compiles, tests, assembles, and lints the complete service.
+Its sole substitute is a source-set-local `CallProductProperties` adapter that
+always returns `false`; the AOSP app continues to compile the production adapter
+against `android.os.SystemProperties`. The compile-check APK must not be shipped
+or used as evidence that privileged capture works on a Pixel.
 
 `mediascancheck` stages the production MediaStore generation scanner, durable
 queue/store, deletion-liveness scanner, embedded-video schema, verified MP4
@@ -48,6 +55,7 @@ Open this directory in Android Studio, or run:
 ```text
 gradle :app:assembleDebug :prodcheck:testDebugUnitTest :prodcheck:lintDebug \
   :callcontextcheck:testDebugUnitTest :callcontextcheck:lintDebug \
+  :callservicecheck:testDebugUnitTest :callservicecheck:lintDebug \
   :mediascancheck:testDebugUnitTest :mediascancheck:lintDebug
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 adb shell am start -n com.aios.phone.preview/.PreviewActivity

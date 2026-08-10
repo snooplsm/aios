@@ -37,6 +37,7 @@ java_test_host {
         "src/com/aios/callintelligence/AssistantTurnQueue.java",
         "src/com/aios/callintelligence/CallContextAccumulator.java",
         "src/com/aios/callintelligence/CallArtifactRetention.java",
+        "src/com/aios/callintelligence/CallRequestIdentityTracker.java",
         "src/com/aios/callintelligence/Pcm16MonoToStereo48k.java",
         "src/com/aios/callintelligence/PriorContextFormatter.java",
         "src/com/aios/callintelligence/RequiredCaptureGate.java",
