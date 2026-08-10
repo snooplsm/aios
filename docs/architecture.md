@@ -35,7 +35,10 @@ clears its assertion. Any call ID without a surviving token is detached from
 Call Intelligence before another client can register: capture, ASR, receptionist
 speech, classification, and pending context stop, while Telecom and the carrier
 call remain outside that failure domain. A restarted dialer may then replay the
-still-live Telecom call and begin a fresh optional intelligence session.
+still-live Telecom call and begin a fresh optional intelligence session. An
+explicit final presence release applies the same teardown, so an orderly dialer
+unbind cannot leave capture running. A release after `onCallEnded` is idempotent
+and does not discard the already-finalized communication-context record.
 
 ### Call Intelligence service
 

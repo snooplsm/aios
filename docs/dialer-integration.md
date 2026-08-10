@@ -80,6 +80,11 @@ original 24-hour maximum rather than pretending the carrier call disconnected.
 Telecom itself remains connected and a restarted dialer can replay the live call.
 The new capture streams append to the same opaque artifact directory and reuse
 its original creation/expiry timestamps; a restart cannot refresh the TTL.
+The same orphan check runs for an explicit `present=false` assertion. Releasing
+one of several same-UID tokens leaves the call running; releasing the final
+token stops any unfinished AI work. In the normal terminal sequence,
+`onCallEnded` finalizes/indexes the call first, so the following release is an
+idempotent presence update and does not delete that finalized context.
 
 ## Live call assessment
 

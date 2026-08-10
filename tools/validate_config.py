@@ -2032,7 +2032,11 @@ def validate_aosp_overlay(root: Path) -> None:
     require("token.linkToDeath" in call_service
             and "onTelecomPresenceTokenDied" in call_service
             and "telecomPresence.removeDeadAndReport(token)" in call_service
-            and "finishOrphanedCallCleanup(orphanedCallIds)" in call_service
+            and "telecomPresence.releaseAndReport(token, ownerUid, callId)"
+            in call_service
+            and "stopOrphanedWorkLocked(callId, ownerUid)" in call_service
+            and '"telecom_presence_released"' in call_service
+            and "finishOrphanedCallCleanup(orphanedCallIds," in call_service
             and "if (active != null) active.close();" in call_service
             and "telecomPresenceStopping || !telecomPresence.ownsCall(ownerUid, callId)"
             in call_service
@@ -2043,8 +2047,9 @@ def validate_aosp_overlay(root: Path) -> None:
             and "ownerUid" in telecom_presence
             and "maxTokens" in telecom_presence
             and "maxCallsPerToken" in telecom_presence
-            and "orphanedCallIds" in telecom_presence,
-            "Telecom presence must be UID-owned, bounded, death-linked, stop orphaned capture, and drive call priority")
+            and "orphanedCallIds" in telecom_presence
+            and "callOrphaned" in telecom_presence,
+            "Telecom presence must be UID-owned, bounded, release/death-linked, stop orphaned capture, and drive call priority")
     require("CallArtifactRetention.canResume(" in artifact_source
             and 'new FileOutputStream(new File(directory, "rx.pcm"), true)'
             in artifact_source

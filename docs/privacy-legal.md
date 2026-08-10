@@ -27,6 +27,8 @@ Engineering defaults for the research image are:
 - Dialer Binder death immediately stops orphaned audio capture and model work;
   a partial non-emergency artifact remains subject to its original 24-hour
   maximum, and is never extended by a client restart.
+- An orderly dialer unbind must explicitly release every live presence
+  assertion; the final release enforces the same stop rule as Binder death.
 - No cloud transfer, analytics payload, or training use contains call content.
 - The assistant must not falsely claim to be the owner or another real person.
 - Emergency calls and emergency callback mode never use optional AI processing.

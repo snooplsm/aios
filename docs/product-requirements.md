@@ -64,6 +64,9 @@ If the dialer dies while Telecom keeps a call connected, Call Intelligence stops
 the orphaned capture immediately. A reconnected dialer may start a fresh capture
 session for the same opaque call ID, but it must append to the existing artifact
 and preserve the original expiry rather than granting another 24-hour window.
+An explicit release of the final Telecom-presence token must also stop unfinished
+capture/model/context work. A release performed after successful call
+finalization must not erase the finalized context record.
 
 Raw call audio is never exposed through the shared-media filesystem. Other apps
 receive scoped model APIs, not access to call artifacts or model files.

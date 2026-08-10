@@ -8,6 +8,18 @@ import java.util.Set;
 
 /** Android-free state for UID-owned Telecom lifecycle tokens and opaque call IDs. */
 final class TelecomCallPresenceTracker<T> {
+    static final class Release {
+        final boolean callRemoved;
+        final boolean callOrphaned;
+        final boolean activityChanged;
+
+        Release(boolean callRemoved, boolean callOrphaned, boolean activityChanged) {
+            this.callRemoved = callRemoved;
+            this.callOrphaned = callOrphaned;
+            this.activityChanged = activityChanged;
+        }
+    }
+
     static final class DeadClient {
         final Integer ownerUid;
         final Set<String> orphanedCallIds;
@@ -46,37 +58,55 @@ final class TelecomCallPresenceTracker<T> {
     synchronized boolean setPresent(T token, int ownerUid, String callId, boolean present) {
         Objects.requireNonNull(token, "lifecycle token");
         Objects.requireNonNull(callId, "call ID");
+        if (!present) {
+            return releaseAndReport(token, ownerUid, callId).activityChanged;
+        }
         boolean wasActive = totalCalls > 0;
         ClientCalls calls = clients.get(token);
         if (calls != null && calls.ownerUid != ownerUid) {
             throw new SecurityException("Telecom lifecycle token is owned by another UID");
         }
-        if (present) {
-            Integer existingCallOwner = ownerUidForCall(callId);
-            if (existingCallOwner != null && existingCallOwner != ownerUid) {
-                throw new SecurityException("Telecom call ID is owned by another UID");
+        Integer existingCallOwner = ownerUidForCall(callId);
+        if (existingCallOwner != null && existingCallOwner != ownerUid) {
+            throw new SecurityException("Telecom call ID is owned by another UID");
+        }
+        if (calls == null) {
+            if (clients.size() >= maxTokens) {
+                throw new IllegalStateException("too many Telecom lifecycle tokens");
             }
-            if (calls == null) {
-                if (clients.size() >= maxTokens) {
-                    throw new IllegalStateException("too many Telecom lifecycle tokens");
-                }
-                calls = new ClientCalls(ownerUid);
-                clients.put(token, calls);
-            }
-            if (!calls.callIds.contains(callId)
-                    && calls.callIds.size() >= maxCallsPerToken) {
-                throw new IllegalStateException("too many calls for Telecom lifecycle token");
-            }
-            if (calls.callIds.add(callId)) {
-                totalCalls++;
-            }
-        } else if (calls != null && calls.callIds.remove(callId)) {
+            calls = new ClientCalls(ownerUid);
+            clients.put(token, calls);
+        }
+        if (!calls.callIds.contains(callId)
+                && calls.callIds.size() >= maxCallsPerToken) {
+            throw new IllegalStateException("too many calls for Telecom lifecycle token");
+        }
+        if (calls.callIds.add(callId)) {
+            totalCalls++;
+        }
+        return wasActive != (totalCalls > 0);
+    }
+
+    /** Atomically releases one assertion and reports whether its call became orphaned. */
+    synchronized Release releaseAndReport(T token, int ownerUid, String callId) {
+        Objects.requireNonNull(token, "lifecycle token");
+        Objects.requireNonNull(callId, "call ID");
+        boolean wasActive = totalCalls > 0;
+        ClientCalls calls = clients.get(token);
+        if (calls != null && calls.ownerUid != ownerUid) {
+            throw new SecurityException("Telecom lifecycle token is owned by another UID");
+        }
+        boolean removed = calls != null && calls.callIds.remove(callId);
+        if (removed) {
             totalCalls--;
             if (calls.callIds.isEmpty()) {
                 clients.remove(token);
             }
         }
-        return wasActive != (totalCalls > 0);
+        return new Release(
+                removed,
+                removed && !ownsCall(ownerUid, callId),
+                wasActive != (totalCalls > 0));
     }
 
     /** Binder-death path; returns true only when overall presence changes. */

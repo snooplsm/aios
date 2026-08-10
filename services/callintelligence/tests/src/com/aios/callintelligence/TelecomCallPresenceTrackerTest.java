@@ -78,6 +78,45 @@ public final class TelecomCallPresenceTrackerTest {
     }
 
     @Test
+    public void explicitReleaseOrphansOnlyAfterTheFinalUidToken() {
+        TelecomCallPresenceTracker<Object> tracker = new TelecomCallPresenceTracker<>(4, 8);
+        Object first = new Object();
+        Object second = new Object();
+        tracker.setPresent(first, 100, "shared", true);
+        tracker.setPresent(second, 100, "shared", true);
+
+        TelecomCallPresenceTracker.Release firstRelease =
+                tracker.releaseAndReport(first, 100, "shared");
+
+        assertTrue(firstRelease.callRemoved);
+        assertFalse(firstRelease.callOrphaned);
+        assertFalse(firstRelease.activityChanged);
+        assertTrue(tracker.ownsCall(100, "shared"));
+
+        TelecomCallPresenceTracker.Release finalRelease =
+                tracker.releaseAndReport(second, 100, "shared");
+        assertTrue(finalRelease.callRemoved);
+        assertTrue(finalRelease.callOrphaned);
+        assertTrue(finalRelease.activityChanged);
+        assertFalse(tracker.ownsCall(100, "shared"));
+    }
+
+    @Test
+    public void absentExplicitReleaseCannotOrphanAnotherCall() {
+        TelecomCallPresenceTracker<Object> tracker = new TelecomCallPresenceTracker<>(4, 8);
+        Object owner = new Object();
+        tracker.setPresent(owner, 100, "live", true);
+
+        TelecomCallPresenceTracker.Release absent =
+                tracker.releaseAndReport(new Object(), 100, "live");
+
+        assertFalse(absent.callRemoved);
+        assertFalse(absent.callOrphaned);
+        assertFalse(absent.activityChanged);
+        assertTrue(tracker.ownsCall(100, "live"));
+    }
+
+    @Test
     public void differentUidCannotReuseOrReleaseToken() {
         TelecomCallPresenceTracker<Object> tracker = new TelecomCallPresenceTracker<>(4, 8);
         Object token = new Object();

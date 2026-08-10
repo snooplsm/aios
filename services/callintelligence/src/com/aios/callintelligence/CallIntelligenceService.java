@@ -745,6 +745,7 @@ public final class CallIntelligenceService extends Service {
             throw new IllegalArgumentException("valid Telecom token and opaque call ID required");
         }
         IBinder.DeathRecipient removedRecipient = null;
+        boolean releasedOrphanedWork = false;
         synchronized (telecomPresenceLock) {
             if (telecomPresenceStopping) {
                 throw new IllegalStateException("call intelligence is stopping");
@@ -766,10 +767,16 @@ public final class CallIntelligenceService extends Service {
                     throw error;
                 }
             } else {
-                telecomPresence.setPresent(token, ownerUid, callId, present);
-                if (!present && !telecomPresence.ownsCall(ownerUid, callId)) {
-                    synchronized (sessions) {
-                        emergencyProtectedCalls.remove(callId, ownerUid);
+                if (present) {
+                    telecomPresence.setPresent(token, ownerUid, callId, true);
+                } else {
+                    TelecomCallPresenceTracker.Release release =
+                            telecomPresence.releaseAndReport(token, ownerUid, callId);
+                    if (release.callOrphaned) {
+                        synchronized (sessions) {
+                            releasedOrphanedWork =
+                                    stopOrphanedWorkLocked(callId, ownerUid);
+                        }
                     }
                 }
                 if (!present && telecomPresence.ownerUid(token) == null) {
@@ -780,6 +787,10 @@ public final class CallIntelligenceService extends Service {
         }
         if (removedRecipient != null) {
             token.unlinkToDeath(removedRecipient, 0);
+        }
+        if (releasedOrphanedWork) {
+            finishOrphanedCallCleanup(
+                    List.of(callId), "telecom_presence_released");
         }
     }
 
@@ -795,36 +806,48 @@ public final class CallIntelligenceService extends Service {
             if (dead.ownerUid != null && !dead.orphanedCallIds.isEmpty()) {
                 synchronized (sessions) {
                     for (String callId : dead.orphanedCallIds) {
-                        emergencyProtectedCalls.remove(callId, dead.ownerUid);
-                        PendingIncomingCall pending = pendingIncomingCalls.get(callId);
-                        if (pending != null && pending.ownerUid == dead.ownerUid) {
-                            pendingIncomingCalls.remove(callId);
-                        }
-                        contextEligibleCalls.remove(callId);
-                        pendingCommunicationContexts.remove(callId);
-                        ActiveSession active = sessions.get(callId);
-                        if (active != null && active.ownedBy(dead.ownerUid)) {
-                            sessions.remove(callId);
-                        } else {
-                            active = null;
-                        }
-                        if (active != null) active.close();
-                        classifier.endCall(callId);
-                        receptionist.endCall(callId);
-                        communicationContext.discardCall(callId);
+                        stopOrphanedWorkLocked(callId, dead.ownerUid);
                         orphanedCallIds.add(callId);
                     }
                 }
             }
             scheduleTelecomPresenceReconciliationLocked();
         }
-        finishOrphanedCallCleanup(orphanedCallIds);
+        finishOrphanedCallCleanup(orphanedCallIds, "dialer_process_died");
     }
 
-    private void finishOrphanedCallCleanup(List<String> orphanedCallIds) {
+    /** Called with {@link #sessions} held and before Telecom presence can be reclaimed. */
+    private boolean stopOrphanedWorkLocked(String callId, int ownerUid) {
+        Integer emergencyOwner = emergencyProtectedCalls.get(callId);
+        PendingIncomingCall pending = pendingIncomingCalls.get(callId);
+        ActiveSession active = sessions.get(callId);
+        if ((emergencyOwner != null && emergencyOwner != ownerUid)
+                || (pending != null && pending.ownerUid != ownerUid)
+                || (active != null && !active.ownedBy(ownerUid))) {
+            return false;
+        }
+        boolean hadWork = emergencyOwner != null
+                || pending != null
+                || contextEligibleCalls.contains(callId)
+                || pendingCommunicationContexts.containsKey(callId)
+                || active != null;
+        if (!hadWork) return false;
+        emergencyProtectedCalls.remove(callId, ownerUid);
+        pendingIncomingCalls.remove(callId);
+        contextEligibleCalls.remove(callId);
+        pendingCommunicationContexts.remove(callId);
+        sessions.remove(callId);
+        if (active != null) active.close();
+        classifier.endCall(callId);
+        receptionist.endCall(callId);
+        communicationContext.discardCall(callId);
+        return true;
+    }
+
+    private void finishOrphanedCallCleanup(List<String> orphanedCallIds, String detail) {
         if (orphanedCallIds.isEmpty()) return;
         for (String callId : orphanedCallIds) {
-            notifyStatus(callId, -10, "dialer_process_died");
+            notifyStatus(callId, -10, detail);
         }
         long now = System.currentTimeMillis();
         artifactStore.cleanup(now);
