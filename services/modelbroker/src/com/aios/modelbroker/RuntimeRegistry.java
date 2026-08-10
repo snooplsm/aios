@@ -3,7 +3,6 @@ package com.aios.modelbroker;
 import android.content.Context;
 import android.os.Build;
 import android.os.RemoteException;
-import android.os.SystemProperties;
 import android.util.Log;
 
 import com.aios.model.IModelCallback;
@@ -15,8 +14,6 @@ import org.json.JSONObject;
 
 import java.io.File;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -41,8 +38,7 @@ final class RuntimeRegistry implements AutoCloseable {
 
     static RuntimeRegistry load(Context context, File path) throws IOException {
         try {
-            JSONObject root = new JSONObject(Files.readString(
-                    path.toPath(), StandardCharsets.UTF_8));
+            JSONObject root = new JSONObject(PolicyFileReader.readUtf8(path));
             if (root.getInt("schema_version") != 1) {
                 throw new IOException("unsupported runtime catalog schema");
             }
@@ -50,7 +46,7 @@ final class RuntimeRegistry implements AutoCloseable {
             Map<String, Set<String>> allowed = selectBackends(
                     root.getJSONArray("device_profiles"),
                     Build.DEVICE,
-                    SystemProperties.getInt("ro.debuggable", 0) == 1);
+                    BrokerProductProperties.isDebuggableBuild());
             Map<String, RuntimeAdapter> adapters = new HashMap<>();
             JSONArray providers = root.getJSONArray("providers");
             for (int index = 0; index < providers.length(); index++) {

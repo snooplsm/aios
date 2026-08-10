@@ -11,8 +11,6 @@ import org.json.JSONObject;
 
 import java.io.File;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -68,8 +66,7 @@ final class AuthorizedClientPolicy {
 
     static AuthorizedClientPolicy load(Context context, File policy) throws IOException {
         try {
-            JSONObject root = new JSONObject(Files.readString(
-                    policy.toPath(), StandardCharsets.UTF_8));
+            JSONObject root = new JSONObject(PolicyFileReader.readUtf8(policy));
             if (root.getInt("schema_version") != 1) {
                 throw new IOException("unsupported authorized-client schema");
             }

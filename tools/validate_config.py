@@ -805,6 +805,8 @@ def validate_aosp_overlay(root: Path) -> None:
         "preview/callcontextcheck/src/main/AndroidManifest.xml",
         "preview/callservicecheck/build.gradle.kts",
         "preview/callservicecheck/src/main/java/com/aios/callintelligence/CallProductProperties.java",
+        "preview/modelservicecheck/build.gradle.kts",
+        "preview/modelservicecheck/src/main/java/com/aios/modelbroker/BrokerProductProperties.java",
         "preview/mediascancheck/build.gradle.kts",
         "preview/mediascancheck/src/main/AndroidManifest.xml",
         "services/contextintelligence/Android.bp",
@@ -839,7 +841,9 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/modelbroker/src/com/aios/modelbroker/AuthorizedClientPolicy.java",
         "services/modelbroker/src/com/aios/modelbroker/CatalogPolicy.java",
         "services/modelbroker/src/com/aios/modelbroker/DeviceModelAdmission.java",
+        "services/modelbroker/src/com/aios/modelbroker/BrokerProductProperties.java",
         "services/modelbroker/src/com/aios/modelbroker/BrokerState.java",
+        "services/modelbroker/src/com/aios/modelbroker/PolicyFileReader.java",
         "services/modelbroker/src/com/aios/modelbroker/RuntimeAdapter.java",
         "services/modelbroker/src/com/aios/modelbroker/RemoteRuntimeAdapter.java",
         "services/modelbroker/src/com/aios/modelbroker/RuntimeRegistry.java",
@@ -848,6 +852,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/modelbroker/src/com/aios/modelbroker/CallActivityLeaseTracker.java",
         "services/modelbroker/tests/src/com/aios/modelbroker/SessionArbiterTest.java",
         "services/modelbroker/tests/src/com/aios/modelbroker/CallActivityLeaseTrackerTest.java",
+        "services/modelbroker/tests/src/com/aios/modelbroker/PolicyFileReaderTest.java",
         "tools/generate_model_pack.py",
         "tools/generate_model_admission.py",
         "tools/generate_runtime_pack.py",
@@ -1679,6 +1684,38 @@ def validate_aosp_overlay(root: Path) -> None:
         root / "services" / "modelbroker" / "src" / "com" / "aios" /
         "modelbroker"
     )
+    broker_bp = (root / "services" / "modelbroker" / "Android.bp").read_text(
+        encoding="utf-8")
+    model_service_compile_build = (
+        root / "preview" / "modelservicecheck" / "build.gradle.kts"
+    ).read_text(encoding="utf-8")
+    broker_product_properties = (
+        broker_source_root / "BrokerProductProperties.java"
+    ).read_text(encoding="utf-8")
+    broker_compile_properties = (
+        root / "preview" / "modelservicecheck" / "src" / "main" / "java" /
+        "com" / "aios" / "modelbroker" / "BrokerProductProperties.java"
+    ).read_text(encoding="utf-8")
+    model_preview_settings = (root / "preview" / "settings.gradle.kts").read_text(
+        encoding="utf-8")
+    broker_host_test = broker_bp[broker_bp.index("java_test_host {"):]
+    require('name: "aios_modelbroker_host_tests"' in broker_host_test
+            and '"src/com/aios/modelbroker/PolicyFileReader.java"' in broker_host_test
+            and '"tests/src/**/*.java"' in broker_host_test,
+            "Soong Model Broker host tests must include the bounded policy reader")
+    require('include(":modelservicecheck")' in model_preview_settings
+            and 'include("com/aios/modelbroker/**/*.java")'
+            in model_service_compile_build
+            and 'exclude("com/aios/modelbroker/BrokerProductProperties.java")'
+            in model_service_compile_build
+            and '../../services/modelbroker/aidl' in model_service_compile_build
+            and '../../services/runtimeapi/aidl' in model_service_compile_build
+            and 'android.os.SystemProperties' in broker_product_properties
+            and '"ro.debuggable"' in broker_product_properties
+            and "return false;" in broker_compile_properties
+            and "SystemProperties" not in broker_compile_properties
+            and "abortOnError" not in model_service_compile_build,
+            "the complete Model Broker compile lane must fail closed for research admission")
     verifier_source = (broker_source_root / "ArtifactVerifier.java").read_text(
         encoding="utf-8"
     )
@@ -1705,7 +1742,8 @@ def validate_aosp_overlay(root: Path) -> None:
     )
     require("DeviceModelAdmission.load" in broker_state
             and "Build.DEVICE" in broker_state
-            and 'SystemProperties.getInt("ro.debuggable", 0) == 1' in broker_state
+            and "BrokerProductProperties.isDebuggableBuild()" in broker_state
+            and "SystemProperties" not in broker_state
             and '"model_admission.json"' in broker_state
             and '"deny".equals(root.getString("default_action"))' in admission_source
             and "artifactSha256.equals(artifact.sha256)" in admission_source
@@ -1714,9 +1752,31 @@ def validate_aosp_overlay(root: Path) -> None:
     runtime_registry = (broker_source_root / "RuntimeRegistry.java").read_text(
         encoding="utf-8"
     )
-    require('SystemProperties.getInt("ro.debuggable", 0) == 1' in runtime_registry
+    require("BrokerProductProperties.isDebuggableBuild()" in runtime_registry
+            and "SystemProperties" not in runtime_registry
             and "adapter.supportsBackend(artifact.backend)" in runtime_registry,
             "runtime activation must honor device/debug and backend policy")
+    policy_reader = (broker_source_root / "PolicyFileReader.java").read_text(
+        encoding="utf-8")
+    policy_reader_test = (
+        root / "services" / "modelbroker" / "tests" / "src" / "com" / "aios" /
+        "modelbroker" / "PolicyFileReaderTest.java"
+    ).read_text(encoding="utf-8")
+    authorized_policy = (broker_source_root / "AuthorizedClientPolicy.java").read_text(
+        encoding="utf-8")
+    catalog_policy = (broker_source_root / "CatalogPolicy.java").read_text(
+        encoding="utf-8")
+    require("MAX_POLICY_BYTES = 2 * 1024 * 1024" in policy_reader
+            and "policy file was truncated" in policy_reader
+            and "policy file grew while reading" in policy_reader
+            and "PolicyFileReader.readUtf8" in authorized_policy
+            and "PolicyFileReader.readUtf8" in catalog_policy
+            and "PolicyFileReader.readUtf8" in runtime_registry
+            and "Files.readString" not in authorized_policy
+            and "Files.readString" not in catalog_policy
+            and "Files.readString" not in runtime_registry
+            and "rejectsMissingEmptyAndOversizedPolicies" in policy_reader_test,
+            "broker policy reads must be Android-compatible, bounded, race-aware, and host-tested")
     remote_runtime = (broker_source_root / "RemoteRuntimeAdapter.java").read_text(
         encoding="utf-8"
     )

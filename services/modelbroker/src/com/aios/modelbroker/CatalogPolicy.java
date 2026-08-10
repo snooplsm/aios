@@ -6,8 +6,6 @@ import org.json.JSONObject;
 
 import java.io.File;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -64,8 +62,7 @@ final class CatalogPolicy {
 
     static CatalogPolicy load(File path) throws IOException {
         try {
-            JSONObject root = new JSONObject(Files.readString(
-                    path.toPath(), StandardCharsets.UTF_8));
+            JSONObject root = new JSONObject(PolicyFileReader.readUtf8(path));
             if (root.getInt("schema_version") != 1) {
                 throw new IOException("unsupported model catalog schema");
             }

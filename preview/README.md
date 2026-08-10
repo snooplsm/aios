@@ -30,6 +30,13 @@ always returns `false`; the AOSP app continues to compile the production adapter
 against `android.os.SystemProperties`. The compile-check APK must not be shipped
 or used as evidence that privileged capture works on a Pixel.
 
+`modelservicecheck` stages every Model Broker Java source plus the model and
+runtime-provider AIDL contracts. It compiles, tests, assembles, and lints the
+complete shared inference boundary. Its local `BrokerProductProperties` adapter
+always reports a non-debuggable build, so research-only admission cannot be
+enabled by the compile-check APK. Production continues to read the immutable
+`ro.debuggable` property through the platform adapter.
+
 `mediascancheck` stages the production MediaStore generation scanner, durable
 queue/store, deletion-liveness scanner, embedded-video schema, verified MP4
 muxer, owner-confirmed foreground export surface, and version-8 crash journal.
@@ -56,6 +63,7 @@ Open this directory in Android Studio, or run:
 gradle :app:assembleDebug :prodcheck:testDebugUnitTest :prodcheck:lintDebug \
   :callcontextcheck:testDebugUnitTest :callcontextcheck:lintDebug \
   :callservicecheck:testDebugUnitTest :callservicecheck:lintDebug \
+  :modelservicecheck:testDebugUnitTest :modelservicecheck:lintDebug \
   :mediascancheck:testDebugUnitTest :mediascancheck:lintDebug
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 adb shell am start -n com.aios.phone.preview/.PreviewActivity

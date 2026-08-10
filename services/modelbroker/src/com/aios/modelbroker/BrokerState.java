@@ -3,7 +3,6 @@ package com.aios.modelbroker;
 import android.app.ActivityManager;
 import android.content.Context;
 import android.os.Build;
-import android.os.SystemProperties;
 import android.os.SystemClock;
 import android.util.Log;
 
@@ -63,7 +62,7 @@ final class BrokerState {
                     tierCandidates,
                     Build.DEVICE,
                     totalRamMb,
-                    SystemProperties.getInt("ro.debuggable", 0) == 1);
+                    BrokerProductProperties.isDebuggableBuild());
             selected = deviceSelection.artifacts;
             Log.i(TAG, "selected " + selected.size() + " verified model artifact(s)"
                     + " for profile=" + deviceSelection.profileId

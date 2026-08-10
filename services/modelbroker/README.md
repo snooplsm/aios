@@ -16,6 +16,16 @@ contract that callers may pin indefinitely.
 Current startup code verifies the locally generated artifact manifest, confines
 canonical paths to `/product/etc/aios/models`, recomputes exact size/SHA-256,
 cross-checks runtime/capabilities/languages against the catalog, selects the
-measured-RAM tier, and applies package/capability/workload quotas. Runtime adapters
-remain unregistered until their exact native dependencies can be compiled and
-smoke-tested in AOSP, so verified weights alone never make a capability active.
+measured-RAM tier, applies device admission evidence, and enforces
+package/capability/workload quotas. Runtime providers are discovered only from
+the exact system-package/version/backend allowlist; verified weights alone never
+make a capability active.
+
+All broker policy JSON is read through one Android-compatible 2 MiB bounded
+reader. Missing, empty, oversized, truncated, or concurrently growing files fail
+closed before parsing. `preview:modelservicecheck` stages the entire broker and
+both AIDL surfaces into a public-SDK build, with only `ro.debuggable` access
+replaced by a compile-only adapter that always returns false. The production
+Soong app retains the platform adapter. This lane catches Android API drift but
+does not replace the locked Soong build, provider smoke tests, or Pixel model
+admission benchmarks.
