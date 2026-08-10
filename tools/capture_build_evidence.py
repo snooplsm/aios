@@ -72,14 +72,70 @@ def select_lane(root: Path, lane_id: str) -> tuple[dict, list[str]]:
     return matches[0], document["expected_product_artifacts"]
 
 
-def artifact_record(path: Path, relative: str) -> dict:
+def artifact_record(product_out: Path, relative: str) -> dict:
+    relative_path = Path(relative)
+    if (relative_path.is_absolute() or not relative_path.parts
+            or ".." in relative_path.parts):
+        raise BuildEvidenceError(f"invalid installed artifact path: {relative}")
+    path = (product_out / relative_path).resolve()
+    product_out = product_out.resolve()
+    if path != product_out and product_out not in path.parents:
+        raise BuildEvidenceError(f"installed artifact escapes product output: {relative}")
     if not path.is_file():
         raise BuildEvidenceError(f"missing installed product artifact: {relative}")
+    if path.stat().st_size <= 0:
+        raise BuildEvidenceError(f"empty installed product artifact: {relative}")
     return {
         "path": relative.replace("\\", "/"),
         "size_bytes": path.stat().st_size,
         "sha256": sha256(path),
     }
+
+
+def installed_product_records(product_out: Path) -> tuple[Path, dict[str, dict]]:
+    manifest = product_out / "installed-files-product.json"
+    if not manifest.is_file():
+        raise BuildEvidenceError("missing installed-files-product.json")
+    document = load(manifest)
+    if not isinstance(document, list) or not document:
+        raise BuildEvidenceError("installed product-file manifest must be a non-empty array")
+    records: dict[str, dict] = {}
+    for record in document:
+        if not isinstance(record, dict):
+            raise BuildEvidenceError("installed product-file manifest has a malformed row")
+        name = record.get("Name")
+        size = record.get("Size")
+        digest = record.get("SHA256")
+        if (not isinstance(name, str) or not name
+                or not isinstance(size, int) or size < 0
+                or not isinstance(digest, str)):
+            raise BuildEvidenceError("installed product-file manifest has a malformed row")
+        normalized = name.replace("\\", "/").lstrip("/")
+        if not normalized or ".." in Path(normalized).parts or normalized in records:
+            raise BuildEvidenceError(
+                f"installed product-file manifest has an invalid path: {name}")
+        records[normalized] = record
+    return manifest, records
+
+
+def require_manifest_membership(
+    records: dict[str, dict], relative: str, artifact: dict
+) -> None:
+    prefix = "product/"
+    if not relative.startswith(prefix):
+        raise BuildEvidenceError(
+            f"expected installed artifact is outside product partition: {relative}")
+    installed_name = relative[len(prefix):]
+    record = records.get(installed_name)
+    if record is None:
+        raise BuildEvidenceError(
+            f"artifact is absent from installed-files-product.json: {relative}")
+    if record["Size"] != artifact["size_bytes"]:
+        raise BuildEvidenceError(
+            f"installed-file size does not match staged artifact: {relative}")
+    if record["SHA256"] != artifact["sha256"]:
+        raise BuildEvidenceError(
+            f"installed-file digest does not match staged artifact: {relative}")
 
 
 def find_system_build_prop(product_out: Path) -> Path:
@@ -157,12 +213,15 @@ def capture(
     if not fingerprint:
         raise BuildEvidenceError("built product does not expose a build fingerprint")
 
+    installed_manifest, installed_records = installed_product_records(product_out)
     artifacts = [
-        artifact_record(product_out / relative, relative)
+        artifact_record(product_out, relative)
         for relative in expected_artifacts
     ]
+    for relative, artifact in zip(expected_artifacts, artifacts, strict=True):
+        require_manifest_membership(installed_records, relative, artifact)
     for image in ("product.img", "system.img"):
-        artifacts.append(artifact_record(product_out / image, image))
+        artifacts.append(artifact_record(product_out, image))
 
     value = {
         "schema_version": 1,
@@ -178,6 +237,7 @@ def capture(
         "manifest_sha256": actual_manifest_digest,
         "manifest_lock_sha256": sha256(manifest_lock),
         "build_log_sha256": sha256(build_log),
+        "installed_files_product_sha256": sha256(installed_manifest),
         "patch_series_sha256": sha256(root / "patches" / "series.json"),
         "captured_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
         "host": {

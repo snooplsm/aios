@@ -37,6 +37,8 @@
     }
   ],
   "expected_product_artifacts": [
+    "product/priv-app/AiosContextIntelligence/AiosContextIntelligence.apk",
+    "product/priv-app/AiosMessaging/AiosMessaging.apk",
     "product/priv-app/AiosPhone/AiosPhone.apk",
     "product/priv-app/AiosCallIntelligence/AiosCallIntelligence.apk",
     "product/priv-app/AiosMediaIntelligence/AiosMediaIntelligence.apk",

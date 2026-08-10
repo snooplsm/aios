@@ -33,8 +33,11 @@ replay and test run rather than a merge of a permanently modified AOSP tree.
 `scripts/build-aosp-lane.sh` enforces that flow: it locks the resolved manifest,
 applies only digest-verified patches at their exact bases, records the Soong log
 and installed artifact digests, and reverses the staged patch transaction on
-exit. A rebase conflict therefore stops before a build instead of becoming an
-unreviewed merge.
+exit. Evidence capture requires every core AIOS application to be non-empty and
+to match its size and SHA-256 entry in the current build's
+`installed-files-product.json`; a stale APK left in `out/` cannot satisfy a new
+build. The evidence also records the installed-file manifest digest. A rebase
+conflict therefore stops before a build instead of becoming an unreviewed merge.
 
 The release matrix keeps `integration.android_latest_*` gates separate from the
 Pixel `build.*` and runtime gates. A green Cuttlefish build demonstrates that the

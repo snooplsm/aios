@@ -62,6 +62,8 @@ has two explicit lanes: continuously compile the overlay on Android latest using
 after pinning one compatible platform/device/vendor/kernel/firmware set. An
 exact-base Android 17 Dialer lifecycle patch exists, but it and the generated,
 dependency-locked runtime provider must be built and tested on the Linux lane.
+Build evidence now rejects stale or empty outputs by matching every core AIOS APK
+to the size and digest in AOSP's current `installed-files-product.json`.
 See `docs/model-packaging.md` and
 `docs/runtime-packaging.md`; the dedicated call path is in
 `docs/asr-runtime.md`, speech output is in `docs/tts-runtime.md`, and the

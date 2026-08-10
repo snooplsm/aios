@@ -77,6 +77,17 @@ class BuildEvidenceTests(unittest.TestCase):
             target = product_out / relative
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(f"fixture:{relative}".encode())
+        installed = []
+        for relative in lanes["expected_product_artifacts"]:
+            target = product_out / relative
+            installed.append({
+                "Name": "/" + relative.removeprefix("product/"),
+                "Size": target.stat().st_size,
+                "SHA256": hashlib.sha256(target.read_bytes()).hexdigest(),
+            })
+        (product_out / "installed-files-product.json").write_text(
+            json.dumps(installed), encoding="utf-8"
+        )
         (product_out / "product.img").write_bytes(b"product-image")
         (product_out / "system.img").write_bytes(b"system-image")
         log = base / "soong-build.log"
@@ -92,8 +103,15 @@ class BuildEvidenceTests(unittest.TestCase):
             )
             self.assertEqual("passed", value["status"])
             self.assertEqual("aios/test/fingerprint", value["build_fingerprint"])
-            self.assertEqual(12, len(value["artifacts"]))
+            self.assertEqual(14, len(value["artifacts"]))
             self.assertFalse(value["proves_physical_runtime_gate"])
+            self.assertEqual(
+                hashlib.sha256(
+                    (out / "target" / "product" / "vsoc_x86_64" /
+                     "installed-files-product.json").read_bytes()
+                ).hexdigest(),
+                value["installed_files_product_sha256"],
+            )
             self.assertTrue(output.is_file())
 
     def test_rejects_manifest_changed_after_lock(self):
@@ -111,6 +129,69 @@ class BuildEvidenceTests(unittest.TestCase):
             (product_out / "product" / "priv-app" / "AiosPhone" /
              "AiosPhone.apk").unlink()
             with self.assertRaisesRegex(evidence.BuildEvidenceError, "AiosPhone"):
+                evidence.capture(
+                    aios, "android_latest_integration", manifest, lock, out, log
+                )
+
+    def test_rejects_missing_new_communication_apps(self):
+        for module in ("AiosMessaging", "AiosContextIntelligence"):
+            with self.subTest(module=module), tempfile.TemporaryDirectory() as raw:
+                aios, manifest, lock, out, log, product_out = self.create_fixture(raw)
+                (product_out / "product" / "priv-app" / module /
+                 f"{module}.apk").unlink()
+                with self.assertRaisesRegex(evidence.BuildEvidenceError, module):
+                    evidence.capture(
+                        aios, "android_latest_integration", manifest, lock, out, log
+                    )
+
+    def test_rejects_empty_installed_artifact(self):
+        with tempfile.TemporaryDirectory() as raw:
+            aios, manifest, lock, out, log, product_out = self.create_fixture(raw)
+            target = (product_out / "product" / "priv-app" / "AiosMessaging" /
+                      "AiosMessaging.apk")
+            target.write_bytes(b"")
+            with self.assertRaisesRegex(
+                    evidence.BuildEvidenceError, "empty.*AiosMessaging"):
+                evidence.capture(
+                    aios, "android_latest_integration", manifest, lock, out, log
+                )
+
+    def test_rejects_artifact_missing_from_current_product_manifest(self):
+        with tempfile.TemporaryDirectory() as raw:
+            aios, manifest, lock, out, log, product_out = self.create_fixture(raw)
+            installed_path = product_out / "installed-files-product.json"
+            installed = json.loads(installed_path.read_text(encoding="utf-8"))
+            installed = [
+                item for item in installed
+                if "AiosMessaging.apk" not in item["Name"]
+            ]
+            installed_path.write_text(json.dumps(installed), encoding="utf-8")
+            with self.assertRaisesRegex(
+                    evidence.BuildEvidenceError, "absent.*AiosMessaging"):
+                evidence.capture(
+                    aios, "android_latest_integration", manifest, lock, out, log
+                )
+
+    def test_rejects_missing_installed_product_manifest(self):
+        with tempfile.TemporaryDirectory() as raw:
+            aios, manifest, lock, out, log, product_out = self.create_fixture(raw)
+            (product_out / "installed-files-product.json").unlink()
+            with self.assertRaisesRegex(
+                    evidence.BuildEvidenceError, "missing installed-files-product"):
+                evidence.capture(
+                    aios, "android_latest_integration", manifest, lock, out, log
+                )
+
+    def test_rejects_installed_manifest_digest_mismatch(self):
+        with tempfile.TemporaryDirectory() as raw:
+            aios, manifest, lock, out, log, product_out = self.create_fixture(raw)
+            installed_path = product_out / "installed-files-product.json"
+            installed = json.loads(installed_path.read_text(encoding="utf-8"))
+            next(item for item in installed
+                 if "AiosContextIntelligence.apk" in item["Name"])["SHA256"] = "0" * 64
+            installed_path.write_text(json.dumps(installed), encoding="utf-8")
+            with self.assertRaisesRegex(
+                    evidence.BuildEvidenceError, "digest.*AiosContextIntelligence"):
                 evidence.capture(
                     aios, "android_latest_integration", manifest, lock, out, log
                 )

@@ -906,6 +906,13 @@ def validate_aosp_overlay(root: Path) -> None:
             and "capture_build_evidence.py" in build_script
             and 'build_status="${PIPESTATUS[0]}"' in build_script,
             "lane builds must be locked, patch-transactional, logged, and evidence-bound")
+    build_evidence_source = (root / "tools" /
+                             "capture_build_evidence.py").read_text(encoding="utf-8")
+    require("installed-files-product.json" in build_evidence_source
+            and "require_manifest_membership" in build_evidence_source
+            and "installed_files_product_sha256" in build_evidence_source
+            and "empty installed product artifact" in build_evidence_source,
+            "build evidence must bind non-empty core artifacts to the current product image list")
 
     common_product = (root / "products" / "aios_common.mk").read_text(
         encoding="utf-8"
@@ -2350,6 +2357,21 @@ def validate_release_configuration(root: Path) -> None:
             "unsupported AOSP lane schema")
     lanes = lanes_document.get("lanes")
     require(isinstance(lanes, list), "AOSP lanes must be an array")
+    expected_artifacts = lanes_document.get("expected_product_artifacts")
+    require(isinstance(expected_artifacts, list)
+            and all(isinstance(item, str) and item.startswith("product/")
+                    and ".." not in Path(item).parts for item in expected_artifacts)
+            and len(expected_artifacts) == len(set(expected_artifacts)),
+            "expected product artifacts must be unique product-relative paths")
+    required_aios_apks = {
+        f"product/priv-app/{module}/{module}.apk"
+        for module in (
+            "AiosContextIntelligence", "AiosMessaging", "AiosPhone",
+            "AiosCallIntelligence", "AiosMediaIntelligence", "AiosModelBroker",
+        )
+    }
+    require(required_aios_apks <= set(expected_artifacts),
+            "build evidence must require every core installed AIOS application")
     lane_ids = [lane.get("id") for lane in lanes]
     require(lane_ids == ["android_latest_integration", "pixel9a_tegu_hardware"],
             "AIOS must declare exactly the latest-integration and Pixel 9a lanes")

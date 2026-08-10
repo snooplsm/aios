@@ -68,8 +68,9 @@ with the release manifest.
 
 Build the latest-integration lane first. The wrapper captures the immutable
 manifest, validates the lane, transactionally stages the exact patch queue,
-runs the full product build, digests installed AIOS artifacts and images, and
-then restores the upstream projects:
+runs the full product build, verifies each required AIOS APK against AOSP's
+current `installed-files-product.json`, digests that manifest plus the installed
+artifacts and images, and then restores the upstream projects:
 
 ```text
 vendor/aios/scripts/build-aosp-lane.sh \
@@ -80,7 +81,10 @@ vendor/aios/scripts/build-aosp-lane.sh \
 ```
 
 Start with a low parallelism chosen for available RAM. Preserve the complete
-Soong log and build fingerprint. The first compile is expected to reveal any
+Soong log, installed-file manifest, and build fingerprint. Evidence capture
+fails if Context Intelligence, Messaging, Phone, Call Intelligence, Media
+Intelligence, or Model Broker is missing, empty, or differs from the product
+image's installed-file record. The first compile is expected to reveal any
 Android 17 API/module drift in this scaffold; fix it in `vendor/aios`, not by
 making unrecorded edits throughout AOSP.
 
