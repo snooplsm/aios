@@ -1557,8 +1557,11 @@ def validate_aosp_overlay(root: Path) -> None:
             and "TYPE_EARPIECE" in phone_runtime,
             "AIOS Phone must limit the proximity lock to active earpiece calls")
     require("onPostDialWait" in phone_registry
+            and "CallSelectionPolicy.forOwnerPrompt" in phone_registry
+            and "forOwnerPrompt" in call_selection_policy
+            and "postDialPromptSelectsTheCallThatNeedsOwnerInput" in call_selection_test
             and "postDialContinue" in phone_runtime,
-            "AIOS Phone must model post-dial waits without exposing queued digits")
+            "AIOS Phone must select post-dial prompts without exposing queued digits")
     require("PhoneAccountSuggestion" in phone_runtime
             and "phoneAccountSelected" in phone_runtime,
             "AIOS Phone must support explicit multi-SIM selection")
@@ -1647,6 +1650,8 @@ def validate_aosp_overlay(root: Path) -> None:
             and "Build.HARDWARE" in smoke_activity
             and "ACTION_INCOMING" in smoke_activity
             and "ACTION_ACTIVATE" in smoke_activity
+            and "ACTION_POST_DIAL_WAIT" in smoke_activity
+            and "POST_DIAL_SEQUENCE" in smoke_activity
             and "override fun onNewIntent" in smoke_activity
             and "ACTION_RESET_AUDIT" in smoke_activity
             and "ACTION_EXPORT_AUDIT" in smoke_activity
@@ -1658,6 +1663,8 @@ def validate_aosp_overlay(root: Path) -> None:
             and "activateAll()" in smoke_connection
             and "onPlayDtmfTone" in smoke_connection
             and "onStopDtmfTone" in smoke_connection
+            and "onPostDialContinue" in smoke_connection
+            and "setPostDialWait" in smoke_connection
             and "override fun onConference" in smoke_connection
             and "class EmulatorConference" in smoke_connection
             and "CAPABILITY_SEPARATE_FROM_CONFERENCE" in smoke_connection
@@ -1696,6 +1703,10 @@ def validate_aosp_overlay(root: Path) -> None:
             and 'Invoke-UiControl "Hold"' in smoke_script
             and 'Invoke-UiControl "Resume"' in smoke_script
             and 'Invoke-UiControl "Keypad"' in smoke_script
+            and 'com.aios.phone.smoke.POST_DIAL_WAIT' in smoke_script
+            and 'Invoke-UiControl "Continue"' in smoke_script
+            and 'Invoke-UiControl "Cancel"' in smoke_script
+            and "$postDialUi -match '739164'" in smoke_script
             and 'Invoke-UiControl "Merge calls"' in smoke_script
             and 'Invoke-UiControl "Separate call"' in smoke_script
             and 'Invoke-UiControl "End call"' in smoke_script
@@ -1704,6 +1715,10 @@ def validate_aosp_overlay(root: Path) -> None:
             and "mute_unmute_round_trip" in smoke_script
             and "hold_resume_round_trip" in smoke_script
             and "dtmf_play_stop_callbacks" in smoke_script
+            and "post_dial_digits_redacted" in smoke_script
+            and "post_dial_continue_callback" in smoke_script
+            and "post_dial_cancel_callback" in smoke_script
+            and "private_post_dial_audit_removed" in smoke_script
             and "waiting_call_selected" in smoke_script
             and "waiting_answer_held_existing_call" in smoke_script
             and "conference_merge_separate_callbacks" in smoke_script

@@ -22,4 +22,7 @@ internal object CallSelectionPolicy {
     } else {
         currentSelection
     }
+
+    fun forOwnerPrompt(currentSelection: String?, promptCallId: String?): String? =
+        promptCallId ?: currentSelection
 }

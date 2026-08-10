@@ -102,6 +102,12 @@ it is absent before activating **End call**. The exact original outgoing account
 is restored in cleanup, including the no-account case. These checks prove
 Telecom wiring, not carrier-side DTMF reception or physical call audio.
 
+The fixture also emits a post-dial wait containing a unique remaining sequence.
+The production surface must show generic **Continue** and **Cancel** controls
+without exposing that sequence, and both choices must reach
+`onPostDialContinue`. The callback audit is deleted before success; carrier/PBX
+post-dial delivery remains a physical gate.
+
 The same outgoing connection is retained while a second fixture call rings. A
 pass requires Compose to select the waiting call, answering it to hold the first
 connection, **Merge calls** to reach the managed `onConference` callback, and

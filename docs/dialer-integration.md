@@ -243,6 +243,15 @@ and is deleted and checked absent before the run can pass. Finally, the labeled
 This proves app/Telecom wiring only; radio, IMS, carrier routing, remote DTMF
 recognition, call audio, and emergency behavior remain physical device gates.
 
+For post-dial waits, the fixture passes a unique remaining sequence through
+`Connection.setPostDialWait`. AIOS stores only the fact that owner input is
+required, selects that call, and renders generic **Continue** and **Cancel**
+choices; the remaining digits are neither copied into `PhoneUiState` nor exposed
+in the UI hierarchy. The runner requires those buttons to reach
+`Call.postDialContinue(true)` and `Call.postDialContinue(false)` respectively,
+observed as fixture `onPostDialContinue` callbacks, then deletes the private
+audit. Actual PBX/carrier post-dial delivery remains a physical gate.
+
 The run then injects another incoming call while the outgoing call is active.
 The registry must select the ringing call immediately—even if Telecom first adds
 it in another state and reports `RINGING` later—while non-ringing background

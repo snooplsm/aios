@@ -53,4 +53,15 @@ class CallSelectionPolicyTest {
             ),
         )
     }
+
+    @Test
+    fun postDialPromptSelectsTheCallThatNeedsOwnerInput() {
+        assertEquals(
+            "waiting-for-digits",
+            CallSelectionPolicy.forOwnerPrompt(
+                currentSelection = "other-call",
+                promptCallId = "waiting-for-digits",
+            ),
+        )
+    }
 }

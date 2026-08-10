@@ -103,6 +103,10 @@ class EmulatorConnectionService : ConnectionService() {
             fixtureEvents += "stop"
         }
 
+        override fun onPostDialContinue(proceed: Boolean) {
+            fixtureEvents += "post-dial:$proceed"
+        }
+
         fun end(code: Int) {
             setDisconnected(DisconnectCause(code))
             destroy()
@@ -122,6 +126,8 @@ class EmulatorConnectionService : ConnectionService() {
                 connectionCapabilities and CAPABILITY_SEPARATE_FROM_CONFERENCE.inv()
             }
         }
+
+        fun requestPostDialWait() = setPostDialWait(EmulatorCallActivity.POST_DIAL_SEQUENCE)
     }
 
     private class EmulatorConference(
@@ -183,6 +189,10 @@ class EmulatorConnectionService : ConnectionService() {
         }
 
         fun activateAll() = fixtureConnections.toList().forEach(EmulatorConnection::activate)
+
+        fun requestPostDialWait() = fixtureConnections
+            .firstOrNull { it.state == Connection.STATE_ACTIVE }
+            ?.requestPostDialWait()
 
         fun resetAudit() = fixtureEvents.clear()
 

@@ -410,6 +410,53 @@ try {
 
     Invoke-UiControl "Hide keypad"
     Start-Sleep -Milliseconds 200
+    Invoke-Adb shell am start -a com.aios.phone.smoke.RESET_AUDIT `
+        -n $fixtureActivity | Out-Null
+    Invoke-Adb shell am start -a com.aios.phone.smoke.POST_DIAL_WAIT `
+        -n $fixtureActivity | Out-Null
+    Invoke-Adb shell cmd telecom wait-on-handlers | Out-Null
+    Start-Sleep -Milliseconds 300
+    $continuePostDial = Get-UiControl "Continue"
+    $cancelPostDial = Get-UiControl "Cancel"
+    Invoke-Adb shell uiautomator dump $remoteUiDump | Out-Null
+    $postDialUi = (Invoke-Adb shell cat $remoteUiDump) -join "`n"
+    if (-not $continuePostDial.enabled -or -not $cancelPostDial.enabled -or
+        $postDialUi -match '739164') {
+        throw "Post-dial wait controls were unavailable or exposed the remaining digits"
+    }
+    Invoke-UiControl "Continue"
+    Invoke-Adb shell cmd telecom wait-on-handlers | Out-Null
+    Start-Sleep -Milliseconds 300
+
+    Invoke-Adb shell am start -a com.aios.phone.smoke.POST_DIAL_WAIT `
+        -n $fixtureActivity | Out-Null
+    Invoke-Adb shell cmd telecom wait-on-handlers | Out-Null
+    Start-Sleep -Milliseconds 300
+    Invoke-UiControl "Cancel"
+    Invoke-Adb shell cmd telecom wait-on-handlers | Out-Null
+    Start-Sleep -Milliseconds 300
+    Invoke-Adb shell am start -a com.aios.phone.smoke.EXPORT_AUDIT `
+        -n $fixtureActivity | Out-Null
+    Start-Sleep -Milliseconds 200
+    $postDialAudit = @(
+        Invoke-Adb shell run-as $package cat $privateAuditFile |
+            Where-Object { $_ }
+    ) -join "`n"
+    if ($postDialAudit -ne "post-dial:true`npost-dial:false") {
+        $observedPostDial = $postDialAudit.Replace("`r", "\\r").Replace("`n", "\\n")
+        throw "Post-dial Continue/Cancel did not reach Telecom callbacks; observed '$observedPostDial'"
+    }
+    Invoke-Adb shell run-as $package rm -f $privateAuditFile | Out-Null
+    $remainingAudit = @(
+        Invoke-Adb shell run-as $package find cache -maxdepth 1 `
+            -name "aios-telecom-smoke-audit.txt" |
+            Where-Object { $_ }
+    )
+    if ($remainingAudit.Count -ne 0) {
+        throw "The private post-dial smoke audit survived verification"
+    }
+    $privateAuditRemoved = $true
+
     Invoke-Adb shell am start -a com.aios.phone.smoke.INCOMING -n $fixtureActivity `
         --es number 15551230185 | Out-Null
     Invoke-Adb shell cmd telecom wait-on-handlers | Out-Null
@@ -511,10 +558,14 @@ try {
         mute_unmute_round_trip = $true
         hold_resume_round_trip = $true
         dtmf_play_stop_callbacks = $true
+        post_dial_digits_redacted = $true
+        post_dial_continue_callback = $true
+        post_dial_cancel_callback = $true
         waiting_call_selected = $true
         waiting_answer_held_existing_call = $true
         conference_merge_separate_callbacks = $true
         private_dtmf_audit_removed = $privateAuditRemoved
+        private_post_dial_audit_removed = $privateAuditRemoved
         private_conference_audit_removed = $privateAuditRemoved
         outgoing_end_call_disconnected = $true
         screenshot = [IO.Path]::GetFullPath($screenshot)

@@ -51,6 +51,7 @@ class EmulatorCallActivity : Activity() {
                 )
             }
             ACTION_ACTIVATE -> EmulatorConnectionService.activateAll()
+            ACTION_POST_DIAL_WAIT -> EmulatorConnectionService.requestPostDialWait()
             ACTION_RESET_AUDIT -> {
                 EmulatorConnectionService.resetAudit()
                 auditFile().delete()
@@ -94,6 +95,7 @@ class EmulatorCallActivity : Activity() {
         const val ACTION_REGISTER = "com.aios.phone.smoke.REGISTER"
         const val ACTION_INCOMING = "com.aios.phone.smoke.INCOMING"
         const val ACTION_ACTIVATE = "com.aios.phone.smoke.ACTIVATE"
+        const val ACTION_POST_DIAL_WAIT = "com.aios.phone.smoke.POST_DIAL_WAIT"
         const val ACTION_RESET_AUDIT = "com.aios.phone.smoke.RESET_AUDIT"
         const val ACTION_EXPORT_AUDIT = "com.aios.phone.smoke.EXPORT_AUDIT"
         const val ACTION_DISCONNECT = "com.aios.phone.smoke.DISCONNECT"
@@ -103,5 +105,6 @@ class EmulatorCallActivity : Activity() {
         const val ACCOUNT_ID = "aios-emulator-smoke"
         const val DEFAULT_NUMBER = "15551230182"
         const val AUDIT_FILE_NAME = "aios-telecom-smoke-audit.txt"
+        const val POST_DIAL_SEQUENCE = "739164"
     }
 }

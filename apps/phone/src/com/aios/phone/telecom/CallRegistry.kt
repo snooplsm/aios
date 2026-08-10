@@ -64,6 +64,7 @@ class CallRegistry(
                 onChanged()
             override fun onPostDialWait(call: Call, remainingPostDialSequence: String) {
                 postDialWaits[call] = true
+                selectedCallId = CallSelectionPolicy.forOwnerPrompt(selectedCallId, id(call))
                 onChanged()
             }
             override fun onRttStatusChanged(
