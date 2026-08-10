@@ -135,8 +135,10 @@ def validate_product(policy: dict[str, Any]) -> None:
                 "reader_access": "signature_permission",
                 "reader_max_cues_per_page": 16,
                 "generic_player_subtitle_support_required": False,
+                "subtitle_rendering_enabled": False,
+                "subtitle_burn_in_allowed": False,
             },
-            "video export must be an explicit embedded-track MP4 copy")
+            "video export must be a non-rendering explicit embedded-track MP4 copy")
 
     broker = policy["broker"]
     require(broker["access"] == "signature_permission",
@@ -2955,9 +2957,9 @@ def validate_aosp_overlay(root: Path) -> None:
             "enhanced MP4 export must copy and verify encoded source samples")
     require("Create AI-enhanced copy?" in enhanced_activity
             and "The original stays unchanged" in enhanced_activity
-            and "players may ignore it" in enhanced_activity
+            and "No text is drawn onto the video" in enhanced_activity
             and "startForegroundService" in enhanced_activity,
-            "enhanced MP4 export must require an explicit, compatibility-aware owner action")
+            "enhanced MP4 export must require explicit owner action and no subtitle rendering")
     require("MediaContent.sha256" in enhanced_service
             and "MediaContent.generation" in enhanced_service
             and "IS_PENDING" in enhanced_service

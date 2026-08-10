@@ -25,9 +25,9 @@ public final class VideoEnhancedCopyActivity extends Activity {
                 .setTitle("Create AI-enhanced copy?")
                 .setMessage(
                         "AIOS will make a new MP4 in Movies/AIOS with its description "
-                                + "and timed subtitles embedded. The original stays unchanged. "
-                                + "The subtitles use an AIOS metadata track; some video "
-                                + "players may ignore it.")
+                                + "and timed transcript metadata embedded. "
+                                + "The original stays unchanged. "
+                                + "No text is drawn onto the video.")
                 .setNegativeButton("Cancel", (dialog, which) -> finish())
                 .setPositiveButton("Create copy", (dialog, which) -> {
                     try {

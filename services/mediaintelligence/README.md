@@ -77,13 +77,14 @@ pending row carries that UUID until publication, then atomically clears it with
 `IS_PENDING`. Service startup and boot recovery delete only an owned, marked,
 still-pending row, including the insert-before-URI-attachment window; an already
 published verified copy is preserved and its self-write suppression is repaired.
-AIOS understands the custom subtitle MIME, but ordinary players are not required
-to display it. AIOS UI surfaces bind to a separate signature-permission reader.
-That service accepts only canonical, published `MediaStore` MP4s owned by Media
-Intelligence, revalidates their generation, and parses only the two exact AIOS
-track MIME types. It returns bounded description/provenance fields and at most
-16 subtitle cues per Binder page; it never returns a raw descriptor, model
-artifact, source path, or arbitrary media bytes.
+AIOS treats the custom subtitle MIME as timed transcript metadata and does not
+render or burn it into video. Search and AI-context services bind to a separate
+signature-permission reader. That service accepts only canonical, published
+`MediaStore` MP4s owned by Media Intelligence, revalidates their generation, and
+parses only the two exact AIOS track MIME types. It returns bounded
+description/provenance fields and at most 16 transcript cues per Binder page; it
+never returns a raw descriptor, model artifact, source path, or arbitrary media
+bytes.
 
 `preview:mediascancheck` stages this entire production source tree, every pure
 unit test, both Media Intelligence AIDL surfaces, the production manifest, and

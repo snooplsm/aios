@@ -213,9 +213,9 @@ second extraction must reproduce every source sample fingerprint and every AIOS
 sample before `IS_PENDING` is cleared. Source generation/digest changes and all
 write or verification failures delete the derived row. The original is never
 opened writable, and self-write suppression keeps the derived item out of the
-inference queue. AIOS does not require a built-in renderer for its subtitle
-MIME. Authorized clients can use the bounded metadata reader, while standard
-third-party subtitle presentation is not promised by this container path.
+inference queue. AIOS does not render the timed transcript or burn text into the
+video. Authorized services use the bounded metadata reader for search and AI
+context; the custom track is not a subtitle-presentation contract.
 
 The derived-file transaction has its own durable journal because MediaStore and
 the private SQLite database cannot share one atomic transaction. A UUID/volume

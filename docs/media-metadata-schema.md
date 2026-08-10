@@ -98,13 +98,13 @@ retain their encoded bytes and timestamps. The output adds:
 - when speech exists, one `application/vnd.aios.subtitle+json` `mett` track with
   timestamped `cue` and `clear` events. Each sample is at most 64 KiB.
 
-AIOS-aware playback can render these timed events. This is intentionally not a claim of generic
-WebVTT/`tx3g` compatibility: Android's platform MP4 muxer can author application
-metadata tracks, but not a standard text-subtitle sample entry. Generic players
-may therefore play the unchanged encoded media while ignoring the subtitles.
+The timed events are transcript metadata, not a presentation feature. AIOS does
+not render them and never burns text into the video frames. This is intentionally
+not WebVTT/`tx3g`: Android's platform MP4 muxer can author application metadata
+tracks, but not a standard text-subtitle sample entry. Ordinary players play the
+unchanged encoded media while ignoring the custom track.
 
-No built-in subtitle renderer is required. Authorized AIOS-aware clients may
-use the exported
+Authorized AIOS services may read the timed transcript through the exported
 `com.aios.media.ENHANCED_VIDEO_METADATA_SERVICE`, protected by the signature
 permission `com.aios.permission.READ_ENHANCED_VIDEO_METADATA`. The API does not
 accept file paths or descriptors. It accepts only a query-free canonical

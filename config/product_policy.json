@@ -47,7 +47,9 @@
       "subtitle_track_mime": "application/vnd.aios.subtitle+json",
       "reader_access": "signature_permission",
       "reader_max_cues_per_page": 16,
-      "generic_player_subtitle_support_required": false
+      "generic_player_subtitle_support_required": false,
+      "subtitle_rendering_enabled": false,
+      "subtitle_burn_in_allowed": false
     },
     "writable_mime_types": ["image/jpeg", "image/png"],
     "index_only_mime_types": [
