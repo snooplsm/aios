@@ -104,7 +104,7 @@ final class MediaMetadataCommitter {
             throw error;
         }
 
-        store.markPortableWritten(job.id);
+        store.markPortableWritten(job.id, candidateDigest);
         deleteJournal(journal);
         return Outcome.WRITTEN;
     }
@@ -140,7 +140,7 @@ final class MediaMetadataCommitter {
                 && JpegXmpInjector.containsOneAiosPacket(current)) {
             long generation = stableGeneration(uri, current);
             store.finishOwnMutation(journal.uri, generation, suppressionExpiry());
-            store.markPortableWritten(journal.jobId);
+            store.markPortableWritten(journal.jobId, journal.candidateDigest);
             deleteJournal(journal);
             return;
         }

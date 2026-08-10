@@ -100,6 +100,7 @@ public final class MediaInferenceJobService extends JobService {
             portableJob = store.nextPortableMetadata(workClass);
             if (portableJob != null) {
                 new MediaMetadataCommitter(this).commit(portableJob, store);
+                MediaContextAssociationService.requestReconcile(this);
                 portableJob = null;
                 return;
             }
@@ -177,6 +178,7 @@ public final class MediaInferenceJobService extends JobService {
                     completedAtEpochMillis,
                     portableXmp,
                     timing);
+            MediaContextAssociationService.requestReconcile(this);
             Log.i(TAG, "indexed " + timing.mediaKind
                     + " observed_to_index_ms=" + timing.observedToIndexMillis
                     + " processing_ms=" + timing.processingMillis

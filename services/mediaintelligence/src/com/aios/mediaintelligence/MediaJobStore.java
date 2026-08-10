@@ -6,15 +6,21 @@ import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 import android.database.sqlite.SQLiteOpenHelper;
 
+import com.aios.context.ConversationIdentity;
+
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 import java.util.regex.Pattern;
 
 /** Durable queue and encrypted-at-rest index (credential-encrypted app data). */
 final class MediaJobStore extends SQLiteOpenHelper {
     private static final String DATABASE = "media_intelligence.db";
-    private static final int VERSION = 3;
+    private static final int VERSION = 5;
     private static final Pattern VOLUME_NAME = Pattern.compile("[A-Za-z0-9_-]{1,128}");
+    private static final Pattern DIGEST = Pattern.compile("[0-9a-f]{64}");
+    private static final int ASSOCIATION_ACTIVE = 0;
+    private static final int ASSOCIATION_DELETE_PENDING = 1;
     static final int STATUS_PENDING = 0;
     static final int STATUS_RUNNING = 1;
     static final int STATUS_INDEXED = 2;
@@ -63,6 +69,8 @@ final class MediaJobStore extends SQLiteOpenHelper {
                         + "expires_at_epoch_ms INTEGER NOT NULL)");
         createTimingTable(database);
         createScanStateTable(database);
+        createResultDigestTable(database);
+        createAssociationTables(database);
     }
 
     @Override
@@ -75,6 +83,21 @@ final class MediaJobStore extends SQLiteOpenHelper {
         }
         if (oldVersion < 3) {
             createScanStateTable(database);
+        }
+        if (oldVersion < 4) {
+            createResultDigestTable(database);
+            database.execSQL(
+                    "INSERT INTO result_digests(job_id,content_digest)"
+                            + " SELECT job_id,content_digest FROM results");
+            createAssociationTables(database);
+        }
+        if (oldVersion < 5) {
+            database.execSQL(
+                    "ALTER TABLE association_state ADD COLUMN instance_id TEXT NOT NULL"
+                            + " DEFAULT ''");
+            database.execSQL(
+                    "UPDATE association_state SET instance_id=lower(hex(randomblob(16)))"
+                            + " WHERE singleton=1");
         }
     }
 
@@ -103,6 +126,52 @@ final class MediaJobStore extends SQLiteOpenHelper {
                         + "media_store_version TEXT NOT NULL,"
                         + "generation INTEGER NOT NULL CHECK(generation>=0),"
                         + "media_id INTEGER NOT NULL CHECK(media_id>=0))");
+    }
+
+    private static void createResultDigestTable(SQLiteDatabase database) {
+        database.execSQL(
+                "CREATE TABLE result_digests ("
+                        + "job_id INTEGER NOT NULL,"
+                        + "content_digest TEXT NOT NULL,"
+                        + "PRIMARY KEY(job_id,content_digest),"
+                        + "FOREIGN KEY(job_id) REFERENCES jobs(_id) ON DELETE CASCADE)");
+        database.execSQL(
+                "CREATE INDEX result_digests_digest ON result_digests(content_digest)");
+    }
+
+    private static void createAssociationTables(SQLiteDatabase database) {
+        database.execSQL(
+                "CREATE TABLE context_associations ("
+                        + "token TEXT PRIMARY KEY,"
+                        + "source_id TEXT NOT NULL DEFAULT '',"
+                        + "content_digest TEXT NOT NULL DEFAULT '',"
+                        + "conversation_key TEXT NOT NULL DEFAULT '',"
+                        + "contact_key TEXT NOT NULL DEFAULT '',"
+                        + "related_keys TEXT NOT NULL DEFAULT '',"
+                        + "event_at_epoch_ms INTEGER NOT NULL DEFAULT 0,"
+                        + "created_at_epoch_ms INTEGER NOT NULL,"
+                        + "committed INTEGER NOT NULL DEFAULT 0,"
+                        + "lifecycle_state INTEGER NOT NULL DEFAULT 0,"
+                        + "published_revision INTEGER NOT NULL DEFAULT 0,"
+                        + "published_store_instance TEXT NOT NULL DEFAULT '',"
+                        + "resolved_job_id INTEGER,"
+                        + "resolved_media_uri TEXT NOT NULL DEFAULT '',"
+                        + "FOREIGN KEY(resolved_job_id) REFERENCES jobs(_id) ON DELETE SET NULL)");
+        database.execSQL(
+                "CREATE UNIQUE INDEX context_associations_source"
+                        + " ON context_associations(source_id) WHERE source_id<>''");
+        database.execSQL(
+                "CREATE INDEX context_associations_digest"
+                        + " ON context_associations(content_digest,lifecycle_state,committed)");
+        database.execSQL(
+                "CREATE TABLE association_state ("
+                        + "singleton INTEGER PRIMARY KEY CHECK(singleton=1),"
+                        + "revision INTEGER NOT NULL,"
+                        + "clear_pending INTEGER NOT NULL,"
+                        + "instance_id TEXT NOT NULL)");
+        database.execSQL(
+                "INSERT INTO association_state(singleton,revision,clear_pending,instance_id)"
+                        + " VALUES(1,0,0,lower(hex(randomblob(16))))");
     }
 
     void enqueue(CaptureCoalescer.ObservedMedia media, int workClass) {
@@ -194,33 +263,428 @@ final class MediaJobStore extends SQLiteOpenHelper {
         return sources;
     }
 
-    void deleteMediaUri(String uri) {
+    boolean deleteMediaUri(String uri) {
         if (uri == null || uri.isBlank()) {
             throw new IllegalArgumentException("invalid media URI");
         }
         SQLiteDatabase database = getWritableDatabase();
         database.beginTransaction();
         try {
+            int associations = markAssociationsDeletedForUri(database, uri, false);
             database.delete("jobs", "media_uri=?", new String[]{uri});
             database.delete("own_mutations", "media_uri=?", new String[]{uri});
+            database.setTransactionSuccessful();
+            return associations > 0;
+        } finally {
+            database.endTransaction();
+        }
+    }
+
+    boolean purgeVolume(String volumeName) {
+        validateVolumeName(volumeName);
+        String prefix = "content://media/" + volumeName + "/*";
+        SQLiteDatabase database = getWritableDatabase();
+        database.beginTransaction();
+        try {
+            int associations = markAssociationsDeletedForUri(database, prefix, true);
+            database.delete("jobs", "media_uri GLOB ?", new String[]{prefix});
+            database.delete("own_mutations", "media_uri GLOB ?", new String[]{prefix});
+            database.setTransactionSuccessful();
+            return associations > 0;
+        } finally {
+            database.endTransaction();
+        }
+    }
+
+    void stageMmsPhoto(
+            String token,
+            String contentDigest,
+            ConversationIdentity identity,
+            long eventAtEpochMillis,
+            long nowEpochMillis) {
+        MediaAssociationPolicy.validateToken(token);
+        if (contentDigest == null || !DIGEST.matcher(contentDigest).matches()
+                || identity == null || nowEpochMillis <= 0L) {
+            throw new IllegalArgumentException("invalid staged selected photo");
+        }
+        MediaAssociationPolicy.validateIdentity(
+                identity.conversationKey,
+                identity.contactKey,
+                identity.relatedConversationKeys);
+        if (eventAtEpochMillis <= 0L) {
+            throw new IllegalArgumentException("invalid selected-photo event time");
+        }
+        SQLiteDatabase database = getWritableDatabase();
+        database.beginTransaction();
+        try {
+            ContentValues values = new ContentValues();
+            values.put("content_digest", contentDigest);
+            values.put("conversation_key", identity.conversationKey);
+            values.put("contact_key", identity.contactKey);
+            values.put("related_keys", String.join("\n", identity.relatedConversationKeys));
+            int changed = database.update(
+                    "context_associations", values, "token=?", new String[]{token});
+            if (changed == 0) {
+                values.put("token", token);
+                values.put("event_at_epoch_ms", eventAtEpochMillis);
+                values.put("created_at_epoch_ms", nowEpochMillis);
+                if (database.insertOrThrow("context_associations", null, values) < 0L) {
+                    throw new IllegalStateException("cannot stage selected photo");
+                }
+            } else {
+                database.execSQL(
+                        "UPDATE context_associations SET event_at_epoch_ms="
+                                + "MAX(event_at_epoch_ms,?) WHERE token=?",
+                        new Object[]{eventAtEpochMillis, token});
+            }
             database.setTransactionSuccessful();
         } finally {
             database.endTransaction();
         }
     }
 
-    void purgeVolume(String volumeName) {
-        validateVolumeName(volumeName);
-        String prefix = "content://media/" + volumeName + "/*";
+    void completeMmsPhoto(
+            String token, String sourceId, long eventAtEpochMillis, long nowEpochMillis) {
+        MediaAssociationPolicy.validateToken(token);
+        MediaAssociationPolicy.validateSourceId(sourceId);
+        if (eventAtEpochMillis <= 0L || nowEpochMillis <= 0L) {
+            throw new IllegalArgumentException("invalid completed selected photo");
+        }
         SQLiteDatabase database = getWritableDatabase();
         database.beginTransaction();
         try {
-            database.delete("jobs", "media_uri GLOB ?", new String[]{prefix});
-            database.delete("own_mutations", "media_uri GLOB ?", new String[]{prefix});
+            String existingToken = associationTokenForSource(database, sourceId);
+            if (existingToken != null && !existingToken.equals(token)) {
+                throw new IllegalStateException("MMS source already has a media association");
+            }
+            ContentValues values = new ContentValues();
+            values.put("source_id", sourceId);
+            values.put("committed", 1);
+            int changed = database.update(
+                    "context_associations", values, "token=?", new String[]{token});
+            if (changed == 0) {
+                values.put("token", token);
+                values.put("event_at_epoch_ms", eventAtEpochMillis);
+                values.put("created_at_epoch_ms", nowEpochMillis);
+                if (database.insertOrThrow("context_associations", null, values) < 0L) {
+                    throw new IllegalStateException("cannot complete selected photo");
+                }
+            } else {
+                database.execSQL(
+                        "UPDATE context_associations SET event_at_epoch_ms="
+                                + "MAX(event_at_epoch_ms,?) WHERE token=?",
+                        new Object[]{eventAtEpochMillis, token});
+            }
             database.setTransactionSuccessful();
         } finally {
             database.endTransaction();
         }
+    }
+
+    void cancelMmsPhoto(String token) {
+        MediaAssociationPolicy.validateToken(token);
+        SQLiteDatabase database = getWritableDatabase();
+        database.beginTransaction();
+        try {
+            AssociationPublication publication = associationPublication(database, token);
+            if (publication == null) {
+                database.setTransactionSuccessful();
+                return;
+            }
+            if (publication.publishedRevision > 0L && !publication.sourceId.isEmpty()) {
+                ContentValues values = new ContentValues();
+                values.put("lifecycle_state", ASSOCIATION_DELETE_PENDING);
+                values.put("committed", 0);
+                database.update(
+                        "context_associations", values, "token=?", new String[]{token});
+            } else {
+                database.delete("context_associations", "token=?", new String[]{token});
+            }
+            database.setTransactionSuccessful();
+        } finally {
+            database.endTransaction();
+        }
+    }
+
+    void requestDeleteMmsPhoto(String sourceId, long nowEpochMillis) {
+        MediaAssociationPolicy.validateSourceId(sourceId);
+        if (nowEpochMillis <= 0L) throw new IllegalArgumentException("invalid deletion time");
+        SQLiteDatabase database = getWritableDatabase();
+        database.beginTransaction();
+        try {
+            String token = associationTokenForSource(database, sourceId);
+            if (token == null) {
+                ContentValues values = new ContentValues();
+                values.put("token", "delete:" + UUID.randomUUID());
+                values.put("source_id", sourceId);
+                values.put("created_at_epoch_ms", nowEpochMillis);
+                values.put("lifecycle_state", ASSOCIATION_DELETE_PENDING);
+                database.insertOrThrow("context_associations", null, values);
+            } else {
+                ContentValues values = new ContentValues();
+                values.put("lifecycle_state", ASSOCIATION_DELETE_PENDING);
+                values.put("committed", 0);
+                database.update(
+                        "context_associations", values, "token=?", new String[]{token});
+            }
+            database.setTransactionSuccessful();
+        } finally {
+            database.endTransaction();
+        }
+    }
+
+    void requestClearMmsPhotos() {
+        SQLiteDatabase database = getWritableDatabase();
+        database.beginTransaction();
+        try {
+            // Establish a local generation boundary now. Associations staged after this
+            // transaction must survive the outstanding remote bulk delete and be republished.
+            database.delete("context_associations", null, null);
+            ContentValues values = new ContentValues();
+            values.put("clear_pending", 1);
+            if (database.update("association_state", values, "singleton=1", null) != 1) {
+                throw new IllegalStateException("cannot request media-context clear");
+            }
+            database.setTransactionSuccessful();
+        } finally {
+            database.endTransaction();
+        }
+    }
+
+    boolean clearMmsPhotosPending() {
+        try (Cursor cursor = getReadableDatabase().query(
+                "association_state",
+                new String[]{"clear_pending"},
+                "singleton=1",
+                null,
+                null,
+                null,
+                null)) {
+            if (!cursor.moveToFirst()) throw new IllegalStateException("association state missing");
+            return cursor.getInt(0) != 0;
+        }
+    }
+
+    String associationInstanceId() {
+        try (Cursor cursor = getReadableDatabase().query(
+                "association_state",
+                new String[]{"instance_id"},
+                "singleton=1",
+                null,
+                null,
+                null,
+                null)) {
+            if (!cursor.moveToFirst()) throw new IllegalStateException("association state missing");
+            String value = cursor.getString(0);
+            if (value == null || !value.matches("[0-9a-f]{32}")) {
+                throw new IllegalStateException("association instance is invalid");
+            }
+            return value;
+        }
+    }
+
+    List<ReadyAssociation> readyAssociationBatch(String storeInstance, int limit) {
+        if (storeInstance == null || !storeInstance.matches("[0-9a-f]{32}")
+                || limit < 1 || limit > 128) {
+            throw new IllegalArgumentException("invalid media-association page");
+        }
+        String sql = "SELECT a.token,a.source_id,a.conversation_key,a.contact_key,"
+                + "a.related_keys,a.event_at_epoch_ms,j._id,j.media_uri,r.result_json"
+                + " FROM context_associations a"
+                + " JOIN result_digests d ON d.content_digest=a.content_digest"
+                + " JOIN jobs j ON j._id=d.job_id"
+                + " JOIN results r ON r.job_id=j._id"
+                + " WHERE a.lifecycle_state=? AND a.committed=1"
+                + " AND a.source_id<>'' AND a.content_digest<>''"
+                + " AND a.conversation_key<>'' AND a.related_keys<>''"
+                + " AND j.status=?"
+                + " AND (a.published_store_instance<>? OR a.resolved_job_id IS NULL"
+                + " OR a.resolved_job_id<>j._id)"
+                + " AND 1=(SELECT COUNT(DISTINCT d2.job_id)"
+                + " FROM result_digests d2 JOIN jobs j2 ON j2._id=d2.job_id"
+                + " WHERE d2.content_digest=a.content_digest AND j2.status=?)"
+                + " ORDER BY a.created_at_epoch_ms ASC LIMIT ?";
+        List<ReadyAssociation> values = new ArrayList<>();
+        try (Cursor cursor = getReadableDatabase().rawQuery(
+                sql,
+                new String[]{
+                        Integer.toString(ASSOCIATION_ACTIVE),
+                        Integer.toString(STATUS_INDEXED),
+                        storeInstance,
+                        Integer.toString(STATUS_INDEXED),
+                        Integer.toString(limit)
+                })) {
+            while (cursor.moveToNext()) {
+                values.add(new ReadyAssociation(
+                        cursor.getString(0),
+                        cursor.getString(1),
+                        cursor.getString(2),
+                        cursor.getString(3),
+                        cursor.getString(4).split("\\n", -1),
+                        cursor.getLong(5),
+                        cursor.getLong(6),
+                        cursor.getString(7),
+                        cursor.getString(8)));
+            }
+        }
+        return values;
+    }
+
+    void markAssociationPublished(
+            String token,
+            long jobId,
+            String mediaUri,
+            long revision,
+            String storeInstance) {
+        if (token == null || token.isBlank() || jobId <= 0L || mediaUri == null
+                || mediaUri.isBlank() || revision <= 0L || storeInstance == null
+                || !storeInstance.matches("[0-9a-f]{32}")) {
+            throw new IllegalArgumentException("invalid media-association publication");
+        }
+        ContentValues values = new ContentValues();
+        values.put("published_revision", revision);
+        values.put("published_store_instance", storeInstance);
+        values.put("resolved_job_id", jobId);
+        values.put("resolved_media_uri", mediaUri);
+        int changed = getWritableDatabase().update(
+                "context_associations",
+                values,
+                "token=? AND lifecycle_state=?",
+                new String[]{token, Integer.toString(ASSOCIATION_ACTIVE)});
+        if (changed != 1) throw new IllegalStateException("media association changed during publish");
+    }
+
+    List<PendingDeletion> associationDeletionBatch(int limit) {
+        if (limit < 1 || limit > 128) throw new IllegalArgumentException("invalid deletion page");
+        List<PendingDeletion> values = new ArrayList<>();
+        try (Cursor cursor = getReadableDatabase().query(
+                "context_associations",
+                new String[]{"token", "source_id"},
+                "lifecycle_state=? AND source_id<>''",
+                new String[]{Integer.toString(ASSOCIATION_DELETE_PENDING)},
+                null,
+                null,
+                "created_at_epoch_ms ASC",
+                Integer.toString(limit))) {
+            while (cursor.moveToNext()) {
+                values.add(new PendingDeletion(cursor.getString(0), cursor.getString(1)));
+            }
+        }
+        return values;
+    }
+
+    void completeAssociationDeletion(String token) {
+        if (token == null || token.isBlank()) throw new IllegalArgumentException("invalid token");
+        getWritableDatabase().delete(
+                "context_associations",
+                "token=? AND lifecycle_state=?",
+                new String[]{token, Integer.toString(ASSOCIATION_DELETE_PENDING)});
+    }
+
+    int expireIncompleteAssociations(long cutoffEpochMillis) {
+        if (cutoffEpochMillis <= 0L) throw new IllegalArgumentException("invalid expiry cutoff");
+        return getWritableDatabase().delete(
+                "context_associations",
+                "lifecycle_state=? AND published_revision=0 AND created_at_epoch_ms<?"
+                        + " AND (committed=0 OR content_digest='' OR conversation_key='')",
+                new String[]{
+                        Integer.toString(ASSOCIATION_ACTIVE),
+                        Long.toString(cutoffEpochMillis)
+                });
+    }
+
+    long nextAssociationRevision(long floor) {
+        if (floor <= 0L) throw new IllegalArgumentException("invalid revision floor");
+        SQLiteDatabase database = getWritableDatabase();
+        database.beginTransaction();
+        try {
+            long current = associationRevision(database);
+            if (current == Long.MAX_VALUE) throw new IllegalStateException("revision exhausted");
+            long revision = Math.max(current + 1L, floor);
+            ContentValues values = new ContentValues();
+            values.put("revision", revision);
+            if (database.update("association_state", values, "singleton=1", null) != 1) {
+                throw new IllegalStateException("cannot persist media-context revision");
+            }
+            database.setTransactionSuccessful();
+            return revision;
+        } finally {
+            database.endTransaction();
+        }
+    }
+
+    void completeAssociationClear(long remoteWatermark) {
+        if (remoteWatermark <= 0L) throw new IllegalArgumentException("invalid clear watermark");
+        SQLiteDatabase database = getWritableDatabase();
+        database.beginTransaction();
+        try {
+            ContentValues values = new ContentValues();
+            values.put("revision", Math.max(associationRevision(database), remoteWatermark));
+            values.put("clear_pending", 0);
+            if (database.update("association_state", values, "singleton=1", null) != 1) {
+                throw new IllegalStateException("cannot complete media-context clear");
+            }
+            database.setTransactionSuccessful();
+        } finally {
+            database.endTransaction();
+        }
+    }
+
+    private static long associationRevision(SQLiteDatabase database) {
+        try (Cursor cursor = database.query(
+                "association_state",
+                new String[]{"revision"},
+                "singleton=1",
+                null,
+                null,
+                null,
+                null)) {
+            if (!cursor.moveToFirst()) throw new IllegalStateException("association state missing");
+            return cursor.getLong(0);
+        }
+    }
+
+    private static String associationTokenForSource(SQLiteDatabase database, String sourceId) {
+        try (Cursor cursor = database.query(
+                "context_associations",
+                new String[]{"token"},
+                "source_id=?",
+                new String[]{sourceId},
+                null,
+                null,
+                null,
+                "1")) {
+            return cursor.moveToFirst() ? cursor.getString(0) : null;
+        }
+    }
+
+    private static AssociationPublication associationPublication(
+            SQLiteDatabase database, String token) {
+        try (Cursor cursor = database.query(
+                "context_associations",
+                new String[]{"source_id", "published_revision"},
+                "token=?",
+                new String[]{token},
+                null,
+                null,
+                null,
+                "1")) {
+            return cursor.moveToFirst()
+                    ? new AssociationPublication(cursor.getString(0), cursor.getLong(1))
+                    : null;
+        }
+    }
+
+    private static int markAssociationsDeletedForUri(
+            SQLiteDatabase database, String uriOrGlob, boolean glob) {
+        ContentValues values = new ContentValues();
+        values.put("lifecycle_state", ASSOCIATION_DELETE_PENDING);
+        values.put("committed", 0);
+        return database.update(
+                "context_associations",
+                values,
+                "lifecycle_state=? AND resolved_media_uri " + (glob ? "GLOB" : "=") + " ?",
+                new String[]{Integer.toString(ASSOCIATION_ACTIVE), uriOrGlob});
     }
 
     PendingJob claimNext(int workClass) {
@@ -309,6 +773,9 @@ final class MediaJobStore extends SQLiteOpenHelper {
             if (row < 0L) {
                 throw new IllegalStateException("cannot store media result");
             }
+            database.delete(
+                    "result_digests", "job_id=?", new String[]{Long.toString(job.id)});
+            insertResultDigest(database, job.id, contentDigest);
             ContentValues timingValues = new ContentValues();
             timingValues.put("job_id", job.id);
             timingValues.put("media_kind", timing.mediaKind);
@@ -426,8 +893,19 @@ final class MediaJobStore extends SQLiteOpenHelper {
         }
     }
 
-    void markPortableWritten(long jobId) {
-        markPortableState(jobId, PORTABLE_WRITTEN);
+    void markPortableWritten(long jobId, String currentContentDigest) {
+        if (currentContentDigest == null || !DIGEST.matcher(currentContentDigest).matches()) {
+            throw new IllegalArgumentException("invalid portable-media digest");
+        }
+        SQLiteDatabase database = getWritableDatabase();
+        database.beginTransaction();
+        try {
+            insertResultDigest(database, jobId, currentContentDigest);
+            markPortableState(database, jobId, PORTABLE_WRITTEN);
+            database.setTransactionSuccessful();
+        } finally {
+            database.endTransaction();
+        }
     }
 
     void markPortableSkipped(long jobId) {
@@ -491,9 +969,13 @@ final class MediaJobStore extends SQLiteOpenHelper {
     }
 
     private void markPortableState(long jobId, int state) {
+        markPortableState(getWritableDatabase(), jobId, state);
+    }
+
+    private void markPortableState(SQLiteDatabase database, long jobId, int state) {
         ContentValues values = new ContentValues();
         values.put("portable_metadata_written", state);
-        int changed = getWritableDatabase().update(
+        int changed = database.update(
                 "results",
                 values,
                 "job_id=? AND portable_metadata_written=?",
@@ -503,7 +985,7 @@ final class MediaJobStore extends SQLiteOpenHelper {
         if (changed == 1) {
             return;
         }
-        try (Cursor cursor = getReadableDatabase().query(
+        try (Cursor cursor = database.query(
                 "results",
                 new String[]{"portable_metadata_written"},
                 "job_id=?",
@@ -516,6 +998,33 @@ final class MediaJobStore extends SQLiteOpenHelper {
             }
         }
         throw new IllegalStateException("portable metadata state changed");
+    }
+
+    private static void insertResultDigest(
+            SQLiteDatabase database, long jobId, String contentDigest) {
+        if (jobId <= 0L || contentDigest == null || !DIGEST.matcher(contentDigest).matches()) {
+            throw new IllegalArgumentException("invalid media-result digest");
+        }
+        ContentValues values = new ContentValues();
+        values.put("job_id", jobId);
+        values.put("content_digest", contentDigest);
+        long row = database.insertWithOnConflict(
+                "result_digests", null, values, SQLiteDatabase.CONFLICT_IGNORE);
+        if (row < 0L) {
+            try (Cursor cursor = database.query(
+                    "result_digests",
+                    new String[]{"1"},
+                    "job_id=? AND content_digest=?",
+                    new String[]{Long.toString(jobId), contentDigest},
+                    null,
+                    null,
+                    null,
+                    "1")) {
+                if (!cursor.moveToFirst()) {
+                    throw new IllegalStateException("cannot store media-result digest");
+                }
+            }
+        }
     }
 
     private void markStatus(long jobId, int status) {
@@ -589,6 +1098,59 @@ final class MediaJobStore extends SQLiteOpenHelper {
         SourceRef(long jobId, String uri) {
             this.jobId = jobId;
             this.uri = uri;
+        }
+    }
+
+    static final class ReadyAssociation {
+        final String token;
+        final String sourceId;
+        final String conversationKey;
+        final String contactKey;
+        final String[] relatedKeys;
+        final long eventAtEpochMillis;
+        final long jobId;
+        final String mediaUri;
+        final String resultJson;
+
+        ReadyAssociation(
+                String token,
+                String sourceId,
+                String conversationKey,
+                String contactKey,
+                String[] relatedKeys,
+                long eventAtEpochMillis,
+                long jobId,
+                String mediaUri,
+                String resultJson) {
+            this.token = token;
+            this.sourceId = sourceId;
+            this.conversationKey = conversationKey;
+            this.contactKey = contactKey;
+            this.relatedKeys = relatedKeys.clone();
+            this.eventAtEpochMillis = eventAtEpochMillis;
+            this.jobId = jobId;
+            this.mediaUri = mediaUri;
+            this.resultJson = resultJson;
+        }
+    }
+
+    static final class PendingDeletion {
+        final String token;
+        final String sourceId;
+
+        PendingDeletion(String token, String sourceId) {
+            this.token = token;
+            this.sourceId = sourceId;
+        }
+    }
+
+    private static final class AssociationPublication {
+        final String sourceId;
+        final long publishedRevision;
+
+        AssociationPublication(String sourceId, long publishedRevision) {
+            this.sourceId = sourceId;
+            this.publishedRevision = publishedRevision;
         }
     }
 }

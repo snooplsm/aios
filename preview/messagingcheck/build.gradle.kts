@@ -1,6 +1,17 @@
+import org.gradle.api.tasks.Sync
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose")
+}
+
+val generatedPlatform = layout.buildDirectory.dir("generated/messaging-platform/main")
+
+val stageMessagingPlatform by tasks.registering(Sync::class) {
+    from("../../apps/messaging/platform/src") {
+        include("com/aios/messaging/mms/platform/MmsOperationStore.kt")
+    }
+    into(generatedPlatform)
 }
 
 android {
@@ -20,8 +31,10 @@ android {
             manifest.srcFile("../../apps/messaging/AndroidManifest.xml")
             kotlin.directories.add("../../apps/messaging/src")
             kotlin.directories.add("src/main/java")
+            kotlin.directories.add(generatedPlatform.get().asFile.absolutePath)
             java.directories.add("../../services/contextintelligence/api")
             aidl.directories.add("../../services/contextintelligence/aidl")
+            aidl.directories.add("../../services/mediaintelligence/aidl")
             res.directories.add("../../apps/messaging/res")
         }
         getByName("test") {
@@ -38,6 +51,10 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+}
+
+tasks.named("preBuild").configure {
+    dependsOn(stageMessagingPlatform)
 }
 
 dependencies {

@@ -65,9 +65,11 @@ final class MediaLivenessScanner {
 
         MediaLivenessReconciler.Plan plan = MediaLivenessReconciler.plan(
                 rows, presentIds, completedVolumes, truncated);
+        boolean associationDeleted = false;
         for (String deletedUri : plan.deletedUris) {
-            store.deleteMediaUri(deletedUri);
+            associationDeleted |= store.deleteMediaUri(deletedUri);
         }
+        if (associationDeleted) MediaContextAssociationService.requestReconcile(context);
         return new Result(plan.nextJobId, plan.more, retry, plan.deletedUris.size());
     }
 
@@ -107,7 +109,9 @@ final class MediaLivenessScanner {
         if (!versionBefore.equals(versionAfter) || generationBefore != generationAfter) {
             return true;
         }
-        if (remove) store.deleteMediaUri(canonical);
+        if (remove && store.deleteMediaUri(canonical)) {
+            MediaContextAssociationService.requestReconcile(context);
+        }
         return false;
     }
 

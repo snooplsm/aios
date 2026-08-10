@@ -72,6 +72,9 @@ class PreviewActivity : ComponentActivity() {
             is PhoneAction.ChangeHomeSection -> state.copy(homeSection = action.section)
             PhoneAction.PlaceCall -> state.copy(message = "Calling is disabled in this preview")
             is PhoneAction.DialNumber -> state.copy(message = "Calling is disabled in this preview")
+            is PhoneAction.MessageNumber -> state.copy(
+                message = "Messaging is disabled in this preview",
+            )
             PhoneAction.ReloadRecentCalls -> state.copy(recentCallsLoading = false)
             PhoneAction.ReloadVoicemails -> state.copy(voicemailsLoading = false)
             is PhoneAction.ToggleVoicemail -> {

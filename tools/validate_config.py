@@ -703,6 +703,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "apps/messaging/src/com/aios/messaging/model/SubscriptionSelectionPolicy.kt",
         "apps/messaging/src/com/aios/messaging/data/MessagingRepository.kt",
         "apps/messaging/src/com/aios/messaging/context/CommunicationContextClient.kt",
+        "apps/messaging/src/com/aios/messaging/context/MediaContextAssociationClient.kt",
         "apps/messaging/src/com/aios/messaging/context/MessageContextLedger.kt",
         "apps/messaging/src/com/aios/messaging/context/MessageContextLifecycleReceiver.kt",
         "apps/messaging/src/com/aios/messaging/context/MessageContextPolicy.kt",
@@ -869,6 +870,10 @@ def validate_aosp_overlay(root: Path) -> None:
         "docs/dialer-integration.md",
         "docs/caller-audio-uplink.md",
         "services/mediaintelligence/AndroidManifest.xml",
+        "services/mediaintelligence/aidl/com/aios/media/IMediaContextAssociation.aidl",
+        "services/mediaintelligence/src/com/aios/mediaintelligence/MediaAssociationPolicy.java",
+        "services/mediaintelligence/src/com/aios/mediaintelligence/MediaContextAssociationService.java",
+        "services/mediaintelligence/src/com/aios/mediaintelligence/MediaContextProjection.java",
         "services/mediaintelligence/src/com/aios/mediaintelligence/MediaObserverService.java",
         "services/mediaintelligence/src/com/aios/mediaintelligence/MediaGenerationReconciler.java",
         "services/mediaintelligence/src/com/aios/mediaintelligence/MediaGenerationScanner.java",
@@ -896,6 +901,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/mediaintelligence/tests/src/com/aios/mediaintelligence/MediaTimingTest.java",
         "services/mediaintelligence/tests/src/com/aios/mediaintelligence/MediaGenerationReconcilerTest.java",
         "services/mediaintelligence/tests/src/com/aios/mediaintelligence/MediaLivenessReconcilerTest.java",
+        "services/mediaintelligence/tests/src/com/aios/mediaintelligence/MediaAssociationPolicyTest.java",
         "permissions/default-permissions-aios.xml",
         "docs/media-metadata-schema.md",
         "docs/media-performance.md",
@@ -1055,8 +1061,11 @@ def validate_aosp_overlay(root: Path) -> None:
                     "mms" / "MmsTransport.kt").read_text(encoding="utf-8")
     messaging_bp = (messaging_root / "Android.bp").read_text(encoding="utf-8")
     context_client = (messaging_root / "src" / "com" / "aios" / "messaging" /
-                      "context" / "CommunicationContextClient.kt").read_text(
-                          encoding="utf-8")
+                       "context" / "CommunicationContextClient.kt").read_text(
+                           encoding="utf-8")
+    media_context_client = (messaging_root / "src" / "com" / "aios" / "messaging" /
+                            "context" / "MediaContextAssociationClient.kt").read_text(
+                                encoding="utf-8")
     message_context_root = (messaging_root / "src" / "com" / "aios" / "messaging" /
                             "context")
     message_context_ledger = (message_context_root / "MessageContextLedger.kt").read_text(
@@ -1111,6 +1120,20 @@ def validate_aosp_overlay(root: Path) -> None:
                 "SUCCEEDED", "FAILED"))
             and "pending.finish()" in mms_receiver,
             "MMS must use AOSP PDU persistence and a durable carrier callback lifecycle")
+    require("associationToken" in messaging_runtime
+            and "association_token TEXT NOT NULL" in mms_store
+            and "completion_reported INTEGER NOT NULL" in mms_store
+            and "unreportedSuccessful" in mms_store
+            and "markMediaAssociationReported" in mms_store
+            and "acknowledgeMediaAssociation" in mms_contract
+            and "acknowledgeMediaAssociation" in mms_transport
+            and "acknowledgeMediaAssociation" in messaging_runtime
+            and "stageMmsPhoto" in media_context_client
+            and "completeMmsPhoto" in media_context_client
+            and "onDurablyRecorded" in media_context_client
+            and "deleteMmsPhoto" in media_context_client
+            and "clearMmsPhotos" in media_context_client,
+            "selected MMS photos must retain a crash-recoverable media-context lifecycle")
     require("indexSms" in context_client
             and "indexMms" in context_client
             and "deleteMms" in context_client
@@ -1166,6 +1189,7 @@ def validate_aosp_overlay(root: Path) -> None:
             and "ContextPolicy.CALL_EVENT.equals(sourceType)" in context_store
             and "ContextPolicy.SMS.equals(sourceType)" in context_store
             and "ContextPolicy.MMS.equals(sourceType)" in context_store
+            and "ContextPolicy.MEDIA_METADATA.equals(sourceType)" in context_store
             and "deleteSourceType" in context_store
             and "deleteSourceType" in context_service
             and "long deleteSourceType" in context_aidl
@@ -2255,20 +2279,59 @@ def validate_aosp_overlay(root: Path) -> None:
     require("own_mutations" in media_store_source
             and "recoverInterruptedWork" in media_store_source,
             "media database must suppress self-writes and recover interrupted jobs")
-    require("VERSION = 3" in media_store_source
+    require("VERSION = 5" in media_store_source
             and "oldVersion < 2" in media_store_source
             and "oldVersion < 3" in media_store_source
+            and "oldVersion < 4" in media_store_source
+            and "oldVersion < 5" in media_store_source
             and "CREATE TABLE timing_samples" in media_store_source
             and "CREATE TABLE media_scan_state" in media_store_source
+            and "CREATE TABLE result_digests" in media_store_source
+            and "CREATE TABLE context_associations" in media_store_source
             and "media_store_version" in media_store_source
             and "cannot durably enqueue media job" in media_store_source
-            and "void purgeVolume" in media_store_source
+            and "boolean purgeVolume" in media_store_source
             and '"media_uri=? AND _id<>?"' in media_store_source
             and "MediaTimingSummary.MAX_SAMPLES_PER_KIND" in media_store_source
             and "timing_samples" in media_store_source.partition("commitResult(")[2],
             "media database must explicitly migrate timing and durable scan state")
-    require("if (state != null) store.purgeVolume(volumeName)" in generation_scanner,
+    require("state != null && store.purgeVolume(volumeName)" in generation_scanner,
             "MediaProvider identity changes must purge stale URI-keyed media results")
+
+    association_manifest = (root / "services" / "mediaintelligence" /
+                            "AndroidManifest.xml").read_text(encoding="utf-8")
+    association_aidl = (root / "services" / "mediaintelligence" / "aidl" / "com" /
+                        "aios" / "media" / "IMediaContextAssociation.aidl").read_text(
+                            encoding="utf-8")
+    association_service = (media_source_root / "MediaContextAssociationService.java").read_text(
+        encoding="utf-8")
+    association_policy_test = (root / "services" / "mediaintelligence" / "tests" /
+                               "src" / "com" / "aios" / "mediaintelligence" /
+                               "MediaAssociationPolicyTest.java").read_text(encoding="utf-8")
+    association_clear_request = media_store_source.partition(
+        "void requestClearMmsPhotos()")[2].partition(
+            "boolean clearMmsPhotosPending()")[0]
+    association_clear_complete = media_store_source.partition(
+        "void completeAssociationClear(")[2].partition(
+            "private static long associationRevision(")[0]
+    require('protectionLevel="signature"' in association_manifest
+            and 'android:permission="com.aios.permission.ASSOCIATE_MEDIA_CONTEXT"'
+            in association_manifest
+            and "ParcelFileDescriptor" in association_aidl
+            and "ConversationIdentity" in association_aidl
+            and "draftAndCarrierSubmissionCannotPublish" in association_policy_test
+            and "remote.upsert(new ContextDocument" in association_service
+            and "remote.deleteSource(SOURCE_TYPE" in association_service
+            and "remote.deleteSourceType(SOURCE_TYPE" in association_service
+            and "readyAssociationBatch" in association_service
+            and "associationInstanceId" in association_service
+            and 'database.delete("context_associations", null, null)' in
+            association_clear_request
+            and 'database.delete("context_associations", null, null)' not in
+            association_clear_complete
+            and "if (store.clearMmsPhotosPending()) return;" not in association_service
+            and "result_digests" in media_store_source,
+            "selected-photo context must be signature-gated, carrier-admitted, and lifecycle-bound")
 
     timing_source = (media_source_root / "MediaTiming.java").read_text(
         encoding="utf-8"
@@ -2642,7 +2705,8 @@ def validate_security_surface(root: Path) -> None:
         if module == "AIOS_Apache_2_0":
             continue
         require(module in common_product or module in {
-                    "aios_call_api", "aios_context_api", "aios_model_api", "aios_runtime_api"}
+                    "aios_call_api", "aios_context_api", "aios_media_context_api",
+                    "aios_model_api", "aios_runtime_api"}
                 or module.endswith("_tests"),
                 f"local AIOS module is not reachable from the product: {module}")
 

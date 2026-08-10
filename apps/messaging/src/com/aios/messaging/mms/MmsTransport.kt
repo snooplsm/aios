@@ -9,6 +9,7 @@ data class MmsEvent(
     val outgoing: Boolean,
     val hasPhoto: Boolean,
     val subscriptionId: Int,
+    val associationToken: String = "",
 )
 
 interface MmsTransport {
@@ -19,6 +20,7 @@ interface MmsTransport {
         body: String,
         photoUri: String,
         subscriptionId: Int,
+        associationToken: String,
         callback: (Result<MmsEvent>) -> Unit,
     )
 
@@ -37,11 +39,14 @@ interface MmsTransport {
         callback: (Boolean) -> Unit,
     )
 
+    /** Retires a replayable carrier success after media association is durably admitted. */
+    fun acknowledgeMediaAssociation(associationToken: String)
+
     fun close()
 
     interface Listener {
         fun onCompleted(event: MmsEvent)
-        fun onFailed(message: String)
+        fun onFailed(message: String, associationToken: String?)
     }
 
     companion object {

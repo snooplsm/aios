@@ -11,6 +11,7 @@ import android.telephony.PhoneNumberUtils
 import android.telephony.SubscriptionManager
 import androidx.core.content.edit
 import com.aios.messaging.context.CommunicationContextClient
+import com.aios.messaging.context.MediaContextAssociationClient
 import com.aios.messaging.data.MessagingRepository
 import com.aios.messaging.model.ContextSnippetUiState
 import com.aios.messaging.model.ConversationUiState
@@ -30,6 +31,7 @@ import com.aios.messaging.mms.platform.MmsTransportFactory
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import java.util.UUID
 
 /** Single-process UDF store. Provider work is delegated off the main thread. */
 object MessagingRuntime {
@@ -46,10 +48,12 @@ object MessagingRuntime {
     private lateinit var application: Application
     private lateinit var repository: MessagingRepository
     private lateinit var contextIndex: CommunicationContextClient
+    private lateinit var mediaContext: MediaContextAssociationClient
     private lateinit var notifications: MessageNotificationCoordinator
     private lateinit var mmsTransport: MmsTransport
     private var preferredSubscriptionId: Int? = null
     private var subscriptionListenerRegistered = false
+    private var mediaRoleCleanupRequested = false
     private var initialized = false
     private val subscriptionListener = object :
         SubscriptionManager.OnSubscriptionsChangedListener() {
@@ -62,11 +66,18 @@ object MessagingRuntime {
         if (initialized) return
         application = value
         repository = MessagingRepository(value)
-        contextIndex = CommunicationContextClient(value).also { it.connect() }
+        mediaContext = MediaContextAssociationClient(value).also { it.connect() }
+        contextIndex = CommunicationContextClient(
+            value,
+            onMmsSourceDeleted = mediaContext::deleteMmsPhoto,
+            onMmsSourcesCleared = mediaContext::clearMmsPhotos,
+        ).also { it.connect() }
         notifications = MessageNotificationCoordinator(value)
         mmsTransport = MmsTransportFactory.create(value, object : MmsTransport.Listener {
             override fun onCompleted(event: MmsEvent) = onMmsCompleted(event)
-            override fun onFailed(message: String) {
+            override fun onFailed(message: String, associationToken: String?) {
+                associationToken?.takeIf(String::isNotBlank)
+                    ?.let(mediaContext::cancelMmsPhoto)
                 showNotice(message)
                 refresh()
             }
@@ -141,18 +152,25 @@ object MessagingRuntime {
             )
         }
         if (held) {
+            mediaRoleCleanupRequested = false
             if (hasPermission) refreshSubscriptions() else reduce {
                 it.copy(subscriptions = emptyList(), selectedSubscriptionId = null)
             }
             refresh()
-        } else reduce {
-            it.copy(
-                loading = false,
-                conversations = emptyList(),
-                messages = emptyList(),
-                subscriptions = emptyList(),
-                selectedSubscriptionId = null,
-            )
+        } else {
+            if (!mediaRoleCleanupRequested) {
+                mediaRoleCleanupRequested = true
+                mediaContext.clearMmsPhotos()
+            }
+            reduce {
+                it.copy(
+                    loading = false,
+                    conversations = emptyList(),
+                    messages = emptyList(),
+                    subscriptions = emptyList(),
+                    selectedSubscriptionId = null,
+                )
+            }
         }
     }
 
@@ -388,11 +406,24 @@ object MessagingRuntime {
                 showNotice("The photo message is not valid")
                 return
             }
+            val associationToken = UUID.randomUUID().toString()
+            val associationEventAt = System.currentTimeMillis()
+            contextIndex.resolveIdentity(conversation.address) { identity ->
+                if (identity != null) {
+                    mediaContext.stageMmsPhoto(
+                        associationToken,
+                        photo.uri,
+                        identity,
+                        associationEventAt,
+                    )
+                }
+            }
             mmsTransport.sendPhoto(
                 conversation.address,
                 body,
                 photo.uri,
                 subscriptionId,
+                associationToken,
             ) { result ->
                 result.fold(
                     onSuccess = { event ->
@@ -405,7 +436,10 @@ object MessagingRuntime {
                             ))
                         }
                     },
-                    onFailure = { showNotice(it.message ?: "Photo MMS could not be submitted") },
+                    onFailure = {
+                        mediaContext.cancelMmsPhoto(associationToken)
+                        showNotice(it.message ?: "Photo MMS could not be submitted")
+                    },
                 )
             }
             return
@@ -440,6 +474,7 @@ object MessagingRuntime {
                         contextIndex.deleteSms(id, System.currentTimeMillis())
                     } else {
                         contextIndex.deleteMms(id, System.currentTimeMillis())
+                        mediaContext.deleteMmsPhoto(id)
                     }
                     mutableState.value.selected?.threadId?.let(::loadSelectedMessages)
                     refresh()
@@ -450,6 +485,13 @@ object MessagingRuntime {
     }
 
     private fun onMmsCompleted(event: MmsEvent) = onMain {
+        if (event.outgoing && event.hasPhoto && event.associationToken.isNotBlank()) {
+            mediaContext.completeMmsPhoto(
+                event.associationToken,
+                event.providerId,
+                event.atEpochMillis,
+            ) { mmsTransport.acknowledgeMediaAssociation(event.associationToken) }
+        }
         indexMms(event)
         val message = event.toUiState()
         if (!event.outgoing) notifications.notifyIncoming(message)

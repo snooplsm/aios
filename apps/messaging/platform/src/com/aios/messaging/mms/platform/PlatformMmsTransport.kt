@@ -61,14 +61,23 @@ internal class PlatformMmsTransport(
         body: String,
         photoUri: String,
         subscriptionId: Int,
+        associationToken: String,
         callback: (Result<MmsEvent>) -> Unit,
     ) {
         executor.execute {
             val result = runCatching {
-                sendPhoto(address, body, Uri.parse(photoUri), subscriptionId)
+                sendPhoto(
+                    address,
+                    body,
+                    Uri.parse(photoUri),
+                    subscriptionId,
+                    associationToken,
+                )
             }
             context.mainExecutor.execute { callback(result) }
-            result.exceptionOrNull()?.let { notifyFailure("Photo message could not be submitted") }
+            result.exceptionOrNull()?.let {
+                notifyFailure("Photo message could not be submitted", associationToken)
+            }
         }
     }
 
@@ -79,7 +88,7 @@ internal class PlatformMmsTransport(
     ) {
         executor.execute {
             val succeeded = runCatching { receiveNotification(pdu, subscriptionId) }
-                .onFailure { notifyFailure("Incoming MMS could not be stored") }
+                .onFailure { notifyFailure("Incoming MMS could not be stored", null) }
                 .getOrDefault(false)
             context.mainExecutor.execute { callback(succeeded) }
         }
@@ -113,7 +122,7 @@ internal class PlatformMmsTransport(
                     store.transition(record.token, MmsOperationState.FAILED, resultCode)
                     if (record.kind == MmsOperationKind.SEND) markSendFailed(record.providerUri)
                 }
-                notifyFailure("MMS carrier operation failed")
+                notifyFailure("MMS carrier operation failed", store.get(token)?.associationToken)
             }.getOrDefault(false)
             val latest = store.get(token)
             if (latest == null || latest.state == MmsOperationState.SUCCEEDED ||
@@ -129,16 +138,25 @@ internal class PlatformMmsTransport(
         store.close()
     }
 
+    override fun acknowledgeMediaAssociation(associationToken: String) {
+        require(runCatching { UUID.fromString(associationToken).toString() }
+            .getOrNull() == associationToken) { "Invalid media-association token" }
+        executor.execute { store.markMediaAssociationReported(associationToken) }
+    }
+
     private fun sendPhoto(
         address: String,
         body: String,
         photoUri: Uri,
         requestedSubscriptionId: Int,
+        associationToken: String,
     ): MmsEvent {
         check(admitted) { "MMS is enabled only on debuggable AIOS builds until carrier gates pass" }
         requireSmsRole()
         val normalized = PhoneNumberUtils.normalizeNumber(address)
         require(normalized.isNotBlank()) { "A valid phone number is required" }
+        require(runCatching { UUID.fromString(associationToken).toString() }
+            .getOrNull() == associationToken) { "Invalid media-association token" }
         val subscriptionId = requireActiveSubscription(requestedSubscriptionId)
         val manager = smsManager(subscriptionId)
         val limits = carrierLimits(manager)
@@ -156,7 +174,14 @@ internal class PlatformMmsTransport(
         val token = UUID.randomUUID().toString()
         val pduUri = MmsPduProvider.create(context, token)
         val now = System.currentTimeMillis()
-        store.create(newRecord(token, MmsOperationKind.SEND, subscriptionId, pduUri, now))
+        store.create(newRecord(
+            token,
+            MmsOperationKind.SEND,
+            subscriptionId,
+            pduUri,
+            now,
+            associationToken,
+        ))
         var providerUri: Uri? = null
         try {
             providerUri = persister.persist(
@@ -186,7 +211,11 @@ internal class PlatformMmsTransport(
                 resultIntent(MmsTransport.ACTION_SENT, token),
                 ContentUris.parseId(providerUri),
             )
-            return readEvent(providerUri, outgoing = true)
+            return readEvent(
+                providerUri,
+                outgoing = true,
+                associationToken = associationToken,
+            )
         } catch (failure: Throwable) {
             val failedFrom = store.get(token)?.state ?: MmsOperationState.PREPARING
             store.transition(token, MmsOperationState.FAILED, LOCAL_FAILURE)
@@ -301,7 +330,7 @@ internal class PlatformMmsTransport(
                 resultCode,
                 httpStatus,
             )))
-            notifyFailure("Photo message was rejected by the carrier")
+            notifyFailure("Photo message was rejected by the carrier", record.associationToken)
             return
         }
         val limits = carrierLimits(smsManager(record.subscriptionId))
@@ -324,12 +353,16 @@ internal class PlatformMmsTransport(
                 MmsOperationState.FAILED,
                 confirmation.responseStatus,
             ))
-            notifyFailure("Carrier did not accept the photo message")
+            notifyFailure("Carrier did not accept the photo message", record.associationToken)
             return
         }
         val sent = persister.move(providerUri, Telephony.Mms.Sent.CONTENT_URI).canonicalMmsUri()
         check(store.transition(record.token, MmsOperationState.SUCCEEDED, resultCode))
-        notifyCompleted(readEvent(sent, outgoing = true))
+        notifyCompleted(readEvent(
+            sent,
+            outgoing = true,
+            associationToken = record.associationToken,
+        ), record.token)
     }
 
     private fun completeDownload(
@@ -342,7 +375,7 @@ internal class PlatformMmsTransport(
                 resultCode,
                 httpStatus,
             )))
-            notifyFailure("Incoming MMS download failed")
+            notifyFailure("Incoming MMS download failed", null)
             return
         }
         val limits = carrierLimits(smsManager(record.subscriptionId))
@@ -367,11 +400,12 @@ internal class PlatformMmsTransport(
         ).canonicalMmsUri()
         updateProviderEnvelope(inbox, record.subscriptionId, record.receivedAtSeconds, read = false)
         val event = readEvent(inbox, outgoing = false)
+        store.updateUris(record.token, inbox.toString(), record.pduUri)
         check(context.contentResolver.delete(Uri.parse(record.providerUri), null, null) == 1) {
             "MMS notification placeholder could not be retired"
         }
         check(store.transition(record.token, MmsOperationState.SUCCEEDED, resultCode))
-        notifyCompleted(event)
+        notifyCompleted(event, record.token)
         runCatching { submitNotifyResponse(record, inbox, limits.notifyWapMmsc) }
     }
 
@@ -431,6 +465,9 @@ internal class PlatformMmsTransport(
             MmsOperationState.FAILED
         }
         check(store.transition(record.token, target, resultCode))
+        if (target == MmsOperationState.SUCCEEDED) {
+            store.markCompletionReported(record.token)
+        }
     }
 
     private fun sendRequest(address: String, text: String, photo: EncodedPhoto): SendReq {
@@ -538,7 +575,11 @@ internal class PlatformMmsTransport(
         }
     }
 
-    private fun readEvent(uri: Uri, outgoing: Boolean): MmsEvent {
+    private fun readEvent(
+        uri: Uri,
+        outgoing: Boolean,
+        associationToken: String = "",
+    ): MmsEvent {
         val id = ContentUris.parseId(uri)
         var threadId = 0L
         var dateSeconds = 0L
@@ -588,6 +629,7 @@ internal class PlatformMmsTransport(
             outgoing = outgoing,
             hasPhoto = hasPhoto,
             subscriptionId = subscriptionId,
+            associationToken = associationToken,
         )
     }
 
@@ -627,6 +669,24 @@ internal class PlatformMmsTransport(
         store.recover(System.currentTimeMillis()).forEach { record ->
             MmsPduProvider.remove(context, record.token)
             if (record.kind == MmsOperationKind.SEND) markSendFailed(record.providerUri)
+            record.associationToken.takeIf(String::isNotBlank)?.let {
+                notifyFailure("Interrupted photo message was not resubmitted", it)
+            }
+        }
+        store.unreportedSuccessful().forEach { record ->
+            when (record.kind) {
+                MmsOperationKind.SEND -> runCatching {
+                    readEvent(
+                        Uri.parse(record.providerUri),
+                        outgoing = true,
+                        associationToken = record.associationToken,
+                    )
+                }.onSuccess { event -> notifyCompleted(event, record.token) }
+                MmsOperationKind.DOWNLOAD -> runCatching {
+                    readEvent(Uri.parse(record.providerUri), outgoing = false)
+                }.onSuccess { event -> notifyCompleted(event, record.token) }
+                MmsOperationKind.NOTIFY_RESPONSE -> store.markCompletionReported(record.token)
+            }
         }
         store.deleteTerminalOlderThan(
             System.currentTimeMillis() - MmsOperationPolicy.MAX_PENDING_AGE_MILLIS,
@@ -714,11 +774,16 @@ internal class PlatformMmsTransport(
         }
     }
 
-    private fun notifyCompleted(event: MmsEvent) =
-        context.mainExecutor.execute { listener.onCompleted(event) }
+    private fun notifyCompleted(event: MmsEvent, operationToken: String) =
+        context.mainExecutor.execute {
+            listener.onCompleted(event)
+            if (event.associationToken.isBlank()) {
+                executor.execute { store.markCompletionReported(operationToken) }
+            }
+        }
 
-    private fun notifyFailure(message: String) =
-        context.mainExecutor.execute { listener.onFailed(message) }
+    private fun notifyFailure(message: String, associationToken: String?) =
+        context.mainExecutor.execute { listener.onFailed(message, associationToken) }
 
     private fun actionMatches(kind: MmsOperationKind, action: String): Boolean = when (kind) {
         MmsOperationKind.SEND -> action == MmsTransport.ACTION_SENT
@@ -732,6 +797,7 @@ internal class PlatformMmsTransport(
         subscriptionId: Int,
         pduUri: Uri,
         nowMillis: Long,
+        associationToken: String = "",
     ) = MmsOperationRecord(
         token = token,
         kind = kind,
@@ -744,6 +810,8 @@ internal class PlatformMmsTransport(
         receivedAtSeconds = 0L,
         expirySeconds = 0L,
         carrierResult = 0,
+        associationToken = associationToken,
+        completionReported = false,
         createdAtMillis = nowMillis,
         updatedAtMillis = nowMillis,
     )

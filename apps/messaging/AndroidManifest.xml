@@ -13,6 +13,7 @@
     <uses-permission android:name="android.permission.SEND_SMS" />
     <uses-permission android:name="android.permission.WRITE_SMS" />
     <uses-permission android:name="com.aios.permission.USE_COMMUNICATION_CONTEXT" />
+    <uses-permission android:name="com.aios.permission.ASSOCIATE_MEDIA_CONTEXT" />
 
     <uses-feature
         android:name="android.hardware.telephony"

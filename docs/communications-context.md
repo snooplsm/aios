@@ -66,7 +66,7 @@ contact.
 
 The credential-encrypted SQLite index accepts these source owners only:
 
-- AIOS Messaging: `sms` and later `mms`;
+- AIOS Messaging: `sms` and `mms`;
 - AIOS Phone: durable, non-transcript `call_event` records;
 - Call Intelligence: `call_artifact` records with an enforced maximum 24-hour
   expiry; and
@@ -110,15 +110,31 @@ persisted revision clock. Provider deletion, restore-time edits, application
 restart, and SMS-role loss therefore converge without accumulating one durable
 tombstone for every deleted message. Normal call teardown now publishes the
 expiring call artifact. Call-artifact expiry is purged during queries and after
-boot. Durable Phone call events are also wired, while selected-photo metadata
-still needs its producer lifecycle before that context release gate can pass.
+boot. Durable Phone call events and selected-photo metadata producers are now
+wired; physical Pixel evidence is still required before their release gates pass.
 
-Media Intelligence now removes its authoritative private result when the
-MediaStore source is deleted, including bounded restart reconciliation and
-provider-database invalidation. The later selected-photo context producer must
-reuse that lifecycle and emit its context tombstone before
-`context.photo_metadata_lifecycle` can pass; draft selection alone still does
-not publish conversation history.
+Media Intelligence removes its authoritative private result when the MediaStore
+source is deleted, including bounded restart reconciliation and provider-database
+invalidation. For an outgoing selected-photo MMS, Messaging resolves the number
+transiently, then stages a read-only descriptor with only the resulting opaque
+identity and a random token. Draft selection alone does nothing, and staging at
+Send still cannot publish. The durable MMS callback journal carries the token;
+only a carrier-confirmed Sent transition commits `mms:<provider-id>`.
+
+Media Intelligence hashes the descriptor within a 128 MiB bound and associates
+it only when that digest maps to exactly one live, indexed local MediaStore job.
+The index retains reviewed pre/post-XMP digest aliases for the same job, so
+portable metadata timing does not break the match. Cloud-only picker items and
+duplicate-byte ambiguity fail closed. The published document contains only the
+bounded caption and tags, never a URI, digest, number, or contact key.
+
+Deleting/trashing the canonical photo marks every resolved association for a
+context tombstone before its private job disappears. Direct or externally
+observed MMS deletion does the same by source ID. SMS-role loss requests a
+durable bulk `media_metadata` watermark even if the context service is currently
+unavailable. A changed context-store instance republishes only still-live,
+carrier-completed associations. Carrier failure cancels staged state, and
+incomplete stages expire after 24 hours.
 
 AIOS Phone observes CallLog only while it holds `ROLE_DIALER` and reconciles at
 most the newest 256 presented, non-emergency records. The phone number is used
@@ -141,7 +157,8 @@ same for legacy SMS/MMS tombstones before provider reconciliation begins.
 
 - compile the AOSP-only MMS source with Soong and carrier-test send, download,
   provider persistence, APN/roaming, crash recovery, and duplicate suppression;
-- wire the selected-photo metadata producer;
+- exercise the selected-photo stage/complete/delete/role-loss matrix on Pixel
+  hardware before passing `context.photo_metadata_lifecycle`;
 - exercise call-event reconciliation across deletion, reboot, role loss, and
   clock changes on Pixel hardware before passing `context.call_source_lifecycle`;
 - add a user control to exclude a conversation or source from retrieval; and

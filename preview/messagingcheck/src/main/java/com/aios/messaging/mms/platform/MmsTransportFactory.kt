@@ -14,6 +14,7 @@ object MmsTransportFactory {
                 body: String,
                 photoUri: String,
                 subscriptionId: Int,
+                associationToken: String,
                 callback: (Result<MmsEvent>) -> Unit,
             ) = callback(Result.failure(IllegalStateException("platform MMS unavailable")))
 
@@ -31,6 +32,8 @@ object MmsTransportFactory {
                 httpStatus: Int,
                 callback: (Boolean) -> Unit,
             ) = callback(false)
+
+            override fun acknowledgeMediaAssociation(associationToken: String) = Unit
 
             override fun close() = Unit
         }

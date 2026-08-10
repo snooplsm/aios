@@ -17,7 +17,7 @@ import java.util.Locale;
 /** Credential-encrypted, revisioned lexical index for bounded local retrieval. */
 final class ContextStore extends SQLiteOpenHelper {
     private static final String DATABASE = "communication_context.db";
-    private static final int VERSION = 3;
+    private static final int VERSION = 4;
 
     ContextStore(Context context) {
         super(context, DATABASE, null, VERSION);
@@ -66,16 +66,20 @@ final class ContextStore extends SQLiteOpenHelper {
 
     @Override
     public void onUpgrade(SQLiteDatabase database, int oldVersion, int newVersion) {
-        if (oldVersion == 1) {
+        if (oldVersion < 1 || oldVersion > newVersion || newVersion != VERSION) {
+            throw new IllegalStateException("explicit communication-index migration required");
+        }
+        if (oldVersion < 2) {
             createSourceDeleteWatermarks(database);
             migrateTombstonesToWatermark(database, ContextPolicy.CALL_EVENT);
         }
-        if (oldVersion <= 2 && newVersion == 3) {
+        if (oldVersion < 3) {
             migrateTombstonesToWatermark(database, ContextPolicy.SMS);
             migrateTombstonesToWatermark(database, ContextPolicy.MMS);
-            return;
         }
-        throw new IllegalStateException("explicit communication-index migration required");
+        if (oldVersion < 4) {
+            migrateTombstonesToWatermark(database, ContextPolicy.MEDIA_METADATA);
+        }
     }
 
     void upsert(ContextDocument document) {
@@ -276,7 +280,8 @@ final class ContextStore extends SQLiteOpenHelper {
     private static boolean usesSourceDeleteWatermark(String sourceType) {
         return ContextPolicy.CALL_EVENT.equals(sourceType)
                 || ContextPolicy.SMS.equals(sourceType)
-                || ContextPolicy.MMS.equals(sourceType);
+                || ContextPolicy.MMS.equals(sourceType)
+                || ContextPolicy.MEDIA_METADATA.equals(sourceType);
     }
 
     private static void createSourceDeleteWatermarks(SQLiteDatabase database) {

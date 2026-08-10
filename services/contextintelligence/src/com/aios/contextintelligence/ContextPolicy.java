@@ -28,7 +28,7 @@ final class ContextPolicy {
     private static final Set<String> READERS = Set.of(
             "com.aios.messaging", "com.aios.phone", "com.aios.callintelligence");
     private static final Set<String> BULK_DELETE_SOURCES = Set.of(
-            SMS, MMS, CALL_EVENT);
+            SMS, MMS, CALL_EVENT, MEDIA_METADATA);
     private static final Pattern IDENTITY = Pattern.compile(
             "(?:number|contact):[0-9a-f]{64}");
 

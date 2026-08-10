@@ -73,6 +73,15 @@ Its communication index now reconciles the authoritative SMS/MMS provider in
 bounded pages after restart and provider changes. A keyed private ledger detects
 edits without storing message text or numbers; deletions and SMS-role loss
 produce monotonic context watermarks rather than leaving stale RAG entries.
+An outgoing Photo Picker attachment is now staged through a signature-only file-
+descriptor bridge using an opaque conversation identity. Draft selection and
+carrier submission cannot publish photo context: the durable MMS journal carries
+an association token, and Media Intelligence publishes its reviewed caption/tags
+only after the carrier-confirmed Sent transition finds exactly one matching local
+media result. Message deletion, photo deletion/trash, provider reconciliation,
+context-store replacement, process restart, and SMS-role loss all converge on a
+durable deletion or rebuild. Cloud-backed or byte-identical ambiguous photos fail
+closed instead of being linked to the wrong source.
 See `docs/mms-transport.md`.
 Incoming calls now resolve their presented number transiently into the same
 opaque communication identity used by Messaging. The receptionist can consume

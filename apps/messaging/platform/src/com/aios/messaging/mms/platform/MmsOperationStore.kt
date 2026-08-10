@@ -21,6 +21,8 @@ internal data class MmsOperationRecord(
     val receivedAtSeconds: Long,
     val expirySeconds: Long,
     val carrierResult: Int,
+    val associationToken: String,
+    val completionReported: Boolean,
     val createdAtMillis: Long,
     val updatedAtMillis: Long,
 )
@@ -43,6 +45,8 @@ internal class MmsOperationStore(context: Context) :
                 received_at_seconds INTEGER NOT NULL,
                 expiry_seconds INTEGER NOT NULL,
                 carrier_result INTEGER NOT NULL,
+                association_token TEXT NOT NULL,
+                completion_reported INTEGER NOT NULL,
                 created_at_millis INTEGER NOT NULL,
                 updated_at_millis INTEGER NOT NULL
             )""".trimIndent(),
@@ -51,7 +55,21 @@ internal class MmsOperationStore(context: Context) :
         database.execSQL("CREATE INDEX operation_state ON operations(state, updated_at_millis)")
     }
 
-    override fun onUpgrade(database: SQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+    override fun onUpgrade(database: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        check(oldVersion in 1 until newVersion && newVersion == VERSION) {
+            "explicit MMS journal migration required"
+        }
+        if (oldVersion < 2) {
+            database.execSQL(
+                "ALTER TABLE operations ADD COLUMN association_token TEXT NOT NULL DEFAULT ''",
+            )
+        }
+        if (oldVersion < 3) {
+            database.execSQL(
+                "ALTER TABLE operations ADD COLUMN completion_reported INTEGER NOT NULL DEFAULT 1",
+            )
+        }
+    }
 
     fun create(record: MmsOperationRecord) {
         check(writableDatabase.insertOrThrow(TABLE, null, values(record)) != -1L)
@@ -160,13 +178,60 @@ internal class MmsOperationStore(context: Context) :
     fun deleteTerminalOlderThan(cutoffMillis: Long) {
         writableDatabase.delete(
             TABLE,
-            "state IN (?,?) AND updated_at_millis<?",
+            "state=? AND updated_at_millis<? OR " +
+                "state=? AND completion_reported=1 AND updated_at_millis<?",
             arrayOf(
-                MmsOperationState.SUCCEEDED.name,
                 MmsOperationState.FAILED.name,
+                cutoffMillis.toString(),
+                MmsOperationState.SUCCEEDED.name,
                 cutoffMillis.toString(),
             ),
         )
+    }
+
+    fun unreportedSuccessful(): List<MmsOperationRecord> = readableDatabase.query(
+        TABLE,
+        PROJECTION,
+        "state=? AND completion_reported=0",
+        arrayOf(MmsOperationState.SUCCEEDED.name),
+        null,
+        null,
+        "updated_at_millis ASC",
+    ).use { cursor -> buildList { while (cursor.moveToNext()) add(record(cursor)) } }
+
+    fun markCompletionReported(token: String) {
+        val values = ContentValues().apply {
+            put("completion_reported", 1)
+            put("updated_at_millis", System.currentTimeMillis())
+        }
+        val changed = writableDatabase.update(
+            TABLE,
+            values,
+            "token=? AND state=? AND completion_reported=0",
+            arrayOf(token, MmsOperationState.SUCCEEDED.name),
+        )
+        check(changed == 1 || get(token)?.completionReported == true) {
+            "MMS completion acknowledgement changed"
+        }
+    }
+
+    fun markMediaAssociationReported(associationToken: String): Boolean {
+        val values = ContentValues().apply {
+            put("completion_reported", 1)
+            put("updated_at_millis", System.currentTimeMillis())
+        }
+        val changed = writableDatabase.update(
+            TABLE,
+            values,
+            "kind=? AND association_token=? AND state=? AND completion_reported=0",
+            arrayOf(
+                MmsOperationKind.SEND.name,
+                associationToken,
+                MmsOperationState.SUCCEEDED.name,
+            ),
+        )
+        check(changed <= 1) { "media association token is not unique" }
+        return changed == 1
     }
 
     private fun values(record: MmsOperationRecord) = ContentValues().apply {
@@ -181,6 +246,8 @@ internal class MmsOperationStore(context: Context) :
         put("received_at_seconds", record.receivedAtSeconds)
         put("expiry_seconds", record.expirySeconds)
         put("carrier_result", record.carrierResult)
+        put("association_token", record.associationToken)
+        put("completion_reported", if (record.completionReported) 1 else 0)
         put("created_at_millis", record.createdAtMillis)
         put("updated_at_millis", record.updatedAtMillis)
     }
@@ -197,13 +264,15 @@ internal class MmsOperationStore(context: Context) :
         receivedAtSeconds = cursor.getLong(8),
         expirySeconds = cursor.getLong(9),
         carrierResult = cursor.getInt(10),
-        createdAtMillis = cursor.getLong(11),
-        updatedAtMillis = cursor.getLong(12),
+        associationToken = cursor.getString(11),
+        completionReported = cursor.getInt(12) != 0,
+        createdAtMillis = cursor.getLong(13),
+        updatedAtMillis = cursor.getLong(14),
     )
 
     private companion object {
         const val DATABASE = "mms_operations.db"
-        const val VERSION = 1
+        const val VERSION = 3
         const val TABLE = "operations"
         const val RECOVERY_FAILURE = -10_001
         val PROJECTION = arrayOf(
@@ -218,6 +287,8 @@ internal class MmsOperationStore(context: Context) :
             "received_at_seconds",
             "expiry_seconds",
             "carrier_result",
+            "association_token",
+            "completion_reported",
             "created_at_millis",
             "updated_at_millis",
         )

@@ -11,15 +11,22 @@ val stageMediaScanMain by tasks.registering(Sync::class) {
     from("../../services/mediaintelligence/src") {
         include(
             "com/aios/mediaintelligence/CaptureCoalescer.java",
+            "com/aios/mediaintelligence/JpegXmpInjector.java",
             "com/aios/mediaintelligence/MediaGenerationReconciler.java",
             "com/aios/mediaintelligence/MediaGenerationScanner.java",
+            "com/aios/mediaintelligence/MediaAssociationPolicy.java",
+            "com/aios/mediaintelligence/MediaContextAssociationService.java",
+            "com/aios/mediaintelligence/MediaContextProjection.java",
+            "com/aios/mediaintelligence/MediaContent.java",
             "com/aios/mediaintelligence/MediaJobStore.java",
             "com/aios/mediaintelligence/MediaLivenessReconciler.java",
             "com/aios/mediaintelligence/MediaLivenessScanner.java",
+            "com/aios/mediaintelligence/MediaMetadataCommitter.java",
             "com/aios/mediaintelligence/MediaObserverService.java",
             "com/aios/mediaintelligence/MediaTiming.java",
             "com/aios/mediaintelligence/MediaTimingSummary.java",
             "com/aios/mediaintelligence/MediaWorkPolicy.java",
+            "com/aios/mediaintelligence/MediaResult.java",
         )
     }
     into(generatedMain)
@@ -29,6 +36,7 @@ val stageMediaScanTest by tasks.registering(Sync::class) {
     from("../../services/mediaintelligence/tests/src") {
         include(
             "com/aios/mediaintelligence/MediaGenerationReconcilerTest.java",
+            "com/aios/mediaintelligence/MediaAssociationPolicyTest.java",
             "com/aios/mediaintelligence/MediaLivenessReconcilerTest.java",
             "com/aios/mediaintelligence/MediaTimingTest.java",
             "com/aios/mediaintelligence/MediaWorkPolicyTest.java",
@@ -53,6 +61,9 @@ android {
         getByName("main") {
             manifest.srcFile("src/main/AndroidManifest.xml")
             java.directories.add(generatedMain.get().asFile.absolutePath)
+            java.directories.add("../../services/contextintelligence/api")
+            aidl.directories.add("../../services/contextintelligence/aidl")
+            aidl.directories.add("../../services/mediaintelligence/aidl")
         }
         getByName("test") {
             java.directories.add(generatedTest.get().asFile.absolutePath)
@@ -62,6 +73,10 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    buildFeatures {
+        aidl = true
     }
 }
 

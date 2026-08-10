@@ -25,6 +25,7 @@ public final class MediaBootReceiver extends BroadcastReceiver {
                     store.recoverInterruptedWork();
                     new MediaMetadataCommitter(application).recover(store);
                 } finally {
+                    MediaContextAssociationService.requestReconcile(application);
                     application.startService(
                             new Intent(application, MediaObserverService.class));
                     MediaInferenceJobService.schedule(

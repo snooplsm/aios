@@ -14,6 +14,7 @@ import android.telephony.TelephonyManager
 import android.util.Base64
 import com.aios.context.ContextDocument
 import com.aios.context.ContextSnippet
+import com.aios.context.ConversationIdentity
 import com.aios.context.ICommunicationContext
 import java.security.SecureRandom
 import java.util.Locale
@@ -21,7 +22,11 @@ import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.min
 
-class CommunicationContextClient(context: Context) {
+class CommunicationContextClient(
+    context: Context,
+    private val onMmsSourceDeleted: (Long) -> Unit = {},
+    private val onMmsSourcesCleared: () -> Unit = {},
+) {
     private val application = context.applicationContext
     private val main = Handler(Looper.getMainLooper())
     private val worker = Executors.newSingleThreadExecutor { work ->
@@ -243,6 +248,21 @@ class CommunicationContextClient(context: Context) {
         }
     }
 
+    fun resolveIdentity(address: String, callback: (ConversationIdentity?) -> Unit) {
+        if (address.isBlank()) {
+            callback(null)
+            return
+        }
+        withService { service ->
+            worker.execute {
+                val identity = runCatching {
+                    service.resolveIdentity(address, countryIso())
+                }.getOrNull()
+                main.post { callback(identity) }
+            }
+        }
+    }
+
     fun close() {
         providerReconciliationEnabled = false
         unregisterObserver()
@@ -384,6 +404,10 @@ class CommunicationContextClient(context: Context) {
                     ledger.nextRevision(System.currentTimeMillis()),
                 )
                 ledger.remove(entry.sourceType, entry.sourceId)
+                if (entry.sourceType == SOURCE_MMS) {
+                    entry.sourceId.toLongOrNull()?.takeIf { it > 0L }
+                        ?.let(onMmsSourceDeleted)
+                }
             }
         }
     }
@@ -391,6 +415,7 @@ class CommunicationContextClient(context: Context) {
     private fun clearProviderContext(service: ICommunicationContext) {
         checkDesiredState(false)
         resetProviderContext(service)
+        onMmsSourcesCleared()
     }
 
     private fun resetProviderContext(service: ICommunicationContext) {

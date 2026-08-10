@@ -2,6 +2,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.aios.mediaintelligence">
 
+    <permission
+        android:name="com.aios.permission.ASSOCIATE_MEDIA_CONTEXT"
+        android:protectionLevel="signature" />
+
     <uses-permission android:name="android.permission.MANAGE_MEDIA" />
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
@@ -20,6 +24,15 @@
         <service
             android:name=".MediaObserverService"
             android:exported="false" />
+
+        <service
+            android:name=".MediaContextAssociationService"
+            android:exported="true"
+            android:permission="com.aios.permission.ASSOCIATE_MEDIA_CONTEXT">
+            <intent-filter>
+                <action android:name="com.aios.media.MEDIA_CONTEXT_ASSOCIATION_SERVICE" />
+            </intent-filter>
+        </service>
 
         <service
             android:name=".MediaInferenceJobService"

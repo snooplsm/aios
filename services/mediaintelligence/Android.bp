@@ -1,8 +1,27 @@
+java_library {
+    name: "aios_media_context_api",
+    srcs: ["aidl/**/*.aidl"],
+    aidl: {
+        include_dirs: [
+            "vendor/aios/services/mediaintelligence/aidl",
+            "vendor/aios/services/contextintelligence/aidl",
+        ],
+    },
+    static_libs: ["aios_context_api"],
+    sdk_version: "system_current",
+    min_sdk_version: "35",
+    installable: false,
+}
+
 android_app {
     name: "AiosMediaIntelligence",
     manifest: "AndroidManifest.xml",
     srcs: ["src/**/*.java"],
-    static_libs: ["aios_model_api"],
+    static_libs: [
+        "aios_context_api",
+        "aios_media_context_api",
+        "aios_model_api",
+    ],
     resource_dirs: [],
     platform_apis: true,
     certificate: "platform",
@@ -19,6 +38,7 @@ java_test_host {
         "src/com/aios/mediaintelligence/JpegXmpInjector.java",
         "src/com/aios/mediaintelligence/MediaGenerationReconciler.java",
         "src/com/aios/mediaintelligence/MediaInputPolicy.java",
+        "src/com/aios/mediaintelligence/MediaAssociationPolicy.java",
         "src/com/aios/mediaintelligence/MediaLivenessReconciler.java",
         "src/com/aios/mediaintelligence/MediaTiming.java",
         "src/com/aios/mediaintelligence/MediaTimingSummary.java",

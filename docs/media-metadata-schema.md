@@ -36,6 +36,12 @@ there is a container-specific writer with equivalent preservation tests.
    concurrent bytes before restoring the original.
 6. Mark `portable_metadata_written=1` in the index only after verification.
 
+The private index retains at most the inference-input digest and the verified
+post-XMP digest as aliases for that same canonical job. This lets an explicitly
+sent picker item match whether it was selected immediately before or after the
+portable commit. Aliases never leave Media Intelligence. If one digest maps to
+more than one current MediaStore job, conversation association fails closed.
+
 No code may equate `ExifInterface` read support with write safety. AndroidX
 documents broad read support but write support only for JPEG, PNG, and WebP, and
 advanced Android photo formats can contain additional images and offset-bearing

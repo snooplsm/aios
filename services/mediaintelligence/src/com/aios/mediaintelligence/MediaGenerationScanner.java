@@ -60,7 +60,9 @@ final class MediaGenerationScanner {
             // Installing AIOS or a provider-database rebuild must not enqueue the
             // owner's entire historical library. An existing cursor whose
             // provider identity changed cannot safely retain URI-keyed results.
-            if (state != null) store.purgeVolume(volumeName);
+            if (state != null && store.purgeVolume(volumeName)) {
+                MediaContextAssociationService.requestReconcile(context);
+            }
             store.writeScanState(
                     volumeName,
                     version,

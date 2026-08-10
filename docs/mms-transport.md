@@ -40,6 +40,13 @@ becoming the production carrier implementation.
    `sendMultimediaMessage`. The explicit immutable callback moves an accepted
    row to Sent or marks the provider row Failed.
 
+The Send action also creates a random media-association token. Messaging passes
+the selected bytes once through a signature-only `ParcelFileDescriptor` API,
+along with an opaque conversation identity; Media Intelligence stores only the
+bounded SHA-256 digest and opaque keys. The MMS journal persists the same token.
+This is staging, not publication. Only the carrier-confirmed Sent event completes
+the association using `mms:<provider-id>` as its lifecycle source.
+
 A process restart never automatically resubmits outbound MMS. A synchronous
 failure before submission may remove its incomplete provider row; after the
 state reaches `SUBMITTED`, the row is retained and marked Failed because the
@@ -58,6 +65,10 @@ a best-effort `NotifyRespInd` acknowledgement.
 Incoming or outgoing content is published to Communication Context only after
 the corresponding provider completion event. The context source type is `mms`,
 and deleting the source message emits its ordered tombstone.
+For an outgoing selected photo, Media Intelligence separately publishes a
+`media_metadata` caption/tag projection only when the staged digest maps to
+exactly one indexed local MediaStore job. A cloud-only picker item or duplicate
+byte-identical local items remain unassociated rather than guessing.
 
 ## Crash and callback rules
 
@@ -67,6 +78,12 @@ restart. `SUBMITTED` work is left pending for 24 hours so a delayed carrier
 callback can complete it, then failed without resubmission. Terminal journal
 rows and unreferenced PDU files are pruned after the same bound. Duplicate or
 mismatched callbacks cannot move a terminal row or erase an active PDU.
+Successful send/download rows remain until completion is acknowledged, and an
+unreported terminal success is replayed after process restart. For an outgoing
+photo, that acknowledgement is withheld until Media Intelligence has
+synchronously persisted the carrier-completed association. Media association
+completion and deletion are idempotent, so replay cannot create a second context
+source.
 
 This policy chooses a visible failed message over a possible duplicate send. It
 does not claim exactly-once delivery from the carrier network.
