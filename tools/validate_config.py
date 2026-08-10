@@ -2137,8 +2137,14 @@ def validate_aosp_overlay(root: Path) -> None:
     require("CALL_UPLINK_VALIDATION_PROPERTY" in call_service
             and "callerInteractionTransportReady()" in call_service
             and "caller_audio_injection_requires_physical_validation" in call_service
-            and "beginCapture(callId, true, knownContact)" in call_service,
+            and "AutomaticAnswerGate.mayAnswer" in call_service
+            and "beginCapture(callId, ownerUid, true, knownContact)" in call_service,
             "AI answer must start capture directly but retain the physical caller-audio gate")
+    require("ownsPresentTelecomCall(ownerUid, context.callId)" in call_service
+            and "ownsPresentTelecomCall(ownerUid, callId)" in call_service
+            and "session.ownedBy(ownerUid)" in call_service
+            and "candidate.ownedBy(ownerUid)" in call_service,
+            "call admission, capture, takeover, and teardown must retain dialer UID ownership")
 
     caller_uplink = (call_source_root / "CallerAudioUplink.java").read_text(
         encoding="utf-8"

@@ -39,11 +39,23 @@ public final class CallIntelligenceService extends Service {
     private static final int MAX_CALLS_PER_LIFECYCLE_TOKEN = 8;
     private static final int MAX_CONTEXT_CALLS = 64;
 
+    private static final class PendingIncomingCall {
+        final int ownerUid;
+        final boolean knownContact;
+        final boolean processingAllowed;
+
+        PendingIncomingCall(int ownerUid, boolean knownContact, boolean processingAllowed) {
+            this.ownerUid = ownerUid;
+            this.knownContact = knownContact;
+            this.processingAllowed = processingAllowed;
+        }
+    }
+
     private final RemoteCallbackList<ICallIntelligenceListener> listeners =
             new RemoteCallbackList<>();
     private final Object listenerBroadcastLock = new Object();
     private final Map<String, ActiveSession> sessions = new HashMap<>();
-    private final Map<String, Boolean> pendingKnownContacts = new HashMap<>();
+    private final Map<String, PendingIncomingCall> pendingIncomingCalls = new HashMap<>();
     private final Map<String, CallCommunicationContextClient.PreparedContext>
             pendingCommunicationContexts = new HashMap<>();
     private final Set<String> contextEligibleCalls = new HashSet<>();
@@ -97,20 +109,31 @@ public final class CallIntelligenceService extends Service {
         @Override
         public CallHandlingDecision evaluateIncoming(IncomingCallContext context) {
             enforceControlPermission();
-            if (context != null && context.callId != null && !context.callId.isEmpty()) {
-                synchronized (sessions) {
-                    if (pendingKnownContacts.size() >= 64) {
-                        pendingKnownContacts.clear();
-                    }
-                    pendingKnownContacts.put(context.callId, context.knownContact);
-                }
+            int ownerUid = android.os.Binder.getCallingUid();
+            if (context == null || context.callId == null || context.callId.isEmpty()
+                    || context.callId.length() > 128) {
+                return deniedDecision("invalid_call_id");
+            }
+            if (!ownsPresentTelecomCall(ownerUid, context.callId)) {
+                return deniedDecision("telecom_call_not_registered");
             }
             CallHandlingDecision decision = currentPolicy().evaluate(context);
-            boolean prepareContext = context != null
-                    && context.callId != null
-                    && !context.callId.isEmpty()
-                    && context.callId.length() <= 128
-                    && !context.emergency
+            if (decision.aiMayAnswer && !AutomaticAnswerGate.mayAnswer(
+                    decision.aiMayAnswer, callerInteractionTransportReady())) {
+                decision = deniedAutomaticAnswerDecision(
+                        decision.processingAllowed, automaticAnswerUnavailableReason());
+            }
+            synchronized (sessions) {
+                if (pendingIncomingCalls.size() >= 64
+                        && !pendingIncomingCalls.containsKey(context.callId)) {
+                    pendingIncomingCalls.clear();
+                }
+                pendingIncomingCalls.put(
+                        context.callId,
+                        new PendingIncomingCall(
+                                ownerUid, context.knownContact, decision.processingAllowed));
+            }
+            boolean prepareContext = !context.emergency
                     && !context.emergencyCallbackMode
                     && decision.processingAllowed
                     && context.transientAddress != null
@@ -149,21 +172,37 @@ public final class CallIntelligenceService extends Service {
         public void onCallAnswered(
                 String callId, boolean answeredByAi, boolean processingAllowed) {
             enforceControlPermission();
-            if (callId == null || callId.isEmpty()) {
+            int ownerUid = android.os.Binder.getCallingUid();
+            if (callId == null || callId.isEmpty() || callId.length() > 128) {
                 notifyStatus(callId, 0, "invalid_call_id");
                 return;
             }
-            boolean knownContact;
-            synchronized (sessions) {
-                knownContact = Boolean.TRUE.equals(pendingKnownContacts.remove(callId));
+            if (!ownsPresentTelecomCall(ownerUid, callId)) {
+                notifyStatus(callId, -8, "telecom_call_not_owned_or_active");
+                return;
             }
-            if (!processingAllowed) {
+            PendingIncomingCall pending;
+            synchronized (sessions) {
+                pending = pendingIncomingCalls.get(callId);
+                if (pending != null && pending.ownerUid == ownerUid) {
+                    pendingIncomingCalls.remove(callId);
+                }
+            }
+            if (pending != null && pending.ownerUid != ownerUid) {
+                notifyStatus(callId, -8, "call_admission_owned_by_another_uid");
+                return;
+            }
+            boolean admittedProcessing = pending == null || pending.processingAllowed;
+            boolean ownerProcessingEnabled = ownerPreferences().getBoolean(
+                    "processing_enabled", false);
+            if (!processingAllowed || !admittedProcessing || !ownerProcessingEnabled) {
                 notifyStatus(callId, 0, "processing_not_allowed");
                 return;
             }
+            boolean knownContact = pending != null && pending.knownContact;
 
             if (!answeredByAi) {
-                beginCapture(callId, false, knownContact);
+                beginCapture(callId, ownerUid, false, knownContact);
                 return;
             }
 
@@ -171,18 +210,20 @@ public final class CallIntelligenceService extends Service {
                 notifyStatus(callId, -4, automaticAnswerUnavailableReason());
                 return;
             }
-            beginCapture(callId, true, knownContact);
+            beginCapture(callId, ownerUid, true, knownContact);
         }
 
         @Override
         public boolean takeOverCall(String callId) {
             enforceControlPermission();
             if (callId == null || callId.isEmpty() || callId.length() > 128) return false;
+            int ownerUid = android.os.Binder.getCallingUid();
             ActiveSession session;
             ActiveSession.TakeoverResult takeover;
             synchronized (sessions) {
                 session = sessions.get(callId);
-                takeover = session == null ? null : session.takeOver();
+                takeover = session == null || !session.ownedBy(ownerUid)
+                        ? null : session.takeOver();
             }
             if (takeover == null) return false;
             takeover.closeAudio();
@@ -202,16 +243,45 @@ public final class CallIntelligenceService extends Service {
         @Override
         public void onCallEnded(String callId, int disconnectCause) {
             enforceControlPermission();
-            ActiveSession ended;
-            CallCommunicationContextClient.PreparedContext pendingContext;
+            if (callId == null || callId.isEmpty() || callId.length() > 128) {
+                notifyStatus(callId, 0, "invalid_call_id");
+                return;
+            }
+            int ownerUid = android.os.Binder.getCallingUid();
+            boolean ownsPresentCall = ownsPresentTelecomCall(ownerUid, callId);
+            ActiveSession ended = null;
+            CallCommunicationContextClient.PreparedContext pendingContext = null;
+            String rejection = null;
+            boolean authorized = ownsPresentCall;
             synchronized (sessions) {
-                pendingKnownContacts.remove(callId);
-                contextEligibleCalls.remove(callId);
-                pendingContext = pendingCommunicationContexts.remove(callId);
-                ended = sessions.remove(callId);
-                if (ended != null && pendingContext != null) {
-                    ended.setCommunicationContext(pendingContext);
+                ActiveSession candidate = sessions.get(callId);
+                if (candidate != null && !candidate.ownedBy(ownerUid)) {
+                    rejection = "call_session_owned_by_another_uid";
+                } else if (candidate != null) {
+                    authorized = true;
                 }
+                if (rejection == null) {
+                    PendingIncomingCall pending = pendingIncomingCalls.get(callId);
+                    if (pending != null && pending.ownerUid == ownerUid) {
+                        pendingIncomingCalls.remove(callId);
+                        authorized = true;
+                    }
+                    if (!authorized) {
+                        rejection = "telecom_call_not_owned_or_active";
+                    }
+                }
+                if (rejection == null) {
+                    contextEligibleCalls.remove(callId);
+                    pendingContext = pendingCommunicationContexts.remove(callId);
+                    ended = sessions.remove(callId);
+                    if (ended != null && pendingContext != null) {
+                        ended.setCommunicationContext(pendingContext);
+                    }
+                }
+            }
+            if (rejection != null) {
+                notifyStatus(callId, -8, rejection);
+                return;
             }
             classifier.endCall(callId);
             receptionist.endCall(callId);
@@ -368,7 +438,7 @@ public final class CallIntelligenceService extends Service {
     public void onDestroy() {
         stopTelecomPresenceTracking();
         synchronized (sessions) {
-            pendingKnownContacts.clear();
+            pendingIncomingCalls.clear();
             pendingCommunicationContexts.clear();
             contextEligibleCalls.clear();
             for (ActiveSession session : sessions.values()) {
@@ -393,6 +463,27 @@ public final class CallIntelligenceService extends Service {
                 preferences.getLong("missed_delay_ms", DEFAULT_MISSED_DELAY_MILLIS),
                 preferences.getString("answer_delay_mode", AnswerDelayPolicy.DEFAULT_MODE),
                 preferences.getBoolean("processing_enabled", false));
+    }
+
+    private static CallHandlingDecision deniedDecision(String reason) {
+        CallHandlingDecision value = new CallHandlingDecision();
+        value.action = CallHandlingDecision.ACTION_BYPASS_AI;
+        value.answerDelayMillis = 0L;
+        value.aiMayAnswer = false;
+        value.processingAllowed = false;
+        value.reason = reason;
+        return value;
+    }
+
+    private static CallHandlingDecision deniedAutomaticAnswerDecision(
+            boolean processingAllowed, String reason) {
+        CallHandlingDecision value = new CallHandlingDecision();
+        value.action = CallHandlingDecision.ACTION_RING_OWNER;
+        value.answerDelayMillis = 0L;
+        value.aiMayAnswer = false;
+        value.processingAllowed = processingAllowed;
+        value.reason = reason;
+        return value;
     }
 
     private SharedPreferences ownerPreferences() {
@@ -453,10 +544,11 @@ public final class CallIntelligenceService extends Service {
         return "caller_interaction_transport_unavailable";
     }
 
-    private void beginCapture(String callId, boolean answeredByAi, boolean knownContact) {
+    private void beginCapture(
+            String callId, int ownerUid, boolean answeredByAi, boolean knownContact) {
         ActiveSession started;
         synchronized (sessions) {
-            started = beginCaptureLocked(callId, answeredByAi, knownContact);
+            started = beginCaptureLocked(callId, ownerUid, answeredByAi, knownContact);
         }
         if (started != null) {
             publishAssessment(callId, started, started.initialAssessment());
@@ -472,7 +564,7 @@ public final class CallIntelligenceService extends Service {
     }
 
     private ActiveSession beginCaptureLocked(
-            String callId, boolean answeredByAi, boolean knownContact) {
+            String callId, int ownerUid, boolean answeredByAi, boolean knownContact) {
         if (sessions.containsKey(callId)) {
             notifyStatus(callId, 1, "capture_already_started");
             return null;
@@ -497,7 +589,7 @@ public final class CallIntelligenceService extends Service {
                             stored.openUplink(), sink(uplinkAsr)));
             ActiveSession active = new ActiveSession(
                     stored, capture, downlinkAsr, uplinkAsr,
-                    new SpamRiskEngine(knownContact), answeredByAi, knownContact,
+                    new SpamRiskEngine(knownContact), ownerUid, answeredByAi, knownContact,
                     preparedContext);
             sessions.put(callId, active);
             if (answeredByAi) {
@@ -530,6 +622,12 @@ public final class CallIntelligenceService extends Service {
 
     private void enforceControlPermission() {
         enforceCallingOrSelfPermission(PERMISSION_CONTROL, "unauthorized dialer caller");
+    }
+
+    private boolean ownsPresentTelecomCall(int ownerUid, String callId) {
+        synchronized (telecomPresenceLock) {
+            return !telecomPresenceStopping && telecomPresence.ownsCall(ownerUid, callId);
+        }
     }
 
     private void updateTelecomPresence(
@@ -1009,6 +1107,7 @@ public final class CallIntelligenceService extends Service {
         private final AsrBrokerClient.Stream uplinkAsr;
         private final RiskAssessmentTracker risk;
         private final AssistantHandlingTracker assistantHandling;
+        private final int ownerUid;
         private final boolean knownContact;
         private final AssistantTurnQueue turnQueue = new AssistantTurnQueue();
         private final CallContextAccumulator communicationSummary =
@@ -1025,6 +1124,7 @@ public final class CallIntelligenceService extends Service {
                 AsrBrokerClient.Stream downlinkAsr,
                 AsrBrokerClient.Stream uplinkAsr,
                 SpamRiskEngine risk,
+                int ownerUid,
                 boolean answeredByAi,
                 boolean knownContact,
                 CallCommunicationContextClient.PreparedContext communicationContext) {
@@ -1033,6 +1133,7 @@ public final class CallIntelligenceService extends Service {
             this.downlinkAsr = downlinkAsr;
             this.uplinkAsr = uplinkAsr;
             this.risk = new RiskAssessmentTracker(risk);
+            this.ownerUid = ownerUid;
             assistantHandling = new AssistantHandlingTracker(answeredByAi);
             this.knownContact = knownContact;
             this.communicationContext = communicationContext;
@@ -1091,6 +1192,10 @@ public final class CallIntelligenceService extends Service {
 
         synchronized boolean isOpen() {
             return !closed;
+        }
+
+        synchronized boolean ownedBy(int candidateUid) {
+            return ownerUid == candidateUid;
         }
 
         synchronized TakeoverResult takeOver() {

@@ -53,6 +53,25 @@ public final class TelecomCallPresenceTrackerTest {
     }
 
     @Test
+    public void callOwnershipIsBoundToUidAcrossTokens() {
+        TelecomCallPresenceTracker<Object> tracker = new TelecomCallPresenceTracker<>(4, 8);
+        Object first = new Object();
+        Object sameUid = new Object();
+        Object otherUid = new Object();
+        tracker.setPresent(first, 100, "call", true);
+
+        assertTrue(tracker.ownsCall(100, "call"));
+        assertFalse(tracker.ownsCall(101, "call"));
+        assertFalse(tracker.ownsCall(100, "missing"));
+        assertFalse(tracker.setPresent(sameUid, 100, "call", true));
+        assertEquals(2, tracker.totalCalls());
+
+        assertSecurityException(() -> tracker.setPresent(otherUid, 101, "call", true));
+        assertEquals(2, tracker.totalCalls());
+        assertEquals(2, tracker.tokenCount());
+    }
+
+    @Test
     public void perTokenBoundRejectsAdditionalCallWithoutLosingState() {
         TelecomCallPresenceTracker<Object> tracker = new TelecomCallPresenceTracker<>(4, 2);
         Object token = new Object();

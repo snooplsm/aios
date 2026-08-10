@@ -68,6 +68,11 @@ ringing, outgoing, active, waiting, held, and conference calls independently
 balanced. A Call Intelligence rebind replays the current set before new policy
 requests. This call-presence signal is what preempts media inference; capture and
 transcription sessions remain optional work within that protected interval.
+Call IDs cannot be claimed by two different UIDs. Evaluation and capture require
+the calling UID to own the live call, and each capture session retains that UID
+for takeover and terminal cleanup. The dialer asks Call Intelligence to finalize
+the artifact before releasing its presence assertion; Binder death remains the
+fallback that clears a crashed dialer's full presence set.
 
 ## Live call assessment
 
@@ -111,6 +116,11 @@ Emergency calls and emergency callback mode always bypass AI. Automatic answer
 also fails closed unless call processing is enabled and the service reports that
 the caller-audio interaction transport is ready. The setting may be configured
 in advance, but it cannot override those runtime safety gates.
+
+The readiness check is part of each incoming-call decision, before the dialer
+schedules or performs a Telecom answer. If readiness disappears after that
+decision, `onCallAnswered` checks it again before starting receptionist audio.
+This closes both the pre-answer admission window and the post-answer race.
 
 Owner intent wins over every delayed automatic-answer callback. AIOS Phone
 revokes the per-call reservation synchronously before its **Answer** or

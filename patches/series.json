@@ -6,7 +6,7 @@
       "project": "packages/apps/Dialer",
       "file": "0001-dialer-aios-call-assistant.patch",
       "base_revision": "768ed834ced557e2d42476757776a26c68fed656",
-      "sha256": "0b9af3f85d212f810ffaed6d7d3e6643a78bf72a6814ad9834dfed9260a163ac",
+      "sha256": "8e912d217b221f81b3d965688a1045805182eb9bd421b55518f9d9bfdce223b9",
       "owner": "call-platform",
       "paths": [
         "Android.bp",

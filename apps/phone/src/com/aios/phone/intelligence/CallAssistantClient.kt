@@ -289,10 +289,15 @@ class CallAssistantClient(
         val service = remote ?: return
         worker.execute {
             try {
-                service.setTelecomCallPresent(telecomLifecycleToken, callId, false)
                 service.onCallEnded(callId, disconnectCause)
             } catch (_: Exception) {
                 // Telephony has already ended; cleanup is best effort here.
+            } finally {
+                try {
+                    service.setTelecomCallPresent(telecomLifecycleToken, callId, false)
+                } catch (_: Exception) {
+                    // Binder death also releases every call owned by this lifecycle token.
+                }
             }
         }
     }

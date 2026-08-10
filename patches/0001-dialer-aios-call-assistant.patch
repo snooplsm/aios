@@ -195,17 +195,18 @@ index 0000000..577dab6
 +    CallSession session = new CallSession(call);
 +    sessions.put(call.getId(), session);
 +    call.addListener(session);
++    setCallPresent(call.getUniqueCallId(), true);
 +    session.evaluateIfPossible();
 +  }
 +
 +  @Override
 +  public void onDisconnect(DialerCall call) {
-+    if (call != null) {
-+      setCallPresent(call.getUniqueCallId(), false);
-+    }
 +    CallSession session = call == null ? null : sessions.remove(call.getId());
 +    if (session != null) {
 +      session.end(call.getDisconnectCause().getCode());
++    }
++    if (call != null) {
++      setCallPresent(call.getUniqueCallId(), false);
 +    }
 +  }
 +
@@ -220,13 +221,13 @@ index 0000000..577dab6
 +      callList = null;
 +    }
 +    IAiosCallIntelligence remote = service;
-+    Set<String> closingCallIds = new HashSet<>(presentCallIds);
-+    presentCallIds.clear();
-+    announceCallPresence(remote, closingCallIds, false);
 +    for (CallSession session : sessions.values()) {
 +      session.end(android.telecom.DisconnectCause.UNKNOWN);
 +    }
 +    sessions.clear();
++    Set<String> closingCallIds = new HashSet<>(presentCallIds);
++    presentCallIds.clear();
++    announceCallPresence(remote, closingCallIds, false);
 +    if (bound) {
 +      context.unbindService(connection);
 +      bound = false;
@@ -364,7 +365,11 @@ index 0000000..577dab6
 +              main.post(() -> applyDecision(result));
 +            } catch (RemoteException | RuntimeException error) {
 +              LogUtil.w("AiosCallAssistant.evaluate", "policy evaluation failed");
-+              main.post(this::cancelPendingAnswer);
++              main.post(
++                  () -> {
++                    evaluationStarted = false;
++                    cancelPendingAnswer();
++                  });
 +            }
 +          });
 +    }

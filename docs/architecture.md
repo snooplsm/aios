@@ -117,6 +117,10 @@ death and automatically returns to the non-call state when the final token dies,
 so a Call Intelligence crash cannot leave media inference permanently blocked.
 Foreground inference sessions also preempt media for their own bounded lifetime,
 but they are not the source of truth for whether a phone call exists.
+The same presence registry binds each opaque call ID to its asserting UID.
+Incoming evaluation and capture require a currently owned call, while an active
+capture retains that owner for takeover and teardown. A second platform-signed
+dialer therefore cannot collide with or terminate another dialer's AI session.
 
 Initial execution uses LiteRT-LM for supported Gemma mobile artifacts and a
 separate runtime adapter for streaming ASR. Backends are discovered and

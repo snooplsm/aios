@@ -40,6 +40,10 @@ final class TelecomCallPresenceTracker<T> {
             throw new SecurityException("Telecom lifecycle token is owned by another UID");
         }
         if (present) {
+            Integer existingCallOwner = ownerUidForCall(callId);
+            if (existingCallOwner != null && existingCallOwner != ownerUid) {
+                throw new SecurityException("Telecom call ID is owned by another UID");
+            }
             if (calls == null) {
                 if (clients.size() >= maxTokens) {
                     throw new IllegalStateException("too many Telecom lifecycle tokens");
@@ -79,6 +83,11 @@ final class TelecomCallPresenceTracker<T> {
         return calls == null ? null : calls.ownerUid;
     }
 
+    synchronized boolean ownsCall(int ownerUid, String callId) {
+        Integer existingOwner = ownerUidForCall(callId);
+        return existingOwner != null && existingOwner == ownerUid;
+    }
+
     synchronized boolean isActive() {
         return totalCalls > 0;
     }
@@ -94,5 +103,14 @@ final class TelecomCallPresenceTracker<T> {
     synchronized void clear() {
         clients.clear();
         totalCalls = 0;
+    }
+
+    private Integer ownerUidForCall(String callId) {
+        for (ClientCalls calls : clients.values()) {
+            if (calls.callIds.contains(callId)) {
+                return calls.ownerUid;
+            }
+        }
+        return null;
     }
 }

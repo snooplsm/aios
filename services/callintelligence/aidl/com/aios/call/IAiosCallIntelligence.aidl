@@ -16,6 +16,8 @@ interface IAiosCallIntelligence {
     /**
      * Assert opaque Telecom call presence independently of whether AI processing
      * is enabled. All calls owned by a token are removed if its process dies.
+     * Answer, takeover, and terminal operations are accepted only from the UID
+     * that owns the corresponding live call/session.
      */
     void setTelecomCallPresent(
         in IBinder lifecycleToken,
