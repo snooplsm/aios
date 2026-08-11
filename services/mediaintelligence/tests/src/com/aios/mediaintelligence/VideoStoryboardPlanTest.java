@@ -1,6 +1,7 @@
 package com.aios.mediaintelligence;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -28,6 +29,14 @@ public final class VideoStoryboardPlanTest {
             assertTrue(times[index] < durationMillis * 1_000L);
             if (index > 0) assertTrue(times[index] > times[index - 1]);
         }
+    }
+
+    @Test
+    public void storyboardRequiresAllTwentySamples() {
+        assertTrue(VideoStoryboardPlan.hasCompleteSampleSet(20));
+        assertFalse(VideoStoryboardPlan.hasCompleteSampleSet(0));
+        assertFalse(VideoStoryboardPlan.hasCompleteSampleSet(19));
+        assertFalse(VideoStoryboardPlan.hasCompleteSampleSet(21));
     }
 
     @Test

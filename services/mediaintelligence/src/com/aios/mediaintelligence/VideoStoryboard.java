@@ -114,8 +114,11 @@ final class VideoStoryboard {
                         frame.recycle();
                     }
                 }
-                if (extractedFrames == 0) {
-                    throw new InvalidVideoException("video yielded no decodable storyboard frame");
+                if (!VideoStoryboardPlan.hasCompleteSampleSet(extractedFrames)) {
+                    throw new InvalidVideoException(
+                            "video yielded " + extractedFrames + " of "
+                                    + VideoStoryboardPlan.sampleCount()
+                                    + " required storyboard frames");
                 }
                 requireAvailable(constraints);
                 output = File.createTempFile(FILE_PREFIX, ".jpg", context.getCacheDir());

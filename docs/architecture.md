@@ -297,7 +297,9 @@ A video has separate bounded visual and audio passes. Media Intelligence seeks
 the nearest sync frame at the midpoint of each of twenty equal-duration
 segments, scales each frame to a maximum 224-pixel edge, lays the frames
 chronologically into one 5×4 private JPEG storyboard, and submits that single
-image using `video_understanding`. The visual prompt says it has sampled frames
+image using `video_understanding`. Every cell must contain a decoded frame; an
+incomplete extraction fails rather than sending black cells while claiming
+twenty samples. The visual prompt says it has sampled frames
 and cannot infer unheard audio.
 
 The complete primary audio track is decoded read-only with `MediaExtractor` and

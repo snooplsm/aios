@@ -20,6 +20,10 @@ final class VideoStoryboardPlan {
         return SAMPLE_COUNT;
     }
 
+    static boolean hasCompleteSampleSet(int extractedFrames) {
+        return extractedFrames == SAMPLE_COUNT;
+    }
+
     static long[] sampleTimesUs(long durationMillis) {
         if (durationMillis <= 0L || durationMillis > Long.MAX_VALUE / 1_000L) {
             throw new IllegalArgumentException("video duration must be positive");

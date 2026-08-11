@@ -4688,12 +4688,15 @@ def validate_aosp_overlay(root: Path) -> None:
             and "GRID_COLUMNS = 5" in storyboard_source
             and "GRID_ROWS = 4" in storyboard_source
             and "getScaledFrameAtTime" in storyboard_source
+            and "VideoStoryboardPlan.hasCompleteSampleSet(extractedFrames)"
+            in storyboard_source
             and "requireAvailable(constraints)" in storyboard_source
             and "eraseCached(context)" in storyboard_source
             and "stream.getFD().sync()" in storyboard_source
             and "samplesTwentyChronologicalSegmentMidpoints" in storyboard_plan_test
+            and "storyboardRequiresAllTwentySamples" in storyboard_plan_test
             and "scalingBoundsLandscapePortraitAndRotation" in storyboard_plan_test,
-            "video storyboards must sample twenty bounded keyframes with constraint checks")
+            "video storyboards must require twenty bounded keyframes with constraint checks")
     require("VideoStoryboard.InvalidVideoException" in job_source
             and "store.markFailed(job.id)" in job_source,
             "undecodable videos must fail permanently rather than retry forever")

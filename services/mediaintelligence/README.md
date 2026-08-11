@@ -14,6 +14,11 @@ streaming PCM16 mono through the bilingual Whisper provider. Final timestamped
 subtitle segments are stored in an app-private FTS index and cascade-delete with
 the source. Neither subtitle text nor raw audio is written during automatic
 indexing.
+
+If any of the twenty requested sync-frame positions cannot be decoded, the
+storyboard fails closed instead of submitting black cells under a prompt that
+claims all twenty frames are present.
+
 Immediate isolated photos do not require external power, but calls and severe
 thermal pressure preempt them too.
 

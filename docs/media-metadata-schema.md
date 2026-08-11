@@ -64,6 +64,11 @@ or fails. Boot recovery and the next video attempt also erase leftovers from a
 process crash. The authoritative record is still bound to the original video's
 MediaStore ID, generation, and SHA-256 digest.
 
+All twenty cells are required. A null decode at any requested position rejects
+the storyboard instead of silently replacing claimed video context with a black
+cell. The model therefore never receives a partial grid under a prompt that says
+it contains twenty sampled frames.
+
 The worker also selects the primary/default audio track and decodes its complete
 timeline without remuxing the source. Decoded buffers are downmixed and resampled
 to streaming PCM16 mono at 16 kHz, with presentation-time gaps represented as
