@@ -1,5 +1,8 @@
 param(
-    [ValidateSet("home", "recents", "voicemail", "settings", "incoming", "active-ai")]
+    [ValidateSet(
+        "home", "recents", "voicemail", "settings", "incoming", "incoming-spam",
+        "active-ai", "active-spanish"
+    )]
     [string]$Scenario = "home",
     [ValidateSet("system", "light", "dark")]
     [string]$Theme = "system",
@@ -78,7 +81,9 @@ $expectedText = @{
     voicemail = "Download audio"
     settings = "Phone settings"
     incoming = "Incoming call"
+    "incoming-spam" = "High-risk call"
     "active-ai" = "AI receptionist is handling this call"
+    "active-spanish" = "Cliente nuevo"
 }[$Scenario]
 $token = [Guid]::NewGuid().ToString("N")
 $remoteUi = "/sdcard/aios-phone-preview-$token.xml"
@@ -104,7 +109,7 @@ try {
     if ($null -eq $hierarchy) {
         throw "Preview scenario '$Scenario' did not render '$expectedText'"
     }
-    if ($Scenario -eq "incoming") {
+    if ($Scenario -in @("incoming", "incoming-spam")) {
         $ai = @($hierarchy.SelectNodes('//node') | Where-Object { $_.text -eq "AI" })
         if ($ai.Count -ne 1 -or $null -eq $ai[0].ParentNode -or
             $ai[0].ParentNode.enabled -ne "true") {

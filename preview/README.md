@@ -152,16 +152,20 @@ screen, verifies the expected Compose content, and saves an ignored screenshot:
 
 ```powershell
 ./scripts/show-phone-preview.ps1 -Scenario incoming -Theme dark
+./scripts/show-phone-preview.ps1 -Scenario incoming-spam -Theme dark
 ./scripts/show-phone-preview.ps1 -Scenario active-ai -Theme light
+./scripts/show-phone-preview.ps1 -Scenario active-spanish -Theme light
 ./scripts/show-phone-preview.ps1 -Scenario recents -SkipBuild
 ```
 
 Supported scenarios are `home`, `recents`, `voicemail`, `settings`, `incoming`,
-and `active-ai`. The incoming visual scenario deliberately enables the **AI**
-button so its transition can be designed; this is simulated UI state and does
-not claim stock-Android caller-audio access. The real emulator Telecom smoke
-test continues to fail that action closed until the physical caller-uplink gate
-passes.
+`incoming-spam`, `active-ai`, and `active-spanish`. The incoming visual scenarios
+deliberately enable the **AI** button so its transition can be designed;
+`incoming-spam` renders the production high-risk classifier surface and
+`active-spanish` renders a complete Spanish caller/assistant transcript. These
+are simulated UI states and do not claim stock-Android caller-audio access. The
+real emulator Telecom smoke test continues to fail the AI action closed until
+the physical caller-uplink gate passes.
 
 The preview follows the device theme by default and also provides explicit
 Light and Dark selections in Settings. Simulated voicemail never opens a real

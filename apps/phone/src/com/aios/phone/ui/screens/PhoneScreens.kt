@@ -372,6 +372,7 @@ fun InCallScreen(
                 Button(onClick = close) { Text("Close") }
                 return@Column
             }
+            val aiHandling = state.assistantCalls[selected.id]?.aiHandling == true
 
             Text(callStateLabel(selected.state), color = MaterialTheme.colorScheme.primary)
             Text(selected.displayName, style = MaterialTheme.typography.headlineMedium,
@@ -382,7 +383,7 @@ fun InCallScreen(
                 VideoCallSurfaces(selected, dispatch)
             }
 
-            state.assistantCalls[selected.id]?.takeIf { it.aiHandling }?.let {
+            if (aiHandling) {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(
@@ -590,7 +591,12 @@ fun InCallScreen(
                             )
                         }
                         transcript.takeLast(6).forEach { line ->
-                            Text("${if (line.direction == "downlink") "Caller" else "You"}: ${line.text}")
+                            val speaker = when {
+                                line.direction == "downlink" -> "Caller"
+                                aiHandling -> "AI"
+                                else -> "You"
+                            }
+                            Text("$speaker: ${line.text}")
                         }
                     }
                 }

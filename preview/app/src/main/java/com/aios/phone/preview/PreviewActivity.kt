@@ -42,7 +42,9 @@ class PreviewActivity : ComponentActivity() {
         VOICEMAIL("voicemail"),
         SETTINGS("settings"),
         INCOMING("incoming"),
-        ACTIVE_AI("active-ai");
+        INCOMING_SPAM("incoming-spam"),
+        ACTIVE_AI("active-ai"),
+        ACTIVE_SPANISH("active-spanish");
 
         companion object {
             fun fromWire(value: String?): Scenario =
@@ -59,7 +61,11 @@ class PreviewActivity : ComponentActivity() {
         state = mockState(scenario).copy(themePreference = requestedTheme())
         screen = when (scenario) {
             Scenario.SETTINGS -> Screen.SETTINGS
-            Scenario.INCOMING, Scenario.ACTIVE_AI -> Screen.CALL
+            Scenario.INCOMING,
+            Scenario.INCOMING_SPAM,
+            Scenario.ACTIVE_AI,
+            Scenario.ACTIVE_SPANISH,
+            -> Screen.CALL
             else -> Screen.HOME
         }
         state = state.copy(
@@ -392,10 +398,64 @@ class PreviewActivity : ComponentActivity() {
             Scenario.VOICEMAIL -> quiet.copy(homeSection = HomeSection.VOICEMAIL)
             Scenario.SETTINGS -> quiet
             Scenario.ACTIVE_AI -> base
-            Scenario.INCOMING -> {
+            Scenario.ACTIVE_SPANISH -> {
+                val call = primary.copy(
+                    displayName = "Cliente nuevo",
+                    address = "••• ••• 4402",
+                    conferenceableIds = emptyList(),
+                )
+                base.copy(
+                    calls = listOf(call),
+                    selectedCallId = call.id,
+                    transcripts = mapOf(
+                        call.id to listOf(
+                            TranscriptUiState(
+                                "downlink",
+                                "es",
+                                "Hola, necesito una cotización para reparar una fuga.",
+                                true,
+                                0,
+                            ),
+                            TranscriptUiState(
+                                "uplink",
+                                "es",
+                                "Claro. ¿Cuál es la dirección del trabajo?",
+                                true,
+                                3_100,
+                            ),
+                            TranscriptUiState(
+                                "downlink",
+                                "es",
+                                "Es en la calle Franklin.",
+                                true,
+                                6_400,
+                            ),
+                        ),
+                    ),
+                    risks = mapOf(
+                        call.id to RiskUiState(
+                            score = 6,
+                            label = CallRiskLabel.LIKELY_LEGITIMATE,
+                            reasonCode = "service_request",
+                            source = CallRiskSource.MODEL,
+                            revision = 3,
+                            observedAtEpochMillis = System.currentTimeMillis(),
+                        ),
+                    ),
+                    assistantCalls = mapOf(
+                        call.id to AssistantCallUiState(
+                            aiHandling = true,
+                            revision = 1,
+                            observedAtEpochMillis = System.currentTimeMillis(),
+                        ),
+                    ),
+                )
+            }
+            Scenario.INCOMING, Scenario.INCOMING_SPAM -> {
+                val spam = scenario == Scenario.INCOMING_SPAM
                 val incoming = primary.copy(
-                    displayName = "New customer",
-                    address = "••• ••• 7741",
+                    displayName = if (spam) "Potential scam" else "New customer",
+                    address = if (spam) "••• ••• 9921" else "••• ••• 7741",
                     state = Call.STATE_RINGING,
                     connectTimeMillis = 0L,
                     conferenceableIds = emptyList(),
@@ -405,10 +465,22 @@ class PreviewActivity : ComponentActivity() {
                     selectedCallId = incoming.id,
                     risks = mapOf(
                         incoming.id to RiskUiState(
-                            score = 0,
-                            label = CallRiskLabel.UNKNOWN,
-                            reasonCode = "insufficient_evidence",
-                            source = CallRiskSource.HEURISTIC,
+                            score = if (spam) 92 else 0,
+                            label = if (spam) {
+                                CallRiskLabel.HIGH_RISK
+                            } else {
+                                CallRiskLabel.UNKNOWN
+                            },
+                            reasonCode = if (spam) {
+                                "credential_request"
+                            } else {
+                                "insufficient_evidence"
+                            },
+                            source = if (spam) {
+                                CallRiskSource.MODEL
+                            } else {
+                                CallRiskSource.HEURISTIC
+                            },
                             revision = 1,
                             observedAtEpochMillis = System.currentTimeMillis(),
                         ),
