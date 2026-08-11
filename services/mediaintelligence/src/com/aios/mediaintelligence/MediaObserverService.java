@@ -41,8 +41,8 @@ public final class MediaObserverService extends Service {
                     reconcileExactSource(uri);
                     // Collection notifications, pending-row deletion, and
                     // provider-specific URI shapes are recovered by the scan.
-                    requestReconcile(CaptureCoalescer.QUIET_PERIOD_MILLIS);
-                    requestLivenessBatch(CaptureCoalescer.QUIET_PERIOD_MILLIS);
+                    requestReconcile(MediaCaptureGrouping.CAPTURE_SESSION_GAP_MILLIS);
+                    requestLivenessBatch(MediaCaptureGrouping.CAPTURE_SESSION_GAP_MILLIS);
                 });
             }
         }

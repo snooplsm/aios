@@ -12,6 +12,12 @@ content hashing, JPEG preparation, twenty-keyframe video extraction, storyboard
 composition, complete primary-audio decode/Whisper transcription, subtitle-index
 commit, or time intentionally deferred while a call is
 active or the phone is not charging at 80% or higher.
+The settle window also defines capture sessions: chronologically adjacent photos
+at most five seconds apart are deferred together. Reconciliation page size is
+not a burst signal, so unrelated singleton photos recovered in one complete scan
+can still contribute prompt-photo latency samples. Generation order cannot prove
+capture-time order across an unknown page boundary, so every photo on such a
+page remains conservatively deferred.
 
 Media Intelligence separately retains the latest 100 completed photo timings and
 100 completed video timings. Its debug-only snapshot reports p50 and p95 for:

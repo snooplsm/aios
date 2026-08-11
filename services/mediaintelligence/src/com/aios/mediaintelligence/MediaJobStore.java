@@ -269,7 +269,7 @@ final class MediaJobStore extends SQLiteOpenHelper {
                         + " END");
     }
 
-    void enqueue(CaptureCoalescer.ObservedMedia media, int workClass) {
+    void enqueue(ObservedMedia media, int workClass) {
         ContentValues values = new ContentValues();
         values.put("media_uri", media.uri);
         values.put("generation", media.generation);

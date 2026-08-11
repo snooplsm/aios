@@ -10,6 +10,7 @@ import android.provider.MediaStore;
 import android.util.Log;
 
 import java.util.ArrayList;
+import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 
@@ -88,13 +89,22 @@ final class MediaGenerationScanner {
         }
         boolean immediate = false;
         boolean deferred = false;
+        ArrayList<MediaCaptureGrouping.Item> captureItems = new ArrayList<>();
         for (MediaGenerationReconciler.Row row : unsuppressed) {
-            CaptureCoalescer.ObservedMedia media = new CaptureCoalescer.ObservedMedia(
+            captureItems.add(new MediaCaptureGrouping.Item(
+                    row.uri, row.mimeType, row.observedAtEpochMillis));
+        }
+        Map<String, Integer> workClasses = MediaCaptureGrouping.classify(
+                captureItems,
+                state.mediaId != MediaGenerationReconciler.END_OF_GENERATION,
+                plan.more || plan.blockedByPendingItem);
+        for (MediaGenerationReconciler.Row row : unsuppressed) {
+            ObservedMedia media = new ObservedMedia(
                     row.uri,
                     row.generationModified,
                     row.mimeType,
                     row.observedAtEpochMillis);
-            int workClass = MediaWorkPolicy.schedulingClass(row.mimeType, unsuppressed.size());
+            int workClass = workClasses.get(row.uri);
             store.enqueue(media, workClass);
             immediate |= workClass == MediaWorkPolicy.CLASS_IMMEDIATE;
             deferred |= workClass == MediaWorkPolicy.CLASS_DEFERRED;

@@ -3342,11 +3342,19 @@ def validate_aosp_overlay(root: Path) -> None:
     observer_source = (media_source_root / "MediaObserverService.java").read_text(
         encoding="utf-8"
     )
+    capture_grouping = (media_source_root / "MediaCaptureGrouping.java").read_text(
+        encoding="utf-8"
+    )
+    capture_grouping_test = (
+        root / "services" / "mediaintelligence" / "tests" / "src" / "com" /
+        "aios" / "mediaintelligence" / "MediaCaptureGroupingTest.java"
+    ).read_text(encoding="utf-8")
     require("MediaStore.Images.Media.EXTERNAL_CONTENT_URI" in observer_source,
             "media service must observe images from all camera apps")
     require("MediaStore.Video.Media.EXTERNAL_CONTENT_URI" in observer_source,
             "media service must observe videos")
-    require("requestReconcile(CaptureCoalescer.QUIET_PERIOD_MILLIS)" in observer_source
+    require("requestReconcile(MediaCaptureGrouping.CAPTURE_SESSION_GAP_MILLIS)"
+            in observer_source
             and "reconcileExactSource" in observer_source,
             "media observer must debounce generation scans and remove deleted or trashed items")
     require("initializeObservation" in observer_source
@@ -3374,6 +3382,22 @@ def validate_aosp_overlay(root: Path) -> None:
             and "shouldSuppressOwnMutation" in generation_scanner
             and "MAX_ROWS_PER_VOLUME = 512" in generation_scanner,
             "media recovery must use bounded settled, non-trashed generation scans")
+    require("MediaCaptureGrouping.classify(" in generation_scanner
+            and "plan.more || plan.blockedByPendingItem" in generation_scanner
+            and "state.mediaId != MediaGenerationReconciler.END_OF_GENERATION"
+            in generation_scanner
+            and "CAPTURE_SESSION_GAP_MILLIS = 5_000L" in capture_grouping
+            and "groupEnd - groupStart" in capture_grouping
+            and "continuationFromPreviousPage" in capture_grouping
+            and "continuesOnFollowingPage" in capture_grouping
+            and "unrelatedSettledPhotosRemainImmediate" in capture_grouping_test
+            and "chainedCaptureSessionAndEveryVideoAreDeferred"
+            in capture_grouping_test
+            and "fiveSecondGapIsOneSessionButLongerGapIsNot"
+            in capture_grouping_test
+            and "unknownPageBoundariesFailEveryPhotoClosed"
+            in capture_grouping_test,
+            "media work classes must follow capture timing rather than reconciliation page size")
     require("END_OF_GENERATION" in generation_reconciler
             and "thenComparingLong(row -> row.mediaId)" in generation_reconciler
             and "pendingInsertCannotBeSkipped" in generation_test
@@ -3431,6 +3455,8 @@ def validate_aosp_overlay(root: Path) -> None:
             in media_preview_build
             and 'resource_dirs: ["res"]' in media_bp
             and '"src/com/aios/mediaintelligence/MediaInferenceAttempt.java"'
+            in media_bp
+            and '"src/com/aios/mediaintelligence/MediaCaptureGrouping.java"'
             in media_bp
             and '"src/com/aios/mediaintelligence/MediaJobCommitFence.java"'
             in media_bp

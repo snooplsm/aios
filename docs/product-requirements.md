@@ -117,6 +117,12 @@ camera application that created them.
 - A single settled photo may be processed promptly when the call pipeline is
   idle and the device is thermally healthy.
 - Bursts, sustained capture sessions, and all video jobs are deferred.
+- Photo capture sessions are derived from chronological MediaStore observation
+  times, not from reconciliation page size: consecutive photos no more than five
+  seconds apart form one session. Unrelated singleton photos in the same
+  complete recovery scan remain eligible for prompt work. If a scan has an
+  unknown preceding or following page, all photos in that page fail closed to
+  deferred because generation order does not prove capture-time order.
 - Deferred jobs require external power and battery level of at least 80%.
 - Each video uses twenty nearest-sync keyframes sampled uniformly across time
   and composed into one bounded 5×4 storyboard; AIOS never sends every frame.
