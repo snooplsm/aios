@@ -31,6 +31,7 @@ import com.aios.phone.model.PhoneAction
 import com.aios.phone.model.PhoneUiState
 import com.aios.phone.model.PhoneAccountUiState
 import com.aios.phone.model.AssistantPolicyUiState
+import com.aios.phone.model.AssistantPolicySemantics
 import com.aios.phone.model.AssistantCallSemantics
 import com.aios.phone.model.AssistantCallUiState
 import com.aios.phone.model.CallRiskSemantics
@@ -487,26 +488,28 @@ object PhoneRuntime {
             }
             is PhoneAction.ChangeAutoAnswerEnabled -> updatePolicyDraft {
                 it.copy(
-                    answerMode = if (action.enabled) {
-                        it.answerMode.takeUnless { mode -> mode == "off" } ?: "unknown_only"
-                    } else {
-                        "off"
-                    },
+                    answerMode = AssistantPolicySemantics.modeAfterAutoAnswerToggle(
+                        it.answerMode,
+                        action.enabled,
+                    ),
                     error = null,
                 )
             }
             is PhoneAction.ChangeAnswerMode -> {
-                if (action.mode in setOf("off", "missed_only", "unknown_only", "all")) {
+                if (AssistantPolicySemantics.isKnownAnswerMode(action.mode)) {
                     updatePolicyDraft { it.copy(answerMode = action.mode, error = null) }
                 }
             }
             is PhoneAction.ChangeAnswerDelayMode -> {
-                if (action.mode in ANSWER_DELAY_MODES) {
+                if (AssistantPolicySemantics.isKnownDirectDelayMode(action.mode)) {
                     updatePolicyDraft { it.copy(answerDelayMode = action.mode, error = null) }
                 }
             }
             is PhoneAction.ChangeMissedDelay -> updatePolicyDraft {
-                it.copy(missedDelayMillis = action.millis.coerceIn(3_000L, 60_000L), error = null)
+                it.copy(
+                    missedDelayMillis = AssistantPolicySemantics.clampMissedDelay(action.millis),
+                    error = null,
+                )
             }
             PhoneAction.SaveAssistantPolicy -> assistant.savePolicy(
                 mutableState.value.assistantPolicy,
@@ -857,11 +860,4 @@ object PhoneRuntime {
     private const val DTMF_PULSE_MILLIS = 180L
     private const val MAX_RTT_COMPOSER_CHARS = 400
     private const val MAX_RTT_TRANSCRIPT_CHARS = 4_000
-    private val ANSWER_DELAY_MODES = setOf(
-        "fixed_1000_ms",
-        "fixed_2000_ms",
-        "fixed_3000_ms",
-        "fixed_4000_ms",
-        "random_1010_3990_ms",
-    )
 }

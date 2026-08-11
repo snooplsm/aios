@@ -33,6 +33,7 @@ java_test_host {
     name: "aios_phone_host_tests",
     srcs: [
         "src/com/aios/phone/model/AssistantCallContract.kt",
+        "src/com/aios/phone/model/AssistantPolicySemantics.kt",
         "src/com/aios/phone/model/CallRiskContract.kt",
         "src/com/aios/phone/intelligence/PhoneServiceRebindPolicy.kt",
         "src/com/aios/phone/intelligence/ServiceGenerationRevisionGate.kt",

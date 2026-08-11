@@ -139,11 +139,14 @@ a Telecom answer, hold, or disconnect mutation.
 ## Owner-selected automatic answer
 
 Phone settings expose an opt-in **Auto AI answer** switch. When enabled, the
-owner chooses whether it applies to unknown callers or every non-emergency call,
-then selects a 1, 2, 3, or 4 second delay or `Random`. Random is sampled anew for
-each eligible call from the inclusive 1,010–3,990 ms range. The UI selection is
-persisted by Call Intelligence and the service returns the resolved delay with
-its call-handling decision; the dialer never invents a separate delay.
+owner chooses **After I don't answer**, **Unknown callers**, or **Every non-
+emergency call**. The ring-first mode offers explicit 5, 10, 15, 20, 30, 45,
+and 60 second owner-ring intervals and answers only if Telecom still reports the
+call as ringing. The direct-answer modes use the separately requested 1, 2, 3,
+or 4 second delay or `Random`; random is sampled anew for each eligible call
+from the inclusive 1,010–3,990 ms range. Both delay values are persisted by Call
+Intelligence, which returns the applicable resolved delay with its call-handling
+decision; the dialer never conflates or invents a separate delay.
 
 Emergency calls and emergency callback mode always bypass AI. Automatic answer
 also fails closed unless call processing is enabled and the service reports that

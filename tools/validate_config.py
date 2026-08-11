@@ -792,6 +792,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "apps/phone/tests/src/com/aios/phone/intelligence/ServiceGenerationRevisionGateTest.kt",
         "apps/phone/tests/src/com/aios/phone/intelligence/EmergencyProcessingGateTest.kt",
         "apps/phone/tests/src/com/aios/phone/model/AssistantCallContractTest.kt",
+        "apps/phone/tests/src/com/aios/phone/model/AssistantPolicySemanticsTest.kt",
         "apps/phone/tests/src/com/aios/phone/model/CallRiskContractTest.kt",
         "apps/phone/tests/src/com/aios/phone/context/CallEventContractTest.kt",
         "apps/phone/tests/src/com/aios/phone/telecom/CallSelectionPolicyTest.kt",
@@ -803,6 +804,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "apps/phone/src/com/aios/phone/data/VoicemailRepository.kt",
         "apps/phone/src/com/aios/phone/model/PhoneContract.kt",
         "apps/phone/src/com/aios/phone/model/AssistantCallContract.kt",
+        "apps/phone/src/com/aios/phone/model/AssistantPolicySemantics.kt",
         "apps/phone/src/com/aios/phone/model/CallRiskContract.kt",
         "apps/phone/src/com/aios/phone/telecom/CallRegistry.kt",
         "apps/phone/src/com/aios/phone/telecom/CallSelectionPolicy.kt",
@@ -1706,6 +1708,14 @@ def validate_aosp_overlay(root: Path) -> None:
     assistant_call_test = (root / "apps" / "phone" / "tests" / "src" / "com" /
                            "aios" / "phone" / "model" /
                            "AssistantCallContractTest.kt").read_text(encoding="utf-8")
+    assistant_policy_semantics = (
+        root / "apps" / "phone" / "src" / "com" / "aios" / "phone" /
+        "model" / "AssistantPolicySemantics.kt"
+    ).read_text(encoding="utf-8")
+    assistant_policy_semantics_test = (
+        root / "apps" / "phone" / "tests" / "src" / "com" / "aios" /
+        "phone" / "model" / "AssistantPolicySemanticsTest.kt"
+    ).read_text(encoding="utf-8")
     in_call_activity = (root / "apps" / "phone" / "src" / "com" / "aios" /
                         "phone" / "ui" / "InCallActivity.kt").read_text(
                             encoding="utf-8")
@@ -1901,6 +1911,29 @@ def validate_aosp_overlay(root: Path) -> None:
             and "ThemePreference.LIGHT" in theme_source
             and "ThemePreference.DARK" in theme_source,
             "AIOS Phone must support system, light, and dark themes")
+    require("MODE_MISSED_ONLY" in assistant_policy_semantics
+            and "SELECTABLE_AUTO_ANSWER_MODES" in assistant_policy_semantics
+            and "DIRECT_ANSWER_DELAY_MODES" in assistant_policy_semantics
+            and "MISSED_DELAY_OPTIONS_MILLIS" in assistant_policy_semantics
+            and "modeAfterAutoAnswerToggle" in phone_runtime
+            and "isKnownAnswerMode" in phone_runtime
+            and "isKnownDirectDelayMode" in phone_runtime
+            and "clampMissedDelay" in phone_runtime
+            and "AssistantPolicySemantics.SELECTABLE_AUTO_ANSWER_MODES"
+            in phone_screens
+            and '"After I don\'t answer"' in phone_screens
+            and "AssistantPolicySemantics.MISSED_DELAY_OPTIONS_MILLIS"
+            in phone_screens
+            and "PhoneAction.ChangeMissedDelay(millis)" in phone_screens
+            and "AssistantPolicySemantics.DIRECT_ANSWER_DELAY_MODES"
+            in phone_screens
+            and "exposesEveryServiceSupportedAnswerMode"
+            in assistant_policy_semantics_test
+            and "ringFirstChoicesCoverDefaultAndServiceBounds"
+            in assistant_policy_semantics_test
+            and '"src/com/aios/phone/model/AssistantPolicySemantics.kt"'
+            in phone_build,
+            "Phone settings must expose every supported AI-answer scope with distinct delay semantics")
     require("data class MessageNumber" in phone_contract
             and "Intent.ACTION_SENDTO" in phone_runtime
             and '"smsto"' in phone_runtime

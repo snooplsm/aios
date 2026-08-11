@@ -45,6 +45,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import com.aios.phone.model.CallRiskLabel
 import com.aios.phone.model.CallRiskSemantics
 import com.aios.phone.model.CallUiState
+import com.aios.phone.model.AssistantPolicySemantics
 import com.aios.phone.model.HomeSection
 import com.aios.phone.model.PhoneAction
 import com.aios.phone.model.PhoneUiState
@@ -946,10 +947,14 @@ fun SettingsScreen(
                         ) { dispatch(PhoneAction.ChangeAutoAnswerEnabled(it)) }
                         if (policy.autoAnswerEnabled) {
                             Text("Which calls?", fontWeight = FontWeight.SemiBold)
-                            listOf(
-                                "unknown_only" to "Unknown callers",
-                                "all" to "Every non-emergency call",
-                            ).forEach { (mode, label) ->
+                            AssistantPolicySemantics.SELECTABLE_AUTO_ANSWER_MODES.forEach { mode ->
+                                val label = when (mode) {
+                                    AssistantPolicySemantics.MODE_MISSED_ONLY ->
+                                        "After I don't answer"
+                                    AssistantPolicySemantics.MODE_UNKNOWN_ONLY ->
+                                        "Unknown callers"
+                                    else -> "Every non-emergency call"
+                                }
                                 OutlinedButton(
                                     onClick = { dispatch(PhoneAction.ChangeAnswerMode(mode)) },
                                     enabled = policy.available && !policy.saving,
@@ -958,66 +963,103 @@ fun SettingsScreen(
                                     Text(label + if (policy.answerMode == mode) " • selected" else "")
                                 }
                             }
-                            if (policy.answerMode == "missed_only") {
+                            if (policy.answerMode == AssistantPolicySemantics.MODE_MISSED_ONLY) {
+                                Text("Ring me before AI answers", fontWeight = FontWeight.SemiBold)
+                                AssistantPolicySemantics.MISSED_DELAY_OPTIONS_MILLIS
+                                    .chunked(4)
+                                    .forEach { choices ->
+                                        Row(
+                                            Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        ) {
+                                            choices.forEach { millis ->
+                                                val onClick = {
+                                                    dispatch(PhoneAction.ChangeMissedDelay(millis))
+                                                }
+                                                if (policy.missedDelayMillis == millis) {
+                                                    Button(
+                                                        onClick = onClick,
+                                                        enabled = policy.available && !policy.saving,
+                                                        modifier = Modifier.weight(1f),
+                                                    ) { Text("${millis / 1_000L}s") }
+                                                } else {
+                                                    OutlinedButton(
+                                                        onClick = onClick,
+                                                        enabled = policy.available && !policy.saving,
+                                                        modifier = Modifier.weight(1f),
+                                                    ) { Text("${millis / 1_000L}s") }
+                                                }
+                                            }
+                                            repeat(4 - choices.size) {
+                                                Spacer(Modifier.weight(1f))
+                                            }
+                                        }
+                                    }
                                 Text(
-                                    "The previous 'after I miss it' policy is selected. Choose a current scope before saving.",
-                                    color = MaterialTheme.colorScheme.error,
+                                    "AI answers only if the call is still ringing after this time.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                            } else {
+                                Text("Auto-answer delay", fontWeight = FontWeight.SemiBold)
+                                Row(
+                                    Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    AssistantPolicySemantics.DIRECT_ANSWER_DELAY_MODES
+                                        .take(4)
+                                        .forEachIndexed { index, mode ->
+                                            val label = "${index + 1}s"
+                                            if (policy.answerDelayMode == mode) {
+                                                Button(
+                                                    onClick = {
+                                                        dispatch(
+                                                            PhoneAction.ChangeAnswerDelayMode(mode),
+                                                        )
+                                                    },
+                                                    enabled = policy.available && !policy.saving,
+                                                    modifier = Modifier.weight(1f),
+                                                ) { Text(label) }
+                                            } else {
+                                                OutlinedButton(
+                                                    onClick = {
+                                                        dispatch(
+                                                            PhoneAction.ChangeAnswerDelayMode(mode),
+                                                        )
+                                                    },
+                                                    enabled = policy.available && !policy.saving,
+                                                    modifier = Modifier.weight(1f),
+                                                ) { Text(label) }
+                                            }
+                                        }
+                                }
+                                val randomMode =
+                                    AssistantPolicySemantics.DIRECT_ANSWER_DELAY_MODES.last()
+                                if (policy.answerDelayMode == randomMode) {
+                                    Button(
+                                        onClick = {
+                                            dispatch(
+                                                PhoneAction.ChangeAnswerDelayMode(randomMode),
+                                            )
+                                        },
+                                        enabled = policy.available && !policy.saving,
+                                        modifier = Modifier.fillMaxWidth(),
+                                    ) { Text("Random • selected") }
+                                } else {
+                                    OutlinedButton(
+                                        onClick = {
+                                            dispatch(
+                                                PhoneAction.ChangeAnswerDelayMode(randomMode),
+                                            )
+                                        },
+                                        enabled = policy.available && !policy.saving,
+                                        modifier = Modifier.fillMaxWidth(),
+                                    ) { Text("Random") }
+                                }
+                                Text(
+                                    "Random chooses a new delay from 1.01 to 3.99 seconds for each eligible call.",
                                     style = MaterialTheme.typography.bodySmall,
                                 )
                             }
-
-                            Text("Auto-answer delay", fontWeight = FontWeight.SemiBold)
-                            Row(
-                                Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            ) {
-                                listOf(
-                                    "fixed_1000_ms" to "1s",
-                                    "fixed_2000_ms" to "2s",
-                                    "fixed_3000_ms" to "3s",
-                                    "fixed_4000_ms" to "4s",
-                                ).forEach { (mode, label) ->
-                                    if (policy.answerDelayMode == mode) {
-                                        Button(
-                                            onClick = {
-                                                dispatch(PhoneAction.ChangeAnswerDelayMode(mode))
-                                            },
-                                            enabled = policy.available && !policy.saving,
-                                            modifier = Modifier.weight(1f),
-                                        ) { Text(label) }
-                                    } else {
-                                        OutlinedButton(
-                                            onClick = {
-                                                dispatch(PhoneAction.ChangeAnswerDelayMode(mode))
-                                            },
-                                            enabled = policy.available && !policy.saving,
-                                            modifier = Modifier.weight(1f),
-                                        ) { Text(label) }
-                                    }
-                                }
-                            }
-                            val randomMode = "random_1010_3990_ms"
-                            if (policy.answerDelayMode == randomMode) {
-                                Button(
-                                    onClick = {
-                                        dispatch(PhoneAction.ChangeAnswerDelayMode(randomMode))
-                                    },
-                                    enabled = policy.available && !policy.saving,
-                                    modifier = Modifier.fillMaxWidth(),
-                                ) { Text("Random • selected") }
-                            } else {
-                                OutlinedButton(
-                                    onClick = {
-                                        dispatch(PhoneAction.ChangeAnswerDelayMode(randomMode))
-                                    },
-                                    enabled = policy.available && !policy.saving,
-                                    modifier = Modifier.fillMaxWidth(),
-                                ) { Text("Random") }
-                            }
-                            Text(
-                                "Random chooses a new delay from 1.01 to 3.99 seconds for each eligible call.",
-                                style = MaterialTheme.typography.bodySmall,
-                            )
                         }
                         if (!policy.automaticAnswerAvailable) {
                             Text(
