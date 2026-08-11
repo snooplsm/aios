@@ -271,12 +271,14 @@ final class ContextStore extends SQLiteOpenHelper {
         getWritableDatabase().delete(
                 "entries",
                 "expires_at_epoch_ms>0 AND (expires_at_epoch_ms<=?"
-                        + " OR expires_at_epoch_ms-event_at_epoch_ms<>?"
+                        // rawQuery binds selection arguments as text. Arithmetic expressions
+                        // have no column affinity, so cast the exact TTL before comparison.
+                        + " OR expires_at_epoch_ms-event_at_epoch_ms<>CAST(? AS INTEGER)"
                         + " OR expiry_boot_identity<>?"
                         + " OR created_at_elapsed_ms<0"
                         + " OR created_at_elapsed_ms>?"
                         + " OR expires_at_elapsed_ms<=0"
-                        + " OR expires_at_elapsed_ms-created_at_elapsed_ms<>?"
+                        + " OR expires_at_elapsed_ms-created_at_elapsed_ms<>CAST(? AS INTEGER)"
                         + " OR expires_at_elapsed_ms<=?)",
                 new String[]{
                         Long.toString(now.epochMillis),
@@ -387,7 +389,10 @@ final class ContextStore extends SQLiteOpenHelper {
         StringBuilder result = new StringBuilder();
         for (int index = 0; index < Math.min(tokens.length, 8); index++) {
             if (tokens[index].isEmpty()) continue;
-            if (result.length() > 0) result.append(" AND ");
+            // Android's FTS4 build uses the basic syntax, where whitespace is
+            // intersection. Treating AND as an operator instead searches for
+            // a literal "and" token on affected platform builds.
+            if (result.length() > 0) result.append(' ');
             result.append('"').append(tokens[index]).append('"').append('*');
         }
         return result.toString();

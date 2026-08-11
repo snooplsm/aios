@@ -925,6 +925,9 @@ def validate_aosp_overlay(root: Path) -> None:
         "preview/emulatorcontrol/src/main/java/com/aios/tools/emulatorcontrol/EmulatorControlMain.java",
         "preview/emulatorcontrol/src/test/java/com/aios/tools/emulatorcontrol/EmulatorControlMainTest.java",
         "preview/callcontextcheck/build.gradle.kts",
+        "preview/callcontextcheck/src/debug/AndroidManifest.xml",
+        "preview/callcontextcheck/src/debug/java/com/aios/contextintelligence/ContextLifecycleSmokeActivity.java",
+        "scripts/emulator-context-lifecycle-smoke.ps1",
         "preview/callservicecheck/build.gradle.kts",
         "preview/callservicecheck/src/main/java/com/aios/callintelligence/CallProductProperties.java",
         "preview/callservicecheck/src/debug/AndroidManifest.xml",
@@ -954,6 +957,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/contextintelligence/tests/src/com/aios/contextintelligence/ContextExpiryPolicyTest.java",
         "services/contextintelligence/tests/src/com/aios/contextintelligence/ContextPolicyTest.java",
         "services/contextintelligence/tests/src/com/aios/contextintelligence/ContextSourceScopeTest.java",
+        "services/contextintelligence/tests/src/com/aios/contextintelligence/ContextStoreQueryTest.java",
         "services/contextintelligence/tests/src/com/aios/contextintelligence/RevisionGateTest.java",
         "docs/communications-context.md",
         "docs/compose-dialer-decision.md",
@@ -1782,7 +1786,8 @@ def validate_aosp_overlay(root: Path) -> None:
             and "document.expiresAtElapsedRealtimeMillis" in context_store
             and "expiry_boot_identity<>?" in context_store
             and "created_at_elapsed_ms>?" in context_store
-            and "expires_at_elapsed_ms-created_at_elapsed_ms<>?" in context_store
+            and "expires_at_elapsed_ms-created_at_elapsed_ms<>CAST(? AS INTEGER)"
+            in context_store
             and "expires_at_elapsed_ms<=?" in context_store
             and "nextExpiryElapsedRealtimeMillis" in context_store
             and "!Objects.equals(expiryBootIdentity, currentBootIdentity)"
@@ -1817,6 +1822,11 @@ def validate_aosp_overlay(root: Path) -> None:
             and "phone_number" not in context_store
             and "contact_lookup" not in context_store,
             "communication index must not store raw phone or contact identifiers")
+    require(context_store.count("<>CAST(? AS INTEGER)") == 2,
+            "SQLite retention comparisons must cast text-bound TTL arguments")
+    require("result.append(' ')" in context_store
+            and 'result.append(" AND ")' not in context_store,
+            "communication retrieval must use Android-portable FTS4 intersection syntax")
     context_client_manifests = (
         phone_manifest,
         messaging_manifest,
@@ -3437,6 +3447,18 @@ def validate_aosp_overlay(root: Path) -> None:
     call_context_check_build = (
         root / "preview" / "callcontextcheck" / "build.gradle.kts"
     ).read_text(encoding="utf-8")
+    call_context_smoke_manifest = (
+        root / "preview" / "callcontextcheck" / "src" / "debug" /
+        "AndroidManifest.xml"
+    ).read_text(encoding="utf-8")
+    call_context_smoke = (
+        root / "preview" / "callcontextcheck" / "src" / "debug" / "java" /
+        "com" / "aios" / "contextintelligence" /
+        "ContextLifecycleSmokeActivity.java"
+    ).read_text(encoding="utf-8")
+    call_context_smoke_runner = (
+        root / "scripts" / "emulator-context-lifecycle-smoke.ps1"
+    ).read_text(encoding="utf-8")
     context_bp = (root / "services" / "contextintelligence" /
                   "Android.bp").read_text(encoding="utf-8")
     context_manifest = (root / "services" / "contextintelligence" /
@@ -3567,9 +3589,20 @@ def validate_aosp_overlay(root: Path) -> None:
             and all(context_extraction_rules.count(
                 f'<exclude domain="{domain}" path="." />') == 2
                     for domain in context_extraction_domains)
-            and not (root / "preview" / "callcontextcheck" / "src" / "main" /
-                     "AndroidManifest.xml").exists(),
+             and not (root / "preview" / "callcontextcheck" / "src" / "main" /
+                      "AndroidManifest.xml").exists(),
             "Communication Context needs a complete production-service compile check")
+    require('applicationId = "com.aios.callintelligence"' in call_context_check_build
+            and "ContextLifecycleSmokeActivity" in call_context_smoke_manifest
+            and "ICommunicationContext.Stub.asInterface" in call_context_smoke
+            and "remote.resolveIdentity" in call_context_smoke
+            and "remote.upsert(freshArtifact)" in call_context_smoke
+            and "store.deleteSourceType(ContextPolicy.MEDIA_METADATA" in call_context_smoke
+            and "AIOS_CONTEXT_LIFECYCLE_SMOKE_OK" in call_context_smoke
+            and "Refusing to run context-lifecycle smoke checks on non-emulator serial"
+            in call_context_smoke_runner
+            and "physical_gate_evidence = $false" in call_context_smoke_runner,
+            "Communication Context needs guarded Android Binder/SQLite lifecycle evidence")
     require('"downlink".equals(direction)' in call_service
             and ".onRiskChanged(" in call_service
             and "appendAssessment(" in call_service,

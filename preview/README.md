@@ -48,6 +48,17 @@ Call-side context clients are covered by the full `callservicecheck` lane below,
 so this module has no duplicate partial Call Intelligence source list. It is a
 compile check, not a replacement for the platform Soong or device gates.
 
+Its debug-only fixture can be driven by
+`scripts/emulator-context-lifecycle-smoke.ps1`. On API-35+ QEMU it binds the
+production AIDL service as an authorized Call Intelligence client, resolves
+stable opaque identities, and exercises the real SQLite/FTS store across SMS,
+MMS, call-event, expiring call-artifact, and photo-metadata rows. It verifies
+bounded/source-scoped retrieval, revision replacement, tombstones, bulk-delete
+watermarks, 24-hour expiry, absence of raw caller addresses, and cleanup of its
+private state. The runner refuses to replace any existing package and leaves no
+APK installed. This is Android service/storage evidence, not physical-Pixel or
+cross-package signature-grant evidence.
+
 `callservicecheck` stages every production Call Intelligence Java source and all
 three Binder APIs, then compiles, tests, assembles, and lints the complete service.
 Its sole substitute is a source-set-local `CallProductProperties` adapter that

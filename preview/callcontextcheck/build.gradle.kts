@@ -29,7 +29,9 @@ android {
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.aios.callcontextcheck"
+        // Run the emulator fixture as one of the production-authorized readers.
+        // The runner refuses to replace an existing package before installation.
+        applicationId = "com.aios.callintelligence"
         minSdk = 35
         targetSdk = 36
         versionCode = 1

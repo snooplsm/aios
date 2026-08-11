@@ -96,8 +96,10 @@ exact calling package and source type. AIOS Messaging, Phone, and Call
 Intelligence may query; Media Intelligence may publish but cannot read a person's
 communication history. Results are capped at eight snippets and 512 characters
 each. Source documents are capped at 4,096 characters. The first implementation
-uses local FTS4 lexical retrieval; a later embedding index can replace ranking
-without changing identity, authorization, retention, or deletion semantics.
+uses local FTS4 lexical retrieval with basic-syntax whitespace intersection for
+portable multi-token queries across Android SQLite builds; a later embedding
+index can replace ranking without changing identity, authorization, retention,
+or deletion semantics.
 
 For an incoming call, AIOS Phone appends the presented number and country ISO to
 the version-tolerant tail of `IncomingCallContext` only when the owner has enabled
