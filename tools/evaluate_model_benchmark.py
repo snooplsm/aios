@@ -87,21 +87,38 @@ def validate_suite(suite: dict) -> None:
 
 def tier_roles(catalog: dict, tier_id: str) -> tuple[dict[str, dict], dict[str, str]]:
     models = {item["id"]: item for item in catalog.get("models", [])}
-    tier = next((item for item in catalog.get("tiers", [])
-                 if item.get("id") == tier_id), None)
+    tiers = {item.get("id"): item for item in catalog.get("tiers", [])}
+    tier = tiers.get(tier_id)
     if tier is None:
         raise BenchmarkError(f"unknown catalog tier: {tier_id}")
-    roles = {
-        tier["text_model"]: "text_model",
-        tier["media_model"]: "media_model",
-        tier["tts_model"]: "tts_model",
-    }
-    for model_id in tier["asr_candidates"]:
-        if model_id in roles:
-            raise BenchmarkError("a tier model cannot hold multiple benchmark roles")
-        roles[model_id] = "asr_candidate"
+    roles: dict[str, str] = {}
+    seen_tiers: set[str] = set()
+    current = tier
+    while current is not None:
+        current_id = current["id"]
+        if current_id in seen_tiers:
+            raise BenchmarkError("catalog tier fallback cycle")
+        seen_tiers.add(current_id)
+        candidates = [
+            (current["text_model"], "text_model"),
+            (current["media_model"], "media_model"),
+            (current["tts_model"], "tts_model"),
+            *((item, "asr_candidate") for item in current["asr_candidates"]),
+        ]
+        for model_id, role in candidates:
+            previous = roles.get(model_id)
+            if previous is not None and previous != role:
+                raise BenchmarkError("a fallback model cannot hold multiple roles")
+            roles.setdefault(model_id, role)
+        fallback_id = current.get("fallback_tier")
+        if fallback_id is None:
+            break
+        fallback = tiers.get(fallback_id)
+        if fallback is None or fallback["min_total_ram_mb"] >= current["min_total_ram_mb"]:
+            raise BenchmarkError("invalid catalog fallback tier")
+        current = fallback
     if set(roles) - set(models):
-        raise BenchmarkError("benchmark tier references an unknown catalog model")
+        raise BenchmarkError("benchmark tier chain references an unknown catalog model")
     return models, roles
 
 

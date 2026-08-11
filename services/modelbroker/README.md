@@ -16,10 +16,16 @@ contract that callers may pin indefinitely.
 Current startup code verifies the locally generated artifact manifest, confines
 canonical paths to `/product/etc/aios/models`, recomputes exact size/SHA-256,
 cross-checks runtime/capabilities/languages against the catalog, selects the
-measured-RAM tier, applies device admission evidence, and enforces
+highest measured-RAM tier followed by its ordered, lower-memory fallback chain,
+applies device admission evidence, and enforces
 package/capability/workload quotas. Runtime providers are discovered only from
 the exact system-package/version/backend allowlist; verified weights alone never
 make a capability active.
+
+Selection remains primary-first within that chain and de-duplicates shared
+models. A fallback is usable only when its exact artifact digest was separately
+admitted for the device profile; merely declaring `fallback_tier` never admits
+weights in a release build.
 
 All broker policy JSON is read through one Android-compatible 2 MiB bounded
 reader. Missing, empty, oversized, truncated, or concurrently growing files fail

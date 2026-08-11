@@ -135,6 +135,27 @@ class ModelBenchmarkEvaluationTests(unittest.TestCase):
         evidence = self.evaluate(raw)
         self.assertEqual(4, len(evidence["results"]))
 
+    def test_high_memory_tier_can_measure_a_complete_fallback_set(self):
+        raw = raw_benchmark()
+        raw["profile_id"] = "future_12gb_test"
+        raw["catalog_tier"] = "edge_12gb"
+        raw["device_codename"] = "future-test"
+        raw["total_ram_mb"] = 12288
+
+        evidence = self.evaluate(raw)
+
+        self.assertEqual("edge_12gb", evidence["catalog_tier"])
+        self.assertEqual(
+            {item["model_id"] for item in raw["results"]},
+            {item["model_id"] for item in evidence["results"]},
+        )
+
+    def test_model_outside_fallback_chain_is_rejected(self):
+        raw = raw_benchmark()
+        raw["results"][0]["model_id"] = "not-a-catalog-model"
+        with self.assertRaisesRegex(evaluator.BenchmarkError, "out-of-tier"):
+            self.evaluate(raw)
+
     def test_boolean_cannot_satisfy_numeric_gate(self):
         raw = raw_benchmark()
         raw["results"][0]["metrics"]["measured_runs"] = True

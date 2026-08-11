@@ -58,14 +58,12 @@ def copy_patch_contract_fixture(destination):
         shutil.copy(ROOT / relative, target)
 
 
-def passing_admission_evidence(catalog, suite):
-    tier = next(item for item in catalog["tiers"] if item["id"] == "edge_8gb")
-    roles = {
-        tier["text_model"]: "text_model",
-        tier["media_model"]: "media_model",
-        tier["tts_model"]: "tts_model",
-        **{item: "asr_candidate" for item in tier["asr_candidates"]},
-    }
+def passing_admission_evidence(
+        catalog, suite, tier_id="edge_8gb", profile_id="pixel_9a_tegu",
+        device_codename="tegu", total_ram_mb=8192, selected_ids=None):
+    roles = validator.tier_candidate_roles(catalog, tier_id)
+    if selected_ids is not None:
+        roles = {model_id: roles[model_id] for model_id in selected_ids}
     models = {item["id"]: item for item in catalog["models"]}
     results = []
     for model_id, role in roles.items():
@@ -87,10 +85,10 @@ def passing_admission_evidence(catalog, suite):
         "schema_version": 2,
         "suite_version": suite["suite_version"],
         "suite_sha256": admission_generator.canonical_sha256(suite),
-        "profile_id": "pixel_9a_tegu",
-        "catalog_tier": "edge_8gb",
-        "device_codename": "tegu",
-        "total_ram_mb": 8192,
+        "profile_id": profile_id,
+        "catalog_tier": tier_id,
+        "device_codename": device_codename,
+        "total_ram_mb": total_ram_mb,
         "build_fingerprint_sha256": "1" * 64,
         "completed_at": "2026-08-09T12:00:00Z",
         "results": results,
@@ -165,6 +163,21 @@ class ModelCatalogTests(unittest.TestCase):
     def test_pixel_10_selects_12gb_tier(self):
         self.assertEqual("edge_12gb", validator.select_tier(self.catalog, 12288))
 
+    def test_high_memory_tier_exposes_ordered_independent_fallbacks(self):
+        roles = validator.tier_candidate_roles(self.catalog, "edge_16gb_plus")
+
+        self.assertEqual([
+            "gemma4-e4b-mobile-text",
+            "gemma4-e4b-mobile-multimodal",
+            "supertonic3-en-es-int8",
+            "whisper-small-multilingual-quantized",
+            "whisper-base-multilingual-quantized",
+            "gemma4-e2b-mobile-text",
+            "gemma4-e2b-mobile-multimodal",
+        ], list(roles))
+        self.assertEqual("text_model", roles["gemma4-e2b-mobile-text"])
+        self.assertEqual("media_model", roles["gemma4-e2b-mobile-multimodal"])
+
     def test_official_pixel_10_family_maps_by_measured_ram(self):
         expected = {
             "Pixel 10": ("frankel", "edge_12gb"),
@@ -211,6 +224,12 @@ class ModelCatalogTests(unittest.TestCase):
         catalog = copy.deepcopy(self.catalog)
         catalog["tiers"][0]["max_foreground_model_mb"] = 100
         with self.assertRaisesRegex(validator.ValidationError, "fixed model-memory"):
+            validator.validate_catalog(catalog)
+
+    def test_fallback_cycle_is_rejected(self):
+        catalog = copy.deepcopy(self.catalog)
+        catalog["tiers"][0]["fallback_tier"] = "edge_16gb_plus"
+        with self.assertRaisesRegex(validator.ValidationError, "fallback"):
             validator.validate_catalog(catalog)
 
 
@@ -295,6 +314,80 @@ class ModelAdmissionTests(unittest.TestCase):
             with self.assertRaisesRegex(validator.ValidationError,
                                         "evidence digest"):
                 validator.validate_model_admission(temporary)
+
+    def test_generator_combines_primary_and_fallback_artifact_evidence(self):
+        with tempfile.TemporaryDirectory() as raw:
+            temporary = Path(raw)
+            config = temporary / "config"
+            evidence_dir = temporary / "evidence" / "model-admission"
+            config.mkdir()
+            evidence_dir.mkdir(parents=True)
+            for name in ("model_catalog.json", "model_admission.json",
+                         "model_benchmark_suite.json"):
+                shutil.copy(ROOT / "config" / name, config / name)
+            catalog = json.loads((config / "model_catalog.json").read_text())
+            suite = json.loads((config / "model_benchmark_suite.json").read_text())
+            policy = json.loads((config / "model_admission.json").read_text())
+            roles = validator.tier_candidate_roles(catalog, "edge_12gb")
+            policy["profiles"].append({
+                "id": "future_12gb_test",
+                "devices": ["future-test"],
+                "catalog_tier": "edge_12gb",
+                "min_total_ram_mb": 11264,
+                "max_total_ram_mb": 13312,
+                "status": "benchmark_pending",
+                "research_candidate_models": list(roles),
+                "admitted_models": [],
+                "evidence": [],
+            })
+            (config / "model_admission.json").write_text(
+                json.dumps(policy), encoding="utf-8")
+            primary_ids = {
+                "gemma4-e4b-mobile-text",
+                "gemma4-e4b-mobile-multimodal",
+                "supertonic3-en-es-int8",
+                "whisper-small-multilingual-quantized",
+            }
+            fallback_ids = {
+                "gemma4-e2b-mobile-text",
+                "gemma4-e2b-mobile-multimodal",
+                "supertonic3-en-es-int8",
+                "whisper-base-multilingual-quantized",
+            }
+            evidence_paths = []
+            for label, selected_ids in (
+                    ("primary", primary_ids), ("fallback", fallback_ids)):
+                evidence = passing_admission_evidence(
+                    catalog,
+                    suite,
+                    tier_id="edge_12gb",
+                    profile_id="future_12gb_test",
+                    device_codename="future-test",
+                    total_ram_mb=12288,
+                    selected_ids=selected_ids,
+                )
+                path = evidence_dir / f"{label}.json"
+                path.write_text(json.dumps(evidence), encoding="utf-8")
+                evidence_paths.append(path)
+
+            output = config / "generated-admission.json"
+            generated = admission_generator.generate(
+                config / "model_catalog.json",
+                config / "model_admission.json",
+                evidence_paths,
+                output,
+                temporary,
+            )
+            profile = next(item for item in generated["profiles"]
+                           if item["id"] == "future_12gb_test")
+            self.assertEqual("supported", profile["status"])
+            self.assertEqual(primary_ids | fallback_ids,
+                             {item["model_id"]
+                              for item in profile["admitted_models"]})
+            self.assertEqual(2, len(profile["evidence"]))
+            (config / "model_admission.json").write_text(
+                json.dumps(generated), encoding="utf-8")
+            validator.validate_model_admission(temporary)
 
     def test_generator_rejects_incomplete_tier_measurements(self):
         catalog = load("model_catalog.json")

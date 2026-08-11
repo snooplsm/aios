@@ -8,7 +8,6 @@ import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -40,22 +39,11 @@ final class CatalogPolicy {
         }
     }
 
-    private static final class Tier {
-        final String id;
-        final long minTotalRamMb;
-        final List<String> modelIds;
-
-        Tier(String id, long minTotalRamMb, List<String> modelIds) {
-            this.id = id;
-            this.minTotalRamMb = minTotalRamMb;
-            this.modelIds = List.copyOf(modelIds);
-        }
-    }
-
     private final Map<String, Model> models;
-    private final List<Tier> tiers;
+    private final List<CatalogTierPlanner.Tier> tiers;
 
-    private CatalogPolicy(Map<String, Model> models, List<Tier> tiers) {
+    private CatalogPolicy(
+            Map<String, Model> models, List<CatalogTierPlanner.Tier> tiers) {
         this.models = Collections.unmodifiableMap(models);
         this.tiers = List.copyOf(tiers);
     }
@@ -88,7 +76,7 @@ final class CatalogPolicy {
                     throw new IOException("duplicate catalog model: " + model.id);
                 }
             }
-            List<Tier> tiers = new ArrayList<>();
+            List<CatalogTierPlanner.Tier> tiers = new ArrayList<>();
             JSONArray tierValues = root.getJSONArray("tiers");
             for (int index = 0; index < tierValues.length(); index++) {
                 JSONObject value = tierValues.getJSONObject(index);
@@ -97,11 +85,17 @@ final class CatalogPolicy {
                 ids.add(value.getString("media_model"));
                 ids.add(value.getString("tts_model"));
                 ids.addAll(strings(value.getJSONArray("asr_candidates")));
-                tiers.add(new Tier(
+                tiers.add(new CatalogTierPlanner.Tier(
                         value.getString("id"), value.getLong("min_total_ram_mb"),
-                        new ArrayList<>(ids)));
+                        new ArrayList<>(ids),
+                        value.has("fallback_tier")
+                                ? value.getString("fallback_tier") : null));
             }
-            tiers.sort(Comparator.comparingLong(tier -> tier.minTotalRamMb));
+            try {
+                CatalogTierPlanner.validate(tiers);
+            } catch (IllegalArgumentException error) {
+                throw new IOException("invalid catalog tier fallback plan", error);
+            }
             return new CatalogPolicy(models, tiers);
         } catch (JSONException error) {
             throw new IOException("cannot parse model catalog", error);
@@ -110,17 +104,8 @@ final class CatalogPolicy {
 
     Map<String, VerifiedArtifact> selectForMemory(
             Map<String, VerifiedArtifact> verified, long totalRamMb) {
-        Tier selected = null;
-        for (Tier tier : tiers) {
-            if (tier.minTotalRamMb <= totalRamMb) {
-                selected = tier;
-            }
-        }
-        if (selected == null) {
-            return Collections.emptyMap();
-        }
         Map<String, VerifiedArtifact> result = new LinkedHashMap<>();
-        for (String modelId : selected.modelIds) {
+        for (String modelId : CatalogTierPlanner.candidates(tiers, totalRamMb)) {
             Model expected = models.get(modelId);
             VerifiedArtifact artifact = verified.get(modelId);
             if (expected == null || artifact == null) {

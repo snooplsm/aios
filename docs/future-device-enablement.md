@@ -38,7 +38,9 @@ RAM makes a tier eligible; it does not authorize its models. Pixel 10 may try th
 E4B tier, while the 16 GB Pro models may try the same interactive E4B model with
 more concurrency/headroom. Every model/backend/artifact combination must still
 pass while streaming ASR and handling a call, and may independently fall back to
-E2B or a smaller ASR candidate.
+E2B or a smaller ASR candidate. The broker and admission tooling already follow
+the catalog's ordered fallback chain, but no Pixel 10 profile is activated until
+the missing product/build lane and physical-device evidence exist.
 
 A future Pixel 11 profile will be added only when official hardware facts and a
 reproducibly validated platform/device/vendor/kernel build lane exist. As of

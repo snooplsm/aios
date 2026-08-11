@@ -42,18 +42,41 @@ def load(path: Path) -> dict:
         raise AdmissionError(f"cannot read JSON {path}: {error}") from error
 
 
-def tier_models(catalog: dict, tier_id: str) -> tuple[dict, set[str]]:
+def tier_models(catalog: dict, tier_id: str) -> tuple[dict, dict[str, str]]:
     models = {item["id"]: item for item in catalog["models"]}
-    tier = next((item for item in catalog["tiers"] if item["id"] == tier_id), None)
+    tiers = {item["id"]: item for item in catalog["tiers"]}
+    tier = tiers.get(tier_id)
     if tier is None:
         raise AdmissionError(f"unknown catalog tier: {tier_id}")
-    ids = {
-        tier["text_model"],
-        tier["media_model"],
-        tier["tts_model"],
-        *tier["asr_candidates"],
-    }
-    return models, ids
+    roles: dict[str, str] = {}
+    seen_tiers: set[str] = set()
+    current = tier
+    while current is not None:
+        current_id = current["id"]
+        if current_id in seen_tiers:
+            raise AdmissionError("catalog tier fallback cycle")
+        seen_tiers.add(current_id)
+        candidates = [
+            (current["text_model"], "text_model"),
+            (current["media_model"], "media_model"),
+            (current["tts_model"], "tts_model"),
+            *((item, "asr_candidate") for item in current["asr_candidates"]),
+        ]
+        for model_id, role in candidates:
+            previous = roles.get(model_id)
+            if previous is not None and previous != role:
+                raise AdmissionError("a fallback model cannot hold multiple roles")
+            roles.setdefault(model_id, role)
+        fallback_id = current.get("fallback_tier")
+        if fallback_id is None:
+            break
+        fallback = tiers.get(fallback_id)
+        if fallback is None or fallback["min_total_ram_mb"] >= current["min_total_ram_mb"]:
+            raise AdmissionError("invalid catalog fallback tier")
+        current = fallback
+    if set(roles) - set(models):
+        raise AdmissionError("catalog tier chain references an unknown model")
+    return models, roles
 
 
 def require_timestamp(value: object) -> str:
@@ -106,15 +129,8 @@ def validate_evidence(catalog: dict, suite: dict, evidence: dict) -> dict:
             or evidence["suite_sha256"] != canonical_sha256(suite):
         raise AdmissionError("benchmark evidence was evaluated by a different suite")
     completed_at = require_timestamp(evidence.get("completed_at"))
-    models, tier_ids = tier_models(catalog, evidence["catalog_tier"])
-    tier = next(item for item in catalog["tiers"]
-                if item["id"] == evidence["catalog_tier"])
-    roles = {
-        tier["text_model"]: "text_model",
-        tier["media_model"]: "media_model",
-        tier["tts_model"]: "tts_model",
-        **{item: "asr_candidate" for item in tier["asr_candidates"]},
-    }
+    models, roles = tier_models(catalog, evidence["catalog_tier"])
+    tier_ids = set(roles)
     profiles = suite.get("gate_profiles")
     observations = suite.get("required_observations")
     coverage = suite.get("required_role_coverage")
@@ -209,9 +225,9 @@ def validate_evidence(catalog: dict, suite: dict, evidence: dict) -> dict:
         raise AdmissionError(
             "benchmark evidence needs text, media, TTS, and at least one ASR result")
     passed_ids = {item["model_id"] for item in passed}
-    required_ids = {tier["text_model"], tier["media_model"], tier["tts_model"]}
-    if not required_ids <= passed_ids \
-            or not passed_ids.intersection(tier["asr_candidates"]):
+    passed_roles = {roles[model_id] for model_id in passed_ids}
+    if not {"text_model", "media_model", "tts_model"} <= passed_roles \
+            or "asr_candidate" not in passed_roles:
         raise AdmissionError(
             "a supported profile needs text, media, TTS, and at least one ASR pass"
         )
@@ -248,7 +264,7 @@ def generate(
     if len(by_id) != len(profiles) or None in by_id:
         raise AdmissionError("base admission profile IDs must be present and unique")
 
-    promoted_profiles: set[str] = set()
+    promotions: dict[str, dict] = {}
     suite_path = root / "config" / "model_benchmark_suite.json"
     try:
         suite = load(suite_path)
@@ -262,9 +278,6 @@ def generate(
             raise AdmissionError(f"cannot read benchmark evidence: {evidence_path}") \
                 from error
         checked = validate_evidence(catalog, suite, evidence)
-        if checked["profile_id"] in promoted_profiles:
-            raise AdmissionError("one evidence suite must own each promoted profile")
-        promoted_profiles.add(checked["profile_id"])
         profile = by_id.get(checked["profile_id"])
         if profile is None:
             raise AdmissionError(f"unknown base profile: {checked['profile_id']}")
@@ -280,18 +293,43 @@ def generate(
             raise AdmissionError("benchmark evidence must be stored under the repository") \
                 from error
         evidence_sha256 = hashlib.sha256(raw).hexdigest()
-        profile["status"] = "supported"
-        profile["admitted_models"] = [
-            {**item, "evidence_sha256": evidence_sha256}
-            for item in checked["passed"]
-        ]
-        profile["evidence"] = [{
+        promotion = promotions.setdefault(checked["profile_id"], {
+            "models": {},
+            "evidence": {},
+        })
+        evidence_record = {
             "path": evidence_label,
             "sha256": evidence_sha256,
             "build_fingerprint_sha256": checked["build_fingerprint_sha256"],
             "suite_sha256": checked["suite_sha256"],
             "completed_at": checked["completed_at"],
-        }]
+        }
+        promotion["evidence"][evidence_sha256] = evidence_record
+        for item in checked["passed"]:
+            candidate = {**item, "evidence_sha256": evidence_sha256}
+            existing = promotion["models"].get(item["model_id"])
+            if existing is not None and (
+                    existing["backend"] != item["backend"]
+                    or existing["artifact_sha256"] != item["artifact_sha256"]):
+                raise AdmissionError(
+                    f"conflicting admitted artifact for {item['model_id']}")
+            promotion["models"].setdefault(item["model_id"], candidate)
+
+    for profile_id, promotion in promotions.items():
+        profile = by_id[profile_id]
+        _, roles = tier_models(catalog, profile["catalog_tier"])
+        admitted_roles = {
+            roles[model_id] for model_id in promotion["models"]
+        }
+        if not {"text_model", "media_model", "tts_model"} <= admitted_roles \
+                or "asr_candidate" not in admitted_roles:
+            raise AdmissionError(
+                "combined evidence needs text, media, TTS, and at least one ASR pass")
+        profile["status"] = "supported"
+        profile["admitted_models"] = sorted(
+            promotion["models"].values(), key=lambda item: item["model_id"])
+        profile["evidence"] = sorted(
+            promotion["evidence"].values(), key=lambda item: item["path"])
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")

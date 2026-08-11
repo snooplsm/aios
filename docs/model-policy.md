@@ -88,6 +88,15 @@ policy binds a pass to the device codename, build fingerprint, backend, and
 exact artifact SHA-256; release builds deny unbenchmarked or unknown profiles.
 See `model-admission.md`.
 
+Tier fallback is an ordered runtime contract, not just planning prose. Model
+Broker starts with the highest memory-eligible tier, then follows its declared
+`fallback_tier` chain. For each capability, the first verified and admitted
+artifact wins. Shared artifacts are de-duplicated, so a larger model or faster
+ASR remains preferred while an independently measured smaller artifact can stay
+available when the preferred artifact is not packaged, verified, or admitted.
+A fallback artifact receives no trust from the preferred model's result: every
+backend/digest combination must have its own passing evidence.
+
 ## Sources
 
 - Gemma 4 model card and license:

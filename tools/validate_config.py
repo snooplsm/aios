@@ -48,6 +48,45 @@ def select_tier(catalog: dict[str, Any], total_ram_mb: int) -> str | None:
     return max(eligible, key=lambda tier: tier["min_total_ram_mb"])["id"]
 
 
+def tier_chain(catalog: dict[str, Any], tier_id: str) -> list[dict[str, Any]]:
+    tiers = {tier["id"]: tier for tier in catalog.get("tiers", [])}
+    current = tiers.get(tier_id)
+    require(current is not None, f"unknown catalog tier: {tier_id}")
+    result: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    while current is not None:
+        require(current["id"] not in seen, "catalog tier fallback cycle")
+        seen.add(current["id"])
+        result.append(current)
+        fallback_id = current.get("fallback_tier")
+        if fallback_id is None:
+            break
+        fallback = tiers.get(fallback_id)
+        require(fallback is not None,
+                f"{current['id']}: unknown fallback tier")
+        require(fallback["min_total_ram_mb"] < current["min_total_ram_mb"],
+                f"{current['id']}: fallback tier must require less RAM")
+        current = fallback
+    return result
+
+
+def tier_candidate_roles(
+        catalog: dict[str, Any], tier_id: str) -> dict[str, str]:
+    roles: dict[str, str] = {}
+    for tier in tier_chain(catalog, tier_id):
+        candidates = [
+            (tier["text_model"], "text_model"),
+            (tier["media_model"], "media_model"),
+            (tier["tts_model"], "tts_model"),
+            *((item, "asr_candidate") for item in tier["asr_candidates"]),
+        ]
+        for model_id, role in candidates:
+            previous = roles.setdefault(model_id, role)
+            require(previous == role,
+                    f"{model_id}: fallback chain changes the model role")
+    return roles
+
+
 def call_policy_decision(
         mode: str,
         known_contact: bool,
@@ -285,6 +324,7 @@ def validate_catalog(catalog: dict[str, Any]) -> None:
         fallback = tier.get("fallback_tier")
         require(fallback is None or fallback in tier_by_id,
                 f"{tier['id']}: unknown fallback tier")
+        tier_chain(catalog, tier["id"])
 
     known_devices = catalog.get("known_devices")
     require(isinstance(known_devices, list) and known_devices,
@@ -475,16 +515,8 @@ def validate_model_admission(root: Path) -> None:
                 and 0 < profile["min_total_ram_mb"]
                 <= profile["max_total_ram_mb"],
                 f"{profile['id']}: invalid total-RAM range")
-        tier_ids = {
-            tier["text_model"], tier["media_model"], tier["tts_model"],
-            *tier["asr_candidates"],
-        }
-        benchmark_roles = {
-            tier["text_model"]: "text_model",
-            tier["media_model"]: "media_model",
-            tier["tts_model"]: "tts_model",
-            **{item: "asr_candidate" for item in tier["asr_candidates"]},
-        }
+        benchmark_roles = tier_candidate_roles(catalog, profile["catalog_tier"])
+        tier_ids = set(benchmark_roles)
         research = profile["research_candidate_models"]
         require(isinstance(research, list) and len(research) == len(set(research))
                 and set(research) == tier_ids,
@@ -632,8 +664,10 @@ def validate_model_admission(root: Path) -> None:
                     and key in passed_by_evidence[item["evidence_sha256"]],
                     f"{profile['id']}: admitted model lacks an exact benchmark pass")
             admitted_ids.add(model_id)
-        require({tier["text_model"], tier["media_model"], tier["tts_model"]}
-                <= admitted_ids and admitted_ids.intersection(tier["asr_candidates"]),
+        admitted_roles = {benchmark_roles[model_id] for model_id in admitted_ids}
+        coverage = suite["required_role_coverage"]
+        require(set(coverage["all"]) <= admitted_roles
+                and set(coverage["at_least_one"]).intersection(admitted_roles),
                 f"{profile['id']}: supported profile lacks text/media/TTS/ASR coverage")
     for device in catalog["known_devices"]:
         codename = device.get("codename")
@@ -860,6 +894,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/modelbroker/src/com/aios/modelbroker/ArtifactVerifier.java",
         "services/modelbroker/src/com/aios/modelbroker/AuthorizedClientPolicy.java",
         "services/modelbroker/src/com/aios/modelbroker/CatalogPolicy.java",
+        "services/modelbroker/src/com/aios/modelbroker/CatalogTierPlanner.java",
         "services/modelbroker/src/com/aios/modelbroker/DeviceModelAdmission.java",
         "services/modelbroker/src/com/aios/modelbroker/BrokerProductProperties.java",
         "services/modelbroker/src/com/aios/modelbroker/BrokerState.java",
@@ -879,6 +914,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/modelbroker/tests/src/com/aios/modelbroker/SessionDeadlineQueueTest.java",
         "services/modelbroker/tests/src/com/aios/modelbroker/CallActivityLeaseTrackerTest.java",
         "services/modelbroker/tests/src/com/aios/modelbroker/PolicyFileReaderTest.java",
+        "services/modelbroker/tests/src/com/aios/modelbroker/CatalogTierPlannerTest.java",
         "tools/generate_model_pack.py",
         "tools/generate_model_admission.py",
         "tools/generate_runtime_pack.py",
@@ -2063,6 +2099,8 @@ def validate_aosp_overlay(root: Path) -> None:
         encoding="utf-8")
     broker_host_test = broker_bp[broker_bp.index("java_test_host {"):]
     require('name: "aios_modelbroker_host_tests"' in broker_host_test
+            and '"src/com/aios/modelbroker/CatalogTierPlanner.java"'
+            in broker_host_test
             and '"src/com/aios/modelbroker/PolicyFileReader.java"' in broker_host_test
             and '"src/com/aios/modelbroker/SessionChunkPolicy.java"'
             in broker_host_test
@@ -2145,6 +2183,21 @@ def validate_aosp_overlay(root: Path) -> None:
         encoding="utf-8")
     catalog_policy = (broker_source_root / "CatalogPolicy.java").read_text(
         encoding="utf-8")
+    catalog_tier_planner = (broker_source_root / "CatalogTierPlanner.java").read_text(
+        encoding="utf-8")
+    catalog_tier_planner_test = (
+        root / "services" / "modelbroker" / "tests" / "src" / "com" / "aios" /
+        "modelbroker" / "CatalogTierPlannerTest.java"
+    ).read_text(encoding="utf-8")
+    require("CatalogTierPlanner.candidates" in catalog_policy
+            and 'value.has("fallback_tier")' in catalog_policy
+            and "fallback.minTotalRamMb >= current.minTotalRamMb"
+            in catalog_tier_planner
+            and "highestEligibleTierPrecedesDeduplicatedFallbacks"
+            in catalog_tier_planner_test
+            and "cyclesUnknownTargetsAndUpwardFallbacksFailClosed"
+            in catalog_tier_planner_test,
+            "catalog selection must prefer the measured tier and fail closed across fallbacks")
     require("MAX_POLICY_BYTES = 2 * 1024 * 1024" in policy_reader
             and "policy file was truncated" in policy_reader
             and "policy file grew while reading" in policy_reader

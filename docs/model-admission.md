@@ -21,9 +21,14 @@ A benchmark evidence file under `evidence/model-admission/` binds all of these:
 - the required gates, failed gates, and measured numeric/boolean metrics; and
 - an explicit `passed` or `failed` decision consistent with those gates.
 
-Promotion also requires passes for the tier's text, media, and TTS models plus
-at least one ASR candidate. This prevents a nominally "supported" device profile
-from silently shipping without a complete receptionist/media path.
+Promotion also requires passes for text, media, and TTS plus at least one ASR
+candidate from the profile's declared tier/fallback chain. This prevents a
+nominally "supported" device profile from silently shipping without a complete
+receptionist/media path. It also lets one physical-device run measure a complete
+preferred configuration and another measure a complete fallback configuration;
+the admission generator can merge those evidence files into one profile. Every
+admitted model still points to the exact evidence file that passed its backend
+and artifact digest, and conflicting results for the same model are rejected.
 
 The suite gates English and Spanish quality, call-time latency, throughput, and
 crash-free execution. Peak RSS and maximum thermal status are mandatory
@@ -76,6 +81,11 @@ python3 tools/generate_model_admission.py \
   --evidence evidence/model-admission/pixel-9a-<build>.json \
   --output generated/model_admission/model_admission.json
 ```
+
+Repeat `--evidence` to combine independently captured preferred and fallback
+configurations for the same profile. Each file must provide a complete
+text/media/TTS/ASR configuration; partial evidence files cannot collectively
+hide a configuration that was never tested end to end.
 
 Review the evidence and generated diff before replacing the checked-in policy.
 The generator copies the evidence digest into every admitted model. At boot,
