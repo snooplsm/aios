@@ -10,5 +10,9 @@
         <activity
             android:name="com.aios.mediaintelligence.MediaPolicySmokeActivity"
             android:exported="true" />
+        <activity
+            android:name="com.aios.mediaintelligence.MediaObserverRecoverySmokeActivity"
+            android:exported="true"
+            android:excludeFromRecents="true" />
     </application>
 </manifest>

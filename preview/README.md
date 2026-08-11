@@ -117,8 +117,11 @@ permissions and no-backup policy are explicit. Actual Pixel MP4 remux/playback
 and process-kill recovery remain physical-device release gates.
 
 With an API-35+ emulator running, `scripts/emulator-media-smoke.ps1` installs the
-compile-check APK, executes those production policy paths, records a unique
-temporary MP4, discovers its canonical MediaStore URI, and runs the real
+compile-check APK and executes those production policy paths. It also baselines a
+historical image, stops the app, creates the first frame of a burst, restarts the
+real observer, creates a second frame, and verifies both frames are deferred
+together without importing the historical image. The runner then records a
+unique temporary MP4, discovers its canonical MediaStore URI, and runs the real
 no-reencode mux/read plus export-recovery fixtures. The script rejects
 non-emulator serials, marks its JSON as non-physical evidence, does not exercise
 a subtitle renderer, and removes the APK, source, derived rows, journals, and

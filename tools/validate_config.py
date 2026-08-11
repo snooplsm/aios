@@ -984,6 +984,8 @@ def validate_aosp_overlay(root: Path) -> None:
         "scripts/emulator-messaging-smoke.ps1",
         "scripts/emulator-call-retention-smoke.ps1",
         "scripts/emulator-media-smoke.ps1",
+        "preview/mediascancheck/src/debug/AndroidManifest.xml",
+        "preview/mediascancheck/src/debug/java/com/aios/mediaintelligence/MediaObserverRecoverySmokeActivity.java",
         "services/modelbroker/Android.bp",
         "services/modelbroker/AndroidManifest.xml",
         "services/modelbroker/aidl/com/aios/model/IAiosModelService.aidl",
@@ -4532,6 +4534,15 @@ def validate_aosp_overlay(root: Path) -> None:
     media_smoke_script = (
         root / "scripts" / "emulator-media-smoke.ps1"
     ).read_text(encoding="utf-8")
+    media_recovery_smoke = (
+        root / "preview" / "mediascancheck" / "src" / "debug" / "java" /
+        "com" / "aios" / "mediaintelligence" /
+        "MediaObserverRecoverySmokeActivity.java"
+    ).read_text(encoding="utf-8")
+    media_preview_manifest = (
+        root / "preview" / "mediascancheck" / "src" / "debug" /
+        "AndroidManifest.xml"
+    ).read_text(encoding="utf-8")
     media_bp = (root / "services" / "mediaintelligence" /
                 "Android.bp").read_text(encoding="utf-8")
     media_manifest = (root / "services" / "mediaintelligence" /
@@ -4582,6 +4593,14 @@ def validate_aosp_overlay(root: Path) -> None:
             and "MEDIA_SCANNER_SCAN_FILE" in media_smoke_script
             and "AIOS_MEDIA_POLICY_SMOKE_OK" in media_smoke_script
             and "AIOS_MEDIA_POLICY_SMOKE_FAILED" in media_smoke_script
+            and "AIOS_MEDIA_RECOVERY_ASSERT_OK" in media_smoke_script
+            and "restart_burst_settlement_verified = $true" in media_smoke_script
+            and "historical_library_not_imported = $true" in media_smoke_script
+            and "MediaObserverRecoverySmokeActivity" in media_preview_manifest
+            and "MediaGenerationScanner.establishBaselines" in media_recovery_smoke
+            and "MediaObserverService.class" in media_recovery_smoke
+            and "MediaWorkPolicy.CLASS_DEFERRED" in media_recovery_smoke
+            and "historical baseline image was imported" in media_recovery_smoke
             and "isolated_photo_immediate = $true" in media_smoke_script
             and "photo_burst_deferred = $true" in media_smoke_script
             and "video_deferred = $true" in media_smoke_script
