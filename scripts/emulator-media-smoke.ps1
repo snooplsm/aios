@@ -43,7 +43,8 @@ function Wait-SmokeMarker {
         $log = (Invoke-Adb logcat -d -v brief) -join "`n"
         if ($log -match [regex]::Escape($Failure)) {
             $relevant = ($log -split "`r?`n" | Where-Object {
-                $_ -match 'AiosVideo(Mux|Recovery)Smoke'
+                ($_ -match 'AiosVideo(Mux|Recovery)Smoke') -or
+                    ($_ -match 'AiosMediaPolicySmoke')
             }) -join "`n"
             throw "Media smoke fixture failed:`n$relevant"
         }
@@ -107,6 +108,7 @@ if ($apkBytes -le 0 -or $apkSha256 -notmatch '^[0-9a-f]{64}$') {
 }
 
 $package = "com.aios.mediascancheck"
+$policyActivity = "$package/com.aios.mediaintelligence.MediaPolicySmokeActivity"
 $muxActivity = "$package/com.aios.mediaintelligence.VideoMuxerSmokeActivity"
 $recoveryActivity = "$package/com.aios.mediaintelligence.VideoExportRecoverySmokeActivity"
 $fixtureToken = [Guid]::NewGuid().ToString("N")
@@ -119,6 +121,13 @@ $installed = $false
 try {
     Invoke-Adb install -r -g $apkPath | Out-Null
     $installed = $true
+
+    Invoke-Adb logcat -c | Out-Null
+    Invoke-Adb shell am start -W -n $policyActivity | Out-Null
+    Wait-SmokeMarker `
+        -Success "AIOS_MEDIA_POLICY_SMOKE_OK" `
+        -Failure "AIOS_MEDIA_POLICY_SMOKE_FAILED"
+
     Invoke-Adb shell mkdir -p $remoteDirectory | Out-Null
     Invoke-Adb shell screenrecord --time-limit 2 --bit-rate 1000000 $remoteFixture |
         Out-Null
@@ -154,7 +163,7 @@ try {
     New-Item -ItemType Directory -Force -Path $EvidenceDirectory | Out-Null
     $evidencePath = Join-Path $EvidenceDirectory "aios-emulator-media-smoke.json"
     $evidence = [ordered]@{
-        schema_version = 1
+        schema_version = 2
         serial = $Serial
         qemu = $true
         android_release = $androidRelease
@@ -162,6 +171,13 @@ try {
         apk_bytes = $apkBytes
         apk_sha256 = $apkSha256
         fixture_bytes = $size
+        isolated_photo_immediate = $true
+        photo_burst_deferred = $true
+        video_deferred = $true
+        deferred_requires_charging = $true
+        deferred_requires_80_percent = $true
+        active_call_preempts_media = $true
+        android_job_constraints_verified = $true
         mux_and_embedded_metadata_round_trip = $true
         encoded_source_samples_verified = $true
         timed_subtitle_metadata_read = $true

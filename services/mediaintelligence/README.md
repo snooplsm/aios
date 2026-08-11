@@ -110,9 +110,11 @@ every private app-data domain because those records and recovery artifacts are
 source- and device-bound.
 
 `scripts/emulator-media-smoke.ps1` provides the reproducible platform smoke
-entry point. It is hard-guarded to a QEMU serial, creates a temporary screen-
-recorded MP4, and executes both debug activities through its MediaStore URI. A
-passing run proves that Android's actual extractor/muxer round-trips unchanged
-encoded samples plus the AIOS description/timed-metadata tracks, and that the
-attached/unattached/published recovery cases behave as designed. It explicitly
-records `subtitle_renderer_exercised=false` and `physical_gate_evidence=false`.
+entry point. It is hard-guarded to a QEMU serial, first executes the production
+capture grouping, battery/call gates, and generated Android job constraints,
+then creates a temporary screen-recorded MP4 and executes both video activities
+through its MediaStore URI. A passing run proves that Android's actual
+extractor/muxer round-trips unchanged encoded samples plus the AIOS
+description/timed-metadata tracks, and that the attached/unattached/published
+recovery cases behave as designed. It explicitly records
+`subtitle_renderer_exercised=false` and `physical_gate_evidence=false`.

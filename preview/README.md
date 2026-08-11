@@ -64,21 +64,23 @@ enabled by the compile-check APK. Production continues to read the immutable
 
 `mediascancheck` stages every production Media Intelligence Java source, test,
 Binder contract, resource, and the real application manifest. Its debug overlay
-only adds emulator fixtures for platform MP4 sample round trips plus attached-
-pending deletion, insert-before-URI-attachment recovery, and published-output
-preservation. The lane therefore compiles, tests, assembles, and lints the whole
-MediaStore observer, inference, subtitle-index, metadata-write, enhanced-copy,
-reader, and recovery boundary without duplicate implementation files. It also
-checks that the deliberately privileged media permissions and no-backup policy
-are explicit. Actual Pixel MP4 remux/playback and process-kill recovery remain
-physical-device release gates.
+adds emulator fixtures for the production capture-grouping, 80%-while-charging,
+active-call-preemption, and Android `JobInfo` policies; platform MP4 sample round
+trips; attached-pending deletion; insert-before-URI-attachment recovery; and
+published-output preservation. The lane therefore compiles, tests, assembles,
+and lints the whole MediaStore observer, inference, subtitle-index,
+metadata-write, enhanced-copy, reader, and recovery boundary without duplicate
+implementation files. It also checks that the deliberately privileged media
+permissions and no-backup policy are explicit. Actual Pixel MP4 remux/playback
+and process-kill recovery remain physical-device release gates.
 
 With an API-35+ emulator running, `scripts/emulator-media-smoke.ps1` installs the
-compile-check APK, records a unique temporary MP4, discovers its canonical
-MediaStore URI, and runs the real no-reencode mux/read plus export-recovery
-fixtures. The script rejects non-emulator serials, marks its JSON as non-physical
-evidence, does not exercise a subtitle renderer, and removes the APK, source,
-derived rows, journals, and cached output when it finishes.
+compile-check APK, executes those production policy paths, records a unique
+temporary MP4, discovers its canonical MediaStore URI, and runs the real
+no-reencode mux/read plus export-recovery fixtures. The script rejects
+non-emulator serials, marks its JSON as non-physical evidence, does not exercise
+a subtitle renderer, and removes the APK, source, derived rows, journals, and
+cached output when it finishes.
 
 `telecomsmoke` packages those same sources as `com.aios.phone` solely for an
 AOSP emulator. It is debug-signed, cannot use the signature-protected AIOS

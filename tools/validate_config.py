@@ -4246,6 +4246,13 @@ def validate_aosp_overlay(root: Path) -> None:
             and "apk_sha256 = $apkSha256" in media_smoke_script
             and "screenrecord --time-limit 2" in media_smoke_script
             and "MEDIA_SCANNER_SCAN_FILE" in media_smoke_script
+            and "AIOS_MEDIA_POLICY_SMOKE_OK" in media_smoke_script
+            and "AIOS_MEDIA_POLICY_SMOKE_FAILED" in media_smoke_script
+            and "isolated_photo_immediate = $true" in media_smoke_script
+            and "photo_burst_deferred = $true" in media_smoke_script
+            and "video_deferred = $true" in media_smoke_script
+            and "deferred_requires_80_percent = $true" in media_smoke_script
+            and "android_job_constraints_verified = $true" in media_smoke_script
             and "AIOS_MUX_SMOKE_OK" in media_smoke_script
             and "AIOS_MUX_SMOKE_FAILED" in media_smoke_script
             and "AIOS_VIDEO_RECOVERY_SMOKE_OK" in media_smoke_script
@@ -4328,8 +4335,9 @@ def validate_aosp_overlay(root: Path) -> None:
         root / "services" / "mediaintelligence" / "tests" / "src" / "com" /
         "aios" / "mediaintelligence" / "MediaJobRunGateTest.java"
     ).read_text(encoding="utf-8")
-    require("extras.putString(EXTRA_DELIVERY_ID, UUID.randomUUID().toString())"
+    require("jobInfo(\n                context, workClass, UUID.randomUUID().toString())"
             in job_source
+            and "extras.putString(EXTRA_DELIVERY_ID, deliveryId)" in job_source
             and "MediaJobRunGate.Token run = runs.begin(deliveryId)" in job_source
             and "if (!runs.stop(deliveryId)) return false" in job_source
             and "MediaJobRunGate.Finish finish = runs.finish(run)" in job_source

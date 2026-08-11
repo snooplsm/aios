@@ -27,8 +27,8 @@ import java.util.regex.Pattern;
 /** Enforces runtime constraints before and throughout a Model Broker media lease. */
 public final class MediaInferenceJobService extends JobService {
     private static final String TAG = "AiosMediaInference";
-    private static final String EXTRA_WORK_CLASS = "work_class";
-    private static final String EXTRA_DELIVERY_ID = "delivery_id";
+    static final String EXTRA_WORK_CLASS = "work_class";
+    static final String EXTRA_DELIVERY_ID = "delivery_id";
     private static final int JOB_IMMEDIATE = 0xA105;
     private static final int JOB_DEFERRED = 0xA106;
     private static final Pattern DIGEST = Pattern.compile("[0-9a-f]{64}");
@@ -38,10 +38,19 @@ public final class MediaInferenceJobService extends JobService {
     private volatile Thread activeThread;
 
     static void schedule(Context context, int workClass) {
+        context.getSystemService(JobScheduler.class).schedule(jobInfo(
+                context, workClass, UUID.randomUUID().toString()));
+    }
+
+    static JobInfo jobInfo(Context context, int workClass, String deliveryId) {
+        if (context == null || !MediaWorkPolicy.isKnownWorkClass(workClass)
+                || deliveryId == null || deliveryId.isBlank()) {
+            throw new IllegalArgumentException("invalid media inference job");
+        }
         boolean deferred = workClass == MediaWorkPolicy.CLASS_DEFERRED;
         PersistableBundle extras = new PersistableBundle();
         extras.putInt(EXTRA_WORK_CLASS, workClass);
-        extras.putString(EXTRA_DELIVERY_ID, UUID.randomUUID().toString());
+        extras.putString(EXTRA_DELIVERY_ID, deliveryId);
         JobInfo.Builder builder = new JobInfo.Builder(
                 deferred ? JOB_DEFERRED : JOB_IMMEDIATE,
                 new ComponentName(context, MediaInferenceJobService.class))
@@ -53,7 +62,7 @@ public final class MediaInferenceJobService extends JobService {
         } else {
             builder.setMinimumLatency(1_000L);
         }
-        context.getSystemService(JobScheduler.class).schedule(builder.build());
+        return builder.build();
     }
 
     @Override

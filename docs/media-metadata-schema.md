@@ -157,12 +157,14 @@ and both embedded MIME tracks, exercises audio-less video, and confirms playback
 failure cleanup, notification behavior, and no self-requeue on a Pixel build.
 
 For faster platform regression, `scripts/emulator-media-smoke.ps1` runs the same
-mux/verifier and metadata reader against a temporary API-35+ emulator MP4, then
-exercises attached-pending, unattached-pending, and published-output recovery.
-It refuses physical serials, cleans its MediaStore source and APK, and emits only
-ignored, explicitly non-physical JSON evidence. This verifies Android platform
-container behavior without claiming Pixel playback, carrier behavior, rendered
-subtitles, or either physical release gate.
+production capture grouping, battery/call gates, and Android job-constraint
+builder before running the mux/verifier and metadata reader against a temporary
+API-35+ emulator MP4. It then exercises attached-pending, unattached-pending, and
+published-output recovery. It refuses physical serials, cleans its MediaStore
+source and APK, and emits only ignored, explicitly non-physical JSON evidence.
+This verifies Android runtime policy and container behavior without claiming
+Pixel playback, carrier behavior, rendered subtitles, or any physical release
+gate.
 
 The separate `media.enhanced_video_interrupted_export_recovery` gate kills the
 export process before insert, after insert but before URI attachment, during
