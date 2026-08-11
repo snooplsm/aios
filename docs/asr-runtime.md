@@ -29,6 +29,13 @@ from both telephony directions, with a bounded startup timeout. This prevents an
 AI-answered call from greeting a caller when the privileged downlink tap is
 present in policy but unavailable for that particular call.
 
+Call ASR is explicitly lifecycle-bound rather than assigned a short generation
+deadline: the stream may last for the call's full Telecom lifetime. Pipe EOF,
+explicit cancellation, callback-process death, preemption, broker shutdown, and
+the call artifact's absolute retention cleanup all terminate it. The broker
+accepts this mode only for `streaming_asr`; classifier, dialogue, TTS, vision,
+and other finite requests always retain an elapsed-realtime terminal deadline.
+
 Build on Linux:
 
 ```text
@@ -63,3 +70,7 @@ failing merely because decoding can supply PCM faster than real time. Each
 speech-bearing four-second window is final, which bounds subtitle size and gives
 stable video-timeline offsets. The worker streams the complete primary audio
 track; it does not sample audio alongside the twenty visual keyframes.
+The video stream uses the same lifecycle-bound broker mode because clip length
+is not an inference-turn timeout. Its PCM EOF, two-minute post-feed completion
+timeout, one-second constraint checks, Binder death, and call preemption provide
+the terminating conditions.

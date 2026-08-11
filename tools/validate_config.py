@@ -850,6 +850,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/modelbroker/Android.bp",
         "services/modelbroker/AndroidManifest.xml",
         "services/modelbroker/aidl/com/aios/model/IAiosModelService.aidl",
+        "services/modelbroker/aidl/com/aios/model/ModelRequest.aidl",
         "services/modelbroker/src/com/aios/modelbroker/ModelBrokerService.java",
         "services/modelbroker/src/com/aios/modelbroker/ArtifactVerifier.java",
         "services/modelbroker/src/com/aios/modelbroker/AuthorizedClientPolicy.java",
@@ -863,9 +864,11 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/modelbroker/src/com/aios/modelbroker/RuntimeRegistry.java",
         "services/modelbroker/src/com/aios/modelbroker/SessionController.java",
         "services/modelbroker/src/com/aios/modelbroker/SessionArbiter.java",
+        "services/modelbroker/src/com/aios/modelbroker/SessionDeadlinePolicy.java",
         "services/modelbroker/src/com/aios/modelbroker/SessionDeadlineQueue.java",
         "services/modelbroker/src/com/aios/modelbroker/CallActivityLeaseTracker.java",
         "services/modelbroker/tests/src/com/aios/modelbroker/SessionArbiterTest.java",
+        "services/modelbroker/tests/src/com/aios/modelbroker/SessionDeadlinePolicyTest.java",
         "services/modelbroker/tests/src/com/aios/modelbroker/SessionDeadlineQueueTest.java",
         "services/modelbroker/tests/src/com/aios/modelbroker/CallActivityLeaseTrackerTest.java",
         "services/modelbroker/tests/src/com/aios/modelbroker/PolicyFileReaderTest.java",
@@ -1924,6 +1927,13 @@ def validate_aosp_overlay(root: Path) -> None:
             "call priority must be tied to a client-owned Binder lifecycle token")
     require("String modelPath" not in api and "String filePath" not in api,
             "model API must not expose filesystem paths")
+    model_request_api = (
+        root / "services" / "modelbroker" / "aidl" / "com" / "aios" /
+        "model" / "ModelRequest.aidl"
+    ).read_text(encoding="utf-8")
+    require("Long.MAX_VALUE" in model_request_api
+            and "lifecycle-bound streaming_asr" in model_request_api,
+            "model request API must define the lifecycle-bound ASR sentinel")
 
     manifest = (root / "services" / "modelbroker" / "AndroidManifest.xml").read_text(
         encoding="utf-8"
@@ -1968,9 +1978,11 @@ def validate_aosp_overlay(root: Path) -> None:
     require("deadlines.removeExpired(SystemClock.elapsedRealtime())"
             in session_controller
             and "deadlineExecutor.schedule" in session_controller
+            and "SessionDeadlinePolicy.validAt" in session_controller
+            and "SessionDeadlinePolicy.shouldTrack" in session_controller
             and "record.callbackLock" in session_controller
             and "ERROR_DEADLINE_EXCEEDED" in session_controller,
-            "broker must expire queued/running sessions with one terminal callback")
+            "broker must expire finite queued/running sessions with one terminal callback")
 
     runtime_api = (root / "services" / "runtimeapi" / "aidl" / "com" / "aios" /
                    "runtime" / "IAiosRuntimeProvider.aidl").read_text(encoding="utf-8")
@@ -1990,6 +2002,11 @@ def validate_aosp_overlay(root: Path) -> None:
     broker_product_properties = (
         broker_source_root / "BrokerProductProperties.java"
     ).read_text(encoding="utf-8")
+    broker_deadline_policy = (
+        broker_source_root / "SessionDeadlinePolicy.java"
+    ).read_text(encoding="utf-8")
+    broker_state = (broker_source_root / "BrokerState.java").read_text(
+        encoding="utf-8")
     broker_compile_properties = (
         root / "preview" / "modelservicecheck" / "src" / "main" / "java" /
         "com" / "aios" / "modelbroker" / "BrokerProductProperties.java"
@@ -1999,10 +2016,17 @@ def validate_aosp_overlay(root: Path) -> None:
     broker_host_test = broker_bp[broker_bp.index("java_test_host {"):]
     require('name: "aios_modelbroker_host_tests"' in broker_host_test
             and '"src/com/aios/modelbroker/PolicyFileReader.java"' in broker_host_test
+            and '"src/com/aios/modelbroker/SessionDeadlinePolicy.java"'
+            in broker_host_test
             and '"src/com/aios/modelbroker/SessionDeadlineQueue.java"'
             in broker_host_test
             and '"tests/src/**/*.java"' in broker_host_test,
             "Soong Model Broker host tests must include bounded policy and deadline logic")
+    require("LIFECYCLE_BOUND = Long.MAX_VALUE" in broker_deadline_policy
+            and "MAX_FINITE_HORIZON_MILLIS" in broker_deadline_policy
+            and '"streaming_asr".equals(capability)' in broker_deadline_policy
+            and "SessionDeadlinePolicy.validAt" in broker_state,
+            "broker must bound finite deadlines and reserve lifecycle mode for streaming ASR")
     require('include(":modelservicecheck")' in model_preview_settings
             and 'include("com/aios/modelbroker/**/*.java")'
             in model_service_compile_build
@@ -2718,6 +2742,8 @@ def validate_aosp_overlay(root: Path) -> None:
     asr_client = (call_source_root / "AsrBrokerClient.java").read_text(encoding="utf-8")
     require('request.language = "und"' in asr_client,
             "ASR client must permit English/Spanish auto-detection")
+    require("request.deadlineElapsedRealtimeMillis = Long.MAX_VALUE" in asr_client,
+            "live call ASR must follow the call lifecycle rather than a short turn deadline")
     require('"call_rx" : "call_tx"' in asr_client,
             "downlink and uplink must receive distinct server priorities")
     require("ParcelFileDescriptor.createPipe()" in asr_client,
@@ -2924,6 +2950,10 @@ def validate_aosp_overlay(root: Path) -> None:
             "media Broker client must submit explicit inputs and erase private storyboards")
     require('request.capability = "streaming_asr"' in media_broker_source
             and 'request.workload = "media_background"' in media_broker_source
+            and "request.deadlineElapsedRealtimeMillis = Long.MAX_VALUE"
+            in media_broker_source
+            and "TimeUnit.MINUTES.toMillis(INFERENCE_TIMEOUT_MINUTES)"
+            in media_broker_source
             and 'format.direction = "media"' in media_broker_source
             and "VideoAudioExtractor.stream" in media_broker_source
             and "VideoTranscript.fromInference" in media_broker_source

@@ -33,6 +33,7 @@ java_test_host {
         "src/com/aios/modelbroker/CallActivityLeaseTracker.java",
         "src/com/aios/modelbroker/PolicyFileReader.java",
         "src/com/aios/modelbroker/SessionArbiter.java",
+        "src/com/aios/modelbroker/SessionDeadlinePolicy.java",
         "src/com/aios/modelbroker/SessionDeadlineQueue.java",
         "src/com/aios/modelbroker/WorkClass.java",
         "tests/src/**/*.java",

@@ -166,7 +166,8 @@ final class MediaBrokerClient implements AutoCloseable {
             request.language = "es".equals(locale) ? "es" : "en";
             request.maxOutputTokens = 1024;
             request.deadlineElapsedRealtimeMillis =
-                    SystemClock.elapsedRealtime() + 30_000L;
+                    SystemClock.elapsedRealtime()
+                            + TimeUnit.MINUTES.toMillis(INFERENCE_TIMEOUT_MINUTES);
             request.allowFallback = true;
 
             try {
@@ -276,7 +277,9 @@ final class MediaBrokerClient implements AutoCloseable {
         request.workload = "media_background";
         request.language = "und";
         request.maxOutputTokens = 0;
-        request.deadlineElapsedRealtimeMillis = SystemClock.elapsedRealtime() + 30_000L;
+        // Full-audio ASR is bounded by pipe EOF, this worker's timeout/constraints,
+        // Binder death, and broker preemption rather than an arbitrary clip duration.
+        request.deadlineElapsedRealtimeMillis = Long.MAX_VALUE;
         request.allowFallback = true;
 
         ParcelFileDescriptor[] pipe = null;

@@ -21,10 +21,14 @@ CREATED -> QUEUED -> LOADING -> RUNNING -> DRAINING -> COMPLETED
 - Binder death cancels the session, closes its pipes, and releases its lease.
 - Session IDs are opaque process-local handles, not persistent IDs or secrets.
 - A caller cannot submit to, inspect, or cancel another UID's session.
-- Deadlines use elapsed realtime, never wall-clock time.
-- One broker-owned timer expires both queued and running sessions. Expiration
-  closes descriptors and the runtime lease, reports `ERROR_DEADLINE_EXCEEDED`,
-  and promotes eligible queued work.
+- Finite deadlines use elapsed realtime, never wall-clock time. One broker-owned
+  timer expires finite queued and running sessions, closes descriptors and the
+  runtime lease, reports `ERROR_DEADLINE_EXCEEDED`, and promotes eligible work.
+  Admission rejects an expired deadline or one more than five minutes ahead.
+- `streaming_asr` alone may use the explicit `Long.MAX_VALUE` lifecycle mode.
+  Those sessions end through PCM pipe EOF, explicit cancellation, callback
+  Binder death, call/media preemption, or broker shutdown. A finite ASR request,
+  such as a benchmark, remains deadline-enforced.
 - Chunk and terminal callback delivery is serialized per session so expiration,
   cancellation, and runtime completion cannot produce two terminal callbacks.
 

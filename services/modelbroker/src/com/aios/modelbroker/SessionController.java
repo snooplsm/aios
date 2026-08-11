@@ -224,9 +224,12 @@ final class SessionController implements AutoCloseable {
             VerifiedArtifact artifact,
             ModelRequest request,
             IModelCallback callback) {
-        if (request.deadlineElapsedRealtimeMillis <= 0L) {
+        if (!SessionDeadlinePolicy.validAt(
+                request.capability,
+                request.deadlineElapsedRealtimeMillis,
+                SystemClock.elapsedRealtime())) {
             notifyError(callback, ModelBrokerService.ERROR_INVALID_REQUEST,
-                    "request deadline must be positive elapsed realtime");
+                    "request has an invalid elapsed-realtime deadline mode");
             return -1L;
         }
         long id = nextId.getAndIncrement();
@@ -258,8 +261,11 @@ final class SessionController implements AutoCloseable {
                 return -1L;
             }
             records.put(id, record);
-            deadlines.add(id, request.deadlineElapsedRealtimeMillis);
-            rescheduleDeadlineLocked();
+            if (SessionDeadlinePolicy.shouldTrack(
+                    request.capability, request.deadlineElapsedRealtimeMillis)) {
+                deadlines.add(id, request.deadlineElapsedRealtimeMillis);
+                rescheduleDeadlineLocked();
+            }
             prepared = prepareChangeLocked(change);
         }
         apply(prepared);

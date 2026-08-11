@@ -111,8 +111,12 @@ final class BrokerState {
         if (request.requestId == null || request.requestId.isEmpty()) {
             throw new IllegalArgumentException("request ID is required");
         }
-        if (request.deadlineElapsedRealtimeMillis <= SystemClock.elapsedRealtime()) {
-            throw new IllegalArgumentException("request deadline has expired");
+        if (!SessionDeadlinePolicy.validAt(
+                request.capability,
+                request.deadlineElapsedRealtimeMillis,
+                SystemClock.elapsedRealtime())) {
+            throw new IllegalArgumentException(
+                    "request deadline is expired, too distant, or invalid for its capability");
         }
         if (callActive && "media_background".equals(request.workload)) {
             throw new IllegalArgumentException("media inference is blocked during a call");

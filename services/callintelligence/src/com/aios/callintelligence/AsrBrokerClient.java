@@ -9,7 +9,6 @@ import android.os.Binder;
 import android.os.IBinder;
 import android.os.ParcelFileDescriptor;
 import android.os.RemoteException;
-import android.os.SystemClock;
 
 import com.aios.model.AudioStreamFormat;
 import com.aios.model.GenerationChunk;
@@ -134,7 +133,8 @@ final class AsrBrokerClient implements AutoCloseable {
             request.workload = "downlink".equals(direction) ? "call_rx" : "call_tx";
             request.language = "und";
             request.maxOutputTokens = 0;
-            request.deadlineElapsedRealtimeMillis = SystemClock.elapsedRealtime() + 30_000L;
+            // Call ASR follows the Telecom/capture lifecycle rather than a short inference turn.
+            request.deadlineElapsedRealtimeMillis = Long.MAX_VALUE;
             request.allowFallback = true;
             IModelCallback callback = callback(callId, direction, streamIdentity);
             long sessionId = current.createSession(request, callback);
