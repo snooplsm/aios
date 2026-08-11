@@ -138,4 +138,9 @@ needed by its tests. For faster drift detection outside a full AOSP checkout,
 model, and context AIDL into a public-SDK Gradle build. Only the narrow immutable
 product-property adapter is replaced, with a fail-closed implementation; the
 production Soong module still builds the real platform adapter. This compile lane
-does not replace a Soong build or any physical telephony release gate.
+does not replace a Soong build or any physical telephony release gate. The
+emulator-only `scripts/emulator-call-retention-smoke.ps1` additionally runs the
+production app-private artifact store and AlarmManager integration on Android,
+including live-writer closure, exact 24-hour deletion, fail-closed unreadable
+metadata, non-extending resume, explicit discard, and empty-store cleanup. Its
+ignored evidence remains explicitly non-physical.

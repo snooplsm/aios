@@ -55,6 +55,15 @@ always returns `false`; the AOSP app continues to compile the production adapter
 against `android.os.SystemProperties`. The compile-check APK must not be shipped
 or used as evidence that privileged capture works on a Pixel.
 
+Its debug-only retention activity can also be driven by
+`scripts/emulator-call-retention-smoke.ps1`. On API-35+ QEMU it creates the real
+private RX/TX, transcript, assessment, and assistant artifacts; proves the exact
+24-hour deadline; deletes an expired active writer and unreadable metadata;
+preserves a fresh resumed call without extending its deadline; exercises the
+nearest alarm and empty-store cancellation; and leaves no private artifact or
+APK installed. This is Android storage/alarm evidence, not call-audio or physical
+Pixel evidence.
+
 `modelservicecheck` stages every Model Broker Java source plus the model and
 runtime-provider AIDL contracts. It compiles, tests, assembles, and lints the
 complete shared inference boundary. Its local `BrokerProductProperties` adapter

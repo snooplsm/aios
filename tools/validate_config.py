@@ -927,6 +927,8 @@ def validate_aosp_overlay(root: Path) -> None:
         "preview/callcontextcheck/build.gradle.kts",
         "preview/callservicecheck/build.gradle.kts",
         "preview/callservicecheck/src/main/java/com/aios/callintelligence/CallProductProperties.java",
+        "preview/callservicecheck/src/debug/AndroidManifest.xml",
+        "preview/callservicecheck/src/debug/java/com/aios/callintelligence/CallRetentionSmokeActivity.java",
         "preview/modelservicecheck/build.gradle.kts",
         "preview/modelservicecheck/src/main/java/com/aios/modelbroker/BrokerProductProperties.java",
         "preview/mediascancheck/build.gradle.kts",
@@ -963,6 +965,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "preview/telecomsmoke/src/debug/kotlin/com/aios/phone/smoke/EmulatorConnectionService.kt",
         "scripts/emulator-telecom-smoke.ps1",
         "scripts/emulator-messaging-smoke.ps1",
+        "scripts/emulator-call-retention-smoke.ps1",
         "scripts/emulator-media-smoke.ps1",
         "services/modelbroker/Android.bp",
         "services/modelbroker/AndroidManifest.xml",
@@ -3913,6 +3916,13 @@ def validate_aosp_overlay(root: Path) -> None:
     retention_alarm = (call_source_root / "RetentionAlarm.java").read_text(
         encoding="utf-8"
     )
+    retention_smoke = (
+        root / "scripts" / "emulator-call-retention-smoke.ps1"
+    ).read_text(encoding="utf-8")
+    retention_smoke_activity = (
+        root / "preview" / "callservicecheck" / "src" / "debug" / "java" /
+        "com" / "aios" / "callintelligence" / "CallRetentionSmokeActivity.java"
+    ).read_text(encoding="utf-8")
     require("24L * 60L * 60L * 1000L" in retention_source
             and "Math.addExact" in retention_source
             and "deadline.expiresAtEpochMillis <= nowEpochMillis" in retention_source
@@ -3937,6 +3947,24 @@ def validate_aosp_overlay(root: Path) -> None:
             and "setExactAndAllowWhileIdle" in retention_alarm
             and "canScheduleExactAlarms" in retention_alarm,
             "retention alarm must schedule the persisted monotonic deadline directly")
+    require("^emulator-[0-9]+$" in retention_smoke
+            and "ro.kernel.qemu" in retention_smoke
+            and "$apiLevel -lt 35" in retention_smoke
+            and "Get-FileHash -LiteralPath $apkPath -Algorithm SHA256"
+            in retention_smoke
+            and "AIOS_CALL_RETENTION_SMOKE_OK" in retention_smoke
+            and "AIOS_CALL_RETENTION_SMOKE_FAILED" in retention_smoke
+            and "run-as $package find files -type f" in retention_smoke
+            and "uninstall $package" in retention_smoke
+            and "physical_gate_evidence = $false" in retention_smoke
+            and "new CallArtifactStore(this)" in retention_smoke_activity
+            and "CallArtifactRetention.RETENTION_MILLIS" in retention_smoke_activity
+            and "expired.openDownlink()" in retention_smoke_activity
+            and "expired.openUplink()" in retention_smoke_activity
+            and "store.cleanup(nowEpochMillis)" in retention_smoke_activity
+            and "store.discard(freshCallId)" in retention_smoke_activity
+            and "RetentionAlarm.scheduleNext(this, store)" in retention_smoke_activity,
+            "call-retention emulator smoke must be guarded, self-cleaning, and exercise production storage")
     require("expires_at_epoch_ms" in artifact_source,
             "call artifacts need an absolute expiry")
     require("dialogue.jsonl" in artifact_source
