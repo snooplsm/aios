@@ -191,8 +191,20 @@ fun PhoneHomeScreen(
                     Text("Assistant status", fontWeight = FontWeight.SemiBold)
                     Text("Incoming speech: real-time English and Spanish")
                     Text("Processing: on device • retention: 24 hours")
-                    Text("Automatic answering: locked until caller audio passes physical validation",
-                        color = MaterialTheme.colorScheme.error)
+                    when {
+                        !state.assistantPolicy.available -> Text(
+                            "Automatic answering: assistant service unavailable",
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                        state.assistantPolicy.automaticAnswerAvailable -> Text(
+                            "Automatic answering: ready",
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                        else -> Text(
+                            "Automatic answering: locked until caller audio passes physical validation",
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
                 }
             }
         }

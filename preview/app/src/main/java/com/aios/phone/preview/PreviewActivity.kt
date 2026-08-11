@@ -31,15 +31,37 @@ class PreviewActivity : ComponentActivity() {
     private companion object {
         const val PREFS = "preview_ui"
         const val SHOW_DIALER_ROLE_PROMPT = "show_dialer_role_prompt"
+        const val EXTRA_SCENARIO = "aios_preview_scenario"
+        const val EXTRA_THEME = "aios_preview_theme"
     }
 
     private enum class Screen { HOME, CALL, SETTINGS }
+    private enum class Scenario(val wireValue: String) {
+        HOME("home"),
+        RECENTS("recents"),
+        VOICEMAIL("voicemail"),
+        SETTINGS("settings"),
+        INCOMING("incoming"),
+        ACTIVE_AI("active-ai");
+
+        companion object {
+            fun fromWire(value: String?): Scenario =
+                entries.firstOrNull { it.wireValue == value } ?: HOME
+        }
+    }
 
     private var screen by mutableStateOf(Screen.HOME)
-    private var state by mutableStateOf(mockState())
+    private var state by mutableStateOf(mockState(Scenario.HOME))
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val scenario = Scenario.fromWire(intent.getStringExtra(EXTRA_SCENARIO))
+        state = mockState(scenario).copy(themePreference = requestedTheme())
+        screen = when (scenario) {
+            Scenario.SETTINGS -> Screen.SETTINGS
+            Scenario.INCOMING, Scenario.ACTIVE_AI -> Screen.CALL
+            else -> Screen.HOME
+        }
         state = state.copy(
             showDialerRolePrompt = getSharedPreferences(PREFS, MODE_PRIVATE)
                 .getBoolean(SHOW_DIALER_ROLE_PROMPT, true),
@@ -101,7 +123,18 @@ class PreviewActivity : ComponentActivity() {
             is PhoneAction.Ignore -> state.copy(message = "Call silenced; it is still ringing")
             is PhoneAction.AnswerWithAi -> updateCall(action.callId) {
                 it.copy(state = Call.STATE_ACTIVE)
-            }.copy(message = "AI receptionist answered in preview")
+            }.let { answered ->
+                answered.copy(
+                    assistantCalls = answered.assistantCalls + (
+                        action.callId to AssistantCallUiState(
+                            aiHandling = true,
+                            revision = 1,
+                            observedAtEpochMillis = System.currentTimeMillis(),
+                        )
+                    ),
+                    message = "AI receptionist answered in preview",
+                )
+            }
             is PhoneAction.TakeOver -> state.copy(
                 assistantCalls = state.assistantCalls + (
                     action.callId to (state.assistantCalls[action.callId]
@@ -209,7 +242,15 @@ class PreviewActivity : ComponentActivity() {
     private fun updateCall(id: String, block: (CallUiState) -> CallUiState): PhoneUiState =
         state.copy(calls = state.calls.map { if (it.id == id) block(it) else it })
 
-    private fun mockState(): PhoneUiState {
+    private fun requestedTheme(): ThemePreference = when (
+        intent.getStringExtra(EXTRA_THEME)?.lowercase()
+    ) {
+        "light" -> ThemePreference.LIGHT
+        "dark" -> ThemePreference.DARK
+        else -> ThemePreference.SYSTEM
+    }
+
+    private fun mockState(scenario: Scenario): PhoneUiState {
         val primary = CallUiState(
             id = "preview-primary",
             displayName = "Martinez Plumbing",
@@ -243,7 +284,7 @@ class PreviewActivity : ComponentActivity() {
             childIds = emptyList(),
             conferenceableIds = listOf("preview-primary"),
         )
-        return PhoneUiState(
+        val base = PhoneUiState(
             calls = listOf(primary, second),
             selectedCallId = primary.id,
             endpoints = listOf(
@@ -299,7 +340,7 @@ class PreviewActivity : ComponentActivity() {
                     transcription = "",
                 ),
             ),
-            isDialerRoleHeld = false,
+            isDialerRoleHeld = true,
             telecomConnected = false,
             assistantConnected = true,
             assistantPolicy = AssistantPolicyUiState(
@@ -309,8 +350,8 @@ class PreviewActivity : ComponentActivity() {
                 answerMode = "unknown_only",
                 answerDelayMode = "fixed_2000_ms",
                 missedDelayMillis = 15_000L,
-                automaticAnswerAvailable = false,
-                automaticAnswerUnavailableReason = "caller_audio_injection_not_implemented",
+                automaticAnswerAvailable = true,
+                automaticAnswerUnavailableReason = "",
             ),
             themePreference = ThemePreference.SYSTEM,
             transcripts = mapOf(
@@ -338,5 +379,42 @@ class PreviewActivity : ComponentActivity() {
                 ),
             ),
         )
+        val quiet = base.copy(
+            calls = emptyList(),
+            selectedCallId = null,
+            transcripts = emptyMap(),
+            risks = emptyMap(),
+            assistantCalls = emptyMap(),
+        )
+        return when (scenario) {
+            Scenario.HOME -> quiet.copy(homeSection = HomeSection.DIAL)
+            Scenario.RECENTS -> quiet.copy(homeSection = HomeSection.RECENTS)
+            Scenario.VOICEMAIL -> quiet.copy(homeSection = HomeSection.VOICEMAIL)
+            Scenario.SETTINGS -> quiet
+            Scenario.ACTIVE_AI -> base
+            Scenario.INCOMING -> {
+                val incoming = primary.copy(
+                    displayName = "New customer",
+                    address = "••• ••• 7741",
+                    state = Call.STATE_RINGING,
+                    connectTimeMillis = 0L,
+                    conferenceableIds = emptyList(),
+                )
+                quiet.copy(
+                    calls = listOf(incoming),
+                    selectedCallId = incoming.id,
+                    risks = mapOf(
+                        incoming.id to RiskUiState(
+                            score = 0,
+                            label = CallRiskLabel.UNKNOWN,
+                            reasonCode = "insufficient_evidence",
+                            source = CallRiskSource.HEURISTIC,
+                            revision = 1,
+                            observedAtEpochMillis = System.currentTimeMillis(),
+                        ),
+                    ),
+                )
+            }
+        }
     }
 }

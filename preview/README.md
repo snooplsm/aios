@@ -146,6 +146,23 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 adb shell am start -n com.aios.phone.preview/.PreviewActivity
 ```
 
+For rapid visual testing on an API-35+ emulator, use the emulator-only launcher.
+It builds and installs only the harmless preview package, opens one deterministic
+screen, verifies the expected Compose content, and saves an ignored screenshot:
+
+```powershell
+./scripts/show-phone-preview.ps1 -Scenario incoming -Theme dark
+./scripts/show-phone-preview.ps1 -Scenario active-ai -Theme light
+./scripts/show-phone-preview.ps1 -Scenario recents -SkipBuild
+```
+
+Supported scenarios are `home`, `recents`, `voicemail`, `settings`, `incoming`,
+and `active-ai`. The incoming visual scenario deliberately enables the **AI**
+button so its transition can be designed; this is simulated UI state and does
+not claim stock-Android caller-audio access. The real emulator Telecom smoke
+test continues to fail that action closed until the physical caller-uplink gate
+passes.
+
 The preview follows the device theme by default and also provides explicit
 Light and Dark selections in Settings. Simulated voicemail never opens a real
 provider URI, and simulated video surfaces never access the camera.
