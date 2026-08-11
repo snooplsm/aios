@@ -104,6 +104,10 @@ Intelligence registers the resulting `Speech` and uplink `Stream`, starts the
 uplink reader, consumes the pair's one-shot start gate, and only then submits
 text to the TTS provider. A synchronous callback or submission exception cannot
 precede identity registration or release a successor turn from the catch path.
+The speech object separately admits only its first terminal source across model
+completion, provider error, Broker disconnect, and owner closure. Completion
+keeps the uplink drain authoritative even if a broken provider later reports an
+error; closure makes all later callbacks silent.
 
 Receptionist reasoning begins on finalized caller segments, while partial ASR
 continues updating live transcript and risk. Reasoning and speech are serialized

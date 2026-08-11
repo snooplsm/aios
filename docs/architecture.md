@@ -93,6 +93,10 @@ output, register that speech object with its telephony-uplink stream, and only
 then submit caller-facing text. The identity gate admits that start once. If a
 provider calls back synchronously or `submitText` throws, callback and catch
 paths compete for the same pair and only the winner may release the turn.
+Within the speech object, completion, provider error, Broker disconnect, and
+owner closure share a second first-terminal-wins fence. A provider cannot first
+complete and then interrupt draining audio with a duplicate error, and a closed
+speech cannot emit a delayed status into a later turn.
 
 Pipeline:
 

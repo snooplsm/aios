@@ -1048,6 +1048,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/callintelligence/src/com/aios/callintelligence/PriorContextFormatter.java",
         "services/callintelligence/src/com/aios/callintelligence/SpeechSynthesisBrokerClient.java",
         "services/callintelligence/src/com/aios/callintelligence/SpeechSynthesisStatusPolicy.java",
+        "services/callintelligence/src/com/aios/callintelligence/SpeechTerminalGate.java",
         "services/callintelligence/src/com/aios/callintelligence/AsrBrokerClient.java",
         "services/callintelligence/src/com/aios/callintelligence/ServiceRebindPolicy.java",
         "services/callintelligence/src/com/aios/callintelligence/ResilientModelBrokerBinding.java",
@@ -1078,6 +1079,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/callintelligence/tests/src/com/aios/callintelligence/CallRequestIdentityTrackerTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/Pcm16MonoToStereo48kTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/SpeechSynthesisStatusPolicyTest.java",
+        "services/callintelligence/tests/src/com/aios/callintelligence/SpeechTerminalGateTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/RequiredCaptureGateTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/PriorContextFormatterTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/TelecomCallPresenceTrackerTest.java",
@@ -3565,6 +3567,13 @@ def validate_aosp_overlay(root: Path) -> None:
         root / "services" / "callintelligence" / "tests" / "src" / "com" /
         "aios" / "callintelligence" / "SpeechSynthesisStatusPolicyTest.java"
     ).read_text(encoding="utf-8")
+    speech_terminal_gate = (
+        call_source_root / "SpeechTerminalGate.java"
+    ).read_text(encoding="utf-8")
+    speech_terminal_gate_test = (
+        root / "services" / "callintelligence" / "tests" / "src" / "com" /
+        "aios" / "callintelligence" / "SpeechTerminalGateTest.java"
+    ).read_text(encoding="utf-8")
     speak_start = call_service.index("private void speakToCaller(")
     speak_end = call_service.index("private void handleCallerAudioStatus(", speak_start)
     speak_to_caller = call_service[speak_start:speak_end]
@@ -3609,6 +3618,18 @@ def validate_aosp_overlay(root: Path) -> None:
             < speak_to_caller.index("synthesized.start()")
             and "? session.completeAssistantOperation(synthesized)" in speak_to_caller,
             "caller-facing TTS must start only after exact audio attachment and fail through that identity")
+    require(speech_broker_source.count("if (speech.claimTerminal())") == 3
+            and "if (closed || !terminal.claim()) return false"
+            in speech_broker_source
+            and "shouldCancel = terminal.claim() && currentSessionId > 0L"
+            in speech_broker_source
+            and "synchronized boolean claim()" in speech_terminal_gate
+            and "if (terminal) return false" in speech_terminal_gate
+            and "onlyTheFirstTerminalPathCanClaimSpeech"
+            in speech_terminal_gate_test
+            and "ownerCloseSuppressesEveryLaterProviderTerminal"
+            in speech_terminal_gate_test,
+            "each TTS request must expose only its first provider, Broker, or owner terminal state")
     require("CallerDisclosureCoordinator" not in call_service
             and "pendingAiDisclosures" not in call_service,
             "mandatory spoken disclosure state must not remain in the AI answer path")

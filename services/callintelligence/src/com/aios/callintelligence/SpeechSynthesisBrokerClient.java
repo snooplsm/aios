@@ -190,11 +190,13 @@ final class SpeechSynthesisBrokerClient implements AutoCloseable {
             active.clear();
         }
         for (Speech speech : snapshot) {
-            notifyStatus(
-                    speech.callId,
-                    speech.requestId,
-                    speech,
-                    "speech_synthesis_broker_disconnected");
+            if (speech.claimTerminal()) {
+                notifyStatus(
+                        speech.callId,
+                        speech.requestId,
+                        speech,
+                        "speech_synthesis_broker_disconnected");
+            }
             speech.close();
         }
     }
@@ -208,22 +210,24 @@ final class SpeechSynthesisBrokerClient implements AutoCloseable {
 
             @Override
             public void onCompleted(InferenceResult result) {
-                speech.finished();
-                notifyStatus(
-                        speech.callId,
-                        speech.requestId,
-                        speech,
-                        "speech_synthesis_complete");
+                if (speech.claimTerminal()) {
+                    notifyStatus(
+                            speech.callId,
+                            speech.requestId,
+                            speech,
+                            "speech_synthesis_complete");
+                }
             }
 
             @Override
             public void onError(int code, String message) {
-                speech.finished();
-                notifyStatus(
-                        speech.callId,
-                        speech.requestId,
-                        speech,
-                        "speech_synthesis_error_" + code);
+                if (speech.claimTerminal()) {
+                    notifyStatus(
+                            speech.callId,
+                            speech.requestId,
+                            speech,
+                            "speech_synthesis_error_" + code);
+                }
             }
         };
     }
@@ -243,10 +247,10 @@ final class SpeechSynthesisBrokerClient implements AutoCloseable {
         final int sampleRateHz = OUTPUT_SAMPLE_RATE_HZ;
         private final IAiosModelService broker;
         private final String text;
+        private final SpeechTerminalGate terminal = new SpeechTerminalGate();
         private long sessionId = -1L;
         private ParcelFileDescriptor pcmInput;
         private boolean started;
-        private boolean finished;
         private boolean closed;
 
         Speech(
@@ -272,7 +276,7 @@ final class SpeechSynthesisBrokerClient implements AutoCloseable {
         void start() throws IOException {
             long currentSessionId;
             synchronized (this) {
-                if (closed || finished || started || sessionId <= 0L) {
+                if (closed || terminal.isTerminal() || started || sessionId <= 0L) {
                     throw new IOException("speech synthesis cannot start");
                 }
                 started = true;
@@ -289,11 +293,11 @@ final class SpeechSynthesisBrokerClient implements AutoCloseable {
         }
 
         synchronized boolean isFinished() {
-            return finished;
+            return terminal.isTerminal();
         }
 
         synchronized ParcelFileDescriptor takePcmInput() throws IOException {
-            if (closed || finished || pcmInput == null) {
+            if (closed || terminal.isTerminal() || pcmInput == null) {
                 throw new IOException("synthesis PCM input is unavailable");
             }
             ParcelFileDescriptor result = pcmInput;
@@ -301,12 +305,12 @@ final class SpeechSynthesisBrokerClient implements AutoCloseable {
             return result;
         }
 
-        synchronized void finished() {
-            if (finished) return;
-            finished = true;
+        synchronized boolean claimTerminal() {
+            if (closed || !terminal.claim()) return false;
             synchronized (SpeechSynthesisBrokerClient.this) {
                 active.remove(this);
             }
+            return true;
         }
 
         @Override
@@ -320,7 +324,7 @@ final class SpeechSynthesisBrokerClient implements AutoCloseable {
                 descriptor = pcmInput;
                 pcmInput = null;
                 currentSessionId = sessionId;
-                shouldCancel = !finished && currentSessionId > 0L;
+                shouldCancel = terminal.claim() && currentSessionId > 0L;
             }
             synchronized (SpeechSynthesisBrokerClient.this) {
                 active.remove(this);
