@@ -53,4 +53,18 @@ public final class AssistantAudioIdentityGateTest {
         assertFalse(gate.consumeSpeech(speech));
         assertFalse(gate.consumeUplink(uplink));
     }
+
+    @Test
+    public void providerStartRequiresTheExactAttachedPairAndHappensOnce() {
+        AssistantAudioIdentityGate gate = new AssistantAudioIdentityGate();
+        Object speech = new Object();
+        Object uplink = new Object();
+
+        assertFalse(gate.begin(speech, uplink));
+        assertTrue(gate.attach(speech, uplink));
+        assertFalse(gate.begin(new Object(), uplink));
+        assertFalse(gate.begin(speech, new Object()));
+        assertTrue(gate.begin(speech, uplink));
+        assertFalse(gate.begin(speech, uplink));
+    }
 }

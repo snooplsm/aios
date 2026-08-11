@@ -19,7 +19,6 @@ import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.atomic.AtomicReference;
 
 /** Requests bounded, on-device synthesized PCM from Model Broker. */
 final class SpeechSynthesisBrokerClient implements AutoCloseable {
@@ -69,7 +68,7 @@ final class SpeechSynthesisBrokerClient implements AutoCloseable {
         return !closed && service != null && available && languages.contains(language);
     }
 
-    Speech synthesize(
+    Speech prepare(
             String callId, String requestId, String language, String text) throws IOException {
         IAiosModelService broker;
         synchronized (this) {
@@ -88,7 +87,6 @@ final class SpeechSynthesisBrokerClient implements AutoCloseable {
         Speech speech = null;
         try {
             pipe = ParcelFileDescriptor.createReliablePipe();
-            AtomicReference<Speech> reference = new AtomicReference<>();
             ModelRequest request = new ModelRequest();
             request.requestId = requestId;
             request.capability = "speech_synthesis";
@@ -98,13 +96,16 @@ final class SpeechSynthesisBrokerClient implements AutoCloseable {
             request.deadlineElapsedRealtimeMillis =
                     SystemClock.elapsedRealtime() + REQUEST_DEADLINE_MILLIS;
             request.allowFallback = false;
-            long sessionId = broker.createSession(
-                    request, callback(callId, requestId, reference));
+            speech = new Speech(callId, requestId, broker, pipe[0], text);
+            pipe[0] = null;
+            long sessionId = broker.createSession(request, callback(speech));
             if (sessionId <= 0L) {
                 throw new IOException("speech synthesis session was rejected");
             }
-            speech = new Speech(callId, requestId, broker, sessionId, pipe[0]);
-            reference.set(speech);
+            speech.assignSessionId(sessionId);
+            if (speech.isFinished()) {
+                throw new IOException("speech synthesis terminated during setup");
+            }
             synchronized (this) {
                 if (closed || service != broker) {
                     throw new IOException("model broker disconnected during setup");
@@ -119,7 +120,9 @@ final class SpeechSynthesisBrokerClient implements AutoCloseable {
             broker.attachAudioOutput(sessionId, pipe[1], format);
             closeDescriptor(pipe[1]);
             pipe[1] = null;
-            broker.submitText(sessionId, text, true);
+            if (speech.isFinished()) {
+                throw new IOException("speech synthesis terminated during setup");
+            }
             return speech;
         } catch (IOException error) {
             if (speech != null) speech.close();
@@ -129,7 +132,7 @@ final class SpeechSynthesisBrokerClient implements AutoCloseable {
             if (error instanceof RemoteException) binding.invalidate(broker);
             throw new IOException("speech synthesis setup failed", error);
         } finally {
-            if (speech == null) closePipe(pipe);
+            closePipe(pipe);
         }
     }
 
@@ -196,8 +199,7 @@ final class SpeechSynthesisBrokerClient implements AutoCloseable {
         }
     }
 
-    private IModelCallback callback(
-            String callId, String requestId, AtomicReference<Speech> reference) {
+    private IModelCallback callback(Speech speech) {
         return new IModelCallback.Stub() {
             @Override
             public void onChunk(GenerationChunk chunk) {
@@ -206,17 +208,22 @@ final class SpeechSynthesisBrokerClient implements AutoCloseable {
 
             @Override
             public void onCompleted(InferenceResult result) {
-                Speech speech = reference.get();
-                if (speech != null) speech.finished();
-                notifyStatus(callId, requestId, speech, "speech_synthesis_complete");
+                speech.finished();
+                notifyStatus(
+                        speech.callId,
+                        speech.requestId,
+                        speech,
+                        "speech_synthesis_complete");
             }
 
             @Override
             public void onError(int code, String message) {
-                Speech speech = reference.get();
-                if (speech != null) speech.finished();
+                speech.finished();
                 notifyStatus(
-                        callId, requestId, speech, "speech_synthesis_error_" + code);
+                        speech.callId,
+                        speech.requestId,
+                        speech,
+                        "speech_synthesis_error_" + code);
             }
         };
     }
@@ -235,8 +242,10 @@ final class SpeechSynthesisBrokerClient implements AutoCloseable {
         final String requestId;
         final int sampleRateHz = OUTPUT_SAMPLE_RATE_HZ;
         private final IAiosModelService broker;
-        private final long sessionId;
+        private final String text;
+        private long sessionId = -1L;
         private ParcelFileDescriptor pcmInput;
+        private boolean started;
         private boolean finished;
         private boolean closed;
 
@@ -244,17 +253,47 @@ final class SpeechSynthesisBrokerClient implements AutoCloseable {
                 String callId,
                 String requestId,
                 IAiosModelService broker,
-                long sessionId,
-                ParcelFileDescriptor pcmInput) {
+                ParcelFileDescriptor pcmInput,
+                String text) {
             this.callId = callId;
             this.requestId = requestId;
             this.broker = broker;
-            this.sessionId = sessionId;
             this.pcmInput = pcmInput;
+            this.text = text;
+        }
+
+        synchronized void assignSessionId(long value) throws IOException {
+            if (value <= 0L || sessionId > 0L || closed) {
+                throw new IOException("invalid speech synthesis session lifecycle");
+            }
+            sessionId = value;
+        }
+
+        void start() throws IOException {
+            long currentSessionId;
+            synchronized (this) {
+                if (closed || finished || started || sessionId <= 0L) {
+                    throw new IOException("speech synthesis cannot start");
+                }
+                started = true;
+                currentSessionId = sessionId;
+            }
+            try {
+                broker.submitText(currentSessionId, text, true);
+            } catch (RemoteException error) {
+                binding.invalidate(broker);
+                throw new IOException("speech synthesis start failed", error);
+            } catch (RuntimeException error) {
+                throw new IOException("speech synthesis start failed", error);
+            }
+        }
+
+        synchronized boolean isFinished() {
+            return finished;
         }
 
         synchronized ParcelFileDescriptor takePcmInput() throws IOException {
-            if (closed || pcmInput == null) {
+            if (closed || finished || pcmInput == null) {
                 throw new IOException("synthesis PCM input is unavailable");
             }
             ParcelFileDescriptor result = pcmInput;
@@ -274,12 +313,14 @@ final class SpeechSynthesisBrokerClient implements AutoCloseable {
         public void close() {
             ParcelFileDescriptor descriptor;
             boolean shouldCancel;
+            long currentSessionId;
             synchronized (this) {
                 if (closed) return;
                 closed = true;
                 descriptor = pcmInput;
                 pcmInput = null;
-                shouldCancel = !finished;
+                currentSessionId = sessionId;
+                shouldCancel = !finished && currentSessionId > 0L;
             }
             synchronized (SpeechSynthesisBrokerClient.this) {
                 active.remove(this);
@@ -287,7 +328,7 @@ final class SpeechSynthesisBrokerClient implements AutoCloseable {
             closeDescriptor(descriptor);
             if (shouldCancel) {
                 try {
-                    broker.cancel(sessionId);
+                    broker.cancel(currentSessionId);
                 } catch (RemoteException | RuntimeException ignored) {
                     // Broker death already released the runtime lease.
                 }

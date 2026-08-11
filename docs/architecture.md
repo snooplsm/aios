@@ -88,6 +88,11 @@ one terminal identity pair. Normal TTS completion lets buffered PCM drain;
 provider error or Broker loss closes only that matching pair and advances the
 turn once. A concurrent late audio callback cannot consume a newer turn, and
 partially delivered speech is not replayed automatically.
+TTS setup is explicitly two phase: create the Broker session and attach its PCM
+output, register that speech object with its telephony-uplink stream, and only
+then submit caller-facing text. The identity gate admits that start once. If a
+provider calls back synchronously or `submitText` throws, callback and catch
+paths compete for the same pair and only the winner may release the turn.
 
 Pipeline:
 

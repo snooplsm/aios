@@ -4,6 +4,7 @@ package com.aios.callintelligence;
 final class AssistantAudioIdentityGate {
     private Object speech;
     private Object uplink;
+    private boolean started;
 
     synchronized boolean attach(Object speechIdentity, Object uplinkIdentity) {
         if (speechIdentity == null || uplinkIdentity == null
@@ -12,6 +13,16 @@ final class AssistantAudioIdentityGate {
         }
         speech = speechIdentity;
         uplink = uplinkIdentity;
+        started = false;
+        return true;
+    }
+
+    synchronized boolean begin(Object expectedSpeech, Object expectedUplink) {
+        if (started || expectedSpeech == null || expectedUplink == null
+                || speech != expectedSpeech || uplink != expectedUplink) {
+            return false;
+        }
+        started = true;
         return true;
     }
 
@@ -34,5 +45,6 @@ final class AssistantAudioIdentityGate {
     synchronized void clear() {
         speech = null;
         uplink = null;
+        started = false;
     }
 }

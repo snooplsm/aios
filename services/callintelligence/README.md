@@ -99,6 +99,11 @@ reader alive until playback drains. A provider error or Broker disconnect stops
 only the matching pair immediately and advances the assistant queue exactly
 once; a racing late uplink callback is rejected. AIOS does not automatically
 replay possibly partial caller-facing speech after that failure.
+Session creation and PCM-output attachment are preparation only. Call
+Intelligence registers the resulting `Speech` and uplink `Stream`, starts the
+uplink reader, consumes the pair's one-shot start gate, and only then submits
+text to the TTS provider. A synchronous callback or submission exception cannot
+precede identity registration or release a successor turn from the catch path.
 
 Receptionist reasoning begins on finalized caller segments, while partial ASR
 continues updating live transcript and risk. Reasoning and speech are serialized

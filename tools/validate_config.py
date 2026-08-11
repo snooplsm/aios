@@ -3565,6 +3565,9 @@ def validate_aosp_overlay(root: Path) -> None:
         root / "services" / "callintelligence" / "tests" / "src" / "com" /
         "aios" / "callintelligence" / "SpeechSynthesisStatusPolicyTest.java"
     ).read_text(encoding="utf-8")
+    speak_start = call_service.index("private void speakToCaller(")
+    speak_end = call_service.index("private void handleCallerAudioStatus(", speak_start)
+    speak_to_caller = call_service[speak_start:speak_end]
     require("AudioDeviceInfo.TYPE_TELEPHONY" in caller_uplink
             and "setPreferredDevice" in caller_uplink
             and "getRoutedDevice" in caller_uplink
@@ -3581,16 +3584,31 @@ def validate_aosp_overlay(root: Path) -> None:
             and "session.completeAssistantOperation(expectedUplink)" in call_service
             and "assistantAudioIdentities.consumeSpeech" in call_service
             and "assistantAudioIdentities.consumeUplink" in call_service
+            and "assistantAudioIdentities.begin(expectedSpeech, expectedUplink)"
+            in call_service
             and "speech != expectedSpeech" in assistant_audio_gate
             and "uplink == expectedUplink" in assistant_audio_gate
+            and "synchronized boolean begin(Object expectedSpeech" in assistant_audio_gate
             and "ttsFailureWinsOnceAndRejectsLateUplinkCompletion"
             in assistant_audio_gate_test
             and "uplinkCompletionWinsOnceAndRejectsLateTtsFailure"
+            in assistant_audio_gate_test
+            and "providerStartRequiresTheExactAttachedPairAndHappensOnce"
             in assistant_audio_gate_test
             and "speech_synthesis_complete" in speech_status_policy_test
             and "completionAllowsThePcmPipeToDrain" in speech_status_policy_test
             and "speech_synthesis_broker_disconnected" in speech_status_policy,
             "TTS loss and caller-audio completion must race through one identity-bound terminal gate")
+    require("Speech prepare(" in speech_broker_source
+            and "void start() throws IOException" in speech_broker_source
+            and "broker.submitText(currentSessionId, text, true)" in speech_broker_source
+            and "speech.synthesize(" not in call_service
+            and speak_to_caller.index("speech.prepare(")
+            < speak_to_caller.index("session.attachAssistantAudio(")
+            < speak_to_caller.index("session.beginAssistantSpeech(")
+            < speak_to_caller.index("synthesized.start()")
+            and "? session.completeAssistantOperation(synthesized)" in speak_to_caller,
+            "caller-facing TTS must start only after exact audio attachment and fail through that identity")
     require("CallerDisclosureCoordinator" not in call_service
             and "pendingAiDisclosures" not in call_service,
             "mandatory spoken disclosure state must not remain in the AI answer path")

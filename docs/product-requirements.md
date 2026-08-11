@@ -109,6 +109,10 @@ Intelligence must close the exact matching synthesis/uplink pair and advance the
 assistant queue at most once. Normal synthesis completion must allow buffered
 PCM to drain. A stale TTS or uplink callback may not stop newer audio, and AIOS
 must not automatically replay speech that the caller may have heard partially.
+Call Intelligence must not submit caller-facing text to the TTS provider until
+the exact synthesis object and telephony-uplink stream are registered as the
+active pair. Synchronous provider callbacks, submission exceptions, and uplink
+failure must share the same one-shot completion fence.
 
 Raw call audio is never exposed through the shared-media filesystem. Other apps
 receive scoped model APIs, not access to call artifacts or model files.

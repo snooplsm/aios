@@ -1308,9 +1308,10 @@ public final class CallIntelligenceService extends Service {
             String callId, ActiveSession session, String language, String text) {
         SpeechSynthesisBrokerClient.Speech synthesized = null;
         CallerAudioUplink.Stream uplink = null;
+        boolean attached = false;
         try {
             long generation = nextSpeechRequestSerial();
-            synthesized = speech.synthesize(
+            synthesized = speech.prepare(
                     callId, callId + ":tts:" + generation, language, text);
             uplink = callerAudio.open(
                     callId,
@@ -1322,13 +1323,25 @@ public final class CallIntelligenceService extends Service {
             if (!session.attachAssistantAudio(synthesized, uplink)) {
                 throw new IOException("call ended during assistant audio setup");
             }
+            attached = true;
             uplink.start();
-            notifyStatus(callId, 7, "assistant_speaking");
+            if (!session.beginAssistantSpeech(synthesized, uplink)) {
+                throw new IOException("assistant audio changed before synthesis start");
+            }
+            synthesized.start();
+            if (session.acceptsAssistantAudio(uplink)) {
+                notifyStatus(callId, 7, "assistant_speaking");
+            }
         } catch (IOException | RuntimeException error) {
             if (uplink != null) uplink.close();
             if (synthesized != null) synthesized.close();
             notifyStatus(callId, -7, "assistant_speech_unavailable");
-            continueAfterAssistantOperation(callId, session);
+            ActiveSession.AssistantCompletion completion = attached
+                    ? session.completeAssistantOperation(synthesized)
+                    : session.completeAssistantOperation();
+            if (completion != null) {
+                continueAfterAssistantCompletion(callId, session, completion);
+            }
         }
     }
 
@@ -1855,6 +1868,13 @@ public final class CallIntelligenceService extends Service {
         synchronized boolean acceptsAssistantAudio(CallerAudioUplink.Stream expectedUplink) {
             return !closed && expectedUplink != null && activeUplink == expectedUplink
                     && assistantAudioIdentities.acceptsUplink(expectedUplink);
+        }
+
+        synchronized boolean beginAssistantSpeech(
+                SpeechSynthesisBrokerClient.Speech expectedSpeech,
+                CallerAudioUplink.Stream expectedUplink) {
+            return !closed && activeSpeech == expectedSpeech && activeUplink == expectedUplink
+                    && assistantAudioIdentities.begin(expectedSpeech, expectedUplink);
         }
 
         synchronized AssistantCompletion completeAssistantOperation(

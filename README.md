@@ -45,6 +45,10 @@ After TTS starts, Broker loss or provider error stops only the matching
 synthesis/uplink pair and advances the dialogue once. Normal completion still
 lets buffered PCM drain, while stale callbacks cannot stop newer caller audio
 and possibly partial speech is never replayed automatically.
+The Broker session and PCM pipe are prepared first, but caller-facing text is
+not submitted until Call Intelligence has attached the exact synthesis/uplink
+pair. A synchronous provider failure during start therefore races through the
+same one-shot identity gate instead of escaping setup or advancing twice.
 The low-priority ongoing call notification carries a bounded live preview of the
 latest incoming speech with AI/risk status beneath it. Transcript previews are
 private lock-screen content, sanitized for control characters, and never appear
