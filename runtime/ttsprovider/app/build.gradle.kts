@@ -20,12 +20,12 @@ android {
         targetSdk = 36
         versionCode = 11304
         versionName = "1.13.4"
-        ndk { abiFilters += "arm64-v8a" }
+        buildConfigField("boolean", "ALLOW_EMULATOR_MODEL_FIXTURES", "false")
     }
 
     buildFeatures {
         aidl = true
-        buildConfig = false
+        buildConfig = true
     }
 
     compileOptions {
@@ -41,8 +41,14 @@ android {
     sourceSets["main"].assets.srcDir(noticeAssets)
 
     buildTypes {
+        debug {
+            buildConfigField("boolean", "ALLOW_EMULATOR_MODEL_FIXTURES", "true")
+            ndk { abiFilters += "x86_64" }
+        }
         release {
             isMinifyEnabled = true
+            buildConfigField("boolean", "ALLOW_EMULATOR_MODEL_FIXTURES", "false")
+            ndk { abiFilters += "arm64-v8a" }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",

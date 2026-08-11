@@ -3,6 +3,7 @@ package com.aios.runtime.sherpatts
 import android.app.Service
 import android.content.Intent
 import android.os.Binder
+import android.os.Build
 import android.os.IBinder
 import android.os.ParcelFileDescriptor
 import android.os.RemoteException
@@ -47,7 +48,7 @@ class SherpaTtsRuntimeService : Service() {
         const val ERROR_INVALID_REQUEST = 2
         const val ERROR_BUSY = 3
         const val ERROR_RUNTIME_FAILED = 5
-        const val SAMPLE_RATE_HZ = 24_000
+        const val SAMPLE_RATE_HZ = 44_100
         const val PCM_ENCODING_16_BIT = 2
         const val MAX_TEXT_CHARS = 2_048
         const val MAX_DESCRIPTOR_BYTES = 1024 * 1024L
@@ -57,6 +58,7 @@ class SherpaTtsRuntimeService : Service() {
         const val NUM_STEPS = 8
         val CONFIGURATION_DIRECTORY = File("/product/etc/aios")
         val MODEL_DIRECTORY = File(CONFIGURATION_DIRECTORY, "models")
+        const val EMULATOR_FIXTURE_DIRECTORY = "emulator-config"
 
         data class ExpectedMember(val sizeBytes: Long, val sha256: String)
 
@@ -219,7 +221,7 @@ class SherpaTtsRuntimeService : Service() {
                 || !session.outputAttached.compareAndSet(false, true)) {
                 closeDescriptor(pcmSink)
                 fail(session, ERROR_INVALID_REQUEST,
-                    "TTS requires one 24 kHz mono PCM16 output")
+                    "TTS requires one 44.1 kHz mono PCM16 output")
                 return
             }
             val owned = try {
@@ -285,6 +287,32 @@ class SherpaTtsRuntimeService : Service() {
         }
     }
 
+    private inner class PcmStreamingCallback(
+        private val session: TtsSession,
+        private val output: OutputStream,
+    ) : Function1<FloatArray, Int> {
+        var sampleCount = 0L
+            private set
+        var failure: IOException? = null
+            private set
+
+        override fun invoke(samples: FloatArray): Int {
+            if (session.cancelled.get() || session.completed.get()
+                || SystemClock.elapsedRealtime() >=
+                    session.request.deadlineElapsedRealtimeMillis) {
+                return 0
+            }
+            return try {
+                writePcm16(output, samples)
+                sampleCount += samples.size
+                1
+            } catch (error: IOException) {
+                failure = error
+                0
+            }
+        }
+    }
+
     private fun synthesize(session: TtsSession, text: String) {
         if (session.cancelled.get() || session.completed.get()) return
         val descriptor = synchronized(session) { session.sink }
@@ -292,8 +320,8 @@ class SherpaTtsRuntimeService : Service() {
             fail(session, ERROR_INVALID_REQUEST, "TTS output disappeared")
             return
         }
-        var sampleCount = 0L
         var callbackFailure: IOException? = null
+        var sampleCount = 0L
         try {
             val tts = ensureEngine(session.artifact)
             check(tts.sampleRate() == SAMPLE_RATE_HZ) { "unexpected TTS sample rate" }
@@ -305,22 +333,10 @@ class SherpaTtsRuntimeService : Service() {
                     numSteps = NUM_STEPS,
                     extra = mapOf("lang" to session.request.language),
                 )
-                val audio = tts.generateWithConfigAndCallback(text, config) { samples ->
-                    if (session.cancelled.get() || session.completed.get()
-                        || SystemClock.elapsedRealtime() >=
-                            session.request.deadlineElapsedRealtimeMillis) {
-                        0
-                    } else {
-                        try {
-                            writePcm16(output, samples)
-                            sampleCount += samples.size
-                            1
-                        } catch (error: IOException) {
-                            callbackFailure = error
-                            0
-                        }
-                    }
-                }
+                val callback = PcmStreamingCallback(session, output)
+                val audio = tts.generateWithConfigAndCallback(text, config, callback)
+                sampleCount = callback.sampleCount
+                callbackFailure = callback.failure
                 check(audio.sampleRate == SAMPLE_RATE_HZ) { "generated TTS rate mismatch" }
             }
             synchronized(session) {
@@ -375,16 +391,14 @@ class SherpaTtsRuntimeService : Service() {
                 ),
             )
             val tts = OfflineTts(config = config)
-            check(tts.sampleRate() == SAMPLE_RATE_HZ) { "bundle is not 24 kHz Supertonic" }
+            check(tts.sampleRate() == SAMPLE_RATE_HZ) { "bundle is not 44.1 kHz Supertonic" }
             return tts.also { engineHolder = EngineHolder(identity, it) }
         }
     }
 
     private fun verifiedDescriptorFile(artifact: RuntimeArtifact): File {
-        val directory = MODEL_DIRECTORY.canonicalFile
         val descriptor = File(artifact.modelPath).canonicalFile
-        val prefix = directory.path + File.separator
-        check(descriptor.path.startsWith(prefix) && descriptor.isFile) {
+        check(configurationDirectoryForDescriptor(descriptor) != null && descriptor.isFile) {
             "TTS descriptor is outside the read-only model directory"
         }
         check(artifact.sizeBytes in 1..MAX_DESCRIPTOR_BYTES
@@ -407,8 +421,9 @@ class SherpaTtsRuntimeService : Service() {
         check(records.length() == EXPECTED_MEMBERS.size) { "TTS bundle member count mismatch" }
         val found = mutableMapOf<String, File>()
         val seen = mutableSetOf<String>()
-        val configuration = CONFIGURATION_DIRECTORY.canonicalFile
-        val modelDirectory = MODEL_DIRECTORY.canonicalFile
+        val configuration = configurationDirectoryForDescriptor(descriptor)
+            ?: error("TTS descriptor configuration disappeared")
+        val modelDirectory = File(configuration, "models").canonicalFile
         val modelPrefix = modelDirectory.path + File.separator
         repeat(records.length()) { index ->
             val record = records.getJSONObject(index)
@@ -441,6 +456,28 @@ class SherpaTtsRuntimeService : Service() {
             voiceStyle = found.getValue("voice.bin"),
         )
     }
+
+    private fun configurationDirectoryForDescriptor(descriptor: File): File? =
+        allowedConfigurationDirectories().firstOrNull { configuration ->
+            val models = File(configuration, "models").canonicalFile
+            descriptor.path.startsWith(models.path + File.separator)
+        }
+
+    private fun allowedConfigurationDirectories(): List<File> {
+        val directories = mutableListOf(CONFIGURATION_DIRECTORY.canonicalFile)
+        if (allowsEmulatorModelFixtures()) {
+            directories += File(filesDir, EMULATOR_FIXTURE_DIRECTORY).canonicalFile
+        }
+        return directories
+    }
+
+    private fun allowsEmulatorModelFixtures(): Boolean =
+        BuildConfig.ALLOW_EMULATOR_MODEL_FIXTURES && (
+            Build.HARDWARE.equals("ranchu", ignoreCase = true)
+                || Build.HARDWARE.equals("goldfish", ignoreCase = true)
+                || Build.PRODUCT.contains("sdk", ignoreCase = true)
+                || Build.FINGERPRINT.startsWith("generic")
+        )
 
     private fun complete(session: TtsSession, sampleCount: Long) {
         if (!session.completed.compareAndSet(false, true)) return

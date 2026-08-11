@@ -8,6 +8,7 @@
     <queries>
         <package android:name="com.aios.runtime.litertlm" />
         <package android:name="com.aios.runtime.whispercpp" />
+        <package android:name="com.aios.runtime.sherpatts" />
         <intent>
             <action android:name="com.aios.model.RUNTIME_PROVIDER" />
         </intent>
@@ -22,6 +23,9 @@
             android:exported="true" />
         <activity
             android:name=".WhisperProviderSmokeActivity"
+            android:exported="true" />
+        <activity
+            android:name=".TtsProviderSmokeActivity"
             android:exported="true" />
     </application>
 </manifest>

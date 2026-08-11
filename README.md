@@ -22,7 +22,7 @@ Model Broker policy, crash-isolated runtime transport, and session arbitration,
 Call Intelligence policy/capture/
 retention plus Broker ASR streaming, and a durable MediaStore inference worker.
 The call path also has a digest-locked, arm64 Sherpa-ONNX/Supertonic 3 provider
-that streams 24 kHz English/Spanish receptionist speech through the broker.
+that streams native 44.1 kHz English/Spanish receptionist speech through the broker.
 The owner-facing phone application is now an original Kotlin/Jetpack Compose
 `InCallService` using immutable UDF state, typed actions, and a multi-call
 Telecom registry; it includes system/light/dark themes, bounded recents and

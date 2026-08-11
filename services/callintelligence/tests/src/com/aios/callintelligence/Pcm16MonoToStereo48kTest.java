@@ -38,9 +38,19 @@ public final class Pcm16MonoToStereo48kTest {
         assertEquals(48_000 * 4, converted + finished);
     }
 
+    @Test
+    public void preservesOneSecondDurationAt44100Hz() {
+        Pcm16MonoToStereo48k converter = new Pcm16MonoToStereo48k(44_100);
+        byte[] input = new byte[44_100 * 2];
+        byte[] output = new byte[converter.maximumOutputBytes(input.length)];
+        int converted = converter.convert(input, 0, input.length, output);
+        int finished = converter.finish(new byte[32]);
+        assertEquals(48_000 * 4, converted + finished);
+    }
+
     @Test(expected = IllegalArgumentException.class)
     public void rejectsUnboundedSampleRates() {
-        new Pcm16MonoToStereo48k(44_100);
+        new Pcm16MonoToStereo48k(32_000);
     }
 
     private static byte[] convertInChunks(byte[] input, int chunkSize) {

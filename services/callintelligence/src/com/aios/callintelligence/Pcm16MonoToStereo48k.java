@@ -132,6 +132,7 @@ final class Pcm16MonoToStereo48k {
 
     static boolean isSupportedInputRate(int sampleRateHz) {
         return sampleRateHz == 16_000 || sampleRateHz == 22_050
-                || sampleRateHz == 24_000 || sampleRateHz == 48_000;
+                || sampleRateHz == 24_000 || sampleRateHz == 44_100
+                || sampleRateHz == 48_000;
     }
 }

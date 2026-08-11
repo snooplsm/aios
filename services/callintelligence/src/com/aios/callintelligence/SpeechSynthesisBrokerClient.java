@@ -22,7 +22,7 @@ import java.util.concurrent.Executors;
 
 /** Requests bounded, on-device synthesized PCM from Model Broker. */
 final class SpeechSynthesisBrokerClient implements AutoCloseable {
-    private static final int OUTPUT_SAMPLE_RATE_HZ = 24_000;
+    private static final int OUTPUT_SAMPLE_RATE_HZ = 44_100;
     private static final long REQUEST_DEADLINE_MILLIS = 30_000L;
     private static final int MAX_TEXT_CHARS = 2_048;
 

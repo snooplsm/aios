@@ -301,6 +301,9 @@ def validate_catalog(catalog: dict[str, Any]) -> None:
                         and re.search(r"/blob/[0-9a-f]{40}/",
                                       model["license_url"]) is not None,
                         f"{model['id']}: TTS bundle needs an immutable packaged model license")
+                require(isinstance(model.get("sample_rate_hz"), int)
+                        and model["sample_rate_hz"] > 0,
+                        f"{model['id']}: TTS bundle needs an explicit sample rate")
 
     tiers = catalog["tiers"]
     tier_by_id = {tier["id"]: tier for tier in tiers}
@@ -1092,6 +1095,9 @@ def validate_aosp_overlay(root: Path) -> None:
         "runtime/ttsprovider/bootstrap_artifacts.sh",
         "runtime/ttsprovider/bootstrap_dependency_locks.sh",
         "runtime/ttsprovider/build_provider.sh",
+        "preview/runtimeprovidercheck/src/main/java/com/aios/runtime/smoke/TtsProviderSmokeActivity.java",
+        "scripts/bootstrap-emulator-tts-fixtures.ps1",
+        "scripts/emulator-tts-provider-smoke.ps1",
         "docs/tts-runtime.md",
         "benchmarks/modeladmission/Android.bp",
         "benchmarks/modeladmission/README.md",
@@ -3395,20 +3401,30 @@ def validate_aosp_overlay(root: Path) -> None:
     require("generateWithConfigAndCallback" in tts_source
             and 'extra = mapOf("lang" to session.request.language)' in tts_source
             and 'request.language in setOf("en", "es")' in tts_source
+            and "private inner class PcmStreamingCallback" in tts_source
+            and ": Function1<FloatArray, Int>" in tts_source
+            and "generateWithConfigAndCallback(text, config, callback)" in tts_source
             and "ParcelFileDescriptor.AutoCloseOutputStream" in tts_source
             and "writePcm16" in tts_source,
-            "TTS runtime must stream bilingual PCM with pipe backpressure")
+            "TTS runtime must use a JNI-compatible callback and stream bilingual PCM with pipe backpressure")
     require("session.cancelled.get()" in tts_source
             and "deadlineElapsedRealtimeMillis" in tts_source
             and "RuntimeMemoryTrimPolicy.isMemoryPressure(level)" in tts_source
             and "TRIM_MEMORY_RUNNING_LOW" not in tts_source
             and "if (sessions.isEmpty()) closeEngine()" in tts_source,
             "TTS runtime must support cancellation, deadlines, and pressure cleanup")
-    require("MODEL_DIRECTORY.canonicalFile" in tts_source
+    require('File(configuration, "models").canonicalFile' in tts_source
             and "MessageDigest.isEqual" in tts_source
             and "EXPECTED_MEMBERS" in tts_source
             and "source_archive_sha256" in tts_source,
             "TTS runtime must independently reverify its complete model bundle")
+    require("BuildConfig.ALLOW_EMULATOR_MODEL_FIXTURES" in tts_source
+            and 'Build.HARDWARE.equals("ranchu"' in tts_source
+            and 'Build.HARDWARE.equals("goldfish"' in tts_source
+            and "File(filesDir, EMULATOR_FIXTURE_DIRECTORY).canonicalFile"
+            in tts_source
+            and "configurationDirectoryForDescriptor" in tts_source,
+            "private TTS model fixtures must remain debug-QEMU-only and confined")
 
     model_catalog = load_json(root / "config" / "model_catalog.json")
     tts_models = [model for model in model_catalog["models"]
@@ -3422,8 +3438,10 @@ def validate_aosp_overlay(root: Path) -> None:
     packaged_license = tts_model["packaged_license"]
     normalized_tts_source = tts_source.replace("_", "")
     require(f'const val MODEL_ID = "{tts_model["id"]}"' in tts_source
-            and bundle["sha256"] in tts_source,
-            "TTS provider model/archive identity must match the model catalog")
+            and bundle["sha256"] in tts_source
+            and tts_model["sample_rate_hz"] == 44100
+            and "const val SAMPLE_RATE_HZ = 44_100" in tts_source,
+            "TTS provider model/archive identity and native rate must match the model catalog")
     for member in bundle["members"]:
         require(member["path"] in tts_source
                 and member["sha256"] in tts_source
@@ -3462,13 +3480,20 @@ def validate_aosp_overlay(root: Path) -> None:
             and binary["sha256"] in tts_bootstrap
             and str(binary["size_bytes"]) in tts_bootstrap,
             "TTS build/bootstrap inputs must match the runtime catalog lock")
-    require('abiFilters += "arm64-v8a"' in tts_build
+    require(tts_build.count(
+                'buildConfigField("boolean", "ALLOW_EMULATOR_MODEL_FIXTURES", "false")'
+            ) == 2
+            and tts_build.count(
+                'buildConfigField("boolean", "ALLOW_EMULATOR_MODEL_FIXTURES", "true")'
+            ) == 1
+            and 'ndk { abiFilters += "x86_64" }' in tts_build
+            and 'ndk { abiFilters += "arm64-v8a" }' in tts_build
             and "lockAllConfigurations" in tts_build
             and "verifyPinnedInputs" in tts_build
             and "dependency_verification_sha256" in tts_build
             and 'sourceSets["main"].java.srcDir("../../common/src/main/java")'
             in tts_build,
-            "TTS APK must be arm64-only and emit verified provenance")
+            "TTS APK must keep release arm64, debug x86, and verified provenance")
     tts_lock_bootstrap = (tts_root / "bootstrap_dependency_locks.sh").read_text(
         encoding="utf-8"
     )
@@ -3500,6 +3525,70 @@ def validate_aosp_overlay(root: Path) -> None:
         require(Path(notice["path"]).name in tts_build
                 and notice["sha256"] in tts_build,
                 f'TTS build does not pin {notice["path"]}')
+    tts_smoke = (
+        root / "preview" / "runtimeprovidercheck" / "src" / "main" / "java" /
+        "com" / "aios" / "runtime" / "smoke" / "TtsProviderSmokeActivity.java"
+    ).read_text(encoding="utf-8")
+    tts_smoke_runner = (
+        root / "scripts" / "emulator-tts-provider-smoke.ps1"
+    ).read_text(encoding="utf-8")
+    tts_fixture_bootstrap = (
+        root / "scripts" / "bootstrap-emulator-tts-fixtures.ps1"
+    ).read_text(encoding="utf-8")
+    require('"AIOS_TTS_REAL_BILINGUAL_OK"' in tts_smoke
+            and '"AIOS_TTS_PROVIDER_SMOKE_OK"' in tts_smoke
+            and '"real-tts-english", "en"' in tts_smoke
+            and '"real-tts-spanish", "es"' in tts_smoke
+            and 'request.capability = "speech_synthesis"' in tts_smoke
+            and 'request.workload = "call_agent"' in tts_smoke
+            and 'format.direction = "synthesis"' in tts_smoke
+            and "output.getLong(\"sample_count\") == metrics.sampleCount"
+            in tts_smoke
+            and "TTS PCM was effectively silent" in tts_smoke
+            and "MAX_PCM_BYTES" in tts_smoke
+            and "SAMPLE_RATE_HZ = 44_100" in tts_smoke,
+            "TTS smoke must require bounded, non-silent bilingual production PCM")
+    require("[switch]$AcceptModelLicense" in tts_fixture_bootstrap
+            and "if (-not $AcceptModelLicense)" in tts_fixture_bootstrap
+            and tts_model["license_url"] in tts_fixture_bootstrap
+            and bundle["sha256"] in tts_fixture_bootstrap
+            and str(bundle["size_bytes"]) in tts_fixture_bootstrap
+            and "model_license_accepted_for_local_research = $true"
+            in tts_fixture_bootstrap
+            and "$ttsConfiguration.ae.sample_rate" in tts_fixture_bootstrap
+            and "$model.sample_rate_hz" in tts_fixture_bootstrap,
+            "TTS emulator bootstrap must require explicit acceptance and exact weights")
+    tts_call_client = (root / "services" / "callintelligence" / "src" / "com" /
+                       "aios" / "callintelligence" /
+                       "SpeechSynthesisBrokerClient.java").read_text(encoding="utf-8")
+    tts_caller_converter = (root / "services" / "callintelligence" / "src" /
+                            "com" / "aios" / "callintelligence" /
+                            "Pcm16MonoToStereo48k.java").read_text(encoding="utf-8")
+    require("OUTPUT_SAMPLE_RATE_HZ = 44_100" in tts_call_client
+            and "sampleRateHz == 44_100" in tts_caller_converter
+            and "format.sampleRateHz != 44_100" in session_controller
+            and "TTS_SAMPLE_RATE = 44_100" in benchmark_source
+            and "resampleTtsTo16k" in benchmark_source,
+            "native Supertonic rate must remain coherent through Broker, calls, and benchmarks")
+    require("Refusing to run TTS-provider smoke checks on non-emulator serial"
+            in tts_smoke_runner
+            and '$abi -ne "x86_64"' in tts_smoke_runner
+            and bundle["sha256"] in tts_smoke_runner
+            and "provider_apk_x86_64_native_entries_verified = $true"
+            in tts_smoke_runner
+            and "production_tts_provider_bound_cross_process = $true"
+            in tts_smoke_runner
+            and "bundle_member_digests_verified = $true" in tts_smoke_runner
+            and "english_pcm_verified = $true" in tts_smoke_runner
+            and "spanish_pcm_verified = $true" in tts_smoke_runner
+            and "pcm_metadata_matches_stream = $true" in tts_smoke_runner
+            and "pcm_content_recorded = $false" in tts_smoke_runner
+            and "temporary_fixture_files_remaining = 0" in tts_smoke_runner
+            and "rm -rf" in tts_smoke_runner
+            and "files/emulator-config | Out-Null" in tts_smoke_runner
+            and "arm64_provider_evidence = $false" in tts_smoke_runner
+            and "physical_gate_evidence = $false" in tts_smoke_runner,
+            "real TTS emulator evidence must be bilingual, self-cleaning, and non-physical")
     asr_client = (root / "services" / "callintelligence" / "src" / "com" /
                   "aios" / "callintelligence" / "AsrBrokerClient.java").read_text(
                       encoding="utf-8")

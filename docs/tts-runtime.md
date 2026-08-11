@@ -12,7 +12,8 @@ runtime at version `1.13.4` and uses the int8 Supertonic 3 model bundle. The
 runtime AAR, source revision, file size, SHA-256, ONNX Runtime version, and
 packaged license texts are locked in `config/runtime_catalog.json`. The model
 archive and every member's size and SHA-256 are separately locked in
-`config/model_catalog.json`.
+`config/model_catalog.json`. Release builds contain only `arm64-v8a`; a
+debug-only `x86_64` variant exists for guarded QEMU integration tests.
 
 Supertonic is an open-weight model, but its model license is not the same as the
 AIOS source-code license. The Sherpa release archive contains the upstream
@@ -33,11 +34,13 @@ Primary upstream references:
 ## Runtime contract
 
 The signature-protected Model Broker is the only accepted caller. It creates a
-`speech_synthesis` / `call_agent` session, attaches exactly one 24 kHz mono
+`speech_synthesis` / `call_agent` session, attaches exactly one 44.1 kHz mono
 PCM16 pipe, and submits one bounded final text request in English or Spanish.
 The provider streams PCM chunks into the pipe as they are generated, so pipe
 backpressure bounds queued audio instead of accumulating an entire utterance in
 Binder or Java memory.
+Caller playback converts that native 44.1 kHz mono stream directly to Telecom's
+48 kHz stereo uplink, avoiding a redundant intermediate resample.
 
 The provider repeats all security checks before native initialization:
 
@@ -47,12 +50,49 @@ The provider repeats all security checks before native initialization:
 - every bundle member has the expected relative path, size, and SHA-256;
 - the requested backend is CPU and the language is exactly `en` or `es`.
 
+Release accepts descriptors only below `/product/etc/aios/models`. The debug
+variant may additionally use its private `files/emulator-config` tree only when
+the BuildConfig fixture flag and QEMU/generic-hardware checks both pass. The
+same canonical configuration root owns the descriptor and every locked member,
+so a private debug descriptor cannot redirect a member outside that tree.
+
 Generation stops when the broker cancels, the client dies, the PCM reader
 closes, or the elapsed-realtime deadline expires. The engine remains resident
 for call latency and is released only when idle under exact Android running-low,
 running-critical, or cached-process pressure; `UI_HIDDEN` keeps it warm;
 there is no fixed AIOS RAM ceiling. Speaker selection and conversational voice
 quality still require physical-device evaluation.
+
+## Real bilingual emulator proof
+
+After reviewing the immutable OpenRAIL-M model license, bootstrap the exact
+ignored model bundle and run the production provider on an API-35+ x86-64
+emulator:
+
+```text
+powershell -ExecutionPolicy Bypass -File scripts/bootstrap-emulator-tts-fixtures.ps1 -AcceptModelLicense
+powershell -ExecutionPolicy Bypass -File scripts/emulator-tts-provider-smoke.ps1 -Serial emulator-5554
+```
+
+The bootstrap refuses to download until `-AcceptModelLicense` is explicit. It
+then verifies the 128,774,318-byte archive at
+`82fa96f91c4ef8abaae3a14a3f4153facf88bed821d1f7331cec2700f432c427`,
+extracts only the catalogued members, reverifies each size and digest, and
+generates the same locked descriptor shape used by the product pack. All model
+bytes remain under ignored `.cache` and are never committed.
+
+The smoke runner refuses physical devices and existing package installs. It
+checks all four x86-64 Sherpa/ONNX native libraries, rejects the shell at the
+signature permission, proves canonical descriptor confinement and provider
+survival, then synthesizes one fixed English and one fixed Spanish receptionist
+utterance through the real cross-process API. The client drains PCM only in
+memory and requires bounded, aligned, non-silent 44.1 kHz mono output whose sample
+count matches terminal metadata. It records neither the generated PCM nor any
+caller content, and removes all model, staging, and APK fixtures afterward.
+
+This proves native bilingual synthesis and the production pipe contract on x86;
+the evidence remains explicitly ineligible for arm64, voice-quality, real-time,
+caller-uplink, or physical-Pixel gates.
 
 ## Reproducible local inputs
 
@@ -67,7 +107,7 @@ ALLOW_DEPENDENCY_LOCK_UPDATE=1 ./bootstrap_dependency_locks.sh
 ```
 
 The reviewed provider build uses Gradle 8.11.1, AGP 8.10.1, Kotlin 2.2.21,
-Java bytecode target 17, and an arm64-only APK. `build_provider.sh` performs an
+Java bytecode target 17, and an arm64-only release APK. `build_provider.sh` performs an
 offline strict-verification build after the lock bootstrap. Bootstrap resolves
 both the declared dependency graph and an actual release assembly so detached
 AGP tools are included. Verification metadata carries reviewed Windows and

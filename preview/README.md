@@ -119,6 +119,16 @@ model-path survival, and removes all temporary files and APKs. Audio arrives in
 100 ms source chunks paced at 250 ms on x86; the JSON explicitly disclaims
 real-time, arm64, and physical-Pixel evidence.
 
+`TtsProviderSmokeActivity` and `scripts/emulator-tts-provider-smoke.ps1` provide
+the matching production Sherpa/Supertonic proof. The license-gated
+`scripts/bootstrap-emulator-tts-fixtures.ps1` downloads no weights until the
+builder explicitly accepts the pinned model license, then verifies the archive
+and every ignored bundle member. The runner exercises fixed English and Spanish
+`speech_synthesis` requests across the protected provider process and drains
+bounded, aligned, non-silent 44.1 kHz PCM without saving it. It also checks path
+confinement, shell rejection, provider survival, exact cleanup, and marks its
+evidence ineligible for arm64, caller-uplink, voice-quality, and physical gates.
+
 `mediascancheck` stages every production Media Intelligence Java source, test,
 Binder contract, resource, and the real application manifest. Its debug overlay
 adds emulator fixtures for the production capture-grouping, 80%-while-charging,

@@ -320,7 +320,8 @@ final class SessionController implements AutoCloseable {
             AudioStreamFormat format) {
         if (pcmSink == null || format == null
                 || (format.sampleRateHz != 16_000 && format.sampleRateHz != 22_050
-                && format.sampleRateHz != 24_000 && format.sampleRateHz != 48_000)
+                && format.sampleRateHz != 24_000 && format.sampleRateHz != 44_100
+                && format.sampleRateHz != 48_000)
                 || format.channelCount != 1 || format.pcmEncoding != 2
                 || !"synthesis".equals(format.direction)) {
             closeDescriptor(pcmSink);

@@ -70,7 +70,7 @@ import java.util.concurrent.atomic.AtomicLong;
 public final class ModelAdmissionBenchmarkTest {
     private static final int RUNS_PER_LANGUAGE = 5;
     private static final int PCM_16_BIT = AudioFormat.ENCODING_PCM_16BIT;
-    private static final int TTS_SAMPLE_RATE = 24_000;
+    private static final int TTS_SAMPLE_RATE = 44_100;
     private static final int ASR_SAMPLE_RATE = 16_000;
     private static final int ASR_PACING_FRAME_MILLIS = 100;
     private static final int ASR_PACING_FRAME_BYTES =
@@ -297,8 +297,8 @@ public final class ModelAdmissionBenchmarkTest {
         if (spanishFixture == null) spanishFixture = new byte[ASR_SAMPLE_RATE * 2];
         return new TtsOutput(
                 result(artifact, metrics),
-                resample24kTo16k(englishFixture),
-                resample24kTo16k(spanishFixture));
+                resampleTtsTo16k(englishFixture),
+                resampleTtsTo16k(spanishFixture));
     }
 
     private static JSONObject benchmarkAsr(
@@ -692,7 +692,7 @@ public final class ModelAdmissionBenchmarkTest {
         return false;
     }
 
-    private static byte[] resample24kTo16k(byte[] input) {
+    private static byte[] resampleTtsTo16k(byte[] input) {
         int inputSamples = input.length / 2;
         int outputSamples = (int) ((long) inputSamples * ASR_SAMPLE_RATE / TTS_SAMPLE_RATE);
         byte[] output = new byte[outputSamples * 2];
