@@ -21,17 +21,18 @@ import org.json.JSONException;
 
 import java.io.FileNotFoundException;
 import java.io.IOException;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.UUID;
 import java.util.regex.Pattern;
 
 /** Enforces runtime constraints before and throughout a Model Broker media lease. */
 public final class MediaInferenceJobService extends JobService {
     private static final String TAG = "AiosMediaInference";
     private static final String EXTRA_WORK_CLASS = "work_class";
+    private static final String EXTRA_DELIVERY_ID = "delivery_id";
     private static final int JOB_IMMEDIATE = 0xA105;
     private static final int JOB_DEFERRED = 0xA106;
     private static final Pattern DIGEST = Pattern.compile("[0-9a-f]{64}");
-    private final AtomicBoolean running = new AtomicBoolean();
+    private final MediaJobRunGate runs = new MediaJobRunGate();
     private final MediaJobCommitFence commitFence = new MediaJobCommitFence();
     private volatile MediaBrokerClient activeClient;
     private volatile Thread activeThread;
@@ -40,6 +41,7 @@ public final class MediaInferenceJobService extends JobService {
         boolean deferred = workClass == MediaWorkPolicy.CLASS_DEFERRED;
         PersistableBundle extras = new PersistableBundle();
         extras.putInt(EXTRA_WORK_CLASS, workClass);
+        extras.putString(EXTRA_DELIVERY_ID, UUID.randomUUID().toString());
         JobInfo.Builder builder = new JobInfo.Builder(
                 deferred ? JOB_DEFERRED : JOB_IMMEDIATE,
                 new ComponentName(context, MediaInferenceJobService.class))
@@ -58,19 +60,23 @@ public final class MediaInferenceJobService extends JobService {
     public boolean onStartJob(JobParameters parameters) {
         int workClass = parameters.getExtras().getInt(
                 EXTRA_WORK_CLASS, MediaWorkPolicy.CLASS_DEFERRED);
-        if (!running.compareAndSet(false, true)) {
+        String deliveryId = parameters.getExtras().getString(EXTRA_DELIVERY_ID);
+        MediaJobRunGate.Token run = runs.begin(deliveryId);
+        if (run == null) {
             schedule(this, workClass);
             return false;
         }
         commitFence.start();
         activeThread = new Thread(
-                () -> checkAndProcess(parameters, workClass), "aios-media-job");
+                () -> checkAndProcess(parameters, workClass, run), "aios-media-job");
         activeThread.start();
         return true;
     }
 
     @Override
     public boolean onStopJob(JobParameters parameters) {
+        String deliveryId = parameters.getExtras().getString(EXTRA_DELIVERY_ID);
+        if (!runs.stop(deliveryId)) return false;
         commitFence.stop();
         MediaBrokerClient client = activeClient;
         if (client != null) {
@@ -83,7 +89,8 @@ public final class MediaInferenceJobService extends JobService {
         return true;
     }
 
-    private void checkAndProcess(JobParameters parameters, int workClass) {
+    private void checkAndProcess(
+            JobParameters parameters, int workClass, MediaJobRunGate.Token run) {
         boolean reschedule = false;
         MediaJobStore store = new MediaJobStore(this);
         MediaJobStore.PendingJob job = null;
@@ -268,14 +275,14 @@ public final class MediaInferenceJobService extends JobService {
                     || store.hasPortableMetadataPending(MediaWorkPolicy.CLASS_DEFERRED);
             store.close();
             activeThread = null;
-            running.set(false);
+            MediaJobRunGate.Finish finish = runs.finish(run);
             if (moreImmediate) {
                 schedule(this, MediaWorkPolicy.CLASS_IMMEDIATE);
             }
             if (moreDeferred) {
                 schedule(this, MediaWorkPolicy.CLASS_DEFERRED);
             }
-            if (!commitFence.isStopped()) {
+            if (finish == MediaJobRunGate.Finish.COMPLETED) {
                 jobFinished(parameters, reschedule);
             }
         }

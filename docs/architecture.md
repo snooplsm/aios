@@ -261,6 +261,12 @@ late or duplicate callback cannot replace that outcome or be adopted by the
 next pass. `onStopJob()` and the final encrypted-index transaction share a commit
 fence, preventing a cancelled worker from publishing after JobScheduler has
 revoked it.
+Each JobScheduler delivery additionally owns an in-process run token. Only a
+stop carrying the same opaque delivery UUID from persisted job extras may close
+its Broker client, interrupt its thread, or stop the commit fence; only the
+matching worker token may clear that run and call `jobFinished`. The UUID is
+stable across Binder unparcelling, while stale stop/finish callbacks cannot
+affect a replacement immediate or deferred run.
 
 A video has separate bounded visual and audio passes. Media Intelligence seeks
 the nearest sync frame at the midpoint of each of twenty equal-duration

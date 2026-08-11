@@ -158,6 +158,9 @@ camera application that created them.
   the claimed item to its durable queue immediately. Only the exact active
   attempt may own a Broker session or final result, and `onStopJob()` must fence
   the encrypted-index commit so a cancelled worker cannot publish afterward.
+  JobScheduler stop and finish callbacks must also match the exact worker-run
+  identity; a delayed callback from an older delivery may not cancel, complete,
+  or reset the commit fence for newer media work.
 - Automatic processing never modifies or duplicates a source video. After a
   completed MP4 is indexed, an explicit share-sheet action may create a new
   `Movies/AIOS` MP4 containing the AIOS description and timed subtitle tracks.

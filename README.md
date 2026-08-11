@@ -97,6 +97,9 @@ The private media index now follows source deletion or trash through exact
 notifications and bounded restart sweeps. Unmounted volumes fail closed without
 losing their index, while a MediaProvider database identity change purges unsafe
 URI-keyed results before baselining again.
+JobScheduler callbacks are bound to the exact media worker-run identity. A stop
+or finish from an older immediate/deferred delivery cannot interrupt a newer
+photo/video run, reset its commit fence, or complete its `JobParameters`.
 AIOS Messaging now compiles as an SMS-role candidate with real SMS provider
 paths, respond-via-message, call launching, and read-only Photo Picker drafts.
 An emulator-only runner assigns the SMS role temporarily, injects a PDU through

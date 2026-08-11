@@ -1110,6 +1110,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/mediaintelligence/src/com/aios/mediaintelligence/MediaInputPolicy.java",
         "services/mediaintelligence/src/com/aios/mediaintelligence/MediaInferenceAttempt.java",
         "services/mediaintelligence/src/com/aios/mediaintelligence/MediaJobCommitFence.java",
+        "services/mediaintelligence/src/com/aios/mediaintelligence/MediaJobRunGate.java",
         "services/mediaintelligence/src/com/aios/mediaintelligence/VideoStoryboardPlan.java",
         "services/mediaintelligence/src/com/aios/mediaintelligence/VideoStoryboard.java",
         "services/mediaintelligence/src/com/aios/mediaintelligence/VideoAudioExtractor.java",
@@ -1136,6 +1137,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/mediaintelligence/tests/src/com/aios/mediaintelligence/MediaInputPolicyTest.java",
         "services/mediaintelligence/tests/src/com/aios/mediaintelligence/MediaInferenceAttemptTest.java",
         "services/mediaintelligence/tests/src/com/aios/mediaintelligence/MediaJobCommitFenceTest.java",
+        "services/mediaintelligence/tests/src/com/aios/mediaintelligence/MediaJobRunGateTest.java",
         "services/mediaintelligence/tests/src/com/aios/mediaintelligence/VideoStoryboardPlanTest.java",
         "services/mediaintelligence/tests/src/com/aios/mediaintelligence/VideoTranscriptTest.java",
         "services/mediaintelligence/tests/src/com/aios/mediaintelligence/VideoEmbeddedMetadataTest.java",
@@ -4021,6 +4023,25 @@ def validate_aosp_overlay(root: Path) -> None:
             and "stoppedJobCannotPublish" in media_commit_fence_test
             and "stopWaitsForInProgressPublication" in media_commit_fence_test,
             "JobScheduler stop must fence media result publication")
+    media_job_run_gate = (
+        media_source_root / "MediaJobRunGate.java"
+    ).read_text(encoding="utf-8")
+    media_job_run_gate_test = (
+        root / "services" / "mediaintelligence" / "tests" / "src" / "com" /
+        "aios" / "mediaintelligence" / "MediaJobRunGateTest.java"
+    ).read_text(encoding="utf-8")
+    require("extras.putString(EXTRA_DELIVERY_ID, UUID.randomUUID().toString())"
+            in job_source
+            and "MediaJobRunGate.Token run = runs.begin(deliveryId)" in job_source
+            and "if (!runs.stop(deliveryId)) return false" in job_source
+            and "MediaJobRunGate.Finish finish = runs.finish(run)" in job_source
+            and "finish == MediaJobRunGate.Finish.COMPLETED" in job_source
+            and "active.deliveryId.equals(deliveryId)" in media_job_run_gate
+            and "active != expected" in media_job_run_gate
+            and "staleStopCannotCancelTheActiveRun" in media_job_run_gate_test
+            and "matchingStopSuppressesNormalCompletion" in media_job_run_gate_test
+            and "oldFinishCannotClearAReplacementRun" in media_job_run_gate_test,
+            "JobScheduler stop and finish callbacks must match one media worker-run identity")
     require("PreparedMedia.open" in media_broker_source
             and "prepared.capability" in media_broker_source
             and "prepared.submittedMimeType" in media_broker_source

@@ -58,6 +58,7 @@ java_test_host {
         "src/com/aios/mediaintelligence/MediaInputPolicy.java",
         "src/com/aios/mediaintelligence/MediaInferenceAttempt.java",
         "src/com/aios/mediaintelligence/MediaJobCommitFence.java",
+        "src/com/aios/mediaintelligence/MediaJobRunGate.java",
         "src/com/aios/mediaintelligence/MediaAssociationPolicy.java",
         "src/com/aios/mediaintelligence/ContextServiceRebindPolicy.java",
         "src/com/aios/mediaintelligence/MediaLivenessReconciler.java",
