@@ -149,6 +149,11 @@ Run gates in this order:
    under the benchmarked build fingerprint, then boot an image with a different
    build fingerprint but the old admission policy. Confirm release inference
    stays unavailable until new evidence is installed.
+   For `model.runtime_fallback_selection`, use exact admitted artifacts where
+   the preferred model's backend is withheld while the fallback backend remains
+   advertised. Confirm capability discovery and a new session select the
+   fallback, then restore the preferred backend and confirm new work returns to
+   it without interrupting an already-running fallback session.
 7. Retention using a test-only shortened clock/injected time, followed by the
    real 24-hour soak.
 8. Media queue constraints and original-preservation corpus.

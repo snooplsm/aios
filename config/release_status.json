@@ -81,6 +81,7 @@
     "model.build_fingerprint_admission_enforced": {"status": "not_run", "evidence": []},
     "model.call_preempts_media": {"status": "not_run", "evidence": []},
     "model.runtime_dependency_lock_verified": {"status": "not_run", "evidence": []},
+    "model.runtime_fallback_selection": {"status": "not_run", "evidence": []},
     "model.runtime_identity_enforced": {"status": "not_run", "evidence": []},
     "model.runtime_crash_isolated": {"status": "not_run", "evidence": []},
     "model.litertlm_known_answer": {"status": "not_run", "evidence": []},

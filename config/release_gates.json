@@ -81,6 +81,7 @@
     {"id": "model.build_fingerprint_admission_enforced", "category": "model", "required": true},
     {"id": "model.call_preempts_media", "category": "model", "required": true},
     {"id": "model.runtime_dependency_lock_verified", "category": "model", "required": true},
+    {"id": "model.runtime_fallback_selection", "category": "model", "required": true},
     {"id": "model.runtime_identity_enforced", "category": "model", "required": true},
     {"id": "model.runtime_crash_isolated", "category": "model", "required": true},
     {"id": "model.litertlm_known_answer", "category": "model", "required": true},

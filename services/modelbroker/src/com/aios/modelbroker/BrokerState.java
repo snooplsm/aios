@@ -12,7 +12,6 @@ import com.aios.model.ModelRequest;
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -85,24 +84,26 @@ final class BrokerState {
     }
 
     List<ModelCapability> capabilitiesFor(AuthorizedClientPolicy.Rule client) {
-        Map<String, ModelCapability> byCapability = new LinkedHashMap<>();
-        for (VerifiedArtifact artifact : selectedArtifacts.values()) {
-            for (String capability : artifact.capabilities) {
-                if (!client.capabilities.contains(capability)
-                        || byCapability.containsKey(capability)) {
-                    continue;
-                }
-                ModelCapability value = new ModelCapability();
-                value.capability = capability;
-                value.selectedModelId = artifact.modelId;
-                value.languages = artifact.languages.toArray(new String[0]);
-                value.available = runtimes.supports(artifact);
-                value.streaming = "streaming_asr".equals(capability);
-                value.maxConcurrentSessions = Math.min(client.maxSessions, 1);
-                byCapability.put(capability, value);
-            }
+        Map<String, RuntimeCandidatePolicy.Choice> choices =
+                RuntimeCandidatePolicy.capabilities(
+                        selectedArtifacts.values(),
+                        client.capabilities,
+                        runtimes::supports);
+        List<ModelCapability> result = new ArrayList<>();
+        for (Map.Entry<String, RuntimeCandidatePolicy.Choice> item
+                : choices.entrySet()) {
+            String capability = item.getKey();
+            RuntimeCandidatePolicy.Choice choice = item.getValue();
+            ModelCapability value = new ModelCapability();
+            value.capability = capability;
+            value.selectedModelId = choice.artifact.modelId;
+            value.languages = choice.artifact.languages.toArray(new String[0]);
+            value.available = choice.available;
+            value.streaming = "streaming_asr".equals(capability);
+            value.maxConcurrentSessions = Math.min(client.maxSessions, 1);
+            result.add(value);
         }
-        return new ArrayList<>(byCapability.values());
+        return result;
     }
 
     VerifiedArtifact validateRequest(AuthorizedClientPolicy.Rule client, ModelRequest request) {
@@ -122,11 +123,13 @@ final class BrokerState {
         if (callActive && "media_background".equals(request.workload)) {
             throw new IllegalArgumentException("media inference is blocked during a call");
         }
-        for (VerifiedArtifact artifact : selectedArtifacts.values()) {
-            if (artifact.capabilities.contains(request.capability)
-                    && artifact.languages.contains(request.language)) {
-                return artifact;
-            }
+        RuntimeCandidatePolicy.Choice choice = RuntimeCandidatePolicy.request(
+                selectedArtifacts.values(),
+                request.capability,
+                request.language,
+                runtimes::supports);
+        if (choice != null) {
+            return choice.artifact;
         }
         throw new IllegalArgumentException("no selected artifact supports the request");
     }

@@ -93,7 +93,8 @@ Broker starts with the highest memory-eligible tier, then follows its declared
 `fallback_tier` chain. For each capability, the first verified and admitted
 artifact wins. Shared artifacts are de-duplicated, so a larger model or faster
 ASR remains preferred while an independently measured smaller artifact can stay
-available when the preferred artifact is not packaged, verified, or admitted.
+available when the preferred artifact is not packaged, verified, admitted, or
+served by a ready runtime/backend combination.
 A fallback artifact receives no trust from the preferred model's result: every
 backend/digest combination must have its own passing evidence.
 

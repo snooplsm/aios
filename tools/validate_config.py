@@ -909,6 +909,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/modelbroker/src/com/aios/modelbroker/BrokerProductProperties.java",
         "services/modelbroker/src/com/aios/modelbroker/BrokerState.java",
         "services/modelbroker/src/com/aios/modelbroker/PolicyFileReader.java",
+        "services/modelbroker/src/com/aios/modelbroker/RuntimeCandidatePolicy.java",
         "services/modelbroker/src/com/aios/modelbroker/RuntimeAdapter.java",
         "services/modelbroker/src/com/aios/modelbroker/RemoteRuntimeAdapter.java",
         "services/modelbroker/src/com/aios/modelbroker/RuntimeRegistry.java",
@@ -918,6 +919,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/modelbroker/src/com/aios/modelbroker/SessionDeadlinePolicy.java",
         "services/modelbroker/src/com/aios/modelbroker/SessionDeadlineQueue.java",
         "services/modelbroker/src/com/aios/modelbroker/CallActivityLeaseTracker.java",
+        "services/modelbroker/src/com/aios/modelbroker/VerifiedArtifact.java",
         "services/modelbroker/tests/src/com/aios/modelbroker/SessionArbiterTest.java",
         "services/modelbroker/tests/src/com/aios/modelbroker/SessionChunkPolicyTest.java",
         "services/modelbroker/tests/src/com/aios/modelbroker/SessionDeadlinePolicyTest.java",
@@ -926,6 +928,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/modelbroker/tests/src/com/aios/modelbroker/BuildFingerprintPolicyTest.java",
         "services/modelbroker/tests/src/com/aios/modelbroker/PolicyFileReaderTest.java",
         "services/modelbroker/tests/src/com/aios/modelbroker/CatalogTierPlannerTest.java",
+        "services/modelbroker/tests/src/com/aios/modelbroker/RuntimeCandidatePolicyTest.java",
         "tools/generate_model_pack.py",
         "tools/generate_model_admission.py",
         "tools/generate_runtime_pack.py",
@@ -2115,11 +2118,15 @@ def validate_aosp_overlay(root: Path) -> None:
             and '"src/com/aios/modelbroker/CatalogTierPlanner.java"'
             in broker_host_test
             and '"src/com/aios/modelbroker/PolicyFileReader.java"' in broker_host_test
+            and '"src/com/aios/modelbroker/RuntimeCandidatePolicy.java"'
+            in broker_host_test
             and '"src/com/aios/modelbroker/SessionChunkPolicy.java"'
             in broker_host_test
             and '"src/com/aios/modelbroker/SessionDeadlinePolicy.java"'
             in broker_host_test
             and '"src/com/aios/modelbroker/SessionDeadlineQueue.java"'
+            in broker_host_test
+            and '"src/com/aios/modelbroker/VerifiedArtifact.java"'
             in broker_host_test
             and '"tests/src/**/*.java"' in broker_host_test,
             "Soong Model Broker host tests must include bounded policy and deadline logic")
@@ -2167,6 +2174,25 @@ def validate_aosp_overlay(root: Path) -> None:
     require("RuntimeRegistry.modelFree()" in broker_state
             and "RuntimeRegistry.load" in broker_state,
             "runtime loading must retain a fail-closed fallback")
+    runtime_candidate_policy = (
+        broker_source_root / "RuntimeCandidatePolicy.java"
+    ).read_text(encoding="utf-8")
+    runtime_candidate_test = (
+        root / "services" / "modelbroker" / "tests" / "src" / "com" / "aios" /
+        "modelbroker" / "RuntimeCandidatePolicyTest.java"
+    ).read_text(encoding="utf-8")
+    require("RuntimeCandidatePolicy.capabilities" in broker_state
+            and "RuntimeCandidatePolicy.request" in broker_state
+            and "runtimes::supports" in broker_state
+            and "!existing.available && available" in runtime_candidate_policy
+            and "firstUnavailable" in runtime_candidate_policy
+            and "readyPrimaryWinsForCapabilitiesAndRequests"
+            in runtime_candidate_test
+            and "readyFallbackReplacesUnavailablePrimary"
+            in runtime_candidate_test
+            and "languageAndNoRuntimeCasesRemainFailClosed"
+            in runtime_candidate_test,
+            "broker must prefer ready primary artifacts, select ready fallbacks, and fail closed")
     admission_source = (broker_source_root / "DeviceModelAdmission.java").read_text(
         encoding="utf-8"
     )
@@ -3936,6 +3962,7 @@ def validate_release_configuration(root: Path) -> None:
         "media.pixel9a_latency_profile",
         "model.runtime_dependency_lock_verified",
         "model.build_fingerprint_admission_enforced",
+        "model.runtime_fallback_selection",
         "model.runtime_identity_enforced",
         "model.runtime_crash_isolated",
         "model.litertlm_known_answer",

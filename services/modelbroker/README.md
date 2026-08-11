@@ -27,6 +27,12 @@ models. A fallback is usable only when its exact artifact digest was separately
 admitted for the device profile; merely declaring `fallback_tier` never admits
 weights in a release build.
 
+Capability discovery and session selection evaluate runtime/backend readiness
+in that same order. A ready primary artifact wins; otherwise the first ready
+admitted fallback is exposed and opened. If no matching runtime is ready,
+discovery keeps the preferred model visible with `available=false`, and session
+creation returns `ERROR_NOT_READY` instead of escaping to an unverified model path.
+
 Release admission is also build-specific. The broker SHA-256 hashes the running
 `Build.FINGERPRINT` and compares it with the fingerprint digest attached to the
 admitted model's benchmark evidence. A mismatch exposes no release model from
