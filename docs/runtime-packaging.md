@@ -17,6 +17,14 @@ attempt. Active sessions fail immediately on loss, and a session created across
 a provider-generation race is cancelled instead of entering the broker's live
 session set.
 
+Runtime fallback is request-scoped. With `allowFallback=false`, only the first
+admitted capability/language artifact may be opened. With `allowFallback=true`,
+the broker tries the full admitted candidate chain in order when a runtime is
+absent or rejects creation. Inputs remain bounded in the broker until an attempt
+is accepted. Attempt-specific callbacks reject synchronous failures and stale
+events from abandoned providers, and result validation is bound to the artifact
+that actually accepted the session.
+
 Runtime-provider API version 2 adds `attachAudioOutput`: the broker transfers
 the writable end of a reliable PCM pipe to a `speech_synthesis` provider while
 the authorized client retains only the read end. The broker accepts exactly one

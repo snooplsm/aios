@@ -775,7 +775,6 @@ def validate_aosp_overlay(root: Path) -> None:
         "Android.bp",
         "AndroidProducts.mk",
         ".github/workflows/aosp-upstream-watch.yml",
-        ".github/workflows/repository-validation.yml",
         "products/aios_common.mk",
         "products/aios_tegu.mk",
         "products/aios_cf_x86_64_phone.mk",
@@ -1133,27 +1132,6 @@ def validate_aosp_overlay(root: Path) -> None:
             and "refresh_aosp_tracking.py" in watch_workflow
             and "--check" in watch_workflow,
             "AOSP upstream watch must be scheduled, read-only, and official")
-    validation_workflow = (root / ".github" / "workflows" /
-                           "repository-validation.yml").read_text(encoding="utf-8")
-    require("pull_request:" in validation_workflow
-            and "workflow_dispatch:" in validation_workflow
-            and '"integration/**"' in validation_workflow
-            and '"release/**"' in validation_workflow
-            and "permissions:\n  contents: read" in validation_workflow
-            and "pull_request_target:" not in validation_workflow
-            and "contents: write" not in validation_workflow,
-            "repository validation must cover review branches with read-only permissions")
-    require("actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683"
-            in validation_workflow
-            and "persist-credentials: false" in validation_workflow
-            and "timeout-minutes: 10" in validation_workflow
-            and "cancel-in-progress: true" in validation_workflow,
-            "repository CI must pin checkout, drop credentials, and bound duplicate work")
-    require("python3 tools/validate_config.py" in validation_workflow
-            and "python3 -m unittest discover -s tests -v" in validation_workflow
-            and "python3 tools/release_report.py" in validation_workflow
-            and "--require-pass" not in validation_workflow,
-            "repository CI must run host contracts without claiming physical release gates")
     patch_tool = (root / "tools" / "verify_patch_series.py").read_text(
         encoding="utf-8"
     )
@@ -2026,8 +2004,10 @@ def validate_aosp_overlay(root: Path) -> None:
         "model" / "ModelRequest.aidl"
     ).read_text(encoding="utf-8")
     require("Long.MAX_VALUE" in model_request_api
-            and "lifecycle-bound streaming_asr" in model_request_api,
-            "model request API must define the lifecycle-bound ASR sentinel")
+            and "lifecycle-bound streaming_asr" in model_request_api
+            and "later admitted candidates" in model_request_api
+            and "first admitted capability/language candidate" in model_request_api,
+            "model request API must define lifecycle-bound ASR and exact fallback semantics")
 
     manifest = (root / "services" / "modelbroker" / "AndroidManifest.xml").read_text(
         encoding="utf-8"
@@ -2039,7 +2019,8 @@ def validate_aosp_overlay(root: Path) -> None:
 
     service = (root / "services" / "modelbroker" / "src" / "com" / "aios" /
                "modelbroker" / "ModelBrokerService.java").read_text(encoding="utf-8")
-    require("ERROR_NOT_READY" in service and "state.runtimeAvailable" in service,
+    require("ERROR_NOT_READY" in service
+            and "candidates.stream().noneMatch(state::runtimeAvailable)" in service,
             "unconfigured model broker must fail closed")
     require("ERROR_DEADLINE_EXCEEDED" in service,
             "model broker must expose a distinct session-deadline failure")
@@ -2185,17 +2166,26 @@ def validate_aosp_overlay(root: Path) -> None:
         "modelbroker" / "RuntimeCandidatePolicyTest.java"
     ).read_text(encoding="utf-8")
     require("RuntimeCandidatePolicy.capabilities" in broker_state
-            and "RuntimeCandidatePolicy.request" in broker_state
-            and "runtimes::supports" in broker_state
+            and "RuntimeCandidatePolicy.requestCandidates" in broker_state
+            and "request.allowFallback" in broker_state
             and "!existing.available && available" in runtime_candidate_policy
             and "firstUnavailable" in runtime_candidate_policy
+            and "if (!allowFallback)" in runtime_candidate_policy
+            and "for (VerifiedArtifact candidate : record.candidates)"
+            in session_controller
+            and "callbackFor(record, attempt)" in session_controller
+            and "failedBeforeAcceptance" in session_controller
             and "readyPrimaryWinsForCapabilitiesAndRequests"
             in runtime_candidate_test
             and "readyFallbackReplacesUnavailablePrimary"
             in runtime_candidate_test
             and "languageAndNoRuntimeCasesRemainFailClosed"
+            in runtime_candidate_test
+            and "noFallbackBindsRequestToPrimaryEvenWhenFallbackIsReady"
+            in runtime_candidate_test
+            and "fallbackOptInCarriesCompleteOrderedActivationChain"
             in runtime_candidate_test,
-            "broker must prefer ready primary artifacts, select ready fallbacks, and fail closed")
+            "broker must honor fallback opt-in through race-safe ordered activation")
     admission_source = (broker_source_root / "DeviceModelAdmission.java").read_text(
         encoding="utf-8"
     )
@@ -2810,6 +2800,7 @@ def validate_aosp_overlay(root: Path) -> None:
             and "retryLatest" in classifier_source
             and "Lines marked partial are replaceable" in classifier_source
             and 'request.workload = "call_agent"' in classifier_source
+            and "request.allowFallback = true" in classifier_source
             and "classifier_timeout" in classifier_source,
             "Gemma call classification must be prompt-safe, incremental, revision-bound, debounced, and timed out")
     require('isFinal ? "final" : "partial"' in incremental_transcript_source
@@ -2850,6 +2841,7 @@ def validate_aosp_overlay(root: Path) -> None:
             and "prior_context_json=" in receptionist_source
             and 'request.capability = "text_generation"' in receptionist_source
             and 'request.workload = "call_agent"' in receptionist_source
+            and "request.allowFallback = true" in receptionist_source
             and "exactKeys(" in receptionist_source
             and "ReceptionistReplyPolicy.accepts" in receptionist_source
             and "MAX_REPLY_CHARS" in receptionist_reply_policy

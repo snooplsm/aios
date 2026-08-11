@@ -48,6 +48,9 @@ to measure decode real-time factor. The runner
 refuses to start during a live call, samples runtime-process PSS and Android
 thermal status throughout each invocation, and emits measurements without
 pass/fail fields.
+Every benchmark request sets `allowFallback` to false. A measurement is therefore
+evidence for the exact artifact/runtime/backend tuple named by that test, never
+for an unreported lower-tier model selected after activation failure.
 The host evaluator rejects a zero/unavailable PSS sample and thermal values
 outside Android's defined `0..6` status range; it still applies no fixed RAM
 ceiling.

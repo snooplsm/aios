@@ -13,5 +13,10 @@ parcelable ModelRequest {
      * cancellation, callback death, or broker priority policy.
      */
     long deadlineElapsedRealtimeMillis;
+    /**
+     * When true, the broker may try later admitted candidates after the primary
+     * is unavailable or rejects session activation. False binds this request to
+     * the first admitted capability/language candidate, including benchmarks.
+     */
     boolean allowFallback;
 }

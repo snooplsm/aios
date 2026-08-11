@@ -155,6 +155,15 @@ name. Ordinary provider-process crashes retain Android's reconnectable binding;
 package-update binding death and null bindings are explicitly unbound and
 recreated. Every attempt rechecks the system-app/permission identity, and an
 opening session is rejected if the provider generation changes during creation.
+`ModelRequest.allowFallback` controls activation rather than merely discovery.
+When it is false, the request is bound to the first admitted capability/language
+candidate and fails if that exact runtime cannot open. When it is true, Model
+Broker tries the complete admitted chain in policy order until one runtime
+accepts the session. Each attempt has a distinct callback identity, so an error
+or delayed callback from a rejected provider cannot terminate the accepted
+fallback session. Call ASR, classification, receptionist dialogue, and deferred
+media opt in for continuity. Benchmark requests and speech synthesis remain
+exact so their evidence and PCM contract cannot silently change artifacts.
 
 ### Media Intelligence service
 

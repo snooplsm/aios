@@ -258,7 +258,9 @@ final class ReceptionistDialogueClient implements AutoCloseable {
             request.maxOutputTokens = MAX_OUTPUT_TOKENS;
             request.deadlineElapsedRealtimeMillis =
                     SystemClock.elapsedRealtime() + REQUEST_DEADLINE_MILLIS;
-            request.allowFallback = false;
+            // Receptionist continuity may use the ordered, independently
+            // admitted tier fallback chain when the preferred model cannot open.
+            request.allowFallback = true;
             sessionId = broker.createSession(request, callback(pending));
             if (sessionId <= 0L) {
                 completeFailure(pending, "receptionist_session_rejected");

@@ -314,7 +314,9 @@ final class CallClassifierClient implements AutoCloseable {
             request.maxOutputTokens = 256;
             request.deadlineElapsedRealtimeMillis =
                     SystemClock.elapsedRealtime() + REQUEST_DEADLINE_MILLIS;
-            request.allowFallback = false;
+            // Every candidate is separately benchmark-admitted; prefer a live
+            // smaller model to losing advisory classification during a call.
+            request.allowFallback = true;
             sessionId = current.createSession(request, callback(pending));
             if (sessionId <= 0L) {
                 completeFailure(pending, "classifier_session_rejected");

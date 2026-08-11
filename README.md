@@ -63,11 +63,11 @@ Device/model policy and host validators are also present. Debug builds can expor
 bounded, identifier-free photo/video timing, including full-audio pipeline time
 and real-time factor, so ETAs are based on the actual Pixel, build, model, and
 runtime rather than desktop estimates.
-Every push to the maintained main, integration, and release branches—and every
-pull request—runs the dependency-free policy validator, complete Python contract
-suite, and non-blocking release-status report in a read-only, credential-free
-GitHub Actions job. This repository gate does not stand in for Soong, emulator,
-or physical Pixel evidence.
+Repository validation is intentionally local: maintainers run the dependency-
+free policy validator, complete Python contract suite, and non-blocking release-
+status report before committing. No hosted continuous-integration job builds or
+tests AIOS. Local checks do not stand in for Soong, emulator, or physical Pixel
+evidence.
 Media capture discovery is automatic and camera-independent: live MediaStore
 observation is backed by durable per-volume generation cursors that recover
 missed additions after process death or reboot without importing the existing

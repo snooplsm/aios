@@ -80,14 +80,14 @@ public final class ModelBrokerService extends Service {
             }
             try {
                 AuthorizedClientPolicy.Rule client = state.requireClient(Binder.getCallingUid());
-                VerifiedArtifact artifact = state.validateRequest(client, request);
-                if (!state.runtimeAvailable(artifact)) {
+                List<VerifiedArtifact> candidates = state.validateRequest(client, request);
+                if (candidates.stream().noneMatch(state::runtimeAvailable)) {
                     notifyError(callback, ERROR_NOT_READY,
-                            "verified artifact has no active runtime adapter");
+                            "verified artifact chain has no active runtime adapter");
                     return -1L;
                 }
                 return sessions.create(
-                        Binder.getCallingUid(), client, artifact, request, callback);
+                        Binder.getCallingUid(), client, candidates, request, callback);
             } catch (IllegalArgumentException error) {
                 notifyError(callback, ERROR_INVALID_REQUEST, error.getMessage());
                 return -1L;

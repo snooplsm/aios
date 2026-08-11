@@ -31,7 +31,8 @@ public final class RuntimeCandidatePolicyTest {
         assertTrue(capabilities.get("text_generation").available);
         assertNull(capabilities.get("call_classification"));
         assertEquals("primary", RuntimeCandidatePolicy.request(
-                candidates, "text_generation", "en", item -> true).artifact.modelId);
+                candidates, "text_generation", "en", true,
+                item -> true).artifact.modelId);
     }
 
     @Test
@@ -49,6 +50,7 @@ public final class RuntimeCandidatePolicyTest {
                 candidates,
                 "text_generation",
                 "en",
+                true,
                 item -> "fallback".equals(item.modelId)).artifact.modelId);
     }
 
@@ -56,9 +58,9 @@ public final class RuntimeCandidatePolicyTest {
     public void languageAndNoRuntimeCasesRemainFailClosed() {
         List<VerifiedArtifact> candidates = List.of(PRIMARY, FALLBACK);
         RuntimeCandidatePolicy.Choice spanish = RuntimeCandidatePolicy.request(
-                candidates, "text_generation", "es", item -> true);
+                candidates, "text_generation", "es", true, item -> true);
         RuntimeCandidatePolicy.Choice unavailable = RuntimeCandidatePolicy.request(
-                candidates, "text_generation", "en", item -> false);
+                candidates, "text_generation", "en", true, item -> false);
         RuntimeCandidatePolicy.Choice unavailableCapability =
                 RuntimeCandidatePolicy.capabilities(
                         candidates, Set.of("text_generation"), item -> false)
@@ -70,7 +72,35 @@ public final class RuntimeCandidatePolicyTest {
         assertEquals("primary", unavailableCapability.artifact.modelId);
         assertFalse(unavailableCapability.available);
         assertNull(RuntimeCandidatePolicy.request(
-                candidates, "image_understanding", "en", item -> true));
+                candidates, "image_understanding", "en", true, item -> true));
+    }
+
+    @Test
+    public void noFallbackBindsRequestToPrimaryEvenWhenFallbackIsReady() {
+        List<VerifiedArtifact> candidates = List.of(PRIMARY, FALLBACK);
+        RuntimeCandidatePolicy.Choice exact = RuntimeCandidatePolicy.request(
+                candidates,
+                "text_generation",
+                "en",
+                false,
+                item -> "fallback".equals(item.modelId));
+
+        assertEquals("primary", exact.artifact.modelId);
+        assertFalse(exact.available);
+        assertEquals(List.of(PRIMARY), RuntimeCandidatePolicy.requestCandidates(
+                candidates, "text_generation", "en", false));
+    }
+
+    @Test
+    public void fallbackOptInCarriesCompleteOrderedActivationChain() {
+        assertEquals(List.of(PRIMARY, FALLBACK),
+                RuntimeCandidatePolicy.requestCandidates(
+                        List.of(PRIMARY, FALLBACK),
+                        "call_classification",
+                        "en",
+                        true));
+        assertEquals(List.of(FALLBACK), RuntimeCandidatePolicy.requestCandidates(
+                List.of(PRIMARY, FALLBACK), "text_generation", "es", true));
     }
 
     private static VerifiedArtifact artifact(

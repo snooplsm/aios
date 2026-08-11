@@ -153,7 +153,12 @@ Run gates in this order:
    the preferred model's backend is withheld while the fallback backend remains
    advertised. Confirm capability discovery and a new session select the
    fallback, then restore the preferred backend and confirm new work returns to
-   it without interrupting an already-running fallback session.
+   it without interrupting an already-running fallback session. Next make the
+   preferred provider advertise readiness but reject `createSession`. Confirm a
+   request with `allowFallback=true` activates the next admitted candidate and
+   ignores a delayed callback from the rejected attempt. Repeat with
+   `allowFallback=false` and confirm the request fails without opening the
+   fallback.
    For `model.runtime_provider_recovery`, run an admitted inference session,
    kill the provider process and confirm the active session fails while a new
    session succeeds after Android reconnects it. Then replace the provider APK

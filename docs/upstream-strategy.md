@@ -62,13 +62,13 @@ digests. A moving ref that has not been reviewed therefore stops before patch
 replay or Soong; an old `out/` directory cannot make it appear current. Release
 locks are never changed by the refresh command.
 
-The overlay has two deliberately different automation gates. Every push and
-pull request runs the dependency-free repository validator, complete host
-contract suite, and release-status report with read-only permissions and no
-retained checkout credential. The scheduled upstream watch independently checks
-whether Google's moving `android-latest-release` ref still matches the reviewed
-tracking record. Neither workflow marks a Soong, emulator, or physical-device
-gate passed; those require their own immutable evidence capture.
+The overlay deliberately has no hosted continuous-integration build or test
+job. Maintainers run the dependency-free repository validator, complete host
+contract suite, and release-status report locally before committing. A scheduled
+read-only upstream watch independently checks whether Google's moving
+`android-latest-release` ref still matches the reviewed tracking record. That
+watch does not mark a Soong, emulator, or physical-device gate passed; those
+require their own immutable evidence capture.
 
 The release matrix keeps `integration.android_latest_*` gates separate from the
 Pixel `build.*` and runtime gates. A green Cuttlefish build demonstrates that the

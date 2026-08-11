@@ -106,7 +106,8 @@ final class BrokerState {
         return result;
     }
 
-    VerifiedArtifact validateRequest(AuthorizedClientPolicy.Rule client, ModelRequest request) {
+    List<VerifiedArtifact> validateRequest(
+            AuthorizedClientPolicy.Rule client, ModelRequest request) {
         if (!client.allows(request)) {
             throw new IllegalArgumentException("request exceeds client policy");
         }
@@ -123,13 +124,13 @@ final class BrokerState {
         if (callActive && "media_background".equals(request.workload)) {
             throw new IllegalArgumentException("media inference is blocked during a call");
         }
-        RuntimeCandidatePolicy.Choice choice = RuntimeCandidatePolicy.request(
+        List<VerifiedArtifact> candidates = RuntimeCandidatePolicy.requestCandidates(
                 selectedArtifacts.values(),
                 request.capability,
                 request.language,
-                runtimes::supports);
-        if (choice != null) {
-            return choice.artifact;
+                request.allowFallback);
+        if (!candidates.isEmpty()) {
+            return candidates;
         }
         throw new IllegalArgumentException("no selected artifact supports the request");
     }

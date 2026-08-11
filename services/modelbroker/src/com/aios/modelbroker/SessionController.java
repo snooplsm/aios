@@ -155,16 +155,27 @@ final class SessionController implements AutoCloseable {
         }
     }
 
+    private static final class ActivationAttempt {
+        final VerifiedArtifact artifact;
+        boolean failedBeforeAcceptance;
+
+        ActivationAttempt(VerifiedArtifact artifact) {
+            this.artifact = artifact;
+        }
+    }
+
     private static final class Record {
         final long id;
         final int ownerUid;
-        final VerifiedArtifact artifact;
+        final List<VerifiedArtifact> candidates;
         final ModelRequest request;
         final IModelCallback callback;
         final IBinder.DeathRecipient deathRecipient;
         final long createdAtElapsedMillis;
         final Object callbackLock = new Object();
         final ArrayDeque<PendingInput> pending = new ArrayDeque<>();
+        VerifiedArtifact artifact;
+        ActivationAttempt activationAttempt;
         RuntimeAdapter.Session runtimeSession;
         boolean audioOutputAttached;
         boolean terminal;
@@ -175,14 +186,14 @@ final class SessionController implements AutoCloseable {
         Record(
                 long id,
                 int ownerUid,
-                VerifiedArtifact artifact,
+                List<VerifiedArtifact> candidates,
                 ModelRequest request,
                 IModelCallback callback,
                 IBinder.DeathRecipient deathRecipient,
                 long createdAtElapsedMillis) {
             this.id = id;
             this.ownerUid = ownerUid;
-            this.artifact = artifact;
+            this.candidates = List.copyOf(candidates);
             this.request = request;
             this.callback = callback;
             this.deathRecipient = deathRecipient;
@@ -224,9 +235,14 @@ final class SessionController implements AutoCloseable {
     long create(
             int ownerUid,
             AuthorizedClientPolicy.Rule client,
-            VerifiedArtifact artifact,
+            List<VerifiedArtifact> candidates,
             ModelRequest request,
             IModelCallback callback) {
+        if (candidates == null || candidates.isEmpty()) {
+            notifyError(callback, ModelBrokerService.ERROR_INVALID_REQUEST,
+                    "at least one admitted runtime candidate is required");
+            return -1L;
+        }
         long nowMillis = SystemClock.elapsedRealtime();
         if (!SessionDeadlinePolicy.validAt(
                 request.capability,
@@ -239,7 +255,7 @@ final class SessionController implements AutoCloseable {
         long id = nextId.getAndIncrement();
         IBinder.DeathRecipient deathRecipient = () -> cancelAfterClientDeath(id, ownerUid);
         Record record = new Record(
-                id, ownerUid, artifact, request, callback, deathRecipient, nowMillis);
+                id, ownerUid, candidates, request, callback, deathRecipient, nowMillis);
         try {
             callback.asBinder().linkToDeath(deathRecipient, 0);
         } catch (RemoteException error) {
@@ -507,34 +523,71 @@ final class SessionController implements AutoCloseable {
             }
         }
 
-        RuntimeAdapter.Session runtime;
-        try {
-            runtime = runtimes.open(record.artifact, record.request, callbackFor(record));
-        } catch (IOException | RemoteException | RuntimeException error) {
-            failOwned(record.ownerUid, id, ModelBrokerService.ERROR_RUNTIME_FAILED,
-                    "runtime session could not start");
+        for (VerifiedArtifact candidate : record.candidates) {
+            ActivationAttempt attempt = new ActivationAttempt(candidate);
+            synchronized (this) {
+                if (records.get(id) != record || record.runtimeSession != null) {
+                    return;
+                }
+                record.activationAttempt = attempt;
+            }
+
+            RuntimeAdapter.Session runtime;
+            try {
+                runtime = runtimes.open(
+                        candidate, record.request, callbackFor(record, attempt));
+            } catch (IOException | RemoteException | RuntimeException error) {
+                synchronized (this) {
+                    if (record.activationAttempt == attempt) {
+                        record.activationAttempt = null;
+                    }
+                }
+                continue;
+            }
+
+            List<PendingInput> pending = null;
+            boolean accepted = false;
+            boolean recordGone = false;
+            synchronized (this) {
+                recordGone = records.get(id) != record;
+                if (!recordGone
+                        && record.activationAttempt == attempt
+                        && !attempt.failedBeforeAcceptance
+                        && record.runtimeSession == null) {
+                    record.artifact = candidate;
+                    record.runtimeSession = runtime;
+                    pending = new ArrayList<>(record.pending);
+                    record.pending.clear();
+                    accepted = true;
+                } else if (record.activationAttempt == attempt) {
+                    record.activationAttempt = null;
+                }
+            }
+            if (!accepted) {
+                runtime.close();
+                if (recordGone) {
+                    return;
+                }
+                continue;
+            }
+            for (PendingInput input : pending) {
+                dispatch(record.ownerUid, id, runtime, input);
+            }
             return;
         }
 
-        List<PendingInput> pending;
-        synchronized (this) {
-            if (records.get(id) != record) {
-                runtime.close();
-                return;
-            }
-            record.runtimeSession = runtime;
-            pending = new ArrayList<>(record.pending);
-            record.pending.clear();
-        }
-        for (PendingInput input : pending) {
-            dispatch(record.ownerUid, id, runtime, input);
-        }
+        failOwned(record.ownerUid, id, ModelBrokerService.ERROR_RUNTIME_FAILED,
+                "every admitted runtime candidate failed to start");
     }
 
-    private IModelCallback callbackFor(Record record) {
+    private IModelCallback callbackFor(
+            Record record, ActivationAttempt activationAttempt) {
         return new IModelCallback.Stub() {
             @Override
             public void onChunk(GenerationChunk chunk) {
+                if (!acceptRuntimeCallback(record, activationAttempt)) {
+                    return;
+                }
                 boolean invalid = false;
                 boolean clientDied = false;
                 synchronized (record.callbackLock) {
@@ -564,11 +617,17 @@ final class SessionController implements AutoCloseable {
 
             @Override
             public void onCompleted(InferenceResult result) {
+                if (!acceptRuntimeCallback(record, activationAttempt)) {
+                    return;
+                }
                 completeFromRuntime(record, result);
             }
 
             @Override
             public void onError(int code, String message) {
+                if (!acceptRuntimeCallback(record, activationAttempt)) {
+                    return;
+                }
                 int safeCode = code == ModelBrokerService.ERROR_INVALID_REQUEST
                         || code == ModelBrokerService.ERROR_BUSY
                         ? code : ModelBrokerService.ERROR_RUNTIME_FAILED;
@@ -578,6 +637,19 @@ final class SessionController implements AutoCloseable {
                 failFromRuntime(record, safeCode, safeMessage);
             }
         };
+    }
+
+    private synchronized boolean acceptRuntimeCallback(
+            Record record, ActivationAttempt activationAttempt) {
+        if (records.get(record.id) != record
+                || record.activationAttempt != activationAttempt) {
+            return false;
+        }
+        if (record.runtimeSession == null) {
+            activationAttempt.failedBeforeAcceptance = true;
+            return false;
+        }
+        return true;
     }
 
     private void failOwned(int ownerUid, long sessionId, int code, String message) {
