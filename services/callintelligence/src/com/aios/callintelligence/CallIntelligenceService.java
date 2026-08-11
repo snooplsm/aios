@@ -1040,15 +1040,22 @@ public final class CallIntelligenceService extends Service {
         segment.startMillis = chunk.sourceStartMillis;
         segment.endMillis = chunk.sourceEndMillis;
         notifyTranscript(segment);
-        if ("downlink".equals(direction) && chunk.isFinal
+        if ("downlink".equals(direction)
                 && chunk.text != null && !chunk.text.isBlank()) {
+            // Whisper partials replace the current turn rather than append to it.
+            // The heuristic is set-based, so observing each revision builds risk
+            // context early. Provisional evidence is replaced by the next partial;
+            // only the final turn makes its signals durable.
             RiskAssessmentTracker.Update assessment =
-                    session.observeHeuristic(chunk.text, language);
+                    session.observeHeuristicRevision(
+                            chunk.text, language, chunk.isFinal);
             publishAssessment(callId, session, assessment);
-            if (session.isAiHandling()) {
-                requestReceptionistReply(callId, session, language, chunk.text);
-            } else {
-                classifier.observe(callId, language, chunk.text);
+            if (chunk.isFinal) {
+                if (session.isAiHandling()) {
+                    requestReceptionistReply(callId, session, language, chunk.text);
+                } else {
+                    classifier.observe(callId, language, chunk.text);
+                }
             }
         }
     }
@@ -1458,10 +1465,10 @@ public final class CallIntelligenceService extends Service {
             return new AssistantCompletion(speech, uplink, next);
         }
 
-        synchronized RiskAssessmentTracker.Update observeHeuristic(
-                String text, String language) {
+        synchronized RiskAssessmentTracker.Update observeHeuristicRevision(
+                String text, String language, boolean isFinal) {
             if (closed) return null;
-            return risk.observeHeuristic(text, language);
+            return risk.observeHeuristicRevision(text, language, isFinal);
         }
 
         synchronized RiskAssessmentTracker.Update observeModel(

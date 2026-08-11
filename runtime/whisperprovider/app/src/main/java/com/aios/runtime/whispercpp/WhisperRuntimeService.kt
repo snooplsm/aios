@@ -44,9 +44,10 @@ class WhisperRuntimeService : Service() {
         const val VAD_FRAME_BYTES = VAD_FRAME_SAMPLES * 2
         const val ENDPOINT_SILENCE_MILLIS = 600
         const val ENDPOINT_SILENCE_FRAMES = ENDPOINT_SILENCE_MILLIS / VAD_FRAME_MILLIS
-        const val WINDOW_SECONDS = 4
-        const val WINDOW_SAMPLES = SAMPLE_RATE_HZ * WINDOW_SECONDS
-        const val WINDOW_BYTES = WINDOW_SAMPLES * 2
+        const val CALL_WINDOW_MILLIS = 2_000
+        const val MEDIA_WINDOW_MILLIS = 4_000
+        const val CALL_WINDOW_BYTES = SAMPLE_RATE_HZ * CALL_WINDOW_MILLIS / 1_000 * 2
+        const val MEDIA_WINDOW_BYTES = SAMPLE_RATE_HZ * MEDIA_WINDOW_MILLIS / 1_000 * 2
         const val MIN_FINAL_SAMPLES = SAMPLE_RATE_HZ / 2
         const val MAX_PENDING_WINDOWS = 4
         const val MAX_SESSIONS = 2
@@ -274,7 +275,11 @@ class WhisperRuntimeService : Service() {
 
     private fun readPcm(session: AsrSession, descriptor: ParcelFileDescriptor) {
         val frame = ByteArray(VAD_FRAME_BYTES)
-        val window = ByteArray(WINDOW_BYTES)
+        // Calls publish a replaceable partial about every few spoken words. Offline
+        // media keeps larger windows to favor throughput and stable subtitle cues.
+        val window = ByteArray(
+            if (session.isMedia) MEDIA_WINDOW_BYTES else CALL_WINDOW_BYTES
+        )
         var frameFilled = 0
         var windowFilled = 0
         var sampleOffset = 0L

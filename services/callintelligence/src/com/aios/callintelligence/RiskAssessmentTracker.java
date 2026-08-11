@@ -52,7 +52,12 @@ final class RiskAssessmentTracker {
     }
 
     synchronized Update observeHeuristic(String text, String language) {
-        heuristic.observe(text, language);
+        return observeHeuristicRevision(text, language, true);
+    }
+
+    synchronized Update observeHeuristicRevision(
+            String text, String language, boolean isFinal) {
+        heuristic.observeRevision(text, language, isFinal);
         return changedCombined();
     }
 

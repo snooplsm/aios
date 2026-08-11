@@ -11,11 +11,15 @@ records the official reference artifact URLs and SHA-256 values; weights remain
 licensed local inputs and are never committed.
 
 The provider continuously drains each 16 kHz mono PCM pipe through 100 ms voice
-activity frames. Speech is decoded in windows no longer than four seconds, and
-600 ms of trailing silence ends a conversational turn. Long-turn updates carry
-the complete current turn as a replaceable revision; the silence endpoint emits
-the same turn with `isFinal=true`. This contract prevents the receptionist from
-answering a partial utterance and matches the Dialer's UDF transcript reducer.
+activity frames. Live-call speech is decoded in windows no longer than two
+seconds, while offline media retains four-second windows. Six hundred
+milliseconds of trailing silence ends a conversational turn. Long-turn updates
+carry the complete current turn as a replaceable revision; the silence endpoint
+emits the same turn with `isFinal=true`. This contract gives the UI and advisory
+spam heuristic fresh context every few words while preventing the receptionist
+from answering a partial utterance, and it matches the Dialer's UDF transcript
+reducer. A corrected partial replaces its provisional heuristic evidence; only
+the final turn enters durable communication context or starts a model reply.
 
 Low-energy frames outside a turn are skipped. A single priority decode queue
 services both directions: incoming/downlink work is always scheduled before
@@ -35,6 +39,10 @@ explicit cancellation, callback-process death, preemption, broker shutdown, and
 the call artifact's absolute retention cleanup all terminate it. The broker
 accepts this mode only for `streaming_asr`; classifier, dialogue, TTS, vision,
 and other finite requests always retain an elapsed-realtime terminal deadline.
+The broker does not apply its finite 4,096-chunk ceiling to a lifecycle call.
+Instead it permits 64 startup callbacks plus one callback per 100 ms of source
+audio and rejects a source timestamp more than ten seconds ahead of elapsed
+session time. Normal two-second call updates sit far below that safety ceiling.
 
 Build on Linux:
 
@@ -54,11 +62,11 @@ For a combined product, include both generated runtime make fragments under
 distinct output directories. The generic packager intentionally refuses a
 non-empty output directory.
 
-Four seconds and the 600 ms endpoint are provisional, not passed latency claims.
-Device gates must measure partial/final latency, endpoint misses, real-time
-factor, WER for English and Spanish telephony cohorts, thermal throttling, and
-queue lag. Tune windowing only from recorded evidence; do not silently drop
-incoming audio to improve benchmark numbers.
+The two-second call cadence, four-second media cadence, and 600 ms endpoint are
+provisional, not passed latency claims. Device gates must measure partial/final
+latency, endpoint misses, real-time factor, WER for English and Spanish telephony
+cohorts, thermal throttling, and queue lag. Tune windowing only from recorded
+evidence; do not silently drop incoming audio to improve benchmark numbers.
 
 ## Deferred video mode
 

@@ -7,9 +7,15 @@ final class SessionDeadlinePolicy {
 
     private SessionDeadlinePolicy() {}
 
+    static boolean isLifecycleBound(
+            String capability, long deadlineElapsedRealtimeMillis) {
+        return "streaming_asr".equals(capability)
+                && deadlineElapsedRealtimeMillis == LIFECYCLE_BOUND;
+    }
+
     static boolean validMode(String capability, long deadlineElapsedRealtimeMillis) {
         return deadlineElapsedRealtimeMillis != LIFECYCLE_BOUND
-                || "streaming_asr".equals(capability);
+                || isLifecycleBound(capability, deadlineElapsedRealtimeMillis);
     }
 
     static boolean validAt(
@@ -17,7 +23,7 @@ final class SessionDeadlinePolicy {
         if (nowMillis < 0L || !validMode(capability, deadlineElapsedRealtimeMillis)) {
             return false;
         }
-        if (deadlineElapsedRealtimeMillis == LIFECYCLE_BOUND) {
+        if (isLifecycleBound(capability, deadlineElapsedRealtimeMillis)) {
             return true;
         }
         return deadlineElapsedRealtimeMillis > nowMillis
@@ -30,6 +36,6 @@ final class SessionDeadlinePolicy {
             throw new IllegalArgumentException(
                     "only streaming ASR may use a lifecycle-bound deadline");
         }
-        return deadlineElapsedRealtimeMillis != LIFECYCLE_BOUND;
+        return !isLifecycleBound(capability, deadlineElapsedRealtimeMillis);
     }
 }

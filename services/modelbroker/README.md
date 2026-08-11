@@ -39,3 +39,9 @@ request an expired or greater-than-five-minute horizon. The pure mode and
 deadline-order policies are covered by both Soong and Gradle host tests. Android
 scheduling and real provider cancellation still require device integration
 evidence.
+
+Runtime output is also workload-aware. Finite and offline-media sessions have
+aggregate chunk-count/text bounds. Lifecycle call ASR has no arbitrary total
+transcript ceiling; its callbacks are instead bounded against the captured-audio
+timeline, while every individual chunk remains size-, sequence-, language-,
+confidence-, and timestamp-validated.

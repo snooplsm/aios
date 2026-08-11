@@ -68,7 +68,7 @@ The worker also selects the primary/default audio track and decodes its complete
 timeline without remuxing the source. Decoded buffers are downmixed and resampled
 to streaming PCM16 mono at 16 kHz, with presentation-time gaps represented as
 silence so subtitle offsets remain aligned to the video. The existing
-English/Spanish Whisper provider consumes four-second bounded windows under the
+English/Spanish Whisper provider consumes four-second bounded media windows under the
 lower-priority `media_background` workload. Only final segments are committed,
 with language, start/end milliseconds, bounded text, and confidence. A missing
 audio track and an audio track with no detected speech are distinct states.

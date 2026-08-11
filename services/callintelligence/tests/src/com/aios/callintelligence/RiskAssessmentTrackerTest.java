@@ -54,6 +54,21 @@ public final class RiskAssessmentTrackerTest {
         assertNull(tracker.observeModel(60, SpamRiskEngine.SUSPICIOUS, "lower_confidence"));
     }
 
+    @Test
+    public void correctedPartialPublishesAReplacementAssessment() {
+        RiskAssessmentTracker tracker = tracker(false);
+        tracker.initial();
+
+        RiskAssessmentTracker.Update risky = tracker.observeHeuristicRevision(
+                "Send a gift card immediately", "en", false);
+        RiskAssessmentTracker.Update corrected = tracker.observeHeuristicRevision(
+                "I need a plumbing estimate", "en", false);
+
+        assertEquals(SpamRiskEngine.SUSPICIOUS, risky.assessment.label);
+        assertEquals(SpamRiskEngine.LIKELY_LEGITIMATE, corrected.assessment.label);
+        assertEquals(risky.revision + 1L, corrected.revision);
+    }
+
     private static RiskAssessmentTracker tracker(boolean knownContact) {
         AtomicLong now = new AtomicLong(1_000L);
         return new RiskAssessmentTracker(

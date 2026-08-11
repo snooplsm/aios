@@ -38,6 +38,32 @@ public final class SpamRiskEngineTest {
     }
 
     @Test
+    public void correctedPartialRetractsProvisionalRisk() {
+        SpamRiskEngine engine = new SpamRiskEngine(false);
+
+        SpamRiskEngine.Assessment provisional = engine.observeRevision(
+                "Buy a gift card right now", "en", false);
+        SpamRiskEngine.Assessment corrected = engine.observeRevision(
+                "I need an estimate for a plumbing repair", "en", false);
+
+        assertTrue(provisional.score >= 50);
+        assertEquals(SpamRiskEngine.LIKELY_LEGITIMATE, corrected.label);
+        assertEquals("business_intent", corrected.reasonCode);
+    }
+
+    @Test
+    public void finalizedSignalSurvivesTheNextPartial() {
+        SpamRiskEngine engine = new SpamRiskEngine(false);
+        int finalized = engine.observeRevision(
+                "Please buy a gift card", "en", true).score;
+
+        int nextPartial = engine.observeRevision(
+                "I am calling today", "en", false).score;
+
+        assertEquals(finalized, nextPartial);
+    }
+
+    @Test
     public void ordinaryBusinessPurposeCanBecomeLikelyLegitimate() {
         SpamRiskEngine engine = new SpamRiskEngine(false);
         SpamRiskEngine.Assessment value = engine.observe(

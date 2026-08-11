@@ -864,10 +864,12 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/modelbroker/src/com/aios/modelbroker/RuntimeRegistry.java",
         "services/modelbroker/src/com/aios/modelbroker/SessionController.java",
         "services/modelbroker/src/com/aios/modelbroker/SessionArbiter.java",
+        "services/modelbroker/src/com/aios/modelbroker/SessionChunkPolicy.java",
         "services/modelbroker/src/com/aios/modelbroker/SessionDeadlinePolicy.java",
         "services/modelbroker/src/com/aios/modelbroker/SessionDeadlineQueue.java",
         "services/modelbroker/src/com/aios/modelbroker/CallActivityLeaseTracker.java",
         "services/modelbroker/tests/src/com/aios/modelbroker/SessionArbiterTest.java",
+        "services/modelbroker/tests/src/com/aios/modelbroker/SessionChunkPolicyTest.java",
         "services/modelbroker/tests/src/com/aios/modelbroker/SessionDeadlinePolicyTest.java",
         "services/modelbroker/tests/src/com/aios/modelbroker/SessionDeadlineQueueTest.java",
         "services/modelbroker/tests/src/com/aios/modelbroker/CallActivityLeaseTrackerTest.java",
@@ -1983,6 +1985,10 @@ def validate_aosp_overlay(root: Path) -> None:
             and "record.callbackLock" in session_controller
             and "ERROR_DEADLINE_EXCEEDED" in session_controller,
             "broker must expire finite queued/running sessions with one terminal callback")
+    require("SessionChunkPolicy.accepts" in session_controller
+            and "record.chunkChars" in session_controller
+            and "record.createdAtElapsedMillis" in session_controller,
+            "broker must apply workload-aware aggregate or timeline chunk bounds")
 
     runtime_api = (root / "services" / "runtimeapi" / "aidl" / "com" / "aios" /
                    "runtime" / "IAiosRuntimeProvider.aidl").read_text(encoding="utf-8")
@@ -2005,6 +2011,9 @@ def validate_aosp_overlay(root: Path) -> None:
     broker_deadline_policy = (
         broker_source_root / "SessionDeadlinePolicy.java"
     ).read_text(encoding="utf-8")
+    broker_chunk_policy = (
+        broker_source_root / "SessionChunkPolicy.java"
+    ).read_text(encoding="utf-8")
     broker_state = (broker_source_root / "BrokerState.java").read_text(
         encoding="utf-8")
     broker_compile_properties = (
@@ -2016,6 +2025,8 @@ def validate_aosp_overlay(root: Path) -> None:
     broker_host_test = broker_bp[broker_bp.index("java_test_host {"):]
     require('name: "aios_modelbroker_host_tests"' in broker_host_test
             and '"src/com/aios/modelbroker/PolicyFileReader.java"' in broker_host_test
+            and '"src/com/aios/modelbroker/SessionChunkPolicy.java"'
+            in broker_host_test
             and '"src/com/aios/modelbroker/SessionDeadlinePolicy.java"'
             in broker_host_test
             and '"src/com/aios/modelbroker/SessionDeadlineQueue.java"'
@@ -2027,6 +2038,11 @@ def validate_aosp_overlay(root: Path) -> None:
             and '"streaming_asr".equals(capability)' in broker_deadline_policy
             and "SessionDeadlinePolicy.validAt" in broker_state,
             "broker must bound finite deadlines and reserve lifecycle mode for streaming ASR")
+    require("MAX_BOUNDED_CHUNKS = 4_096L" in broker_chunk_policy
+            and "MAX_BOUNDED_CHARS = 4L * 1024L * 1024L" in broker_chunk_policy
+            and "CALL_MIN_MILLIS_PER_CHUNK = 100L" in broker_chunk_policy
+            and "CALL_TIMELINE_LEAD_MILLIS = 10_000L" in broker_chunk_policy,
+            "broker output policy must bound finite/media output and rate-limit live ASR")
     require('include(":modelservicecheck")' in model_preview_settings
             and 'include("com/aios/modelbroker/**/*.java")'
             in model_service_compile_build
@@ -2650,6 +2666,7 @@ def validate_aosp_overlay(root: Path) -> None:
             and "nextSpeechRequestSerial()" in call_service,
             "restarted calls must reject stale ASR, model, context, TTS, and caller-audio generations")
     require("chunk.isFinal" in call_service
+            and "observeHeuristicRevision" in call_service
             and "session.isAiHandling()" in call_service
             and "receptionist.requestReply" in call_service
             and "classifier.observe" in call_service
@@ -2757,10 +2774,14 @@ def validate_aosp_overlay(root: Path) -> None:
         "WhisperRuntimeService.kt"
     ).read_text(encoding="utf-8")
     require("ENDPOINT_SILENCE_MILLIS = 600" in whisper_source
+            and "CALL_WINDOW_MILLIS = 2_000" in whisper_source
+            and "MEDIA_WINDOW_MILLIS = 4_000" in whisper_source
+            and "if (session.isMedia) MEDIA_WINDOW_BYTES else CALL_WINDOW_BYTES"
+            in whisper_source
             and "endOfTurn" in whisper_source
             and "emitTurn(session, isFinal = true)" in whisper_source
             and "session.turnText" in whisper_source,
-            "call ASR must expose silence-endpointed revision-style final turns")
+            "call ASR must expose two-second partials and silence-final turns")
     fanout = (call_source_root / "ResilientFanoutOutputStream.java").read_text(
         encoding="utf-8"
     )

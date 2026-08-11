@@ -91,6 +91,8 @@ final class SpamRiskEngine {
     private final boolean knownContact;
     private final Set<String> observedRiskSignals = new HashSet<>();
     private final Set<String> observedBusinessSignals = new HashSet<>();
+    private final Set<String> provisionalRiskSignals = new HashSet<>();
+    private final Set<String> provisionalBusinessSignals = new HashSet<>();
     private Assessment current;
 
     SpamRiskEngine(boolean knownContact) {
@@ -99,19 +101,34 @@ final class SpamRiskEngine {
     }
 
     synchronized Assessment observe(String text, String language) {
-        if (text == null || text.isBlank() || !("en".equals(language) || "es".equals(language))) {
+        return observeRevision(text, language, true);
+    }
+
+    synchronized Assessment observeRevision(String text, String language, boolean isFinal) {
+        if (text == null || !("en".equals(language) || "es".equals(language))) {
             return current;
         }
         String normalized = normalize(text);
+        Set<String> revisionRiskSignals = new HashSet<>();
+        Set<String> revisionBusinessSignals = new HashSet<>();
         for (Signal signal : RISK_SIGNALS) {
             if (containsAny(normalized, signal.phrases)) {
-                observedRiskSignals.add(signal.id);
+                revisionRiskSignals.add(signal.id);
             }
         }
         for (String phrase : BUSINESS_INTENT_PHRASES) {
             if (normalized.contains(phrase)) {
-                observedBusinessSignals.add(phrase);
+                revisionBusinessSignals.add(phrase);
             }
+        }
+        provisionalRiskSignals.clear();
+        provisionalBusinessSignals.clear();
+        if (isFinal) {
+            observedRiskSignals.addAll(revisionRiskSignals);
+            observedBusinessSignals.addAll(revisionBusinessSignals);
+        } else {
+            provisionalRiskSignals.addAll(revisionRiskSignals);
+            provisionalBusinessSignals.addAll(revisionBusinessSignals);
         }
         current = assessment();
         return current;
@@ -125,7 +142,8 @@ final class SpamRiskEngine {
         int score = knownContact ? 0 : 5;
         List<Signal> matched = new ArrayList<>();
         for (Signal signal : RISK_SIGNALS) {
-            if (observedRiskSignals.contains(signal.id)) {
+            if (observedRiskSignals.contains(signal.id)
+                    || provisionalRiskSignals.contains(signal.id)) {
                 score += signal.weight;
                 matched.add(signal);
             }
@@ -136,17 +154,23 @@ final class SpamRiskEngine {
             label = HIGH_RISK;
         } else if (score >= 50) {
             label = SUSPICIOUS;
-        } else if (score <= 15 && (knownContact || observedBusinessSignals.size() >= 2)) {
+        } else if (score <= 15 && (knownContact || businessSignalCount() >= 2)) {
             label = LIKELY_LEGITIMATE;
         } else {
             label = UNKNOWN;
         }
         matched.sort(Comparator.comparingInt((Signal item) -> item.weight).reversed());
         String reason = matched.isEmpty()
-                ? (knownContact ? "known_contact" : observedBusinessSignals.size() >= 2
+                ? (knownContact ? "known_contact" : businessSignalCount() >= 2
                         ? "business_intent" : "insufficient_evidence")
                 : matched.get(0).id;
         return new Assessment(score, label, reason);
+    }
+
+    private int businessSignalCount() {
+        Set<String> combined = new HashSet<>(observedBusinessSignals);
+        combined.addAll(provisionalBusinessSignals);
+        return combined.size();
     }
 
     private static boolean containsAny(String text, List<String> phrases) {

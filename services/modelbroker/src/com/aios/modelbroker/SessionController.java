@@ -30,7 +30,6 @@ final class SessionController implements AutoCloseable {
     private static final int MAX_PENDING_INPUTS = 4;
     private static final int MAX_TEXT_CHARS = 256 * 1024;
     private static final int MAX_CHUNK_CHARS = 64 * 1024;
-    private static final int MAX_CHUNKS = 4096;
     private static final int MAX_RESULT_CHARS = 1024 * 1024;
 
     private interface PendingInput extends AutoCloseable {
@@ -163,13 +162,15 @@ final class SessionController implements AutoCloseable {
         final ModelRequest request;
         final IModelCallback callback;
         final IBinder.DeathRecipient deathRecipient;
+        final long createdAtElapsedMillis;
         final Object callbackLock = new Object();
         final ArrayDeque<PendingInput> pending = new ArrayDeque<>();
         RuntimeAdapter.Session runtimeSession;
         boolean audioOutputAttached;
         boolean terminal;
         long lastChunkSequence = -1L;
-        int chunkCount;
+        long chunkCount;
+        long chunkChars;
 
         Record(
                 long id,
@@ -177,13 +178,15 @@ final class SessionController implements AutoCloseable {
                 VerifiedArtifact artifact,
                 ModelRequest request,
                 IModelCallback callback,
-                IBinder.DeathRecipient deathRecipient) {
+                IBinder.DeathRecipient deathRecipient,
+                long createdAtElapsedMillis) {
             this.id = id;
             this.ownerUid = ownerUid;
             this.artifact = artifact;
             this.request = request;
             this.callback = callback;
             this.deathRecipient = deathRecipient;
+            this.createdAtElapsedMillis = createdAtElapsedMillis;
         }
     }
 
@@ -224,10 +227,11 @@ final class SessionController implements AutoCloseable {
             VerifiedArtifact artifact,
             ModelRequest request,
             IModelCallback callback) {
+        long nowMillis = SystemClock.elapsedRealtime();
         if (!SessionDeadlinePolicy.validAt(
                 request.capability,
                 request.deadlineElapsedRealtimeMillis,
-                SystemClock.elapsedRealtime())) {
+                nowMillis)) {
             notifyError(callback, ModelBrokerService.ERROR_INVALID_REQUEST,
                     "request has an invalid elapsed-realtime deadline mode");
             return -1L;
@@ -235,7 +239,7 @@ final class SessionController implements AutoCloseable {
         long id = nextId.getAndIncrement();
         IBinder.DeathRecipient deathRecipient = () -> cancelAfterClientDeath(id, ownerUid);
         Record record = new Record(
-                id, ownerUid, artifact, request, callback, deathRecipient);
+                id, ownerUid, artifact, request, callback, deathRecipient, nowMillis);
         try {
             callback.asBinder().linkToDeath(deathRecipient, 0);
         } catch (RemoteException error) {
@@ -651,15 +655,30 @@ final class SessionController implements AutoCloseable {
                 || chunk.language == null
                 || !record.artifact.languages.contains(chunk.language)
                 || chunk.sequence <= record.lastChunkSequence
-                || record.chunkCount >= MAX_CHUNKS
                 || !Float.isFinite(chunk.confidence)
                 || chunk.confidence < 0.0f || chunk.confidence > 1.0f
                 || chunk.sourceStartMillis < 0L
                 || chunk.sourceEndMillis < chunk.sourceStartMillis) {
             return false;
         }
+        long nowMillis = SystemClock.elapsedRealtime();
+        if (nowMillis < record.createdAtElapsedMillis
+                || !SessionChunkPolicy.accepts(
+                record.request.workload,
+                SessionDeadlinePolicy.isLifecycleBound(
+                        record.request.capability,
+                        record.request.deadlineElapsedRealtimeMillis),
+                record.chunkCount,
+                record.chunkChars,
+                chunk.text.length(),
+                chunk.sourceEndMillis,
+                nowMillis - record.createdAtElapsedMillis)) {
+            return false;
+        }
         record.lastChunkSequence = chunk.sequence;
         record.chunkCount++;
+        record.chunkChars = record.chunkChars > Long.MAX_VALUE - chunk.text.length()
+                ? Long.MAX_VALUE : record.chunkChars + chunk.text.length();
         return true;
     }
 

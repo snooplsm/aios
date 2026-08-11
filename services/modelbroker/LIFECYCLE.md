@@ -31,6 +31,12 @@ CREATED -> QUEUED -> LOADING -> RUNNING -> DRAINING -> COMPLETED
   such as a benchmark, remains deadline-enforced.
 - Chunk and terminal callback delivery is serialized per session so expiration,
   cancellation, and runtime completion cannot produce two terminal callbacks.
+- Finite and background-media sessions may emit at most 4,096 chunks and 4 MiB
+  of aggregate text. Lifecycle-bound call ASR instead uses a source-timeline
+  rate budget: 64 initial callbacks plus one per 100 ms of captured audio, with
+  source time no more than ten seconds ahead of elapsed session time. This keeps
+  a legitimate long call alive without permitting an isolated provider to flood
+  one-way Binder callbacks at an unbounded rate.
 
 ## Arbitration
 
