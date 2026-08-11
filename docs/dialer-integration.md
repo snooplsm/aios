@@ -138,6 +138,13 @@ one of several same-UID tokens leaves the call running; releasing the final
 token stops any unfinished AI work. In the normal terminal sequence,
 `onCallEnded` finalizes/indexes the call first, so the following release is an
 idempotent presence update and does not delete that finalized context.
+After both directions pass the first-PCM startup gate, a capture thread is not
+allowed to disappear silently. The first unexpected read or authoritative-sink
+failure is identity-checked against the current call session, transitions an
+AI-handled call to owner handling, closes only optional AI work, and reports a
+bounded failure to Phone. Phone keeps the Telecom surface and call controls
+alive and tells the owner processing stopped. Intentional teardown and a stale
+failure from an already-replaced session cannot affect the current call.
 Call IDs are stable only for Telecom correlation; they are not callback
 capabilities. Call Intelligence binds ASR, classifier, receptionist, prior-context,
 TTS/uplink, and status callbacks to the exact session/request generation. A

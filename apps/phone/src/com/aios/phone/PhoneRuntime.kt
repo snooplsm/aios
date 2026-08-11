@@ -281,7 +281,8 @@ object PhoneRuntime {
 
             override fun onAssistantFailure(callId: String, status: Int, detail: String) {
                 val message = when (status) {
-                    -1 -> "AI could not access both call-audio directions. The call is connected to you."
+                    -1 -> "AI lost a required call-audio direction and stopped processing. " +
+                        "The phone call is still connected."
                     -2, -3, -6, -9 ->
                         "AI call storage failed. The phone call is still connected."
                     -4 -> "AI answering became unavailable. The call is connected to you."

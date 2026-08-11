@@ -107,7 +107,13 @@ All stale broker callbacks and inference sinks are detached immediately. Call
 Intelligence must recreate terminal/null/stalled bindings with bounded backoff,
 then attach fresh downlink and uplink ASR streams to each still-live call without
 restarting its artifact or extending its expiry.
-If that loss interrupts receptionist reasoning, the exact finalized turn must
+If either authoritative telephony capture direction or its private PCM sink
+fails after startup, Call Intelligence must stop that exact AI session rather
+than presenting a frozen transcript. It must cancel caller speech and remaining
+inference, publish owner handling, preserve the partial artifact under its
+original expiry, and leave the carrier call and ordinary controls connected.
+Intentional teardown and a stale loss callback must be harmless.
+If Model Broker loss interrupts receptionist reasoning, the exact finalized turn must
 remain occupied and retry through the replacement binding under its original
 absolute deadline. Recovery must change callback identity, must not append the
 caller text to history again, and must not allow a predecessor callback to

@@ -32,6 +32,12 @@ have delivered PCM into their authoritative local sinks. Initialization,
 recording-state, first-frame, and sink failures tear down the optional AI
 session; the Telecom call itself remains untouched and the Dialer explicitly
 tells the owner that the connected call has been handed back to them.
+That contract remains live after startup. The first unexpected direction loss
+is fenced from intentional shutdown, identity-checked against the active
+session, and tears down its remaining AI work exactly once. If the assistant was
+handling the call, owner handling is published before the artifact closes. A
+racing second loss or a callback from a replaced session is ignored; neither
+path owns a Telecom disconnect.
 
 If the service process or package binding is replaced during a live call, AIOS
 Phone first reasserts the call's death-linked Telecom presence and then invokes

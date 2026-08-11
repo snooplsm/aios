@@ -166,6 +166,12 @@ Run gates in this order:
    not hear the receptionist greeting a second time. Repeat with an owner-
    handled call and with terminal/null test bindings for
    `call.telephony_survives_ai_crash`.
+   With a fault-injection build, force a post-first-PCM read failure in each
+   direction and a write failure in the authoritative private sink. Confirm the
+   exact AI session stops once, an AI-handled call changes to owner handling,
+   no later transcript or caller speech appears, the partial artifact retains
+   its original expiry, and the carrier call plus ordinary controls stay live.
+   Record this separately as `call.capture_loss_fail_open`.
 6. Airplane-mode ASR and model-broker failure injection. For
    `call.telephony_survives_ai_crash`, first keep a consented call active while
    killing Model Broker. Confirm the carrier call, local two-direction PCM, and

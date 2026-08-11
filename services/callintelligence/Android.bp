@@ -46,6 +46,7 @@ java_test_host {
         "src/com/aios/callintelligence/CallTranscriptRevisionClock.java",
         "src/com/aios/callintelligence/PcmTranscriptTimeline.java",
         "src/com/aios/callintelligence/CallArtifactRetention.java",
+        "src/com/aios/callintelligence/CaptureLivenessGate.java",
         "src/com/aios/callintelligence/CallRequestIdentityTracker.java",
         "src/com/aios/callintelligence/CallerHistoryPolicy.java",
         "src/com/aios/callintelligence/Pcm16MonoToStereo48k.java",

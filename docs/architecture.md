@@ -80,6 +80,15 @@ inference. A stalled or overloaded model drops old analysis frames rather than
 adding latency to telephony. The service never inserts itself into the modem
 media path; failure cannot mute or terminate the call.
 
+The two capture threads share a first-runtime-loss fence after each has produced
+its first authoritative PCM. An intentional session close is marked before
+`AudioRecord.stop()`, so its expected read termination is ignored. The first
+unexpected read, stream, or local-storage failure removes only the exact owned
+AI session, publishes owner handling before closing its artifact, and stops all
+classifier, receptionist, ASR, and caller-audio work. A second direction racing
+to fail is suppressed. Telecom owns the carrier call throughout and is never
+asked to disconnect it.
+
 Call Intelligence uses one generation-safe binding controller per Model Broker
 client. Android may reconnect an ordinary process crash on the existing binding;
 terminal death, null bindings, failed binds, and a connection/capability probe

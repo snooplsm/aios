@@ -16,6 +16,11 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 /** Required AI capture taps that can fail without touching the actual call media path. */
 final class TelephonyAudioCapture implements AutoCloseable {
+    interface Listener {
+        void onCaptureLost(
+                TelephonyAudioCapture capture, String direction, String reason);
+    }
+
     private static final String TAG = "AiosCallCapture";
     private static final int SAMPLE_RATE_HZ = 16_000;
     private static final int CHANNEL_MASK = AudioFormat.CHANNEL_IN_MONO;
@@ -24,12 +29,18 @@ final class TelephonyAudioCapture implements AutoCloseable {
 
     private final Context context;
     private final RequiredCaptureGate startup = new RequiredCaptureGate();
+    private final CaptureLivenessGate liveness = new CaptureLivenessGate();
+    private final Listener listener;
     private final CaptureDirection downlink;
     private final CaptureDirection uplink;
 
     TelephonyAudioCapture(
-            Context context, OutputStream downlinkSink, OutputStream uplinkSink) {
+            Context context,
+            OutputStream downlinkSink,
+            OutputStream uplinkSink,
+            Listener listener) {
         this.context = context;
+        this.listener = listener;
         downlink = new CaptureDirection(
                 RequiredCaptureGate.DOWNLINK,
                 MediaRecorder.AudioSource.VOICE_DOWNLINK,
@@ -60,11 +71,21 @@ final class TelephonyAudioCapture implements AutoCloseable {
 
     @Override
     public void close() {
+        liveness.close();
         downlink.close();
         uplink.close();
     }
 
-    private static final class CaptureDirection implements AutoCloseable, Runnable {
+    private void reportUnexpectedStop(
+            String direction, boolean receivedPcm, String reason) {
+        CaptureLivenessGate.Failure failure =
+                liveness.onDirectionStopped(direction, receivedPcm, reason);
+        if (failure != null && listener != null) {
+            listener.onCaptureLost(this, failure.direction, failure.reason);
+        }
+    }
+
+    private final class CaptureDirection implements AutoCloseable, Runnable {
         private final String name;
         private final int source;
         private final OutputStream sink;
@@ -139,6 +160,7 @@ final class TelephonyAudioCapture implements AutoCloseable {
             Process.setThreadPriority(Process.THREAD_PRIORITY_AUDIO);
             byte[] buffer = new byte[3_200]; // 100 ms of mono 16-bit PCM at 16 kHz.
             AudioRecord activeRecord = record;
+            String failureReason = name + "_capture_stopped";
             try {
                 while (running.get() && activeRecord != null) {
                     int read = activeRecord.read(
@@ -151,16 +173,24 @@ final class TelephonyAudioCapture implements AutoCloseable {
                         }
                     } else if (read < 0) {
                         Log.w(TAG, name + " capture read failed: " + read);
-                        markFailure(name + "_read_failed");
+                        failureReason = name + "_read_failed";
                         break;
                     }
                 }
-            } catch (IOException | RuntimeException error) {
+            } catch (IOException error) {
+                failureReason = name + "_storage_failed";
                 Log.w(TAG, name + " capture stopped", error);
-                markFailure(name + "_stream_failed");
+            } catch (RuntimeException error) {
+                failureReason = name + "_stream_failed";
+                Log.w(TAG, name + " capture stopped", error);
             } finally {
-                running.set(false);
-                if (!receivedPcm) markFailure(name + "_stopped_before_first_pcm");
+                boolean unexpected = running.getAndSet(false);
+                if (!receivedPcm) {
+                    markFailure(name + "_stopped_before_first_pcm");
+                } else if (unexpected) {
+                    startup.markFailure(name, failureReason);
+                    reportUnexpectedStop(name, true, failureReason);
+                }
             }
         }
 

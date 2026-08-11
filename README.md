@@ -41,6 +41,10 @@ Call risk now crosses Binder as a typed, revisioned assessment: initial known-
 contact legitimacy is published immediately, late listeners receive the current
 state, stale concurrent updates are ignored, and Compose shows human-readable
 legitimate/evaluating/suspicious/high-risk cards in both themes.
+Both telephony taps must continue delivering PCM after startup. The first
+unexpected downlink, uplink, or authoritative-storage loss atomically removes
+the exact AI session, stops its inference and caller speech, and hands the
+already-connected call back to ordinary Telecom controls without hanging up.
 AI-handled active calls also expose a typed, revisioned handling state. The owner
 can take over from either the in-call surface or its ongoing notification; Call
 Intelligence stops queued and in-flight AI speech while keeping both capture

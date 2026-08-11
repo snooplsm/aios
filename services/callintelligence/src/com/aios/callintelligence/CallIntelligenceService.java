@@ -771,7 +771,12 @@ public final class CallIntelligenceService extends Service {
                     stored.openDownlink(), sink(downlinkAsr));
             uplinkFanout = new ResilientFanoutOutputStream(
                     stored.openUplink(), sink(uplinkAsr));
-            capture = new TelephonyAudioCapture(this, downlinkFanout, uplinkFanout);
+            capture = new TelephonyAudioCapture(
+                    this,
+                    downlinkFanout,
+                    uplinkFanout,
+                    (failedCapture, direction, reason) -> onCaptureLost(
+                            callId, ownerUid, failedCapture, direction, reason));
             ActiveSession active = new ActiveSession(
                     stored, capture, downlinkFanout, uplinkFanout,
                     downlinkAsr, uplinkAsr,
@@ -808,6 +813,48 @@ public final class CallIntelligenceService extends Service {
             notifyStatus(callId, -1, "capture_unavailable");
             return null;
         }
+    }
+
+    private void onCaptureLost(
+            String callId,
+            int ownerUid,
+            TelephonyAudioCapture failedCapture,
+            String direction,
+            String reason) {
+        if (mainHandler == null) return;
+        mainHandler.post(() -> finishCaptureLoss(
+                callId, ownerUid, failedCapture, direction, reason));
+    }
+
+    private void finishCaptureLoss(
+            String callId,
+            int ownerUid,
+            TelephonyAudioCapture failedCapture,
+            String direction,
+            String reason) {
+        ActiveSession stopped;
+        ActiveSession.TakeoverResult takeover;
+        synchronized (sessions) {
+            ActiveSession candidate = sessions.get(callId);
+            if (candidate == null || !candidate.ownedBy(ownerUid)
+                    || !candidate.usesCapture(failedCapture)) {
+                return;
+            }
+            communicationContextRequests.remove(callId);
+            pendingCommunicationContexts.remove(callId);
+            sessions.remove(callId);
+            stopped = candidate;
+            takeover = stopped.takeOver();
+        }
+        if (takeover != null) {
+            takeover.closeAudio();
+            publishAssistantState(callId, stopped, takeover.update);
+        }
+        classifier.endCall(callId);
+        receptionist.endCall(callId);
+        stopped.close();
+        communicationContext.discardCall(callId);
+        notifyStatus(callId, -1, direction + ":" + reason);
     }
 
     private void enforceControlPermission() {
@@ -1693,6 +1740,10 @@ public final class CallIntelligenceService extends Service {
 
         synchronized boolean ownedBy(int candidateUid) {
             return ownerUid == candidateUid;
+        }
+
+        synchronized boolean usesCapture(TelephonyAudioCapture candidate) {
+            return !closed && capture == candidate;
         }
 
         synchronized boolean acceptsAsrCallback(String direction, Object streamIdentity) {

@@ -1076,6 +1076,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/callintelligence/src/com/aios/callintelligence/RetentionClock.java",
         "services/callintelligence/src/com/aios/callintelligence/TelephonyAudioCapture.java",
         "services/callintelligence/src/com/aios/callintelligence/RequiredCaptureGate.java",
+        "services/callintelligence/src/com/aios/callintelligence/CaptureLivenessGate.java",
         "services/callintelligence/src/com/aios/callintelligence/CallerAudioUplink.java",
         "services/callintelligence/src/com/aios/callintelligence/Pcm16MonoToStereo48k.java",
         "services/callintelligence/src/com/aios/callintelligence/PriorContextFormatter.java",
@@ -1114,6 +1115,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/callintelligence/tests/src/com/aios/callintelligence/SpeechSynthesisStatusPolicyTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/SpeechTerminalGateTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/RequiredCaptureGateTest.java",
+        "services/callintelligence/tests/src/com/aios/callintelligence/CaptureLivenessGateTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/PriorContextFormatterTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/TelecomCallPresenceTrackerTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/ServiceRebindPolicyTest.java",
@@ -3210,8 +3212,8 @@ def validate_aosp_overlay(root: Path) -> None:
     require("Manifest.permission.RECORD_AUDIO" in telephony_capture
             and "Manifest.permission.CAPTURE_AUDIO_OUTPUT" in telephony_capture
             and "context.checkSelfPermission" in telephony_capture
-            and "new TelephonyAudioCapture(this, downlinkFanout, uplinkFanout)"
-            in call_service
+            and "new TelephonyAudioCapture(" in call_service
+            and "onCaptureLost(" in call_service
             and 'android:name="android.hardware.telephony"' in call_manifest
             and 'android:required="true"' in call_manifest,
             "telephony capture must fail closed without both grants and declare phone hardware")
@@ -3758,6 +3760,13 @@ def validate_aosp_overlay(root: Path) -> None:
     capture_gate = (call_source_root / "RequiredCaptureGate.java").read_text(
         encoding="utf-8"
     )
+    capture_liveness = (call_source_root / "CaptureLivenessGate.java").read_text(
+        encoding="utf-8"
+    )
+    capture_liveness_test = (
+        root / "services" / "callintelligence" / "tests" / "src" / "com" /
+        "aios" / "callintelligence" / "CaptureLivenessGateTest.java"
+    ).read_text(encoding="utf-8")
     require("VOICE_DOWNLINK" in capture_source
             and "VOICE_UPLINK" in capture_source
             and "startRequired" in capture_source
@@ -3767,6 +3776,30 @@ def validate_aosp_overlay(root: Path) -> None:
             and "first_pcm_timeout" in capture_gate
             and "capture.startRequired()" in call_service,
             "call capture must keep both directions separate and prove live PCM")
+    capture_loss_start = call_service.index("private void finishCaptureLoss(")
+    capture_loss_end = call_service.index(
+        "private void enforceControlPermission", capture_loss_start)
+    capture_loss = call_service[capture_loss_start:capture_loss_end]
+    require("liveness.close()" in capture_source
+            and "running.getAndSet(false)" in capture_source
+            and "reportUnexpectedStop(name, true, failureReason)" in capture_source
+            and "failureReported" in capture_liveness
+            and "closing || failureReported || !receivedPcm" in capture_liveness
+            and "candidate.usesCapture(failedCapture)" in capture_loss
+            and "communicationContextRequests.remove(callId)" in capture_loss
+            and "pendingCommunicationContexts.remove(callId)" in capture_loss
+            and capture_loss.index("sessions.remove(callId)")
+            < capture_loss.index("stopped.close()")
+            and "takeover.closeAudio()" in capture_loss
+            and "publishAssistantState(callId, stopped, takeover.update)"
+            in capture_loss
+            and "communicationContext.discardCall(callId)" in capture_loss
+            and "notifyStatus(callId, -1" in capture_loss
+            and "firstPostPcmLossWins" in capture_liveness_test
+            and "intentionalCloseSuppressesLoss" in capture_liveness_test
+            and '"src/com/aios/callintelligence/CaptureLivenessGate.java"'
+            in call_host_test,
+            "post-start capture loss must stop only the exact AI session once")
     asr_client = (call_source_root / "AsrBrokerClient.java").read_text(encoding="utf-8")
     require('request.language = "und"' in asr_client,
             "ASR client must permit English/Spanish auto-detection")
@@ -4971,6 +5004,7 @@ def validate_release_configuration(root: Path) -> None:
         "call.owner_takeover_stops_ai_speech",
         "call.offline_mode",
         "call.telephony_survives_ai_crash",
+        "call.capture_loss_fail_open",
         "retention.expiry_24_hours",
         "media.blocked_below_80_percent",
         "media.original_preserved",

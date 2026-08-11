@@ -58,6 +58,7 @@
     "call.owner_takeover_stops_ai_speech": {"status": "not_run", "evidence": []},
     "call.offline_mode": {"status": "not_run", "evidence": []},
     "call.telephony_survives_ai_crash": {"status": "not_run", "evidence": []},
+    "call.capture_loss_fail_open": {"status": "not_run", "evidence": []},
     "retention.expiry_24_hours": {"status": "not_run", "evidence": []},
     "retention.boot_cleanup": {"status": "not_run", "evidence": []},
     "media.single_photo_queued": {"status": "not_run", "evidence": []},

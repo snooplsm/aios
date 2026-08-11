@@ -58,6 +58,7 @@
     {"id": "call.owner_takeover_stops_ai_speech", "category": "call_ai", "required": true},
     {"id": "call.offline_mode", "category": "call_ai", "required": true},
     {"id": "call.telephony_survives_ai_crash", "category": "call_ai", "required": true},
+    {"id": "call.capture_loss_fail_open", "category": "call_ai", "required": true},
     {"id": "retention.expiry_24_hours", "category": "privacy", "required": true},
     {"id": "retention.boot_cleanup", "category": "privacy", "required": true},
     {"id": "media.single_photo_queued", "category": "media", "required": true},
