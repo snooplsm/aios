@@ -265,14 +265,26 @@ try {
     Start-Sleep -Milliseconds 500
     $telecomAfterAnswer = Get-CurrentTelecomCalls
     $servicesAfterAnswer = (Invoke-Adb shell dumpsys activity services $package) -join "`n"
+    $notificationsAfterAnswer = (
+        Invoke-Adb shell dumpsys notification --noredact) -join "`n"
     $phonePidAfterAnswer = (Invoke-Adb shell pidof $package | Select-Object -First 1).Trim()
-    if ($telecomAfterAnswer -notmatch 'state=ACTIVE' -or
-        $phonePidAfterAnswer -ne $phonePidBeforeActions -or
-        $servicesAfterAnswer -notmatch 'AiosInCallService' -or
-        $servicesAfterAnswer -notmatch 'isForeground=true' -or
-        $servicesAfterAnswer -notmatch 'types=0x00000004' -or
-        $servicesAfterAnswer -notmatch 'channel=ongoing_calls_v1') {
-        throw "Answer did not retain an active call under the phoneCall foreground service"
+    $answerState = [ordered]@{
+        telecom_active = $telecomAfterAnswer -match 'state=ACTIVE'
+        process_survived = $phonePidAfterAnswer -eq $phonePidBeforeActions
+        in_call_service_bound = $servicesAfterAnswer -match 'AiosInCallService'
+        foreground_service = $servicesAfterAnswer -match 'isForeground=true'
+        phone_call_type = $servicesAfterAnswer -match 'types=0x00000004'
+        ongoing_channel = $notificationsAfterAnswer -match 'pkg=com\.aios\.phone' -and
+            $notificationsAfterAnswer -match 'channel=ongoing_calls_private_v2'
+    }
+    if ($answerState.Values -contains $false) {
+        $observedAnswer = $answerState | ConvertTo-Json -Compress
+        $observedNotifications = @(
+            $notificationsAfterAnswer -split "`r?`n" |
+                Where-Object { $_ -match 'com\.aios\.phone|ongoing_calls|NotificationRecord' } |
+                Select-Object -First 24
+        ) -join "\n"
+        throw "Answer did not retain an active call under the phoneCall foreground service: $observedAnswer; notifications=$observedNotifications"
     }
 
     Invoke-Adb shell am start -a com.aios.phone.smoke.DISCONNECT `
@@ -334,14 +346,21 @@ try {
     $telecomAfterOutgoingActive = Get-CurrentTelecomCalls
     $servicesAfterOutgoingActive = (
         Invoke-Adb shell dumpsys activity services $package) -join "`n"
+    $notificationsAfterOutgoingActive = (
+        Invoke-Adb shell dumpsys notification --noredact) -join "`n"
     $phonePidAfterOutgoingActive = (Invoke-Adb shell pidof $package |
         Select-Object -First 1).Trim()
-    if ($telecomAfterOutgoingActive -notmatch 'state=ACTIVE' -or
-        $phonePidAfterOutgoingActive -ne $phonePidBeforeOutgoing -or
-        $servicesAfterOutgoingActive -notmatch 'isForeground=true' -or
-        $servicesAfterOutgoingActive -notmatch 'types=0x00000004' -or
-        $servicesAfterOutgoingActive -notmatch 'channel=ongoing_calls_v1') {
-        throw "The outgoing call did not become active under the phoneCall foreground service"
+    $outgoingActiveState = [ordered]@{
+        telecom_active = $telecomAfterOutgoingActive -match 'state=ACTIVE'
+        process_survived = $phonePidAfterOutgoingActive -eq $phonePidBeforeOutgoing
+        foreground_service = $servicesAfterOutgoingActive -match 'isForeground=true'
+        phone_call_type = $servicesAfterOutgoingActive -match 'types=0x00000004'
+        ongoing_channel = $notificationsAfterOutgoingActive -match 'pkg=com\.aios\.phone' -and
+            $notificationsAfterOutgoingActive -match 'channel=ongoing_calls_private_v2'
+    }
+    if ($outgoingActiveState.Values -contains $false) {
+        $observedOutgoing = $outgoingActiveState | ConvertTo-Json -Compress
+        throw "The outgoing call did not become active under the phoneCall foreground service: $observedOutgoing"
     }
     $outgoingScreenshot = Join-Path $EvidenceDirectory "aios-telecom-outgoing-smoke.png"
     Invoke-Adb shell screencap -p $remoteScreenshot | Out-Null

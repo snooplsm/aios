@@ -2089,6 +2089,9 @@ def validate_aosp_overlay(root: Path) -> None:
             and "phone_process_survived_answer" in smoke_script
             and "phone_call_foreground_service" in smoke_script
             and "ongoing_notification_posted" in smoke_script
+            and "dumpsys notification --noredact" in smoke_script
+            and "channel=ongoing_calls_private_v2" in smoke_script
+            and "channel=ongoing_calls_v1" not in smoke_script
             and "full_screen_intent_launched_automatically" in smoke_script
             and "[IO.File]::WriteAllText" in smoke_script,
             "the Telecom smoke script must be digest-bound, emulator-only, reversible, and non-release evidence")
