@@ -829,6 +829,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "tools/check_aosp_manifest.py",
         "tools/refresh_aosp_tracking.py",
         "tools/capture_build_evidence.py",
+        "tools/capture_avd_boot_evidence.py",
         "scripts/refresh-aosp-integration.sh",
         "scripts/capture-aosp-lock.sh",
         "scripts/build-aosp-lane.sh",
@@ -1272,6 +1273,32 @@ def validate_aosp_overlay(root: Path) -> None:
     require("android_latest_integration|android_avd_integration"
             in bootstrap_script,
             "AOSP bootstrap must admit both moving virtual lanes")
+    avd_evidence_source = (root / "tools" /
+                           "capture_avd_boot_evidence.py").read_text(
+        encoding="utf-8"
+    )
+    require('SERIAL_PATTERN = re.compile(r"emulator-[0-9]+")'
+            in avd_evidence_source
+            and 'EXPECTED_LANE = "android_avd_integration"'
+            in avd_evidence_source
+            and 'EXPECTED_PRODUCT = "aios_sdk_phone_x86_64"'
+            in avd_evidence_source
+            and '"ro.kernel.qemu", "1"' in avd_evidence_source
+            and '"sys.boot_completed", "1"' in avd_evidence_source
+            and '"ro.build.type", "userdebug"' in avd_evidence_source
+            and '"ro.debuggable", "1"' in avd_evidence_source
+            and 'build_evidence_sha256' in avd_evidence_source
+            and 'path.startswith("/product/priv-app/")' in avd_evidence_source
+            and '"proves_physical_runtime_gate": False'
+            in avd_evidence_source
+            and "os.replace(temporary, path)" in avd_evidence_source,
+            "AVD first-boot evidence must bind identity, packages, and virtual-only scope")
+    for package_name in (
+            "com.aios.callintelligence", "com.aios.contextintelligence",
+            "com.aios.mediaintelligence", "com.aios.messaging",
+            "com.aios.modelbroker", "com.aios.phone"):
+        require(package_name in avd_evidence_source,
+                f"AVD boot evidence must require {package_name}")
     lock_script = (root / "scripts" / "capture-aosp-lock.sh").read_text(
         encoding="utf-8"
     )

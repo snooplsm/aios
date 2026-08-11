@@ -250,6 +250,12 @@ lunch aios_sdk_phone_x86_64-aosp_current-userdebug
 emulator -wipe-data -no-snapshot
 ```
 
+After boot completes, bind the running image to its exact Soong evidence:
+
+```text
+python3 vendor/aios/tools/capture_avd_boot_evidence.py --serial emulator-5554 --build-evidence /safe/evidence/avd-build-id/soong-build-evidence.json --output /safe/evidence/avd-build-id/avd-first-boot.json
+```
+
 This is a Goldfish x86-64 AVD, even if its screen profile resembles a Pixel 9a;
 it does not prove Pixel hardware, modem, camera, or accelerator behavior. See
 `docs/emulator-bringup.md`.

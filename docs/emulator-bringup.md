@@ -56,3 +56,26 @@ The first successful Soong build and boot must be recorded separately as
 `integration.android_avd_userdebug_succeeds` and
 `integration.android_avd_first_boot`. Until those evidence-backed gates pass,
 the product definition proves intent and configuration—not a booted image.
+
+## Capture first-boot evidence
+
+Once `sys.boot_completed` is `1`, use a second terminal to bind the running AVD
+to the exact build evidence produced above:
+
+```text
+python3 vendor/aios/tools/capture_avd_boot_evidence.py \
+  --serial emulator-5554 \
+  --build-evidence /safe/release-artifacts/android-avd-build-id/soong-build-evidence.json \
+  --output /safe/release-artifacts/android-avd-build-id/avd-first-boot.json
+```
+
+The capture tool refuses any serial that is not `emulator-NNNN`, then requires
+QEMU, completed boot, the AIOS product and build fingerprint, a debuggable
+`userdebug` build, a valid boot ID and uptime, and all six privileged AIOS
+packages installed from `/product/priv-app`. The output includes the SHA-256 of the Soong
+build evidence and is permanently marked ineligible for physical runtime gates.
+It refuses to overwrite an existing evidence file.
+
+Review the two evidence documents before changing either release gate to
+`passed`. A build record alone cannot satisfy first boot, and an emulator boot
+record cannot satisfy any Pixel 9a gate.
