@@ -167,8 +167,9 @@ later search or trusting a rolled-back wall clock.
 
 It has not yet been compiled by Soong or flashed. Android 17's official manifest
 does not contain the Pixel 9a `device/google/tegu` project, so the build strategy
-has two explicit lanes: continuously compile the overlay on Android latest using
-`aios_cf_x86_64_phone`, and separately admit the `aios_tegu` hardware lane only
+has three explicit lanes: continuously compile on Cuttlefish with
+`aios_cf_x86_64_phone`, boot a complete standard Android Emulator image with
+`aios_sdk_phone_x86_64`, and separately admit the `aios_tegu` hardware lane only
 after pinning one compatible platform/device/vendor/kernel/firmware set. An
 exact-base Android 17 Dialer lifecycle patch exists, but it and the generated,
 dependency-locked runtime provider must be built and tested on the Linux lane.
@@ -237,6 +238,21 @@ vendor/aios/scripts/capture-aosp-lock.sh /absolute/path/to/aosp android_latest_i
 python vendor/aios/tools/verify_patch_series.py --aosp-root /absolute/path/to/aosp
 vendor/aios/scripts/build-aosp-lane.sh /absolute/path/to/aosp android_latest_integration /safe/evidence/build-id 4
 ```
+
+The same checkout can build the standard Android Emulator product and launch
+the resulting full AIOS image:
+
+```text
+vendor/aios/scripts/build-aosp-lane.sh /absolute/path/to/aosp android_avd_integration /safe/evidence/avd-build-id 4
+cd /absolute/path/to/aosp
+source build/envsetup.sh
+lunch aios_sdk_phone_x86_64-aosp_current-userdebug
+emulator -wipe-data -no-snapshot
+```
+
+This is a Goldfish x86-64 AVD, even if its screen profile resembles a Pixel 9a;
+it does not prove Pixel hardware, modem, camera, or accelerator behavior. See
+`docs/emulator-bringup.md`.
 
 When Google's moving manifest ref changes, refresh its reviewed observation
 before syncing projects:

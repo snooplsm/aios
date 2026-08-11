@@ -17,6 +17,11 @@ scripts/bootstrap-aosp.sh \
   /absolute/path/to/aosp-latest
 ```
 
+The same latest-release checkout can also build the full standard Android
+Emulator image through `android_avd_integration`; see
+`docs/emulator-bringup.md`. Neither virtual lane substitutes for the physical
+Pixel checks below.
+
 Before syncing, place this repository at `vendor/aios` through a real local Repo
 manifest as described in `manifests/README.md`. After sync, create the immutable
 source lock and enforce the integration-lane project contract:

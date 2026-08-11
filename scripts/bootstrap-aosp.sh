@@ -47,9 +47,9 @@ case "$aosp_dir" in
 esac
 
 case "$lane" in
-  android_latest_integration)
+  android_latest_integration|android_avd_integration)
     if [[ -n "$revision" && "$revision" != "android-latest-release" ]]; then
-      echo "The integration lane must track android-latest-release." >&2
+      echo "Virtual integration lanes must track android-latest-release." >&2
       exit 2
     fi
     revision="android-latest-release"

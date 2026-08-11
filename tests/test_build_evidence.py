@@ -30,7 +30,12 @@ def git(checkout, *arguments):
 
 
 class BuildEvidenceTests(unittest.TestCase):
-    def create_fixture(self, raw):
+    def create_fixture(
+            self,
+            raw,
+            lane_id="android_latest_integration",
+            product="aios_cf_x86_64_phone",
+            target_device="vsoc_x86_64"):
         base = Path(raw)
         aios = base / "aios"
         (aios / "config").mkdir(parents=True)
@@ -58,15 +63,15 @@ class BuildEvidenceTests(unittest.TestCase):
         manifest_lock = base / "aosp-manifest-lock.json"
         manifest_lock.write_text(json.dumps({
             "schema_version": 1,
-            "lane": "android_latest_integration",
-            "product": "aios_cf_x86_64_phone",
+            "lane": lane_id,
+            "product": product,
             "aios_revision": head,
             "manifest_sha256": hashlib.sha256(manifest.read_bytes()).hexdigest(),
             "manifest_repository_revision": "f" * 40,
         }), encoding="utf-8")
 
         out = base / "out"
-        product_out = out / "target" / "product" / "vsoc_x86_64"
+        product_out = out / "target" / "product" / target_device
         (product_out / "product").mkdir(parents=True)
         (product_out / "system").mkdir(parents=True)
         (product_out / "product" / "build.prop").write_text(
@@ -123,6 +128,23 @@ class BuildEvidenceTests(unittest.TestCase):
                 value["installed_files_product_sha256"],
             )
             self.assertTrue(output.is_file())
+
+    def test_captures_android_emulator_lane_without_physical_claim(self):
+        with tempfile.TemporaryDirectory() as raw:
+            aios, manifest, lock, out, log, _ = self.create_fixture(
+                raw,
+                lane_id="android_avd_integration",
+                product="aios_sdk_phone_x86_64",
+                target_device="emulator_x86_64",
+            )
+            value = evidence.capture(
+                aios, "android_avd_integration", manifest, lock, out, log
+            )
+            self.assertEqual("virtual_emulator", value["kind"])
+            self.assertEqual("aios_sdk_phone_x86_64", value["product"])
+            self.assertEqual("emulator_x86_64", value["target_device"])
+            self.assertFalse(value["lane_eligible_for_physical_gates"])
+            self.assertFalse(value["proves_physical_runtime_gate"])
 
     def test_rejects_lock_without_manifest_repository_revision(self):
         with tempfile.TemporaryDirectory() as raw:

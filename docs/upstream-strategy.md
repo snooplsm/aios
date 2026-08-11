@@ -8,11 +8,15 @@ record the exact manifest revision used for each reproducible build; moving the
 tracking branch never silently changes a released image.
 
 The latest-release manifest does not include `device/google/tegu`. AIOS therefore
-uses two non-interchangeable lanes recorded in `config/aosp_lanes.json`:
+uses three non-interchangeable lanes recorded in `config/aosp_lanes.json`:
 
 - `android_latest_integration` inherits the official Cuttlefish x86-64 phone and
   continuously compiles the full additive AIOS product against incoming AOSP.
   Its results can prove source/build compatibility but never a physical gate.
+- `android_avd_integration` inherits AOSP's `sdk_phone_x86_64` Goldfish product
+  so the complete AIOS image can boot in the standard Android Emulator. An AVD
+  hardware profile may resemble a Pixel 9a but does not emulate Tensor, modem,
+  camera, accelerator, carrier, or thermal behavior.
 - `pixel9a_tegu_hardware` remains the product and release target. It cannot be
   initialized until a single immutable platform, device tree, vendor image,
   kernel, bootloader, and radio family has been selected. Cross-release grafting
@@ -68,10 +72,11 @@ host contract suite, release-status report, and explicit upstream tracking check
 locally before committing. No remote watcher marks a Soong, emulator, or
 physical-device gate passed; those require their own immutable evidence capture.
 
-The release matrix keeps `integration.android_latest_*` gates separate from the
-Pixel `build.*` and runtime gates. A green Cuttlefish build demonstrates that the
-fork still follows upstream; it cannot be reused as evidence that a Pixel image
-built, booted, or preserved telephony behavior.
+The release matrix keeps Cuttlefish and Android Emulator integration gates
+separate from the Pixel `build.*` and runtime gates. A green virtual build or AVD
+boot demonstrates that the fork still follows upstream and forms a complete
+emulator image; it cannot be reused as evidence that a Pixel image built,
+booted, or preserved telephony behavior. See `docs/emulator-bringup.md`.
 
 ## Branches
 

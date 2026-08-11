@@ -824,6 +824,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "products/aios_common.mk",
         "products/aios_tegu.mk",
         "products/aios_cf_x86_64_phone.mk",
+        "products/aios_sdk_phone_x86_64.mk",
         "config/aosp_lanes.json",
         "tools/check_aosp_manifest.py",
         "tools/refresh_aosp_tracking.py",
@@ -831,6 +832,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "scripts/refresh-aosp-integration.sh",
         "scripts/capture-aosp-lock.sh",
         "scripts/build-aosp-lane.sh",
+        "docs/emulator-bringup.md",
         "permissions/privapp-permissions-aios.xml",
         "overlays/frameworkdefaults/Android.bp",
         "overlays/frameworkdefaults/AndroidManifest.xml",
@@ -1249,16 +1251,34 @@ def validate_aosp_overlay(root: Path) -> None:
             and "vendor/aios/products/aios_common.mk" in cuttlefish_product
             and "PRODUCT_NAME := aios_cf_x86_64_phone" in cuttlefish_product,
             "Android-latest must have an additive Cuttlefish integration product")
+    emulator_product = (root / "products" /
+                        "aios_sdk_phone_x86_64.mk").read_text(encoding="utf-8")
+    require("$(SRC_TARGET_DIR)/product/sdk_phone_x86_64.mk"
+            in emulator_product
+            and "vendor/aios/products/aios_common.mk" in emulator_product
+            and "PRODUCT_ENFORCE_ARTIFACT_PATH_REQUIREMENTS := relaxed"
+            in emulator_product
+            and "PRODUCT_NAME := aios_sdk_phone_x86_64" in emulator_product
+            and "PRODUCT_DEVICE := emulator_x86_64" in emulator_product,
+            "Android Emulator must have an additive x86-64 AIOS product")
     android_products = (root / "AndroidProducts.mk").read_text(encoding="utf-8")
     require("aios_tegu-aosp_current-userdebug" in android_products
-            and "aios_cf_x86_64_phone-aosp_current-userdebug" in android_products,
-            "AIOS must expose separate Pixel hardware and latest-AOSP integration targets")
+            and "aios_cf_x86_64_phone-aosp_current-userdebug" in android_products
+            and "aios_sdk_phone_x86_64-aosp_current-userdebug" in android_products,
+            "AIOS must expose Pixel, Cuttlefish, and Android Emulator targets")
+    bootstrap_script = (root / "scripts" / "bootstrap-aosp.sh").read_text(
+        encoding="utf-8"
+    )
+    require("android_latest_integration|android_avd_integration"
+            in bootstrap_script,
+            "AOSP bootstrap must admit both moving virtual lanes")
     lock_script = (root / "scripts" / "capture-aosp-lock.sh").read_text(
         encoding="utf-8"
     )
     require("repo manifest -r" in lock_script
             and "check_aosp_manifest.py" in lock_script
             and "refresh_aosp_tracking.py" in lock_script
+            and "android_avd_integration" in lock_script
             and "--manifest-revision" in lock_script
             and "status --porcelain --untracked-files=all" in lock_script
             and "Refusing to overwrite" in lock_script,
@@ -5330,8 +5350,11 @@ def validate_release_configuration(root: Path) -> None:
             in expected_artifacts,
             "build evidence must require the installed default-dialer overlay")
     lane_ids = [lane.get("id") for lane in lanes]
-    require(lane_ids == ["android_latest_integration", "pixel9a_tegu_hardware"],
-            "AIOS must declare exactly the latest-integration and Pixel 9a lanes")
+    require(lane_ids == [
+                "android_latest_integration", "android_avd_integration",
+                "pixel9a_tegu_hardware",
+            ],
+            "AIOS must declare Cuttlefish, Android Emulator, and Pixel 9a lanes")
     catalog = load_json(root / "config" / "model_catalog.json")
     catalog_build_lanes = {
         device["build_lane"]
@@ -5341,7 +5364,7 @@ def validate_release_configuration(root: Path) -> None:
     require(catalog_build_lanes == {"pixel9a_tegu_hardware"}
             and catalog_build_lanes <= set(lane_ids),
             "enabled device catalog entries must reference declared hardware lanes")
-    integration, hardware = lanes
+    integration, emulator, hardware = lanes
     require(integration.get("kind") == "virtual_integration"
             and integration.get("manifest_revision") == "android-latest-release"
             and integration.get("product") == "aios_cf_x86_64_phone"
@@ -5349,6 +5372,16 @@ def validate_release_configuration(root: Path) -> None:
             and "frameworks/base" in integration.get("required_projects", [])
             and "device/google/cuttlefish" in integration.get("required_projects", []),
             "latest AOSP must build on Cuttlefish and remain non-physical evidence")
+    require(emulator.get("kind") == "virtual_emulator"
+            and emulator.get("manifest_revision") == "android-latest-release"
+            and emulator.get("product") == "aios_sdk_phone_x86_64"
+            and emulator.get("target_device") == "emulator_x86_64"
+            and emulator.get("upstream_product") == "sdk_phone_x86_64"
+            and emulator.get("physical_gate_evidence") is False
+            and "frameworks/base" in emulator.get("required_projects", [])
+            and "device/generic/goldfish"
+            in emulator.get("required_projects", []),
+            "standard Android Emulator lane must remain virtual-only")
     require(hardware.get("kind") == "physical_hardware"
             and hardware.get("manifest_revision") is None
             and hardware.get("product") == "aios_tegu"
@@ -5421,6 +5454,8 @@ def validate_release_configuration(root: Path) -> None:
     critical = {
         "integration.android_latest_manifest_locked",
         "integration.android_latest_userdebug_succeeds",
+        "integration.android_avd_userdebug_succeeds",
+        "integration.android_avd_first_boot",
         "telephony.emergency_ui_bypass",
         "telephony.call_waiting",
         "telephony.audio_endpoint_switch",

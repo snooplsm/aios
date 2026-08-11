@@ -46,6 +46,11 @@ class AospManifestContractTests(unittest.TestCase):
             ("aios", "vendor/aios", COMMIT_D),
         ]
 
+    def avd_projects(self):
+        return self.integration_projects() + [
+            ("device/generic/goldfish", "device/generic/goldfish", COMMIT_A),
+        ]
+
     def test_android_latest_integration_lane_accepts_resolved_manifest(self):
         with tempfile.TemporaryDirectory() as raw:
             path = self.write_manifest(raw, self.integration_projects())
@@ -56,6 +61,23 @@ class AospManifestContractTests(unittest.TestCase):
             self.assertFalse(value["lane_eligible_for_physical_gates"])
             self.assertFalse(value["proves_physical_runtime_gate"])
             self.assertEqual(COMMIT_E, value["manifest_repository_revision"])
+
+    def test_android_avd_lane_accepts_goldfish_manifest(self):
+        with tempfile.TemporaryDirectory() as raw:
+            path = self.write_manifest(raw, self.avd_projects())
+            value = checker.check(
+                path, ROOT, "android_avd_integration", COMMIT_E)
+            self.assertEqual("aios_sdk_phone_x86_64", value["product"])
+            self.assertEqual("virtual_emulator", value["kind"])
+            self.assertFalse(value["lane_eligible_for_physical_gates"])
+            self.assertFalse(value["proves_physical_runtime_gate"])
+
+    def test_android_avd_lane_rejects_manifest_without_goldfish(self):
+        with tempfile.TemporaryDirectory() as raw:
+            path = self.write_manifest(raw, self.integration_projects())
+            with self.assertRaisesRegex(checker.ManifestContractError,
+                                        "device/generic/goldfish"):
+                checker.check(path, ROOT, "android_avd_integration", COMMIT_E)
 
     def test_pixel_lane_rejects_manifest_without_tegu(self):
         with tempfile.TemporaryDirectory() as raw:

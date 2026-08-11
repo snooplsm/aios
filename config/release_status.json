@@ -4,6 +4,8 @@
   "statuses": {
     "integration.android_latest_manifest_locked": {"status": "not_run", "evidence": []},
     "integration.android_latest_userdebug_succeeds": {"status": "not_run", "evidence": []},
+    "integration.android_avd_userdebug_succeeds": {"status": "not_run", "evidence": []},
+    "integration.android_avd_first_boot": {"status": "not_run", "evidence": []},
     "build.manifest_locked": {"status": "not_run", "evidence": []},
     "build.userdebug_succeeds": {"status": "not_run", "evidence": []},
     "boot.first_boot": {"status": "not_run", "evidence": []},

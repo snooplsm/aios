@@ -19,6 +19,23 @@
       "physical_gate_evidence": false
     },
     {
+      "id": "android_avd_integration",
+      "kind": "virtual_emulator",
+      "manifest_revision": "android-latest-release",
+      "product": "aios_sdk_phone_x86_64",
+      "target_device": "emulator_x86_64",
+      "lunch_target": "aios_sdk_phone_x86_64-aosp_current-userdebug",
+      "upstream_product": "sdk_phone_x86_64",
+      "required_projects": [
+        "build/make",
+        "device/generic/goldfish",
+        "frameworks/base",
+        "packages/apps/Dialer",
+        "vendor/aios"
+      ],
+      "physical_gate_evidence": false
+    },
+    {
       "id": "pixel9a_tegu_hardware",
       "kind": "physical_hardware",
       "manifest_revision": null,
