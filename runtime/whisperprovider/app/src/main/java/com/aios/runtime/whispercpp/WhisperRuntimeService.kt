@@ -76,10 +76,7 @@ class WhisperRuntimeService : Service() {
         val decodedWindows = AtomicInteger(0)
         val englishWindows = AtomicInteger(0)
         val spanishWindows = AtomicInteger(0)
-        val turnText = StringBuilder()
-        var turnLanguage = "und"
-        var turnStartMillis = 0L
-        var turnEndMillis = 0L
+        val turn = StreamingAsrTurnAccumulator()
         lateinit var deathRecipient: IBinder.DeathRecipient
         @Volatile var input: ParcelFileDescriptor? = null
         @Volatile var reader: Thread? = null
@@ -489,7 +486,7 @@ class WhisperRuntimeService : Service() {
                 continue
             }
             if (window.samples == null && window.endOfTurn) {
-                emitTurn(session, isFinal = true)
+                emitTurn(session, session.turn.finishTurn())
                 continue
             }
             try {
@@ -517,20 +514,16 @@ class WhisperRuntimeService : Service() {
                 if (language == "en") session.englishWindows.incrementAndGet()
                 if (language == "es") session.spanishWindows.incrementAndGet()
                 session.decodedWindows.incrementAndGet()
-                if (text.isNotEmpty()) {
-                    if (session.turnText.isEmpty()) {
-                        session.turnStartMillis = window.startMillis
-                    } else {
-                        session.turnText.append(' ')
-                    }
-                    session.turnText.append(text)
-                    session.turnLanguage = language
-                    session.turnEndMillis = window.endMillis
-                }
-                if (session.turnText.isNotEmpty()) {
-                    session.turnEndMillis = window.endMillis
-                    emitTurn(session, isFinal = window.endOfTurn)
-                }
+                emitTurn(
+                    session,
+                    session.turn.acceptDecoded(
+                        text,
+                        language,
+                        window.startMillis,
+                        window.endMillis,
+                        window.endOfTurn,
+                    ),
+                )
             } catch (_: RemoteException) {
                 cancelInternal(session.id)
             } catch (error: Exception) {
@@ -540,28 +533,25 @@ class WhisperRuntimeService : Service() {
         }
     }
 
-    private fun emitTurn(session: AsrSession, isFinal: Boolean) {
-        if (session.turnText.isEmpty()) return
+    private fun emitTurn(
+        session: AsrSession,
+        emission: StreamingAsrTurnAccumulator.Emission?,
+    ) {
+        if (emission == null) return
         val chunk = GenerationChunk().apply {
             sequence = session.sequence.getAndIncrement()
-            text = session.turnText.toString()
-            language = session.turnLanguage
-            this.isFinal = isFinal
+            text = emission.text
+            language = emission.language
+            this.isFinal = emission.finalChunk
             confidence = 0.0f
-            sourceStartMillis = session.turnStartMillis
-            sourceEndMillis = session.turnEndMillis
+            sourceStartMillis = emission.startMillis
+            sourceEndMillis = emission.endMillis
         }
         try {
             session.callback.onChunk(chunk)
         } catch (_: RemoteException) {
             cancelInternal(session.id)
             return
-        }
-        if (isFinal) {
-            session.turnText.setLength(0)
-            session.turnLanguage = "und"
-            session.turnStartMillis = 0L
-            session.turnEndMillis = 0L
         }
     }
 

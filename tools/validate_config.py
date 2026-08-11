@@ -955,6 +955,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "runtime/common/src/main/java/com/aios/runtime/common/RuntimeMemoryTrimPolicy.java",
         "runtime/common/tests/src/com/aios/runtime/common/RuntimeMemoryTrimPolicyTest.java",
         "preview/runtimecommoncheck/build.gradle.kts",
+        "preview/whisperpolicycheck/build.gradle.kts",
         "tools/generate_model_pack.py",
         "tools/generate_model_admission.py",
         "tools/generate_runtime_pack.py",
@@ -984,6 +985,8 @@ def validate_aosp_overlay(root: Path) -> None:
         "runtime/whisperprovider/app/src/main/cpp/aios_whisper_jni.cpp",
         "runtime/whisperprovider/app/src/main/java/com/aios/runtime/whispercpp/NativeWhisper.kt",
         "runtime/whisperprovider/app/src/main/java/com/aios/runtime/whispercpp/WhisperRuntimeService.kt",
+        "runtime/whisperprovider/app/src/main/java/com/aios/runtime/whispercpp/StreamingAsrTurnAccumulator.java",
+        "runtime/whisperprovider/app/src/test/java/com/aios/runtime/whispercpp/StreamingAsrTurnAccumulatorTest.java",
         "runtime/whisperprovider/bootstrap_source.sh",
         "runtime/whisperprovider/bootstrap_dependency_locks.sh",
         "runtime/whisperprovider/build_provider.sh",
@@ -3442,9 +3445,47 @@ def validate_aosp_overlay(root: Path) -> None:
             and "if (session.isMedia) MEDIA_WINDOW_BYTES else CALL_WINDOW_BYTES"
             in whisper_source
             and "endOfTurn" in whisper_source
-            and "emitTurn(session, isFinal = true)" in whisper_source
-            and "session.turnText" in whisper_source,
+            and "session.turn.finishTurn()" in whisper_source
+            and "session.turn.acceptDecoded(" in whisper_source
+            and "session.turnText" not in whisper_source,
             "call ASR must expose two-second partials and silence-final turns")
+    turn_accumulator = (
+        root / "runtime" / "whisperprovider" / "app" / "src" / "main" /
+        "java" / "com" / "aios" / "runtime" / "whispercpp" /
+        "StreamingAsrTurnAccumulator.java"
+    ).read_text(encoding="utf-8")
+    turn_accumulator_test = (
+        root / "runtime" / "whisperprovider" / "app" / "src" / "test" /
+        "java" / "com" / "aios" / "runtime" / "whispercpp" /
+        "StreamingAsrTurnAccumulatorTest.java"
+    ).read_text(encoding="utf-8")
+    preview_settings = (root / "preview" / "settings.gradle.kts").read_text(
+        encoding="utf-8"
+    )
+    whisper_policy_build = (
+        root / "preview" / "whisperpolicycheck" / "build.gradle.kts"
+    ).read_text(encoding="utf-8")
+    require("Emission acceptDecoded(" in turn_accumulator
+            and "Emission finishTurn()" in turn_accumulator
+            and "text.append(' ')" in turn_accumulator
+            and "if (endOfTurn)" in turn_accumulator
+            and "reset();" in turn_accumulator,
+            "live ASR turn state must accumulate revisions and reset after finalization")
+    require("partialsContainTheCompleteCurrentTurn" in turn_accumulator_test
+            and "silenceEndpointFinalizesAndResetsTheTurn" in turn_accumulator_test
+            and "finalDecodedResidualIsIncludedBeforeReset" in turn_accumulator_test
+            and "emptyFinalDecodeAdvancesTimestampAndFinalizesExistingText"
+            in turn_accumulator_test
+            and "endpointMarkerPreservesLastDecodedAudioBoundary"
+            in turn_accumulator_test
+            and "speechlessWindowsDoNotEmit" in turn_accumulator_test,
+            "live ASR accumulator must retain host regression coverage")
+    require('include(":whisperpolicycheck")' in preview_settings
+            and '../../runtime/whisperprovider/app/src/main/java'
+            in whisper_policy_build
+            and '../../runtime/whisperprovider/app/src/test/java'
+            in whisper_policy_build,
+            "preview must compile and test the production live ASR accumulator")
     fanout = (call_source_root / "ResilientFanoutOutputStream.java").read_text(
         encoding="utf-8"
     )

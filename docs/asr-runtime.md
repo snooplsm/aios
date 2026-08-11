@@ -20,6 +20,10 @@ spam heuristic fresh context every few words while preventing the receptionist
 from answering a partial utterance, and it matches the Dialer's UDF transcript
 reducer. A corrected partial replaces its provisional heuristic evidence; only
 the final turn enters durable communication context or starts a model reply.
+The cumulative partial/final state machine is a pure production component with
+host-side regression tests. A silence endpoint preserves the last decoded audio
+boundary, a decoded residual extends that boundary before finalization, and every
+final emission resets state so text cannot leak into the next conversational turn.
 
 Low-energy frames outside a turn are skipped. A single priority decode queue
 services both directions: incoming/downlink work is always scheduled before
