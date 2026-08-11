@@ -17,6 +17,13 @@ if(NOT EXISTS "${WHISPER_CPP_DIR}/include/whisper.h")
     message(FATAL_ERROR "Pinned whisper.cpp source is absent: ${WHISPER_CPP_DIR}")
 endif()
 
+if(ANDROID_ABI STREQUAL "x86_64")
+    # The x86 ABI exists only in the QEMU debug variant. AGP selects CMake's
+    # Debug configuration for that APK, so explicitly optimize whisper/ggml as
+    # well as the JNI shim or the emulator cannot keep up with call cadence.
+    add_compile_options(-O3)
+endif()
+
 add_subdirectory("${WHISPER_CPP_DIR}" whisper-cpp EXCLUDE_FROM_ALL)
 
 add_library(aios_whisper_jni SHARED aios_whisper_jni.cpp)
@@ -26,7 +33,11 @@ target_compile_options(aios_whisper_jni PRIVATE
     -fvisibility=hidden
     -fvisibility-inlines-hidden
     -ffunction-sections
-    -fdata-sections
-    -march=armv8.2-a+fp16)
+    -fdata-sections)
+if(ANDROID_ABI STREQUAL "arm64-v8a")
+    target_compile_options(aios_whisper_jni PRIVATE -march=armv8.2-a+fp16)
+elseif(NOT ANDROID_ABI STREQUAL "x86_64")
+    message(FATAL_ERROR "Unsupported AIOS whisper.cpp ABI: ${ANDROID_ABI}")
+endif()
 target_link_options(aios_whisper_jni PRIVATE -Wl,--gc-sections -Wl,--exclude-libs,ALL)
 target_link_libraries(aios_whisper_jni PRIVATE whisper log android)

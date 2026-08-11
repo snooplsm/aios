@@ -18,7 +18,7 @@ android {
         targetSdk = 36
         versionCode = 10904
         versionName = "1.9.4"
-        ndk { abiFilters += "arm64-v8a" }
+        buildConfigField("boolean", "ALLOW_EMULATOR_MODEL_FIXTURES", "false")
         externalNativeBuild {
             cmake { cppFlags += listOf("-std=c++17") }
         }
@@ -26,7 +26,7 @@ android {
 
     buildFeatures {
         aidl = true
-        buildConfig = false
+        buildConfig = true
     }
 
     compileOptions {
@@ -48,8 +48,14 @@ android {
     }
 
     buildTypes {
+        debug {
+            buildConfigField("boolean", "ALLOW_EMULATOR_MODEL_FIXTURES", "true")
+            ndk { abiFilters += "x86_64" }
+        }
         release {
             isMinifyEnabled = true
+            buildConfigField("boolean", "ALLOW_EMULATOR_MODEL_FIXTURES", "false")
+            ndk { abiFilters += "arm64-v8a" }
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"),
                           "proguard-rules.pro")
         }

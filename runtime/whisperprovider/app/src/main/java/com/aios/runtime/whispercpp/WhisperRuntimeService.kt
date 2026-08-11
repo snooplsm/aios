@@ -3,6 +3,7 @@ package com.aios.runtime.whispercpp
 import android.app.Service
 import android.content.Intent
 import android.os.Binder
+import android.os.Build
 import android.os.IBinder
 import android.os.ParcelFileDescriptor
 import android.os.RemoteException
@@ -55,6 +56,7 @@ class WhisperRuntimeService : Service() {
         const val THREAD_COUNT = 4
         const val MIN_RMS = 0.005f
         val MODEL_DIRECTORY = File("/product/etc/aios/models")
+        const val EMULATOR_FIXTURE_DIRECTORY = "emulator-models"
     }
 
     private data class ModelIdentity(val path: String, val digest: String)
@@ -681,10 +683,15 @@ class WhisperRuntimeService : Service() {
             || (workload == "media_background" && direction == "media")
 
     private fun verifiedModelFile(artifact: RuntimeArtifact): File {
-        val directory = MODEL_DIRECTORY.canonicalFile
         val model = File(artifact.modelPath).canonicalFile
-        val prefix = directory.path + File.separator
-        check(model.path.startsWith(prefix) && model.isFile) {
+        val allowedDirectories = mutableListOf(MODEL_DIRECTORY.canonicalFile)
+        if (allowsEmulatorModelFixtures()) {
+            allowedDirectories += File(filesDir, EMULATOR_FIXTURE_DIRECTORY).canonicalFile
+        }
+        val confined = allowedDirectories.any { directory ->
+            model.path.startsWith(directory.path + File.separator)
+        }
+        check(confined && model.isFile) {
             "model path is outside the read-only model directory"
         }
         check(model.length() == artifact.sizeBytes) { "model size mismatch" }
@@ -694,6 +701,14 @@ class WhisperRuntimeService : Service() {
         )) { "model digest mismatch" }
         return model
     }
+
+    private fun allowsEmulatorModelFixtures(): Boolean =
+        BuildConfig.ALLOW_EMULATOR_MODEL_FIXTURES && (
+            Build.HARDWARE.equals("ranchu", ignoreCase = true)
+                || Build.HARDWARE.equals("goldfish", ignoreCase = true)
+                || Build.PRODUCT.contains("sdk", ignoreCase = true)
+                || Build.FINGERPRINT.startsWith("generic")
+        )
 
     private fun sha256(path: File): String {
         val digest = MessageDigest.getInstance("SHA-256")

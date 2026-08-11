@@ -108,6 +108,16 @@ Build the provider first with its required Gradle 8.11.1 offline/strict command,
 then build `:runtimeprovidercheck:assembleDebug`; the runner hashes both exact
 APKs before installation and records those digests in ignored local evidence.
 
+The same client contains a separate `WhisperProviderSmokeActivity` driven by
+`scripts/emulator-whisper-provider-smoke.ps1`. After
+`scripts/bootstrap-emulator-asr-fixtures.ps1` fetches three digest-pinned ignored
+inputs, the runner binds the production whisper.cpp provider across its protected
+secondary-process Binder boundary. It requires real, nonempty finalized English
+and Spanish `call_rx` results while keeping transcript text out of logs and
+evidence, checks rejected model-path survival, and removes all temporary files
+and APKs. Audio arrives in 100 ms source chunks paced at 250 ms on x86; the JSON
+explicitly disclaims real-time, arm64, and physical-Pixel evidence.
+
 `mediascancheck` stages every production Media Intelligence Java source, test,
 Binder contract, resource, and the real application manifest. Its debug overlay
 adds emulator fixtures for the production capture-grouping, 80%-while-charging,

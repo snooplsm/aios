@@ -140,7 +140,10 @@ Java_com_aios_runtime_whispercpp_NativeWhisper_transcribe(
     params.suppress_blank = true;
     params.suppress_nst = true;
     params.language = language_chars;
-    params.detect_language = std::strcmp(language_chars, "auto") == 0;
+    // The "auto" language value already selects a language before decoding.
+    // detect_language=true is whisper.cpp's detect-only mode and returns before
+    // transcription, which would yield language metadata with no text.
+    params.detect_language = false;
     params.abort_callback = abort_decode;
     params.abort_callback_user_data = cancellation;
 

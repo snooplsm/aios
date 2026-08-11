@@ -1034,7 +1034,10 @@ def validate_aosp_overlay(root: Path) -> None:
         "preview/runtimeprovidercheck/build.gradle.kts",
         "preview/runtimeprovidercheck/src/main/AndroidManifest.xml",
         "preview/runtimeprovidercheck/src/main/java/com/aios/runtime/smoke/RuntimeProviderSmokeActivity.java",
+        "preview/runtimeprovidercheck/src/main/java/com/aios/runtime/smoke/WhisperProviderSmokeActivity.java",
         "scripts/emulator-runtime-provider-smoke.ps1",
+        "scripts/bootstrap-emulator-asr-fixtures.ps1",
+        "scripts/emulator-whisper-provider-smoke.ps1",
         "preview/whisperpolicycheck/build.gradle.kts",
         "tools/generate_model_pack.py",
         "tools/generate_model_admission.py",
@@ -3214,6 +3217,12 @@ def validate_aosp_overlay(root: Path) -> None:
             and "MessageDigest.isEqual" in whisper_source
             and "model.length() == artifact.sizeBytes" in whisper_source,
             "ASR runtime must reverify model confinement, size, and digest")
+    require("BuildConfig.ALLOW_EMULATOR_MODEL_FIXTURES" in whisper_source
+            and 'Build.HARDWARE.equals("ranchu"' in whisper_source
+            and 'Build.HARDWARE.equals("goldfish"' in whisper_source
+            and "File(filesDir, EMULATOR_FIXTURE_DIRECTORY).canonicalFile"
+            in whisper_source,
+            "private ASR model fixtures must remain debug-QEMU-only")
     whisper_cmake = (whisper_root / "app" / "src" / "main" / "cpp" /
                      "CMakeLists.txt").read_text(encoding="utf-8")
     whisper_build = (whisper_root / "app" / "build.gradle.kts").read_text(
@@ -3231,12 +3240,25 @@ def validate_aosp_overlay(root: Path) -> None:
             in whisper_build,
             "Whisper implementation identity must match its runtime catalog entry")
     require("CMAKE_CXX_STANDARD 17" in whisper_cmake
+            and 'if(ANDROID_ABI STREQUAL "x86_64")' in whisper_cmake
+            and "add_compile_options(-O3)" in whisper_cmake
+            and 'if(ANDROID_ABI STREQUAL "arm64-v8a")' in whisper_cmake
             and "armv8.2-a+fp16" in whisper_cmake
+            and 'message(FATAL_ERROR "Unsupported AIOS whisper.cpp ABI:'
+            in whisper_cmake
             and "WHISPER_BUILD_TESTS OFF" in whisper_cmake
+            and whisper_build.count(
+                'buildConfigField("boolean", "ALLOW_EMULATOR_MODEL_FIXTURES", "false")'
+            ) == 2
+            and whisper_build.count(
+                'buildConfigField("boolean", "ALLOW_EMULATOR_MODEL_FIXTURES", "true")'
+            ) == 1
+            and 'ndk { abiFilters += "x86_64" }' in whisper_build
+            and 'ndk { abiFilters += "arm64-v8a" }' in whisper_build
             and 'testImplementation("junit:junit:4.13.2")' in whisper_build
             and 'sourceSets["main"].java.srcDir("../../common/src/main/java")'
             in whisper_build,
-            "ASR native build must be pinned to the arm64 mobile profile")
+            "ASR native build must keep release arm64 and guarded debug x86 profiles")
     whisper_bootstrap = (whisper_root / "bootstrap_dependency_locks.sh").read_text(
         encoding="utf-8"
     )
@@ -3268,6 +3290,11 @@ def validate_aosp_overlay(root: Path) -> None:
             "ASR provenance build must disable incompatible configuration caching")
     whisper_jni = (whisper_root / "app" / "src" / "main" / "cpp" /
                    "aios_whisper_jni.cpp").read_text(encoding="utf-8")
+    require("params.language = language_chars;" in whisper_jni
+            and "params.detect_language = false;" in whisper_jni
+            and 'params.detect_language = std::strcmp(language_chars, "auto") == 0;'
+            not in whisper_jni,
+            "Whisper auto language selection must transcribe instead of detect-only exit")
     whisper_native_api = (whisper_root / "app" / "src" / "main" / "java" /
                           "com" / "aios" / "runtime" / "whispercpp" /
                           "NativeWhisper.kt").read_text(encoding="utf-8")
@@ -3297,6 +3324,58 @@ def validate_aosp_overlay(root: Path) -> None:
             and "cancellationBeforeAttachAbortsTheNextToken" in decode_fence_test
             and "staleFinishCannotDestroyTheCurrentToken" in decode_fence_test,
             "ASR cancellation must abort active native compute without token lifetime races")
+
+    whisper_smoke = (
+        root / "preview" / "runtimeprovidercheck" / "src" / "main" / "java" /
+        "com" / "aios" / "runtime" / "smoke" / "WhisperProviderSmokeActivity.java"
+    ).read_text(encoding="utf-8")
+    whisper_smoke_runner = (
+        root / "scripts" / "emulator-whisper-provider-smoke.ps1"
+    ).read_text(encoding="utf-8")
+    whisper_fixture_bootstrap = (
+        root / "scripts" / "bootstrap-emulator-asr-fixtures.ps1"
+    ).read_text(encoding="utf-8")
+    require('"AIOS_WHISPER_REAL_ASR_OK"' in whisper_smoke
+            and '"AIOS_WHISPER_PROVIDER_SMOKE_OK"' in whisper_smoke
+            and 'artifact.modelId = "whisper-base-multilingual-quantized"'
+            in whisper_smoke
+            and 'request.workload = "call_rx"' in whisper_smoke
+            and 'transcribe(remote, model, english, "real-asr-english", "en")'
+            in whisper_smoke
+            and 'transcribe(remote, model, spanish, "real-asr-spanish", "es")'
+            in whisper_smoke
+            and "finalChunkCount > 0" in whisper_smoke
+            and "WALL_PACE_MILLIS = 250L" in whisper_smoke
+            and "Log.i(TAG, normalizedFinalText)" not in whisper_smoke,
+            "Whisper smoke must require private bilingual call-RX inference without logging text")
+    required_asr_fixture_digests = {
+        "422f1ae452ade6f30a004d7e5c6a43195e4433bc370bf23fac9cc591f01a8898",
+        "59dfb9a4acb36fe2a2affc14bacbee2920ff435cb13cc314a08c13f66ba7860e",
+        "70ef4a2b564905d07f626af2adc2df958f9de584c120f3b9d2278158712d1d70",
+    }
+    require(all(digest in whisper_fixture_bootstrap
+                and digest in whisper_smoke_runner
+                for digest in required_asr_fixture_digests)
+            and "Refusing to run whisper-provider smoke checks on non-emulator serial"
+            in whisper_smoke_runner
+            and '$abi -ne "x86_64"' in whisper_smoke_runner
+            and "provider_apk_x86_64_native_entry_verified = $true"
+            in whisper_smoke_runner
+            and "nonempty_final_transcripts_verified = $true"
+            in whisper_smoke_runner
+            and "english_language_detected = $true" in whisper_smoke_runner
+            and "spanish_language_detected = $true" in whisper_smoke_runner
+            and "source_audio_chunk_millis = 100" in whisper_smoke_runner
+            and "wall_pace_per_chunk_millis = 250" in whisper_smoke_runner
+            and "emulator_real_time_gate = $false" in whisper_smoke_runner
+            and "transcript_output_recorded = $false" in whisper_smoke_runner
+            and "temporary_fixture_files_remaining = 0" in whisper_smoke_runner
+            and "arm64_provider_evidence = $false" in whisper_smoke_runner
+            and "physical_gate_evidence = $false" in whisper_smoke_runner
+            and "files/emulator-models/runtime-smoke.bin" in whisper_smoke_runner
+            and "files/asr-fixtures/english.wav" in whisper_smoke_runner
+            and "files/asr-fixtures/spanish.wav" in whisper_smoke_runner,
+            "real ASR emulator evidence must be digest-bound, bilingual, self-cleaning, and non-physical")
 
     tts_root = root / "runtime" / "ttsprovider"
     tts_manifest = (tts_root / "app" / "src" / "main" /
