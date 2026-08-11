@@ -12,6 +12,9 @@ val stageModelServiceMain by tasks.registering(Sync::class) {
         include("com/aios/modelbroker/**/*.java")
         exclude("com/aios/modelbroker/BrokerProductProperties.java")
     }
+    from("../../runtime/common/src/main/java") {
+        include("com/aios/runtime/common/**/*.java")
+    }
     into(generatedMain)
 }
 

@@ -37,6 +37,7 @@ android {
         "../../../services/modelbroker/aidl",
         "../../../services/runtimeapi/aidl",
     )
+    sourceSets["main"].java.srcDir("../../common/src/main/java")
     sourceSets["main"].assets.srcDir(noticeAssets)
 
     buildTypes {

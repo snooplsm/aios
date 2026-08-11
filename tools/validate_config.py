@@ -921,7 +921,6 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/modelbroker/src/com/aios/modelbroker/PolicyFileReader.java",
         "services/modelbroker/src/com/aios/modelbroker/RuntimeCandidatePolicy.java",
         "services/modelbroker/src/com/aios/modelbroker/RuntimePressurePolicy.java",
-        "services/modelbroker/src/com/aios/modelbroker/MemoryTrimPolicy.java",
         "services/modelbroker/src/com/aios/modelbroker/RuntimeAdapter.java",
         "services/modelbroker/src/com/aios/modelbroker/RemoteRuntimeAdapter.java",
         "services/modelbroker/src/com/aios/modelbroker/RuntimeRebindPolicy.java",
@@ -943,8 +942,11 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/modelbroker/tests/src/com/aios/modelbroker/CatalogTierPlannerTest.java",
         "services/modelbroker/tests/src/com/aios/modelbroker/RuntimeCandidatePolicyTest.java",
         "services/modelbroker/tests/src/com/aios/modelbroker/RuntimePressurePolicyTest.java",
-        "services/modelbroker/tests/src/com/aios/modelbroker/MemoryTrimPolicyTest.java",
         "services/modelbroker/tests/src/com/aios/modelbroker/RuntimeRebindPolicyTest.java",
+        "runtime/common/Android.bp",
+        "runtime/common/src/main/java/com/aios/runtime/common/RuntimeMemoryTrimPolicy.java",
+        "runtime/common/tests/src/com/aios/runtime/common/RuntimeMemoryTrimPolicyTest.java",
+        "preview/runtimecommoncheck/build.gradle.kts",
         "tools/generate_model_pack.py",
         "tools/generate_model_admission.py",
         "tools/generate_runtime_pack.py",
@@ -2228,7 +2230,7 @@ def validate_aosp_overlay(root: Path) -> None:
     require("ERROR_DEADLINE_EXCEEDED" in service,
             "model broker must expose a distinct session-deadline failure")
     require("onTrimMemory" in service
-            and "MemoryTrimPolicy.shouldPreemptBackground(level)" in service
+            and "RuntimeMemoryTrimPolicy.isMemoryPressure(level)" in service
             and "sessions.onMemoryPressure()" in service
             and "level >= TRIM_MEMORY_RUNNING_LOW" not in service,
             "model broker must interpret Android trim families without treating UI-hidden as pressure")
@@ -2314,8 +2316,6 @@ def validate_aosp_overlay(root: Path) -> None:
             in broker_host_test
             and '"src/com/aios/modelbroker/RuntimePressurePolicy.java"'
             in broker_host_test
-            and '"src/com/aios/modelbroker/MemoryTrimPolicy.java"'
-            in broker_host_test
             and '"src/com/aios/modelbroker/SessionChunkPolicy.java"'
             in broker_host_test
             and '"src/com/aios/modelbroker/SessionDeadlinePolicy.java"'
@@ -2328,6 +2328,10 @@ def validate_aosp_overlay(root: Path) -> None:
             in broker_host_test
             and '"tests/src/**/*.java"' in broker_host_test,
             "Soong Model Broker host tests must include bounded policy and deadline logic")
+    require('"aios_runtime_common"' in broker_bp
+            and 'from("../../runtime/common/src/main/java")'
+            in model_service_compile_build,
+            "Model Broker must compile the same trim policy as runtime providers")
     require("LIFECYCLE_BOUND = Long.MAX_VALUE" in broker_deadline_policy
             and "MAX_FINITE_HORIZON_MILLIS" in broker_deadline_policy
             and '"streaming_asr".equals(capability)' in broker_deadline_policy
@@ -2387,11 +2391,12 @@ def validate_aosp_overlay(root: Path) -> None:
         "modelbroker" / "RuntimePressurePolicyTest.java"
     ).read_text(encoding="utf-8")
     memory_trim_policy = (
-        broker_source_root / "MemoryTrimPolicy.java"
+        root / "runtime" / "common" / "src" / "main" / "java" / "com" /
+        "aios" / "runtime" / "common" / "RuntimeMemoryTrimPolicy.java"
     ).read_text(encoding="utf-8")
     memory_trim_test = (
-        root / "services" / "modelbroker" / "tests" / "src" / "com" / "aios" /
-        "modelbroker" / "MemoryTrimPolicyTest.java"
+        root / "runtime" / "common" / "tests" / "src" / "com" / "aios" /
+        "runtime" / "common" / "RuntimeMemoryTrimPolicyTest.java"
     ).read_text(encoding="utf-8")
     runtime_activation_state = (
         broker_source_root / "RuntimeActivationState.java"
@@ -2442,7 +2447,7 @@ def validate_aosp_overlay(root: Path) -> None:
             and "level == RUNNING_LOW" in memory_trim_policy
             and "level == RUNNING_CRITICAL" in memory_trim_policy
             and "level >= BACKGROUND" in memory_trim_policy
-            and "uiHiddenIsNotMistakenForIncreasingMemorySeverity"
+            and "moderateRunningAndUiHiddenCallbacksKeepWarmModels"
             in memory_trim_test,
             "new requests must use fail-closed live pressure policy with exact trim semantics")
     admission_source = (broker_source_root / "DeviceModelAdmission.java").read_text(
@@ -2550,6 +2555,31 @@ def validate_aosp_overlay(root: Path) -> None:
             "foreground sessions must not leave a sticky media gate after completion")
 
     provider_root = root / "runtime" / "litertlmprovider"
+    runtime_trim_policy = (
+        root / "runtime" / "common" / "src" / "main" / "java" / "com" /
+        "aios" / "runtime" / "common" / "RuntimeMemoryTrimPolicy.java"
+    ).read_text(encoding="utf-8")
+    runtime_trim_test = (
+        root / "runtime" / "common" / "tests" / "src" / "com" / "aios" /
+        "runtime" / "common" / "RuntimeMemoryTrimPolicyTest.java"
+    ).read_text(encoding="utf-8")
+    runtime_common_bp = (root / "runtime" / "common" / "Android.bp").read_text(
+        encoding="utf-8")
+    runtime_common_preview = (
+        root / "preview" / "runtimecommoncheck" / "build.gradle.kts"
+    ).read_text(encoding="utf-8")
+    require("level == RUNNING_LOW" in runtime_trim_policy
+            and "level == RUNNING_CRITICAL" in runtime_trim_policy
+            and "level >= BACKGROUND" in runtime_trim_policy
+            and "moderateRunningAndUiHiddenCallbacksKeepWarmModels"
+            in runtime_trim_test
+            and 'name: "aios_runtime_common"' in runtime_common_bp
+            and "host_supported: true" in runtime_common_bp
+            and 'name: "aios_runtime_common_host_tests"' in runtime_common_bp
+            and 'include(":runtimecommoncheck")' in model_preview_settings
+            and 'java.srcDir("../../runtime/common/src/main/java")'
+            in runtime_common_preview,
+            "runtime providers must share host-tested non-monotonic trim semantics")
     provider_manifest = (provider_root / "app" / "src" / "main" /
                          "AndroidManifest.xml").read_text(encoding="utf-8")
     require('android:process=":runtime"' in provider_manifest
@@ -2575,7 +2605,8 @@ def validate_aosp_overlay(root: Path) -> None:
             and "chronological 5 by 4 storyboard" in provider_source
             and "visionBackend" in provider_source,
             "LiteRT-LM must process sampled video storyboards through the vision backend")
-    require("TRIM_MEMORY_RUNNING_LOW" in provider_source
+    require("RuntimeMemoryTrimPolicy.isMemoryPressure(level)" in provider_source
+            and "TRIM_MEMORY_RUNNING_LOW" not in provider_source
             and "sessions.isEmpty()" in provider_source
             and "closeEngine()" in provider_source,
             "LiteRT-LM must release an idle engine under Android memory pressure")
@@ -2586,7 +2617,9 @@ def validate_aosp_overlay(root: Path) -> None:
             and "lockAllConfigurations" in provider_build
             and "dependency_verification_sha256" in provider_build
             and "JavaVersion.VERSION_17" in provider_build
-            and "JvmTarget.JVM_17" in provider_build,
+            and "JvmTarget.JVM_17" in provider_build
+            and 'sourceSets["main"].java.srcDir("../../common/src/main/java")'
+            in provider_build,
             "runtime build must pin LiteRT-LM, use JVM 17, and emit locked provenance")
     provider_bootstrap = (provider_root / "bootstrap_dependency_locks.sh").read_text(
         encoding="utf-8"
@@ -2635,7 +2668,8 @@ def validate_aosp_overlay(root: Path) -> None:
             and "Thread.sleep(10L)" in whisper_source
             and '"ASR fell behind real time"' in whisper_source,
             "ASR runtime must prioritize incoming windows and bound live/offline lag")
-    require("TRIM_MEMORY_RUNNING_LOW" in whisper_source
+    require("RuntimeMemoryTrimPolicy.isMemoryPressure(level)" in whisper_source
+            and "TRIM_MEMORY_RUNNING_LOW" not in whisper_source
             and "synchronized(modelLock)" in whisper_source
             and "closeModelLocked()" in whisper_source,
             "ASR runtime must safely release an idle model under memory pressure")
@@ -2645,9 +2679,13 @@ def validate_aosp_overlay(root: Path) -> None:
             "ASR runtime must reverify model confinement, size, and digest")
     whisper_cmake = (whisper_root / "app" / "src" / "main" / "cpp" /
                      "CMakeLists.txt").read_text(encoding="utf-8")
+    whisper_build = (whisper_root / "app" / "build.gradle.kts").read_text(
+        encoding="utf-8")
     require("CMAKE_CXX_STANDARD 17" in whisper_cmake
             and "armv8.2-a+fp16" in whisper_cmake
-            and "WHISPER_BUILD_TESTS OFF" in whisper_cmake,
+            and "WHISPER_BUILD_TESTS OFF" in whisper_cmake
+            and 'sourceSets["main"].java.srcDir("../../common/src/main/java")'
+            in whisper_build,
             "ASR native build must be pinned to the arm64 mobile profile")
 
     tts_root = root / "runtime" / "ttsprovider"
@@ -2671,7 +2709,8 @@ def validate_aosp_overlay(root: Path) -> None:
             "TTS runtime must stream bilingual PCM with pipe backpressure")
     require("session.cancelled.get()" in tts_source
             and "deadlineElapsedRealtimeMillis" in tts_source
-            and "TRIM_MEMORY_RUNNING_LOW" in tts_source
+            and "RuntimeMemoryTrimPolicy.isMemoryPressure(level)" in tts_source
+            and "TRIM_MEMORY_RUNNING_LOW" not in tts_source
             and "if (sessions.isEmpty()) closeEngine()" in tts_source,
             "TTS runtime must support cancellation, deadlines, and pressure cleanup")
     require("MODEL_DIRECTORY.canonicalFile" in tts_source
@@ -2735,7 +2774,9 @@ def validate_aosp_overlay(root: Path) -> None:
     require('abiFilters += "arm64-v8a"' in tts_build
             and "lockAllConfigurations" in tts_build
             and "verifyPinnedInputs" in tts_build
-            and "dependency_verification_sha256" in tts_build,
+            and "dependency_verification_sha256" in tts_build
+            and 'sourceSets["main"].java.srcDir("../../common/src/main/java")'
+            in tts_build,
             "TTS APK must be arm64-only and emit verified provenance")
     for notice in tts_provider["required_apk_entries"]:
         require(Path(notice["path"]).name in tts_build
@@ -4272,7 +4313,8 @@ def validate_security_surface(root: Path) -> None:
             continue
         require(module in common_product or module in {
                     "aios_call_api", "aios_context_api", "aios_media_context_api",
-                    "aios_media_metadata_api", "aios_model_api", "aios_runtime_api"}
+                    "aios_media_metadata_api", "aios_model_api", "aios_runtime_api",
+                    "aios_runtime_common"}
                 or module.endswith("_tests"),
                 f"local AIOS module is not reachable from the product: {module}")
 

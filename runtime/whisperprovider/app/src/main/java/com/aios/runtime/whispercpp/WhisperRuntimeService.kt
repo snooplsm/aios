@@ -14,6 +14,7 @@ import com.aios.model.InferenceResult
 import com.aios.model.ModelRequest
 import com.aios.runtime.IAiosRuntimeProvider
 import com.aios.runtime.RuntimeArtifact
+import com.aios.runtime.common.RuntimeMemoryTrimPolicy
 import org.json.JSONObject
 import java.io.BufferedInputStream
 import java.io.File
@@ -266,7 +267,7 @@ class WhisperRuntimeService : Service() {
 
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
-        if (level >= TRIM_MEMORY_RUNNING_LOW) {
+        if (RuntimeMemoryTrimPolicy.isMemoryPressure(level)) {
             synchronized(modelLock) {
                 if (sessions.isEmpty() && decodeQueue.isEmpty()) closeModelLocked()
             }

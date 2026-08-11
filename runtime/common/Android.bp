@@ -1,0 +1,22 @@
+package {
+    default_applicable_licenses: ["AIOS_Apache_2_0"],
+}
+
+java_library_static {
+    name: "aios_runtime_common",
+    srcs: ["src/main/java/**/*.java"],
+    host_supported: true,
+    sdk_version: "system_current",
+    min_sdk_version: "35",
+    installable: false,
+}
+
+java_test_host {
+    name: "aios_runtime_common_host_tests",
+    srcs: [
+        "src/main/java/**/*.java",
+        "tests/src/**/*.java",
+    ],
+    static_libs: ["junit"],
+    test_suites: ["general-tests"],
+}

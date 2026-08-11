@@ -15,6 +15,7 @@ import com.aios.model.InferenceResult
 import com.aios.model.ModelRequest
 import com.aios.runtime.IAiosRuntimeProvider
 import com.aios.runtime.RuntimeArtifact
+import com.aios.runtime.common.RuntimeMemoryTrimPolicy
 import com.google.ai.edge.litertlm.Backend
 import com.google.ai.edge.litertlm.Content
 import com.google.ai.edge.litertlm.Contents
@@ -267,7 +268,7 @@ class LiteRtLmRuntimeService : Service() {
 
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
-        if (level >= TRIM_MEMORY_RUNNING_LOW && sessions.isEmpty()) {
+        if (RuntimeMemoryTrimPolicy.isMemoryPressure(level) && sessions.isEmpty()) {
             runtimeExecutor.execute {
                 if (sessions.isEmpty()) closeEngine()
             }

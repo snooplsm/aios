@@ -13,6 +13,7 @@ import com.aios.model.InferenceResult
 import com.aios.model.ModelRequest
 import com.aios.runtime.IAiosRuntimeProvider
 import com.aios.runtime.RuntimeArtifact
+import com.aios.runtime.common.RuntimeMemoryTrimPolicy
 import com.k2fsa.sherpa.onnx.GenerationConfig
 import com.k2fsa.sherpa.onnx.OfflineTts
 import com.k2fsa.sherpa.onnx.OfflineTtsConfig
@@ -277,7 +278,7 @@ class SherpaTtsRuntimeService : Service() {
 
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
-        if (level >= TRIM_MEMORY_RUNNING_LOW) {
+        if (RuntimeMemoryTrimPolicy.isMemoryPressure(level)) {
             runtimeExecutor.execute {
                 if (sessions.isEmpty()) closeEngine()
             }

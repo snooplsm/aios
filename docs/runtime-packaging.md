@@ -35,6 +35,16 @@ its descriptor on rejection, cancellation, completion, or provider failure.
 Non-TTS providers reject and close this method. No raw model path or unbounded
 audio buffer crosses the public Binder API.
 
+Model Broker and all three provider projects compile the same Android-free
+`RuntimeMemoryTrimPolicy`. Android's running-process and cached-process trim
+constants are separate families, so the Broker preempts background work and
+providers release an idle native model only for `RUNNING_LOW`,
+`RUNNING_CRITICAL`, or legacy `BACKGROUND`-and-stronger callbacks. `UI_HIDDEN`
+does not cancel media or unload a warm Whisper, Gemma, or TTS engine. Active
+sessions remain protected by each provider's own idle check. The shared policy
+has a Soong host test and the local `preview:runtimecommoncheck` lane so the
+independently built components cannot silently drift back to numeric comparison.
+
 LiteRT-LM is pinned to `0.15.0` and source revision
 `2117fc4314670e00047bc8469783f02a68c33f0c`. The official Android AAR has
 SHA-256 `b398c4745934a6035d192ffce5fdaf4f72a0009830a97b73c017c21f2a92b5bd`

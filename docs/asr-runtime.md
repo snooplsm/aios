@@ -28,6 +28,11 @@ falling behind closes that AI stream rather than blocking authoritative local
 capture or telephony. English and Spanish are auto-detected per window; other
 detected languages fail the prototype's declared language policy.
 
+An idle Whisper context stays warm across `UI_HIDDEN` callbacks to avoid a cold
+start merely because the provider has no visible activity. Exact running-low,
+running-critical, and cached-process pressure callbacks release it; an active
+stream is never unloaded by trim handling.
+
 Call Intelligence gates each session on the first successfully stored PCM frame
 from both telephony directions, with a bounded startup timeout. This prevents an
 AI-answered call from greeting a caller when the privileged downlink tap is

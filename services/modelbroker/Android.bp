@@ -15,6 +15,7 @@ android_app {
     srcs: ["src/**/*.java"],
     static_libs: [
         "aios_model_api",
+        "aios_runtime_common",
         "aios_runtime_api",
     ],
     resource_dirs: [],
@@ -37,7 +38,6 @@ java_test_host {
         "src/com/aios/modelbroker/RuntimeActivationState.java",
         "src/com/aios/modelbroker/RuntimeCandidatePolicy.java",
         "src/com/aios/modelbroker/RuntimePressurePolicy.java",
-        "src/com/aios/modelbroker/MemoryTrimPolicy.java",
         "src/com/aios/modelbroker/RuntimeRebindPolicy.java",
         "src/com/aios/modelbroker/SessionArbiter.java",
         "src/com/aios/modelbroker/SessionChunkPolicy.java",
@@ -47,6 +47,9 @@ java_test_host {
         "src/com/aios/modelbroker/VerifiedArtifact.java",
         "tests/src/**/*.java",
     ],
-    static_libs: ["junit"],
+    static_libs: [
+        "aios_runtime_common",
+        "junit",
+    ],
     test_suites: ["general-tests"],
 }

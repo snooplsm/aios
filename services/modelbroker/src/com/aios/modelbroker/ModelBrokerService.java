@@ -15,6 +15,7 @@ import com.aios.model.IAiosModelService;
 import com.aios.model.IModelCallback;
 import com.aios.model.ModelCapability;
 import com.aios.model.ModelRequest;
+import com.aios.runtime.common.RuntimeMemoryTrimPolicy;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -160,7 +161,7 @@ public final class ModelBrokerService extends Service {
     @Override
     public void onTrimMemory(int level) {
         super.onTrimMemory(level);
-        if (MemoryTrimPolicy.shouldPreemptBackground(level) && sessions != null) {
+        if (RuntimeMemoryTrimPolicy.isMemoryPressure(level) && sessions != null) {
             sessions.onMemoryPressure();
         }
     }

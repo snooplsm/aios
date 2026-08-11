@@ -49,7 +49,8 @@ The provider repeats all security checks before native initialization:
 
 Generation stops when the broker cancels, the client dies, the PCM reader
 closes, or the elapsed-realtime deadline expires. The engine remains resident
-for call latency and is released only when idle under Android memory pressure;
+for call latency and is released only when idle under exact Android running-low,
+running-critical, or cached-process pressure; `UI_HIDDEN` keeps it warm;
 there is no fixed AIOS RAM ceiling. Speaker selection and conversational voice
 quality still require physical-device evaluation.
 
