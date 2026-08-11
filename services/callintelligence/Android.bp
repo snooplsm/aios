@@ -49,6 +49,8 @@ java_test_host {
         "src/com/aios/callintelligence/PriorContextFormatter.java",
         "src/com/aios/callintelligence/RequiredCaptureGate.java",
         "src/com/aios/callintelligence/ReceptionistReplyPolicy.java",
+        "src/com/aios/callintelligence/ReceptionistRequestTracker.java",
+        "src/com/aios/callintelligence/ReceptionistStatusPolicy.java",
         "src/com/aios/callintelligence/ResilientFanoutOutputStream.java",
         "src/com/aios/callintelligence/RiskAssessmentTracker.java",
         "src/com/aios/callintelligence/SpamRiskEngine.java",

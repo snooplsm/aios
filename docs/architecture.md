@@ -78,6 +78,11 @@ inference sinks and their callback identities while the authoritative local PCM
 sinks continue. Once the replacement broker passes its capability probe, each
 live call receives new downlink and uplink pipes. Classifier, receptionist, and
 speech requests also reject callbacks from the disconnected generation.
+An interrupted receptionist request retains its immutable prompt while the
+binding is replaced. Each retry receives a fresh callback identity but inherits
+the semantic turn's original 15-second deadline, and the outer turn queue does
+not advance on the non-terminal recovery status. This prevents both duplicate
+speech and an outage-driven renewal of the response budget.
 
 Pipeline:
 

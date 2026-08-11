@@ -56,11 +56,11 @@ final class ReceptionistDialogueClient implements AutoCloseable {
     private static final class CallState {
         final boolean knownContact;
         final StringBuilder history = new StringBuilder();
+        final ReceptionistRequestTracker requests = new ReceptionistRequestTracker();
         String priorContextJson;
-        boolean inFlight;
         boolean ended;
-        long generation;
         long sessionId = -1L;
+        PendingRequest pending;
 
         CallState(boolean knownContact, String priorContextJson) {
             this.knownContact = knownContact;
@@ -71,7 +71,7 @@ final class ReceptionistDialogueClient implements AutoCloseable {
     private static final class PendingRequest {
         final String callId;
         final CallState owner;
-        final long generation;
+        final ReceptionistRequestTracker.Token token;
         final long requestSerial;
         final String language;
         final String prompt;
@@ -79,13 +79,13 @@ final class ReceptionistDialogueClient implements AutoCloseable {
         PendingRequest(
                 String callId,
                 CallState owner,
-                long generation,
+                ReceptionistRequestTracker.Token token,
                 long requestSerial,
                 String language,
                 String prompt) {
             this.callId = callId;
             this.owner = owner;
-            this.generation = generation;
+            this.token = token;
             this.requestSerial = requestSerial;
             this.language = language;
             this.prompt = prompt;
@@ -151,22 +151,20 @@ final class ReceptionistDialogueClient implements AutoCloseable {
         synchronized (this) {
             CallState state = calls.get(callId);
             String normalized = callerTurn == null ? "" : callerTurn.trim();
-            if (closed || state == null || state.ended || state.inFlight
+            if (closed || state == null || state.ended || state.requests.isActive()
                     || !LANGUAGES.contains(language) || normalized.isEmpty()
-                    || normalized.length() > MAX_TURN_CHARS) {
+                    || normalized.length() > MAX_TURN_CHARS
+                    || nextRequestSerial == Long.MAX_VALUE) {
                 return false;
             }
+            ReceptionistRequestTracker.Token token = state.requests.begin(
+                    SystemClock.elapsedRealtime(), REQUEST_DEADLINE_MILLIS);
+            if (token == null) return false;
             appendBounded(state.history, "caller[" + language + "]: " + normalized + "\n");
-            if (nextRequestSerial == Long.MAX_VALUE || service == null
-                    || !available || !languages.contains(language)) {
-                return false;
-            }
-            state.inFlight = true;
-            long generation = ++state.generation;
             pending = new PendingRequest(
                     callId,
                     state,
-                    generation,
+                    token,
                     ++nextRequestSerial,
                     language,
                     prompt(
@@ -174,7 +172,9 @@ final class ReceptionistDialogueClient implements AutoCloseable {
                             language,
                             state.priorContextJson,
                             state.history.toString()));
+            state.pending = pending;
         }
+        scheduleTimeout(pending);
         worker.execute(() -> dispatch(pending));
         return true;
     }
@@ -186,6 +186,8 @@ final class ReceptionistDialogueClient implements AutoCloseable {
             CallState state = calls.remove(callId);
             if (state == null) return;
             state.ended = true;
+            state.requests.close();
+            state.pending = null;
             broker = service;
             sessionId = state.sessionId;
             state.sessionId = -1L;
@@ -203,6 +205,8 @@ final class ReceptionistDialogueClient implements AutoCloseable {
             broker = service;
             for (CallState state : calls.values()) {
                 state.ended = true;
+                state.requests.close();
+                state.pending = null;
                 if (state.sessionId > 0L) sessionIds.add(state.sessionId);
             }
             calls.clear();
@@ -217,14 +221,22 @@ final class ReceptionistDialogueClient implements AutoCloseable {
 
     private void dispatch(PendingRequest pending) {
         IAiosModelService broker;
+        boolean unsupported;
         synchronized (this) {
             CallState state = calls.get(pending.callId);
             if (closed || state != pending.owner || state.ended
-                    || state.generation != pending.generation) return;
+                    || state.pending != pending || !state.requests.isCurrent(pending.token)
+                    || state.sessionId > 0L) return;
             broker = service;
+            if (broker == null || !available) return;
+            unsupported = !languages.contains(pending.language);
         }
-        if (broker == null) {
-            completeFailure(pending, "receptionist_broker_unavailable");
+        if (unsupported) {
+            completeFailure(pending, "receptionist_language_unavailable");
+            return;
+        }
+        if (SystemClock.elapsedRealtime() >= pending.token.deadlineElapsedRealtimeMillis) {
+            completeFailure(pending, "receptionist_timeout");
             return;
         }
         long sessionId = -1L;
@@ -236,7 +248,7 @@ final class ReceptionistDialogueClient implements AutoCloseable {
             request.language = pending.language;
             request.maxOutputTokens = MAX_OUTPUT_TOKENS;
             request.deadlineElapsedRealtimeMillis =
-                    SystemClock.elapsedRealtime() + REQUEST_DEADLINE_MILLIS;
+                    pending.token.deadlineElapsedRealtimeMillis;
             // Receptionist continuity may use the ordered, independently
             // admitted tier fallback chain when the preferred model cannot open.
             request.allowFallback = true;
@@ -248,21 +260,20 @@ final class ReceptionistDialogueClient implements AutoCloseable {
             synchronized (this) {
                 CallState state = calls.get(pending.callId);
                 if (state != pending.owner || state.ended
-                        || state.generation != pending.generation) {
+                        || state.pending != pending
+                        || !state.requests.isCurrent(pending.token)
+                        || service != broker || state.sessionId > 0L) {
                     cancel(broker, sessionId);
                     return;
                 }
                 state.sessionId = sessionId;
             }
             broker.submitText(sessionId, pending.prompt, true);
-            long createdSessionId = sessionId;
-            worker.schedule(
-                    () -> timeout(pending, broker, createdSessionId),
-                    REQUEST_DEADLINE_MILLIS,
-                    TimeUnit.MILLISECONDS);
-        } catch (RemoteException | RuntimeException error) {
+        } catch (RemoteException error) {
             cancel(broker, sessionId);
-            if (error instanceof RemoteException) binding.invalidate(broker);
+            binding.invalidate(broker);
+        } catch (RuntimeException error) {
+            cancel(broker, sessionId);
             completeFailure(pending, "receptionist_request_failed");
         }
     }
@@ -281,9 +292,10 @@ final class ReceptionistDialogueClient implements AutoCloseable {
                 synchronized (ReceptionistDialogueClient.this) {
                     CallState state = calls.get(pending.callId);
                     deliver = state == pending.owner && !state.ended
-                            && state.generation == pending.generation;
+                            && state.pending == pending
+                            && state.requests.complete(pending.token);
                     if (deliver) {
-                        state.inFlight = false;
+                        state.pending = null;
                         state.sessionId = -1L;
                         if (reply != null) {
                             appendBounded(state.history,
@@ -306,13 +318,28 @@ final class ReceptionistDialogueClient implements AutoCloseable {
         };
     }
 
-    private void timeout(PendingRequest pending, IAiosModelService broker, long sessionId) {
+    private void scheduleTimeout(PendingRequest pending) {
+        long nowElapsedRealtimeMillis = SystemClock.elapsedRealtime();
+        long remaining = pending.token.deadlineElapsedRealtimeMillis
+                <= nowElapsedRealtimeMillis
+                ? 0L
+                : pending.token.deadlineElapsedRealtimeMillis - nowElapsedRealtimeMillis;
+        worker.schedule(() -> timeout(pending), remaining, TimeUnit.MILLISECONDS);
+    }
+
+    private void timeout(PendingRequest pending) {
+        IAiosModelService broker;
+        long sessionId;
         boolean timedOut;
         synchronized (this) {
             CallState state = calls.get(pending.callId);
-            timedOut = state == pending.owner && !state.ended && state.inFlight
-                    && state.generation == pending.generation
-                    && state.sessionId == sessionId;
+            timedOut = state == pending.owner && !state.ended
+                    && state.pending == pending
+                    && state.requests.isCurrent(pending.token)
+                    && SystemClock.elapsedRealtime()
+                    >= pending.token.deadlineElapsedRealtimeMillis;
+            broker = service;
+            sessionId = timedOut ? state.sessionId : -1L;
         }
         if (!timedOut) return;
         cancel(broker, sessionId);
@@ -324,9 +351,10 @@ final class ReceptionistDialogueClient implements AutoCloseable {
         synchronized (this) {
             CallState state = calls.get(pending.callId);
             deliver = state == pending.owner && !state.ended
-                    && state.generation == pending.generation;
+                    && state.pending == pending
+                    && state.requests.complete(pending.token);
             if (deliver) {
-                state.inFlight = false;
+                state.pending = null;
                 state.sessionId = -1L;
             }
         }
@@ -336,6 +364,7 @@ final class ReceptionistDialogueClient implements AutoCloseable {
     private void loadCapabilities(IAiosModelService candidate) {
         boolean found = false;
         Set<String> supported = new HashSet<>();
+        ArrayList<PendingRequest> pendingRequests = new ArrayList<>();
         try {
             for (ModelCapability capability : candidate.listCapabilities()) {
                 if (capability != null && "text_generation".equals(capability.capability)
@@ -354,29 +383,63 @@ final class ReceptionistDialogueClient implements AutoCloseable {
             available = found;
             languages.clear();
             if (available) languages.addAll(supported);
+            for (CallState state : calls.values()) {
+                if (!state.ended && state.pending != null
+                        && state.requests.isCurrent(state.pending.token)) {
+                    pendingRequests.add(state.pending);
+                }
+            }
         }
         binding.markReady(candidate);
         listener.onStatus("availability", available
                 ? "receptionist_ready" : "receptionist_unavailable");
+        for (PendingRequest pending : pendingRequests) {
+            if (found && supported.contains(pending.language)) {
+                worker.execute(() -> dispatch(pending));
+            } else {
+                completeFailure(pending, "receptionist_language_unavailable");
+            }
+        }
     }
 
     private void clearService() {
-        ArrayList<String> affected = new ArrayList<>();
+        ArrayList<PendingRequest> recovered = new ArrayList<>();
+        ArrayList<String> failed = new ArrayList<>();
+        long nowElapsedRealtimeMillis = SystemClock.elapsedRealtime();
         synchronized (this) {
             service = null;
             available = false;
             languages.clear();
             for (Map.Entry<String, CallState> item : calls.entrySet()) {
-                if (item.getValue().inFlight) {
-                    item.getValue().inFlight = false;
-                    item.getValue().sessionId = -1L;
-                    affected.add(item.getKey());
+                CallState state = item.getValue();
+                PendingRequest previous = state.pending;
+                if (previous == null || !state.requests.isCurrent(previous.token)) continue;
+                state.sessionId = -1L;
+                ReceptionistRequestTracker.Token token = state.requests.recover(
+                        previous.token, nowElapsedRealtimeMillis);
+                if (token == null || nextRequestSerial == Long.MAX_VALUE) {
+                    if (token != null) state.requests.complete(token);
+                    state.pending = null;
+                    failed.add(item.getKey());
+                    continue;
                 }
-                item.getValue().generation++;
+                PendingRequest replacement = new PendingRequest(
+                        previous.callId,
+                        state,
+                        token,
+                        ++nextRequestSerial,
+                        previous.language,
+                        previous.prompt);
+                state.pending = replacement;
+                recovered.add(replacement);
             }
         }
-        for (String callId : affected) {
-            listener.onStatus(callId, "receptionist_broker_disconnected");
+        for (PendingRequest pending : recovered) {
+            scheduleTimeout(pending);
+            listener.onStatus(pending.callId, "receptionist_broker_recovering");
+        }
+        for (String callId : failed) {
+            listener.onStatus(callId, "receptionist_timeout");
         }
     }
 

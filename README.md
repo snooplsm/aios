@@ -37,6 +37,10 @@ AI-handled active calls also expose a typed, revisioned handling state. The owne
 can take over from either the in-call surface or its ongoing notification; Call
 Intelligence stops queued and in-flight AI speech while keeping both capture
 directions, live transcription, and advisory risk active.
+An interrupted finalized receptionist turn survives Model Broker replacement as
+one immutable prompt with a fresh callback identity and its original 15-second
+deadline; recovery cannot duplicate history, renew the response budget, or
+release later queued caller speech early.
 The low-priority ongoing call notification carries a bounded live preview of the
 latest incoming speech with AI/risk status beneath it. Transcript previews are
 private lock-screen content, sanitized for control characters, and never appear

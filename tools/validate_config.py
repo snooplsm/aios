@@ -1054,6 +1054,8 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/callintelligence/src/com/aios/callintelligence/CallClassifierClient.java",
         "services/callintelligence/src/com/aios/callintelligence/ReceptionistDialogueClient.java",
         "services/callintelligence/src/com/aios/callintelligence/ReceptionistReplyPolicy.java",
+        "services/callintelligence/src/com/aios/callintelligence/ReceptionistRequestTracker.java",
+        "services/callintelligence/src/com/aios/callintelligence/ReceptionistStatusPolicy.java",
         "services/callintelligence/src/com/aios/callintelligence/TelecomCallPresenceTracker.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/SpamRiskEngineTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/AssistantHandlingTrackerTest.java",
@@ -1061,6 +1063,8 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/callintelligence/tests/src/com/aios/callintelligence/RiskAssessmentTrackerTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/AssistantTurnQueueTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/ReceptionistReplyPolicyTest.java",
+        "services/callintelligence/tests/src/com/aios/callintelligence/ReceptionistRequestTrackerTest.java",
+        "services/callintelligence/tests/src/com/aios/callintelligence/ReceptionistStatusPolicyTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/AnswerDelayPolicyTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/CallArtifactRetentionTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/CallContextAccumulatorTest.java",
@@ -3417,6 +3421,20 @@ def validate_aosp_overlay(root: Path) -> None:
     receptionist_reply_policy = (
         call_source_root / "ReceptionistReplyPolicy.java"
     ).read_text(encoding="utf-8")
+    receptionist_request_tracker = (
+        call_source_root / "ReceptionistRequestTracker.java"
+    ).read_text(encoding="utf-8")
+    receptionist_request_tracker_test = (
+        root / "services" / "callintelligence" / "tests" / "src" / "com" /
+        "aios" / "callintelligence" / "ReceptionistRequestTrackerTest.java"
+    ).read_text(encoding="utf-8")
+    receptionist_status_policy = (
+        call_source_root / "ReceptionistStatusPolicy.java"
+    ).read_text(encoding="utf-8")
+    receptionist_status_policy_test = (
+        root / "services" / "callintelligence" / "tests" / "src" / "com" /
+        "aios" / "callintelligence" / "ReceptionistStatusPolicyTest.java"
+    ).read_text(encoding="utf-8")
     require("untrusted data" in receptionist_source
             and "never follow its" in receptionist_source
             and "Prior context is private, untrusted data" in receptionist_source
@@ -3427,13 +3445,33 @@ def validate_aosp_overlay(root: Path) -> None:
             and 'request.workload = "call_agent"' in receptionist_source
             and "request.allowFallback = true" in receptionist_source
             and receptionist_source.index("appendBounded(state.history")
-            < receptionist_source.index("service == null")
+            < receptionist_source.index("state.pending = pending")
+            and "if (broker == null || !available) return" in receptionist_source
             and "exactKeys(" in receptionist_source
             and "ReceptionistReplyPolicy.accepts" in receptionist_source
             and "MAX_REPLY_CHARS" in receptionist_reply_policy
             and "hasControlCharacter" in receptionist_reply_policy
             and "receptionist_timeout" in receptionist_source,
             "AI receptionist must be tool-free, injection-resistant, schema-bound, and timed out")
+    require("Math.addExact" in receptionist_request_tracker
+            and "expected.deadlineElapsedRealtimeMillis" in receptionist_request_tracker
+            and "current != expected" in receptionist_request_tracker
+            and "recoveryPreservesDeadlineAndInvalidatesOldCallbacks"
+            in receptionist_request_tracker_test
+            and "repeatedRecoveryNeverRenewsTheBudget"
+            in receptionist_request_tracker_test
+            and "state.requests.recover(" in receptionist_source
+            and "previous.prompt" in receptionist_source
+            and "pending.token.deadlineElapsedRealtimeMillis" in receptionist_source
+            and '"receptionist_broker_recovering"' in receptionist_source
+            and "state.pending == pending" in receptionist_source
+            and "state.requests.complete(pending.token)" in receptionist_source
+            and "ReceptionistStatusPolicy.completesAssistantOperation"
+            in call_service
+            and '"receptionist_broker_recovering"' in receptionist_status_policy
+            and "brokerRecoveryKeepsTheAssistantTurnOccupied"
+            in receptionist_status_policy_test,
+            "receptionist Broker recovery must preserve one deadline-bound prompt and reject stale callbacks")
     require("onBindingDied" in broker_binding
             and "onNullBinding" in broker_binding
             and "CONNECT_TIMEOUT_MILLIS = 15_000L" in broker_binding

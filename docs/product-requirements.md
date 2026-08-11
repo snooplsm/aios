@@ -99,6 +99,11 @@ All stale broker callbacks and inference sinks are detached immediately. Call
 Intelligence must recreate terminal/null/stalled bindings with bounded backoff,
 then attach fresh downlink and uplink ASR streams to each still-live call without
 restarting its artifact or extending its expiry.
+If that loss interrupts receptionist reasoning, the exact finalized turn must
+remain occupied and retry through the replacement binding under its original
+absolute deadline. Recovery must change callback identity, must not append the
+caller text to history again, and must not allow a predecessor callback to
+produce speech or advance the queued next turn.
 
 Raw call audio is never exposed through the shared-media filesystem. Other apps
 receive scoped model APIs, not access to call artifacts or model files.

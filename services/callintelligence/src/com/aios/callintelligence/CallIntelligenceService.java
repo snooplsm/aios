@@ -1271,8 +1271,7 @@ public final class CallIntelligenceService extends Service {
 
     private void handleReceptionistStatus(String callId, String detail) {
         notifyStatus(callId, 6, detail);
-        if (callId == null || "availability".equals(callId)
-                || detail == null || "receptionist_ready".equals(detail)) return;
+        if (!ReceptionistStatusPolicy.completesAssistantOperation(callId, detail)) return;
         ActiveSession session;
         synchronized (sessions) {
             session = sessions.get(callId);

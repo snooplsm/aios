@@ -49,6 +49,13 @@ identities and only the inference branches of the PCM fanouts. Local recording
 continues, and fresh English/Spanish downlink and uplink streams are attached to
 every still-live session after capability discovery succeeds. The existing call
 artifact and its original expiry are unchanged.
+If loss occurs during a finalized receptionist turn, the exact already-built
+prompt is retained as one semantic request. A replacement request gets a new
+callback/session identity but keeps the original absolute 15-second deadline;
+repeated reconnects cannot renew that budget. The assistant turn queue remains
+occupied during recovery, so later finalized speech stays bounded and ordered.
+Only the recovered request may produce caller-facing text, and timeout or another
+terminal result releases the queue.
 Provider chunk sequences are scoped to one ASR session and restart at zero after
 that recovery. Call Intelligence maps them onto a call-global monotonic revision
 clock before risk or classifier consumers see them. Detaching a stream rejects
