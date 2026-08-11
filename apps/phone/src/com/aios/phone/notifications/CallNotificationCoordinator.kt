@@ -16,6 +16,7 @@ import com.aios.phone.R
 import com.aios.phone.model.AssistantCallUiState
 import com.aios.phone.model.CallUiState
 import com.aios.phone.model.RiskUiState
+import com.aios.phone.model.TranscriptUiState
 import com.aios.phone.telecom.AiosInCallService
 import com.aios.phone.ui.InCallActivity
 
@@ -54,7 +55,7 @@ class CallNotificationCoordinator(private val context: Context) {
                 "Ongoing phone calls",
                 NotificationManager.IMPORTANCE_LOW,
             ).apply {
-                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+                lockscreenVisibility = Notification.VISIBILITY_PRIVATE
                 setSound(null, null)
                 enableVibration(false)
             },
@@ -65,6 +66,7 @@ class CallNotificationCoordinator(private val context: Context) {
         calls: List<CallUiState>,
         assistantCalls: Map<String, AssistantCallUiState>,
         risks: Map<String, RiskUiState>,
+        transcripts: Map<String, List<TranscriptUiState>>,
         service: AiosInCallService?,
     ) {
         val visible = calls.filter { it.isRinging || requiresPhoneCallForeground(it) }
@@ -74,6 +76,7 @@ class CallNotificationCoordinator(private val context: Context) {
                 foregroundCall,
                 assistantCalls[foregroundCall.id],
                 risks[foregroundCall.id],
+                latestIncomingTranscript(transcripts[foregroundCall.id]),
             )
             if (service.promoteCallNotification(
                     notificationId(foregroundCall.id), notification)) {
@@ -96,7 +99,14 @@ class CallNotificationCoordinator(private val context: Context) {
         val live = postable.mapTo(mutableSetOf()) { it.id }
         promotedId?.let(live::add)
         shown.filterNot(live::contains).toList().forEach(::cancel)
-        postable.forEach { call -> show(call, assistantCalls[call.id], risks[call.id]) }
+        postable.forEach { call ->
+            show(
+                call,
+                assistantCalls[call.id],
+                risks[call.id],
+                latestIncomingTranscript(transcripts[call.id]),
+            )
+        }
     }
 
     fun cancel(callId: String) {
@@ -108,7 +118,7 @@ class CallNotificationCoordinator(private val context: Context) {
     fun silence(calls: List<CallUiState>) {
         calls.filter { it.isRinging }.forEach { call ->
             silenced.add(call.id)
-            show(call, null, null)
+            show(call, null, null, null)
         }
     }
 
@@ -116,11 +126,12 @@ class CallNotificationCoordinator(private val context: Context) {
         call: CallUiState,
         assistantState: AssistantCallUiState?,
         risk: RiskUiState?,
+        latestIncomingTranscript: String?,
     ) {
         try {
             manager?.notify(
                 notificationId(call.id),
-                buildNotification(call, assistantState, risk),
+                buildNotification(call, assistantState, risk, latestIncomingTranscript),
             ) ?: return
             shown.add(call.id)
         } catch (error: RuntimeException) {
@@ -135,6 +146,7 @@ class CallNotificationCoordinator(private val context: Context) {
         call: CallUiState,
         assistantState: AssistantCallUiState?,
         risk: RiskUiState?,
+        latestIncomingTranscript: String?,
     ): Notification {
         val person = Person.Builder().setName(call.displayName).setImportant(true).build()
         val content = PendingIntent.getActivity(
@@ -162,15 +174,29 @@ class CallNotificationCoordinator(private val context: Context) {
             silent -> SILENT_INCOMING_CHANNEL
             else -> INCOMING_CHANNEL
         }
+        val presentation = CallNotificationSemantics.present(
+            ringing = call.isRinging,
+            aiHandling = assistantState?.aiHandling == true,
+            riskHeadline = risk?.label?.headline,
+            latestIncomingTranscript = latestIncomingTranscript,
+        )
         val builder = Notification.Builder(context, channel)
             .setSmallIcon(R.drawable.ic_phone)
             .setContentTitle(call.displayName)
-            .setContentText(notificationText(call, assistantState, risk))
+            .setContentText(presentation.contentText)
             .setContentIntent(content)
             .setCategory(Notification.CATEGORY_CALL)
-            .setVisibility(Notification.VISIBILITY_PUBLIC)
+            .setVisibility(
+                if (presentation.containsPrivateTranscript) {
+                    Notification.VISIBILITY_PRIVATE
+                } else {
+                    Notification.VISIBILITY_PUBLIC
+                },
+            )
             .setOngoing(!call.isRinging)
             .setStyle(style)
+        presentation.subText?.let(builder::setSubText)
+        if (!call.isRinging) builder.setOnlyAlertOnce(true)
         if (!call.isRinging && assistantState?.aiHandling == true) {
             builder.addAction(
                 Notification.Action.Builder(
@@ -201,18 +227,10 @@ class CallNotificationCoordinator(private val context: Context) {
         else -> false
     }
 
-    private fun notificationText(
-        call: CallUiState,
-        assistantState: AssistantCallUiState?,
-        risk: RiskUiState?,
-    ): String = when {
-        call.isRinging -> "Incoming call"
-        assistantState?.aiHandling == true && risk != null ->
-            "AI receptionist · ${risk.label.headline}"
-        assistantState?.aiHandling == true -> "AI receptionist is handling this call"
-        risk != null -> "Ongoing call · ${risk.label.headline}"
-        else -> "Ongoing call"
-    }
+    private fun latestIncomingTranscript(values: List<TranscriptUiState>?): String? =
+        values.orEmpty().asReversed().firstOrNull {
+            it.direction == "downlink" && it.text.isNotBlank()
+        }?.text
 
     private fun actionIntent(callId: String, action: String, salt: Int): PendingIntent =
         PendingIntent.getBroadcast(
@@ -230,6 +248,6 @@ class CallNotificationCoordinator(private val context: Context) {
         const val TAG = "AiosCallNotification"
         const val INCOMING_CHANNEL = "incoming_calls_v1"
         const val SILENT_INCOMING_CHANNEL = "incoming_calls_silent_v1"
-        const val ONGOING_CHANNEL = "ongoing_calls_v1"
+        const val ONGOING_CHANNEL = "ongoing_calls_private_v2"
     }
 }

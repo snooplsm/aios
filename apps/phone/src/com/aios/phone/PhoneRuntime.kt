@@ -82,6 +82,7 @@ object PhoneRuntime {
     private val dtmfStops = mutableMapOf<String, Runnable>()
     private val accountIds = linkedMapOf<PhoneAccountHandle, String>()
     private val accountsById = linkedMapOf<String, PhoneAccountHandle>()
+    private var transcriptNotificationSync: Runnable? = null
     private var telecomService: AiosInCallService? = null
     private var initialized = false
     private val callLogOpChanged = AppOpsManager.OnOpChangedListener { operation, packageName ->
@@ -218,6 +219,7 @@ object PhoneRuntime {
                     it.copy(transcripts = it.transcripts +
                         (callId to current.takeLast(MAX_TRANSCRIPT_SEGMENTS)))
                 }
+                scheduleTranscriptNotificationSync()
             }
 
             override fun onRisk(callId: String, risk: RiskUiState) {
@@ -798,13 +800,26 @@ object PhoneRuntime {
 
     private fun syncNotifications() {
         if (!initialized) return
+        transcriptNotificationSync?.let(main::removeCallbacks)
+        transcriptNotificationSync = null
         val current = mutableState.value
         notifications.sync(
             current.calls,
             current.assistantCalls,
             current.risks,
+            current.transcripts,
             telecomService,
         )
+    }
+
+    private fun scheduleTranscriptNotificationSync() {
+        if (!initialized || transcriptNotificationSync != null) return
+        val task = Runnable {
+            transcriptNotificationSync = null
+            syncNotifications()
+        }
+        transcriptNotificationSync = task
+        main.postDelayed(task, TRANSCRIPT_NOTIFICATION_SYNC_MILLIS)
     }
 
     private inline fun reduce(block: (PhoneUiState) -> PhoneUiState) {
@@ -859,6 +874,7 @@ object PhoneRuntime {
     }
 
     private const val MAX_TRANSCRIPT_SEGMENTS = 40
+    private const val TRANSCRIPT_NOTIFICATION_SYNC_MILLIS = 350L
     private const val EMERGENCY_CALLBACK_WINDOW_MILLIS = 5 * 60 * 1000L
     private const val DTMF_PULSE_MILLIS = 180L
     private const val MAX_RTT_COMPOSER_CHARS = 400

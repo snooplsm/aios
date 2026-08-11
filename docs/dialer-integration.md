@@ -27,6 +27,14 @@ ringing, silenced, and ongoing `Notification.CallStyle` channels; incoming calls
 can present the full-screen in-call UI. The home, in-call, and settings surfaces
 share one UDF store and support system, light, and dark appearance.
 
+The ongoing notification consumes the same bounded transcript UDF state as the
+call screen. It shows the newest incoming partial/final speech as a normalized,
+160-character caller preview, keeps AI/risk state as secondary text, uses a
+private lock-screen channel, and updates with `onlyAlertOnce`. Ringing
+notifications never include transcript text. Phone coalesces partial-ASR
+notification refreshes to a 350 ms cadence while continuing to reduce every
+segment immediately into the Compose state.
+
 RTT uses `Call.RttCall` behind a single serialized worker. The UI receives only
 bounded local and remote text snapshots. It supports RTT-at-dial-time, mid-call
 requests, remote request acceptance, and explicit termination. A failed or

@@ -37,6 +37,10 @@ AI-handled active calls also expose a typed, revisioned handling state. The owne
 can take over from either the in-call surface or its ongoing notification; Call
 Intelligence stops queued and in-flight AI speech while keeping both capture
 directions, live transcription, and advisory risk active.
+The low-priority ongoing call notification carries a bounded live preview of the
+latest incoming speech with AI/risk status beneath it. Transcript previews are
+private lock-screen content, sanitized for control characters, and never appear
+on the ringing notification.
 The production phone sources also build and lint against the Android 16 public
 SDK, and an emulator-only managed-call fixture now verifies the real dialer-role,
 `InCallService`, ringing notification, incoming controls, and a Compose-originated

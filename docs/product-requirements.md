@@ -36,6 +36,14 @@ English/Spanish streaming transcription, spam-risk scoring, receptionist policy,
 and a live non-obtrusive owner surface. Uplink audio is captured and transcribed,
 but may lag behind the incoming stream.
 
+While the call UI is not foregrounded, the low-priority ongoing call
+notification shows a bounded live preview of the latest incoming speech and
+retains AI/risk state as secondary text. Transcript content is private lock-
+screen content, never public notification text, and updates do not alert
+repeatedly. Partial-ASR notification refreshes are coalesced while the in-call
+transcript remains unthrottled. Ringing notifications never contain transcript
+text.
+
 The owner surface presents one of four explicit advisory states: **Likely
 legitimate**, **Still evaluating**, **Suspicious call**, or **High-risk call**.
 It includes a short human explanation, numeric score, and whether the result came

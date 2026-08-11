@@ -1722,6 +1722,14 @@ def validate_aosp_overlay(root: Path) -> None:
     notification_source = (root / "apps" / "phone" / "src" / "com" / "aios" /
                            "phone" / "notifications" /
                            "CallNotificationCoordinator.kt").read_text(encoding="utf-8")
+    notification_semantics = (
+        root / "apps" / "phone" / "src" / "com" / "aios" / "phone" /
+        "notifications" / "CallNotificationSemantics.kt"
+    ).read_text(encoding="utf-8")
+    notification_semantics_test = (
+        root / "apps" / "phone" / "tests" / "src" / "com" / "aios" /
+        "phone" / "notifications" / "CallNotificationSemanticsTest.kt"
+    ).read_text(encoding="utf-8")
     notification_receiver = (root / "apps" / "phone" / "src" / "com" / "aios" /
                              "phone" / "notifications" /
                              "CallActionReceiver.kt").read_text(encoding="utf-8")
@@ -1814,6 +1822,23 @@ def validate_aosp_overlay(root: Path) -> None:
             and 'android:foregroundServiceType="phoneCall"' in phone_manifest
             and "onSilenceRinger" in in_call_service,
             "AIOS Phone must own call channels and foreground ongoing CallStyle notifications")
+    require("current.transcripts" in phone_runtime
+            and "scheduleTranscriptNotificationSync()" in phone_runtime
+            and "TRANSCRIPT_NOTIFICATION_SYNC_MILLIS = 350L" in phone_runtime
+            and "latestIncomingTranscript" in notification_source
+            and "CallNotificationSemantics.present(" in notification_source
+            and "Notification.VISIBILITY_PRIVATE" in notification_source
+            and 'ONGOING_CHANNEL = "ongoing_calls_private_v2"' in notification_source
+            and "setOnlyAlertOnce(true)" in notification_source
+            and "MAX_CONTENT_CHARS = 160" in notification_semantics
+            and "Character.FORMAT" in notification_semantics
+            and "ringingPresentationNeverIncludesTranscript"
+            in notification_semantics_test
+            and "liveCallerTextIsBoundedNormalizedAndMarkedPrivate"
+            in notification_semantics_test
+            and '"src/com/aios/phone/notifications/CallNotificationSemantics.kt"'
+            in phone_build,
+            "live caller notification previews must be bounded, private, non-alerting, and host-tested")
     require("PROXIMITY_SCREEN_OFF_WAKE_LOCK" in proximity_source
             and "TYPE_EARPIECE" in phone_runtime,
             "AIOS Phone must limit the proximity lock to active earpiece calls")
