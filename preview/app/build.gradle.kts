@@ -1,6 +1,23 @@
+import org.gradle.api.tasks.Sync
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose")
+}
+
+val generatedMessaging = layout.buildDirectory.dir("generated/messaging-preview/main")
+
+val stageMessagingPreviewSources by tasks.registering(Sync::class) {
+    from("../../apps/messaging/src/com/aios/messaging/model") {
+        include("**/*.kt")
+    }
+    from("../../apps/messaging/src/com/aios/messaging/ui") {
+        include("MessagingScreens.kt")
+    }
+    from("../../apps/messaging/src/com/aios/messaging/ui/theme") {
+        include("**/*.kt")
+    }
+    into(generatedMessaging)
 }
 
 android {
@@ -22,6 +39,7 @@ android {
                 "../../apps/phone/src/com/aios/phone/model",
                 "../../apps/phone/src/com/aios/phone/ui/screens",
                 "../../apps/phone/src/com/aios/phone/ui/theme",
+                generatedMessaging.get().asFile.absolutePath,
             ))
         }
     }
@@ -34,6 +52,10 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+}
+
+tasks.named("preBuild").configure {
+    dependsOn(stageMessagingPreviewSources)
 }
 
 dependencies {

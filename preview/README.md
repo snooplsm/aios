@@ -170,3 +170,18 @@ the physical caller-uplink gate passes.
 The preview follows the device theme by default and also provides explicit
 Light and Dark selections in Settings. Simulated voicemail never opens a real
 provider URI, and simulated video surfaces never access the camera.
+
+The same harmless APK now exposes the production AIOS Messages Compose screen
+with deterministic inbox, conversation, and cross-app context states:
+
+```powershell
+./scripts/show-messages-preview.ps1 -Scenario inbox -Theme dark
+./scripts/show-messages-preview.ps1 -Scenario conversation -Theme light
+./scripts/show-messages-preview.ps1 -Scenario context-photo -Theme light
+```
+
+`conversation` shows the phone and photo snippets retrieved for one customer;
+`context-photo` also stages a photo and message draft so the MMS composer can be
+designed directly. Calls, role changes, carrier sends, and the Photo Picker are
+simulated inside this preview. The separate Messaging smoke runner remains the
+evidence for production SMS-role, provider, receiver, and composer wiring.
