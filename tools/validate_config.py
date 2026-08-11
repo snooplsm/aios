@@ -799,6 +799,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "apps/phone/tests/src/com/aios/phone/model/AssistantCallContractTest.kt",
         "apps/phone/tests/src/com/aios/phone/model/AssistantPolicySemanticsTest.kt",
         "apps/phone/tests/src/com/aios/phone/model/CallRiskContractTest.kt",
+        "apps/phone/tests/src/com/aios/phone/model/TranscriptTimelineReducerTest.kt",
         "apps/phone/tests/src/com/aios/phone/context/CallEventContractTest.kt",
         "apps/phone/tests/src/com/aios/phone/telecom/CallSelectionPolicyTest.kt",
         "apps/phone/src/com/aios/phone/PhoneRuntime.kt",
@@ -811,6 +812,8 @@ def validate_aosp_overlay(root: Path) -> None:
         "apps/phone/src/com/aios/phone/model/AssistantCallContract.kt",
         "apps/phone/src/com/aios/phone/model/AssistantPolicySemantics.kt",
         "apps/phone/src/com/aios/phone/model/CallRiskContract.kt",
+        "apps/phone/src/com/aios/phone/model/TranscriptUiState.kt",
+        "apps/phone/src/com/aios/phone/model/TranscriptTimelineReducer.kt",
         "apps/phone/src/com/aios/phone/telecom/CallRegistry.kt",
         "apps/phone/src/com/aios/phone/telecom/CallSelectionPolicy.kt",
         "apps/phone/src/com/aios/phone/telecom/AiosInCallService.kt",
@@ -1648,6 +1651,14 @@ def validate_aosp_overlay(root: Path) -> None:
     phone_contract = (root / "apps" / "phone" / "src" / "com" / "aios" /
                       "phone" / "model" / "PhoneContract.kt").read_text(
                           encoding="utf-8")
+    transcript_reducer = (
+        root / "apps" / "phone" / "src" / "com" / "aios" / "phone" /
+        "model" / "TranscriptTimelineReducer.kt"
+    ).read_text(encoding="utf-8")
+    transcript_reducer_test = (
+        root / "apps" / "phone" / "tests" / "src" / "com" / "aios" /
+        "phone" / "model" / "TranscriptTimelineReducerTest.kt"
+    ).read_text(encoding="utf-8")
     call_risk_contract = (root / "apps" / "phone" / "src" / "com" / "aios" /
                           "phone" / "model" / "CallRiskContract.kt").read_text(
                               encoding="utf-8")
@@ -1840,6 +1851,19 @@ def validate_aosp_overlay(root: Path) -> None:
             and "onSilenceRinger" in in_call_service,
             "AIOS Phone must own call channels and foreground ongoing CallStyle notifications")
     require("current.transcripts" in phone_runtime
+            and "TranscriptTimelineReducer.reduce(" in phone_runtime
+            and "current.lastOrNull()" not in phone_runtime
+            and 'it.direction == candidate.direction' in transcript_reducer
+            and "!it.isFinal" in transcript_reducer
+            and "updated[openTurn] = candidate" in transcript_reducer
+            and "interleavedDirectionsReplaceOnlyTheirOwnOpenTurn"
+            in transcript_reducer_test
+            and "interleavedFinalReplacesPartialWithoutDuplicatingWords"
+            in transcript_reducer_test
+            and '"src/com/aios/phone/model/TranscriptUiState.kt"'
+            in phone_build
+            and '"src/com/aios/phone/model/TranscriptTimelineReducer.kt"'
+            in phone_build
             and "scheduleTranscriptNotificationSync()" in phone_runtime
             and "TRANSCRIPT_NOTIFICATION_SYNC_MILLIS = 350L" in phone_runtime
             and "latestIncomingTranscript" in notification_source

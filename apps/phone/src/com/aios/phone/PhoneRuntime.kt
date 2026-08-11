@@ -39,6 +39,7 @@ import com.aios.phone.model.RiskUiState
 import com.aios.phone.model.RttUiState
 import com.aios.phone.model.ThemePreference
 import com.aios.phone.model.TranscriptUiState
+import com.aios.phone.model.TranscriptTimelineReducer
 import com.aios.phone.model.VoicemailPlaybackState
 import com.aios.phone.notifications.CallNotificationCoordinator
 import com.aios.phone.telecom.AiosInCallService
@@ -208,16 +209,14 @@ object PhoneRuntime {
             }
 
             override fun onTranscript(callId: String, segment: TranscriptUiState) {
-                val current = mutableState.value.transcripts[callId].orEmpty().toMutableList()
-                val last = current.lastOrNull()
-                if (last != null && !last.isFinal && last.direction == segment.direction) {
-                    current[current.lastIndex] = segment
-                } else {
-                    current.add(segment)
-                }
+                val current = TranscriptTimelineReducer.reduce(
+                    mutableState.value.transcripts[callId].orEmpty(),
+                    segment,
+                    MAX_TRANSCRIPT_SEGMENTS,
+                )
                 reduce {
                     it.copy(transcripts = it.transcripts +
-                        (callId to current.takeLast(MAX_TRANSCRIPT_SEGMENTS)))
+                        (callId to current))
                 }
                 scheduleTranscriptNotificationSync()
             }

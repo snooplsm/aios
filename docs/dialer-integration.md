@@ -33,7 +33,10 @@ call screen. It shows the newest incoming partial/final speech as a normalized,
 private lock-screen channel, and updates with `onlyAlertOnce`. Ringing
 notifications never include transcript text. Phone coalesces partial-ASR
 notification refreshes to a 350 ms cadence while continuing to reduce every
-segment immediately into the Compose state.
+segment immediately into the Compose state. Downlink and uplink each own one
+replaceable provisional row, so a cumulative caller revision still replaces its
+turn when an owner-speech callback arrived between the two caller callbacks. A
+final revision replaces that same row; the next turn appends a new bounded row.
 
 RTT uses `Call.RttCall` behind a single serialized worker. The UI receives only
 bounded local and remote text snapshots. It supports RTT-at-dial-time, mid-call

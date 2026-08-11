@@ -35,6 +35,8 @@ java_test_host {
         "src/com/aios/phone/model/AssistantCallContract.kt",
         "src/com/aios/phone/model/AssistantPolicySemantics.kt",
         "src/com/aios/phone/model/CallRiskContract.kt",
+        "src/com/aios/phone/model/TranscriptUiState.kt",
+        "src/com/aios/phone/model/TranscriptTimelineReducer.kt",
         "src/com/aios/phone/notifications/CallNotificationSemantics.kt",
         "src/com/aios/phone/intelligence/PhoneServiceRebindPolicy.kt",
         "src/com/aios/phone/intelligence/ServiceGenerationRevisionGate.kt",

@@ -154,14 +154,6 @@ data class PhoneAccountUiState(
     val label: String,
 )
 
-data class TranscriptUiState(
-    val direction: String,
-    val language: String,
-    val text: String,
-    val isFinal: Boolean,
-    val startMillis: Long,
-)
-
 data class RiskUiState(
     val score: Int,
     val label: CallRiskLabel,
