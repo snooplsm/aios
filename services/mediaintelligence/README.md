@@ -30,6 +30,13 @@ new install or MediaProvider database rebuild baselines the current generation
 instead of importing the owner's historical library. A pending camera write is
 never crossed, and a queue insertion must be durable before the cursor advances.
 
+Startup first establishes only missing or invalid volume baselines, without
+enqueueing historical media. It then registers every MediaStore observer and
+waits the same five-second settlement window as a live notification before full
+recovery. A camera event during that window restarts the delay, so process death
+or reboot cannot turn the first frame of an active burst into an immediate
+isolated-photo job.
+
 The encrypted index follows source lifetime. Exact delete or trash notifications
 remove all generations of that canonical media URI. A 128-row, per-volume liveness
 sweep runs after service restart and advances in bounded pages; an unmounted or

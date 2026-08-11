@@ -103,11 +103,12 @@ public final class MediaObserverService extends Service {
 
     private void initializeObservation() {
         if (shuttingDown) return;
-        // Scan before registration and once again after it. This closes the
-        // startup window without treating the pre-install library as new work.
-        scheduleScanResult(MediaGenerationScanner.reconcile(this, store));
+        // Baseline historical media before registration without enqueueing it.
+        // Then observe every later insertion and give an already-running camera
+        // session the same settlement window as a live notification.
+        MediaGenerationScanner.establishBaselines(this, store);
         registerObservedVolumes();
-        requestReconcile(0L);
+        requestReconcile(MediaCaptureGrouping.CAPTURE_SESSION_GAP_MILLIS);
         startFullLivenessSweep();
     }
 

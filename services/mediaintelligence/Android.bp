@@ -53,6 +53,7 @@ java_test_host {
     srcs: [
         "src/com/aios/mediaintelligence/JpegXmpInjector.java",
         "src/com/aios/mediaintelligence/PngXmpInjector.java",
+        "src/com/aios/mediaintelligence/MediaGenerationBaselinePolicy.java",
         "src/com/aios/mediaintelligence/MediaGenerationReconciler.java",
         "src/com/aios/mediaintelligence/MediaCaptureGrouping.java",
         "src/com/aios/mediaintelligence/MediaInputPolicy.java",

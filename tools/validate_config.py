@@ -1186,6 +1186,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/mediaintelligence/src/com/aios/mediaintelligence/MediaContextAssociationService.java",
         "services/mediaintelligence/src/com/aios/mediaintelligence/MediaContextProjection.java",
         "services/mediaintelligence/src/com/aios/mediaintelligence/MediaObserverService.java",
+        "services/mediaintelligence/src/com/aios/mediaintelligence/MediaGenerationBaselinePolicy.java",
         "services/mediaintelligence/src/com/aios/mediaintelligence/MediaGenerationReconciler.java",
         "services/mediaintelligence/src/com/aios/mediaintelligence/MediaGenerationScanner.java",
         "services/mediaintelligence/src/com/aios/mediaintelligence/MediaLivenessReconciler.java",
@@ -1231,6 +1232,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/mediaintelligence/tests/src/com/aios/mediaintelligence/VideoExportRecoveryPolicyTest.java",
         "services/mediaintelligence/tests/src/com/aios/mediaintelligence/MediaTimingTest.java",
         "services/mediaintelligence/tests/src/com/aios/mediaintelligence/MediaGenerationReconcilerTest.java",
+        "services/mediaintelligence/tests/src/com/aios/mediaintelligence/MediaGenerationBaselinePolicyTest.java",
         "services/mediaintelligence/tests/src/com/aios/mediaintelligence/MediaLivenessReconcilerTest.java",
         "services/mediaintelligence/tests/src/com/aios/mediaintelligence/MediaAssociationPolicyTest.java",
         "permissions/default-permissions-aios.xml",
@@ -4426,6 +4428,20 @@ def validate_aosp_overlay(root: Path) -> None:
             and "MediaGenerationScanner.reconcile" in observer_source
             and "registerObservedVolumes" in observer_source,
             "media observer must reconcile missed additions across startup registration")
+    baseline_position = observer_source.find(
+        "MediaGenerationScanner.establishBaselines(this, store);")
+    registration_position = observer_source.find(
+        "registerObservedVolumes();", baseline_position + 1)
+    settlement_position = observer_source.find(
+        "requestReconcile(MediaCaptureGrouping.CAPTURE_SESSION_GAP_MILLIS);",
+        registration_position + 1)
+    require(0 <= baseline_position < registration_position < settlement_position
+            and observer_source.count(
+                "requestReconcile(MediaCaptureGrouping.CAPTURE_SESSION_GAP_MILLIS)")
+            == 2
+            and "scheduleScanResult(MediaGenerationScanner.reconcile(this, store))"
+            not in observer_source,
+            "startup must baseline, register, then share the live burst settlement window")
 
     generation_scanner = (media_source_root / "MediaGenerationScanner.java").read_text(
         encoding="utf-8"
@@ -4437,6 +4453,13 @@ def validate_aosp_overlay(root: Path) -> None:
         root / "services" / "mediaintelligence" / "tests" / "src" / "com" /
         "aios" / "mediaintelligence" / "MediaGenerationReconcilerTest.java"
     ).read_text(encoding="utf-8")
+    baseline_policy = (
+        media_source_root / "MediaGenerationBaselinePolicy.java"
+    ).read_text(encoding="utf-8")
+    baseline_policy_test = (
+        root / "services" / "mediaintelligence" / "tests" / "src" / "com" /
+        "aios" / "mediaintelligence" / "MediaGenerationBaselinePolicyTest.java"
+    ).read_text(encoding="utf-8")
     require("MediaStore.getExternalVolumeNames" in generation_scanner
             and "MediaStore.getVersion" in generation_scanner
             and "MediaStore.getGeneration" in generation_scanner
@@ -4447,6 +4470,16 @@ def validate_aosp_overlay(root: Path) -> None:
             and "shouldSuppressOwnMutation" in generation_scanner
             and "MAX_ROWS_PER_VOLUME = 512" in generation_scanner,
             "media recovery must use bounded settled, non-trashed generation scans")
+    require("static void establishBaselines" in generation_scanner
+            and "MediaGenerationBaselinePolicy.requiresBaseline"
+            in generation_scanner
+            and "currentGeneration < storedGeneration" in baseline_policy
+            and "firstInstallEstablishesBaseline" in baseline_policy_test
+            and "providerIdentityChangeEstablishesBaseline" in baseline_policy_test
+            and "providerGenerationRegressionEstablishesBaseline"
+            in baseline_policy_test
+            and "matchingCursorPreservesRecoveryWork" in baseline_policy_test,
+            "media startup baseline policy must preserve valid recovery cursors")
     require("MediaCaptureGrouping.classify(" in generation_scanner
             and "plan.more || plan.blockedByPendingItem" in generation_scanner
             and "state.mediaId != MediaGenerationReconciler.END_OF_GENERATION"

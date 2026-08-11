@@ -257,6 +257,13 @@ succeed durably before the cursor moves. The system Photo Picker is used only
 when the owner selects a Messaging attachment; it is not part of capture
 discovery or model scheduling.
 
+After process restart or boot, a baseline-only pass initializes missing or
+invalid volume cursors without enqueueing historical media. Observers are then
+registered before full recovery, whose first scan waits the same five-second
+capture-settlement window as a live notification. Camera events during that
+window restart the delay. The durable generation cursor closes the registration
+race without prematurely classifying an in-progress burst as an isolated photo.
+
 Index retention follows MediaStore source lifetime. Exact item deletion or trash
 removes every queued/indexed generation of that URI. Only `GENERATION_ADDED`
 creates inference work, so favorite and unrelated metadata mutations do not

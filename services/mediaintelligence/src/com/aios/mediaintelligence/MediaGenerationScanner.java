@@ -21,6 +21,22 @@ final class MediaGenerationScanner {
 
     private MediaGenerationScanner() {}
 
+    /** Establishes only missing/invalid volume cursors; never enqueues media. */
+    static void establishBaselines(Context context, MediaJobStore store) {
+        for (String volumeName : externalVolumes(context)) {
+            try {
+                String version = MediaStore.getVersion(context, volumeName);
+                long currentGeneration = MediaStore.getGeneration(context, volumeName);
+                establishBaselineIfRequired(
+                        context, store, volumeName, version, currentGeneration,
+                        store.scanState(volumeName));
+            } catch (RuntimeException error) {
+                // The delayed full reconciliation retries inaccessible volumes.
+                Log.w(TAG, "cannot establish MediaStore volume baseline", error);
+            }
+        }
+    }
+
     static ScanResult reconcile(Context context, MediaJobStore store) {
         boolean immediate = false;
         boolean deferred = false;
@@ -56,19 +72,8 @@ final class MediaGenerationScanner {
         String version = MediaStore.getVersion(context, volumeName);
         long currentGeneration = MediaStore.getGeneration(context, volumeName);
         MediaJobStore.ScanState state = store.scanState(volumeName);
-        if (state == null || !version.equals(state.mediaStoreVersion)
-                || currentGeneration < state.generation) {
-            // Installing AIOS or a provider-database rebuild must not enqueue the
-            // owner's entire historical library. An existing cursor whose
-            // provider identity changed cannot safely retain URI-keyed results.
-            if (state != null && store.purgeVolume(volumeName)) {
-                MediaContextAssociationService.requestReconcile(context);
-            }
-            store.writeScanState(
-                    volumeName,
-                    version,
-                    currentGeneration,
-                    MediaGenerationReconciler.END_OF_GENERATION);
+        if (establishBaselineIfRequired(
+                context, store, volumeName, version, currentGeneration, state)) {
             return VolumeResult.EMPTY;
         }
 
@@ -112,6 +117,35 @@ final class MediaGenerationScanner {
         store.writeScanState(
                 volumeName, version, plan.next.generation, plan.next.mediaId);
         return new VolumeResult(immediate, deferred, plan.more);
+    }
+
+    private static boolean establishBaselineIfRequired(
+            Context context,
+            MediaJobStore store,
+            String volumeName,
+            String version,
+            long currentGeneration,
+            MediaJobStore.ScanState state) {
+        if (!MediaGenerationBaselinePolicy.requiresBaseline(
+                version,
+                currentGeneration,
+                state != null,
+                state == null ? null : state.mediaStoreVersion,
+                state == null ? 0L : state.generation)) {
+            return false;
+        }
+        // Installing AIOS or a provider-database rebuild must not enqueue the
+        // owner's entire historical library. An existing cursor whose provider
+        // identity changed cannot safely retain URI-keyed results.
+        if (state != null && store.purgeVolume(volumeName)) {
+            MediaContextAssociationService.requestReconcile(context);
+        }
+        store.writeScanState(
+                volumeName,
+                version,
+                currentGeneration,
+                MediaGenerationReconciler.END_OF_GENERATION);
+        return true;
     }
 
     private static ArrayList<MediaGenerationReconciler.Row> queryRows(
