@@ -920,6 +920,8 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/modelbroker/src/com/aios/modelbroker/BrokerState.java",
         "services/modelbroker/src/com/aios/modelbroker/PolicyFileReader.java",
         "services/modelbroker/src/com/aios/modelbroker/RuntimeCandidatePolicy.java",
+        "services/modelbroker/src/com/aios/modelbroker/RuntimePressurePolicy.java",
+        "services/modelbroker/src/com/aios/modelbroker/MemoryTrimPolicy.java",
         "services/modelbroker/src/com/aios/modelbroker/RuntimeAdapter.java",
         "services/modelbroker/src/com/aios/modelbroker/RemoteRuntimeAdapter.java",
         "services/modelbroker/src/com/aios/modelbroker/RuntimeRebindPolicy.java",
@@ -940,6 +942,8 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/modelbroker/tests/src/com/aios/modelbroker/PolicyFileReaderTest.java",
         "services/modelbroker/tests/src/com/aios/modelbroker/CatalogTierPlannerTest.java",
         "services/modelbroker/tests/src/com/aios/modelbroker/RuntimeCandidatePolicyTest.java",
+        "services/modelbroker/tests/src/com/aios/modelbroker/RuntimePressurePolicyTest.java",
+        "services/modelbroker/tests/src/com/aios/modelbroker/MemoryTrimPolicyTest.java",
         "services/modelbroker/tests/src/com/aios/modelbroker/RuntimeRebindPolicyTest.java",
         "tools/generate_model_pack.py",
         "tools/generate_model_admission.py",
@@ -2224,8 +2228,13 @@ def validate_aosp_overlay(root: Path) -> None:
     require("ERROR_DEADLINE_EXCEEDED" in service,
             "model broker must expose a distinct session-deadline failure")
     require("onTrimMemory" in service
-            and "sessions.onMemoryPressure()" in service,
-            "model broker must preempt background work under Android memory pressure")
+            and "MemoryTrimPolicy.shouldPreemptBackground(level)" in service
+            and "sessions.onMemoryPressure()" in service
+            and "level >= TRIM_MEMORY_RUNNING_LOW" not in service,
+            "model broker must interpret Android trim families without treating UI-hidden as pressure")
+    require("BrokerState.ResourcePressureException" in service
+            and "ERROR_BUSY" in service,
+            "transient broker resource pressure must return a retryable busy error")
     require("token.linkToDeath" in service
             and "callActivityLeases.removeDead(token)" in service
             and "state.setCallActive(active)" in service
@@ -2303,6 +2312,10 @@ def validate_aosp_overlay(root: Path) -> None:
             and '"src/com/aios/modelbroker/PolicyFileReader.java"' in broker_host_test
             and '"src/com/aios/modelbroker/RuntimeCandidatePolicy.java"'
             in broker_host_test
+            and '"src/com/aios/modelbroker/RuntimePressurePolicy.java"'
+            in broker_host_test
+            and '"src/com/aios/modelbroker/MemoryTrimPolicy.java"'
+            in broker_host_test
             and '"src/com/aios/modelbroker/SessionChunkPolicy.java"'
             in broker_host_test
             and '"src/com/aios/modelbroker/SessionDeadlinePolicy.java"'
@@ -2366,6 +2379,20 @@ def validate_aosp_overlay(root: Path) -> None:
         root / "services" / "modelbroker" / "tests" / "src" / "com" / "aios" /
         "modelbroker" / "RuntimeCandidatePolicyTest.java"
     ).read_text(encoding="utf-8")
+    runtime_pressure_policy = (
+        broker_source_root / "RuntimePressurePolicy.java"
+    ).read_text(encoding="utf-8")
+    runtime_pressure_test = (
+        root / "services" / "modelbroker" / "tests" / "src" / "com" / "aios" /
+        "modelbroker" / "RuntimePressurePolicyTest.java"
+    ).read_text(encoding="utf-8")
+    memory_trim_policy = (
+        broker_source_root / "MemoryTrimPolicy.java"
+    ).read_text(encoding="utf-8")
+    memory_trim_test = (
+        root / "services" / "modelbroker" / "tests" / "src" / "com" / "aios" /
+        "modelbroker" / "MemoryTrimPolicyTest.java"
+    ).read_text(encoding="utf-8")
     runtime_activation_state = (
         broker_source_root / "RuntimeActivationState.java"
     ).read_text(encoding="utf-8")
@@ -2401,6 +2428,23 @@ def validate_aosp_overlay(root: Path) -> None:
             in runtime_activation_test
             and "unresolvedAttemptCannotBeSkipped" in runtime_activation_test,
             "broker must honor fallback opt-in through race-safe ordered activation")
+    require("ActivityManager.MemoryInfo" in broker_state
+            and "memory.lowMemory" in broker_state
+            and "powerManager.getCurrentThermalStatus()" in broker_state
+            and "RuntimePressurePolicy.order" in broker_state
+            and "Decision.BLOCK_BACKGROUND" in broker_state
+            and "PREFER_LOWER_MEMORY" in runtime_pressure_policy
+            and "estimatedResidentMb" in runtime_pressure_policy
+            and "constrainedCallPrefersLowerMeasuredResidentMemory"
+            in runtime_pressure_test
+            and "constrainedOrUnmeasurableBackgroundWorkIsBlocked"
+            in runtime_pressure_test
+            and "level == RUNNING_LOW" in memory_trim_policy
+            and "level == RUNNING_CRITICAL" in memory_trim_policy
+            and "level >= BACKGROUND" in memory_trim_policy
+            and "uiHiddenIsNotMistakenForIncreasingMemorySeverity"
+            in memory_trim_test,
+            "new requests must use fail-closed live pressure policy with exact trim semantics")
     admission_source = (broker_source_root / "DeviceModelAdmission.java").read_text(
         encoding="utf-8"
     )
@@ -2447,6 +2491,8 @@ def validate_aosp_overlay(root: Path) -> None:
         encoding="utf-8")
     catalog_policy = (broker_source_root / "CatalogPolicy.java").read_text(
         encoding="utf-8")
+    verified_artifact = (broker_source_root / "VerifiedArtifact.java").read_text(
+        encoding="utf-8")
     catalog_tier_planner = (broker_source_root / "CatalogTierPlanner.java").read_text(
         encoding="utf-8")
     catalog_tier_planner_test = (
@@ -2455,6 +2501,9 @@ def validate_aosp_overlay(root: Path) -> None:
     ).read_text(encoding="utf-8")
     require("CatalogTierPlanner.candidates" in catalog_policy
             and 'value.has("fallback_tier")' in catalog_policy
+            and 'value.getLong("estimated_resident_mb")' in catalog_policy
+            and "withEstimatedResidentMb" in catalog_policy
+            and "estimatedResidentMb" in verified_artifact
             and "fallback.minTotalRamMb >= current.minTotalRamMb"
             in catalog_tier_planner
             and "highestEligibleTierPrecedesDeduplicatedFallbacks"

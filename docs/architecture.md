@@ -150,6 +150,9 @@ The Model Broker is a signature-protected Binder service. It:
   device-specific, evidence-backed artifact admission;
 - owns model mappings so apps cannot copy raw weights;
 - enforces one foreground real-time lease and bounded background leases;
+- samples current Android low-memory and thermal state before each new session,
+  preferring a smaller admitted fallback for calls and returning retryable busy
+  for background media when constrained or unmeasurable;
 - isolates every native runtime behind a verified service binding, fails active
   sessions on provider loss, and explicitly replaces terminal/null bindings
   with bounded backoff and a connection watchdog;
@@ -183,6 +186,9 @@ or delayed callback from a rejected provider cannot terminate the accepted
 fallback session. Call ASR, classification, receptionist dialogue, and deferred
 media opt in for continuity. Benchmark requests and speech synthesis remain
 exact so their evidence and PCM contract cannot silently change artifacts.
+Pressure changes do not migrate a running session. Catalog resident-memory
+estimates only reorder an opted-in, already admitted fallback chain; they do not
+act as a fixed memory limit or authorize an artifact.
 
 ### Media Intelligence service
 

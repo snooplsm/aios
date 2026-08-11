@@ -88,6 +88,9 @@ public final class ModelBrokerService extends Service {
                 }
                 return sessions.create(
                         Binder.getCallingUid(), client, candidates, request, callback);
+            } catch (BrokerState.ResourcePressureException error) {
+                notifyError(callback, ERROR_BUSY, error.getMessage());
+                return -1L;
             } catch (IllegalArgumentException error) {
                 notifyError(callback, ERROR_INVALID_REQUEST, error.getMessage());
                 return -1L;
@@ -157,7 +160,7 @@ public final class ModelBrokerService extends Service {
     @Override
     public void onTrimMemory(int level) {
         super.onTrimMemory(level);
-        if (level >= TRIM_MEMORY_RUNNING_LOW && sessions != null) {
+        if (MemoryTrimPolicy.shouldPreemptBackground(level) && sessions != null) {
             sessions.onMemoryPressure();
         }
     }

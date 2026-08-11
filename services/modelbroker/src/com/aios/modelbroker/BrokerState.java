@@ -3,6 +3,7 @@ package com.aios.modelbroker;
 import android.app.ActivityManager;
 import android.content.Context;
 import android.os.Build;
+import android.os.PowerManager;
 import android.os.SystemClock;
 import android.util.Log;
 
@@ -24,15 +25,27 @@ final class BrokerState {
     private final AuthorizedClientPolicy clients;
     private final Map<String, VerifiedArtifact> selectedArtifacts;
     private final RuntimeRegistry runtimes;
+    private final ActivityManager activityManager;
+    private final PowerManager powerManager;
     private volatile boolean callActive;
+
+    static final class ResourcePressureException extends IllegalStateException {
+        ResourcePressureException(String message) {
+            super(message);
+        }
+    }
 
     private BrokerState(
             AuthorizedClientPolicy clients,
             Map<String, VerifiedArtifact> selectedArtifacts,
-            RuntimeRegistry runtimes) {
+            RuntimeRegistry runtimes,
+            ActivityManager activityManager,
+            PowerManager powerManager) {
         this.clients = clients;
         this.selectedArtifacts = selectedArtifacts;
         this.runtimes = runtimes;
+        this.activityManager = activityManager;
+        this.powerManager = powerManager;
     }
 
     static BrokerState load(Context context) {
@@ -72,7 +85,12 @@ final class BrokerState {
             clients = AuthorizedClientPolicy.denyAll(context);
             selected = Map.of();
         }
-        return new BrokerState(clients, selected, runtimes);
+        return new BrokerState(
+                clients,
+                selected,
+                runtimes,
+                context.getSystemService(ActivityManager.class),
+                context.getSystemService(PowerManager.class));
     }
 
     AuthorizedClientPolicy.Rule requireClient(int uid) {
@@ -129,10 +147,16 @@ final class BrokerState {
                 request.capability,
                 request.language,
                 request.allowFallback);
-        if (!candidates.isEmpty()) {
-            return candidates;
+        if (candidates.isEmpty()) {
+            throw new IllegalArgumentException("no selected artifact supports the request");
         }
-        throw new IllegalArgumentException("no selected artifact supports the request");
+        WorkClass workClass = WorkClass.fromAuthorizedWorkload(request.workload);
+        RuntimePressurePolicy.Decision pressure = currentPressure(workClass);
+        if (pressure == RuntimePressurePolicy.Decision.BLOCK_BACKGROUND) {
+            throw new ResourcePressureException(
+                    "background inference is paused for system pressure");
+        }
+        return RuntimePressurePolicy.order(candidates, pressure);
     }
 
     boolean runtimeAvailable(VerifiedArtifact artifact) {
@@ -155,6 +179,31 @@ final class BrokerState {
 
     void setCallActive(boolean active) {
         callActive = active;
+    }
+
+    private RuntimePressurePolicy.Decision currentPressure(WorkClass workClass) {
+        boolean memoryStateKnown = false;
+        boolean lowMemory = true;
+        if (activityManager != null) {
+            try {
+                ActivityManager.MemoryInfo memory = new ActivityManager.MemoryInfo();
+                activityManager.getMemoryInfo(memory);
+                memoryStateKnown = true;
+                lowMemory = memory.lowMemory;
+            } catch (RuntimeException error) {
+                Log.w(TAG, "cannot read current memory pressure", error);
+            }
+        }
+        int thermalStatus = RuntimePressurePolicy.THERMAL_STATUS_UNKNOWN;
+        if (powerManager != null) {
+            try {
+                thermalStatus = powerManager.getCurrentThermalStatus();
+            } catch (RuntimeException error) {
+                Log.w(TAG, "cannot read current thermal pressure", error);
+            }
+        }
+        return RuntimePressurePolicy.decide(
+                workClass, memoryStateKnown, lowMemory, thermalStatus);
     }
 
     private static long totalRamMb(Context context) {

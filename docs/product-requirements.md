@@ -214,7 +214,12 @@ directly.
 
 The broker chooses a model using measured memory, supported acceleration
 backends, thermal state, current workload, and the model catalog. Call inference
-always preempts background media inference.
+always preempts background media inference. Each new request must sample current
+Android memory and thermal pressure. Under pressure, an opted-in call request
+prefers the lowest-resident-memory admitted fallback, while background media
+receives a retryable busy result. Missing pressure telemetry fails closed;
+existing call sessions are not migrated, and resident-memory estimates do not
+create a fixed product RAM limit.
 
 ## Prototype release posture
 

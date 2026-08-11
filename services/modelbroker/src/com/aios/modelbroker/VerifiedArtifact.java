@@ -11,6 +11,7 @@ final class VerifiedArtifact {
     final long sizeBytes;
     final String runtime;
     final String backend;
+    final long estimatedResidentMb;
     final List<String> capabilities;
     final List<String> languages;
 
@@ -23,13 +24,37 @@ final class VerifiedArtifact {
             String backend,
             List<String> capabilities,
             List<String> languages) {
+        this(modelId, file, sha256, sizeBytes, runtime, backend,
+                capabilities, languages, Long.MAX_VALUE);
+    }
+
+    VerifiedArtifact(
+            String modelId,
+            File file,
+            String sha256,
+            long sizeBytes,
+            String runtime,
+            String backend,
+            List<String> capabilities,
+            List<String> languages,
+            long estimatedResidentMb) {
+        if (estimatedResidentMb <= 0L) {
+            throw new IllegalArgumentException("resident-memory estimate must be positive");
+        }
         this.modelId = modelId;
         this.file = file;
         this.sha256 = sha256;
         this.sizeBytes = sizeBytes;
         this.runtime = runtime;
         this.backend = backend;
+        this.estimatedResidentMb = estimatedResidentMb;
         this.capabilities = List.copyOf(capabilities);
         this.languages = List.copyOf(languages);
+    }
+
+    VerifiedArtifact withEstimatedResidentMb(long value) {
+        return new VerifiedArtifact(
+                modelId, file, sha256, sizeBytes, runtime, backend,
+                capabilities, languages, value);
     }
 }

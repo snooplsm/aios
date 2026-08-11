@@ -98,6 +98,26 @@ served by a ready runtime/backend combination.
 A fallback artifact receives no trust from the preferred model's result: every
 backend/digest combination must have its own passing evidence.
 
+## Request-time pressure policy
+
+Startup RAM tiering and device admission define the exact artifacts that may be
+used; transient pressure never admits a different model. Before every new
+session, Model Broker samples Android's current low-memory flag and thermal
+status. A healthy device preserves the benchmarked quality order. Under low
+memory or severe thermal pressure, call requests that opted into fallback
+stable-sort their admitted candidates by the catalog's resident-memory estimate.
+An exact request (`allowFallback=false`) remains bound to its selected artifact,
+and an already-running call session is never migrated between models.
+
+New background-media sessions return a retryable busy result while either
+signal is constrained. They also fail closed when a pressure signal cannot be
+read, while call work prefers the smallest admitted candidate so incoming audio
+can continue. Resident-memory estimates are used only for relative ordering;
+they are not a fixed RAM cap. Android trim callbacks preempt background media at
+the `RUNNING_LOW`, `RUNNING_CRITICAL`, and legacy background-or-stronger levels.
+`UI_HIDDEN` is intentionally not treated as memory pressure because Android's
+trim-level families are not one monotonic severity scale.
+
 ## Sources
 
 - Gemma 4 model card and license:

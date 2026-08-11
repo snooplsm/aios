@@ -24,18 +24,24 @@ final class CatalogPolicy {
         final Set<String> allowedBackends;
         final Set<String> capabilities;
         final Set<String> languages;
+        final long estimatedResidentMb;
 
         Model(
                 String id,
                 String runtime,
                 Set<String> allowedBackends,
                 Set<String> capabilities,
-                Set<String> languages) {
+                Set<String> languages,
+                long estimatedResidentMb) {
             this.id = id;
             this.runtime = runtime;
             this.allowedBackends = Set.copyOf(allowedBackends);
             this.capabilities = Set.copyOf(capabilities);
             this.languages = Set.copyOf(languages);
+            if (estimatedResidentMb <= 0L) {
+                throw new IllegalArgumentException("invalid resident-memory estimate");
+            }
+            this.estimatedResidentMb = estimatedResidentMb;
         }
     }
 
@@ -66,12 +72,17 @@ final class CatalogPolicy {
             JSONArray modelValues = root.getJSONArray("models");
             for (int index = 0; index < modelValues.length(); index++) {
                 JSONObject value = modelValues.getJSONObject(index);
+                long estimatedResidentMb = value.getLong("estimated_resident_mb");
+                if (estimatedResidentMb <= 0L) {
+                    throw new IOException("invalid resident-memory estimate");
+                }
                 Model model = new Model(
                         value.getString("id"),
                         value.getString("runtime"),
                         strings(value.getJSONArray("allowed_backends")),
                         strings(value.getJSONArray("capabilities")),
-                        strings(value.getJSONArray("languages")));
+                        strings(value.getJSONArray("languages")),
+                        estimatedResidentMb);
                 if (models.put(model.id, model) != null) {
                     throw new IOException("duplicate catalog model: " + model.id);
                 }
@@ -117,7 +128,8 @@ final class CatalogPolicy {
                     || !expected.languages.equals(new HashSet<>(artifact.languages))) {
                 continue;
             }
-            result.put(modelId, artifact);
+            result.put(modelId, artifact.withEstimatedResidentMb(
+                    expected.estimatedResidentMb));
         }
         return Collections.unmodifiableMap(result);
     }
