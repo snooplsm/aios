@@ -95,6 +95,14 @@ synchronously persisted the carrier-completed association. Media association
 completion and deletion are idempotent, so replay cannot create a second context
 source.
 
+The live Messaging-to-Media Binder client also keeps an insertion-ordered,
+keyed queue capped at 128 operations. It replaces failed, null, terminal, and
+stalled bindings with bounded backoff, retries a `RemoteException` without
+acknowledging the MMS journal, and rejects completion from a superseded queued
+generation. Cancel supersedes pending stage/complete work for the same token;
+clear supersedes queued per-source deletes. This closes the service-restart gap
+without resending the carrier MMS or duplicating a context source.
+
 This policy chooses a visible failed message over a possible duplicate send. It
 does not claim exactly-once delivery from the carrier network.
 

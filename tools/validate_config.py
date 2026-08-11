@@ -828,6 +828,8 @@ def validate_aosp_overlay(root: Path) -> None:
         "apps/messaging/src/com/aios/messaging/model/SubscriptionSelectionPolicy.kt",
         "apps/messaging/src/com/aios/messaging/data/MessagingRepository.kt",
         "apps/messaging/src/com/aios/messaging/context/CommunicationContextClient.kt",
+        "apps/messaging/src/com/aios/messaging/context/AssociationServiceRebindPolicy.kt",
+        "apps/messaging/src/com/aios/messaging/context/LatestOperationQueue.kt",
         "apps/messaging/src/com/aios/messaging/context/MediaContextAssociationClient.kt",
         "apps/messaging/src/com/aios/messaging/context/MessageContextLedger.kt",
         "apps/messaging/src/com/aios/messaging/context/MessageContextLifecycleReceiver.kt",
@@ -851,6 +853,8 @@ def validate_aosp_overlay(root: Path) -> None:
         "apps/messaging/tests/src/com/aios/messaging/model/MessagePolicyTest.kt",
         "apps/messaging/tests/src/com/aios/messaging/model/SubscriptionSelectionPolicyTest.kt",
         "apps/messaging/tests/src/com/aios/messaging/context/MessageContextPolicyTest.kt",
+        "apps/messaging/tests/src/com/aios/messaging/context/AssociationServiceRebindPolicyTest.kt",
+        "apps/messaging/tests/src/com/aios/messaging/context/LatestOperationQueueTest.kt",
         "apps/messaging/tests/src/com/aios/messaging/mms/MmsOperationPolicyTest.kt",
         "patches/0002-framework-mms-aios-visibility.patch",
         "docs/mms-transport.md",
@@ -1331,6 +1335,22 @@ def validate_aosp_overlay(root: Path) -> None:
     media_context_client = (messaging_root / "src" / "com" / "aios" / "messaging" /
                             "context" / "MediaContextAssociationClient.kt").read_text(
                                 encoding="utf-8")
+    association_rebind_policy = (
+        messaging_root / "src" / "com" / "aios" / "messaging" / "context" /
+        "AssociationServiceRebindPolicy.kt"
+    ).read_text(encoding="utf-8")
+    association_rebind_test = (
+        messaging_root / "tests" / "src" / "com" / "aios" / "messaging" /
+        "context" / "AssociationServiceRebindPolicyTest.kt"
+    ).read_text(encoding="utf-8")
+    association_queue = (
+        messaging_root / "src" / "com" / "aios" / "messaging" / "context" /
+        "LatestOperationQueue.kt"
+    ).read_text(encoding="utf-8")
+    association_queue_test = (
+        messaging_root / "tests" / "src" / "com" / "aios" / "messaging" /
+        "context" / "LatestOperationQueueTest.kt"
+    ).read_text(encoding="utf-8")
     message_context_root = (messaging_root / "src" / "com" / "aios" / "messaging" /
                             "context")
     message_context_ledger = (message_context_root / "MessageContextLedger.kt").read_text(
@@ -1476,7 +1496,26 @@ def validate_aosp_overlay(root: Path) -> None:
             and "completeMmsPhoto" in media_context_client
             and "onDurablyRecorded" in media_context_client
             and "deleteMmsPhoto" in media_context_client
-            and "clearMmsPhotos" in media_context_client,
+            and "clearMmsPhotos" in media_context_client
+            and "LatestOperationQueue<PendingOperation>" in media_context_client
+            and "catch (error: RemoteException)" in media_context_client
+            and "invalidate(service)" in media_context_client
+            and "activeConnection !== this" in media_context_client
+            and "onBindingDied" in media_context_client
+            and "onNullBinding" in media_context_client
+            and "CONNECT_TIMEOUT_MILLIS = 15_000L" in media_context_client
+            and "MAX_PENDING_OPERATIONS = 128" in media_context_client
+            and "MAX_DELAY_MILLIS = 60_000L" in association_rebind_policy
+            and "connectionRacingReservedRetryCancelsThatAttempt"
+            in association_rebind_test
+            and "protectedKey" in association_queue
+            and "removeIfCurrent" in association_queue
+            and "replacementRejectsLateCompletionFromSupersededOperation"
+            in association_queue_test
+            and "overflowDoesNotEvictTheOperationCurrentlyCrossingBinder"
+            in association_queue_test
+            and "replacementOfInFlightKeyRemainsProtectedFromLaterOverflow"
+            in association_queue_test,
             "selected MMS photos must retain a crash-recoverable media-context lifecycle")
     require("indexSms" in context_client
             and "indexMms" in context_client

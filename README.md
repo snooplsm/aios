@@ -104,8 +104,10 @@ an association token, and Media Intelligence publishes its reviewed caption/tags
 only after the carrier-confirmed Sent transition finds exactly one matching local
 media result. Message deletion, photo deletion/trash, provider reconciliation,
 context-store replacement, process restart, and SMS-role loss all converge on a
-durable deletion or rebuild. Cloud-backed or byte-identical ambiguous photos fail
-closed instead of being linked to the wrong source.
+durable deletion or rebuild. The live association client retains bounded keyed
+work across Media Intelligence service loss and acknowledges the carrier-success
+journal only after durable admission. Cloud-backed or byte-identical ambiguous
+photos fail closed instead of being linked to the wrong source.
 See `docs/mms-transport.md`.
 Incoming calls now resolve their presented number transiently into the same
 opaque communication identity used by Messaging. The receptionist can consume

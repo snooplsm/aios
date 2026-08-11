@@ -37,6 +37,8 @@ java_test_host {
     name: "aios_messaging_host_tests",
     srcs: [
         "src/com/aios/messaging/context/MessageContextPolicy.kt",
+        "src/com/aios/messaging/context/AssociationServiceRebindPolicy.kt",
+        "src/com/aios/messaging/context/LatestOperationQueue.kt",
         "src/com/aios/messaging/model/MessagePolicy.kt",
         "src/com/aios/messaging/model/SubscriptionSelectionPolicy.kt",
         "src/com/aios/messaging/mms/MmsOperationPolicy.kt",
