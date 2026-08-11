@@ -19,6 +19,82 @@
       ],
       "admitted_models": [],
       "evidence": []
+    },
+    {
+      "id": "pixel_10_frankel",
+      "devices": ["frankel"],
+      "catalog_tier": "edge_12gb",
+      "min_total_ram_mb": 11264,
+      "max_total_ram_mb": 13312,
+      "status": "benchmark_pending",
+      "research_candidate_models": [
+        "gemma4-e4b-mobile-text",
+        "gemma4-e4b-mobile-multimodal",
+        "gemma4-e2b-mobile-text",
+        "gemma4-e2b-mobile-multimodal",
+        "supertonic3-en-es-int8",
+        "whisper-small-multilingual-quantized",
+        "whisper-base-multilingual-quantized"
+      ],
+      "admitted_models": [],
+      "evidence": []
+    },
+    {
+      "id": "pixel_10_pro_blazer",
+      "devices": ["blazer"],
+      "catalog_tier": "edge_16gb_plus",
+      "min_total_ram_mb": 15360,
+      "max_total_ram_mb": 17408,
+      "status": "benchmark_pending",
+      "research_candidate_models": [
+        "gemma4-e4b-mobile-text",
+        "gemma4-e4b-mobile-multimodal",
+        "gemma4-e2b-mobile-text",
+        "gemma4-e2b-mobile-multimodal",
+        "supertonic3-en-es-int8",
+        "whisper-small-multilingual-quantized",
+        "whisper-base-multilingual-quantized"
+      ],
+      "admitted_models": [],
+      "evidence": []
+    },
+    {
+      "id": "pixel_10_pro_xl_mustang",
+      "devices": ["mustang"],
+      "catalog_tier": "edge_16gb_plus",
+      "min_total_ram_mb": 15360,
+      "max_total_ram_mb": 17408,
+      "status": "benchmark_pending",
+      "research_candidate_models": [
+        "gemma4-e4b-mobile-text",
+        "gemma4-e4b-mobile-multimodal",
+        "gemma4-e2b-mobile-text",
+        "gemma4-e2b-mobile-multimodal",
+        "supertonic3-en-es-int8",
+        "whisper-small-multilingual-quantized",
+        "whisper-base-multilingual-quantized"
+      ],
+      "admitted_models": [],
+      "evidence": []
+    },
+    {
+      "id": "pixel_10_pro_fold_rango",
+      "devices": ["rango"],
+      "catalog_tier": "edge_16gb_plus",
+      "min_total_ram_mb": 15360,
+      "max_total_ram_mb": 17408,
+      "status": "benchmark_pending",
+      "research_candidate_models": [
+        "gemma4-e4b-mobile-text",
+        "gemma4-e4b-mobile-multimodal",
+        "gemma4-e2b-mobile-text",
+        "gemma4-e2b-mobile-multimodal",
+        "supertonic3-en-es-int8",
+        "whisper-small-multilingual-quantized",
+        "whisper-base-multilingual-quantized"
+      ],
+      "admitted_models": [],
+      "evidence": []
     }
   ]
 }

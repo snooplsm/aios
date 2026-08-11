@@ -121,7 +121,7 @@
     },
     {
       "id": "pixel_10_tensor_g5_planned",
-      "devices": [],
+      "devices": ["frankel", "blazer", "mustang", "rango"],
       "debuggable_only": true,
       "runtime_backends": {
         "litert_lm": ["gpu", "cpu"],
@@ -133,7 +133,7 @@
         "whisper_cpp": "cpu",
         "sherpa_onnx_tts": "cpu"
       },
-      "notes": "Bind exact upstream device codenames after device trees and runtime artifacts are verified; NPU remains disabled meanwhile."
+      "notes": "Official Pixel 10-family codenames may collect GPU/CPU research evidence on debuggable builds; NPU and release activation remain disabled until verified."
     },
     {
       "id": "unvalidated_device",

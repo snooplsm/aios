@@ -680,7 +680,7 @@ def validate_model_admission(root: Path) -> None:
                 f"{profile['id']}: supported profile lacks text/media/TTS/ASR coverage")
     for device in catalog["known_devices"]:
         codename = device.get("codename")
-        if codename is None or device.get("build_lane") is None:
+        if codename is None:
             continue
         profile = profiles_by_device.get(codename)
         require(profile is not None
@@ -688,6 +688,11 @@ def validate_model_admission(root: Path) -> None:
                 and profile["min_total_ram_mb"] <= device["ram_mb"]
                 <= profile["max_total_ram_mb"],
                 f"{device['marketing_name']}: known device lacks a matching admission profile")
+        if device.get("build_lane") is None:
+            require(profile["status"] == "benchmark_pending"
+                    and not profile["admitted_models"]
+                    and not profile["evidence"],
+                    f"{device['marketing_name']}: catalog-only device must remain research-only")
 
 
 def validate_patch_series(root: Path) -> None:
@@ -4192,7 +4197,19 @@ def validate_runtime_catalog(root: Path) -> None:
             "Pixel 9a runtime activation must remain userdebug-only until gated")
     require("npu" not in tegu.get("runtime_backends", {}).get("litert_lm", []),
             "Pixel 9a NPU must remain denied until validated")
+    catalog_devices = {
+        device["codename"]: device
+        for device in catalog["known_devices"]
+        if device["codename"] is not None
+    }
+    explicit_profiles: dict[str, dict[str, Any]] = {}
     for profile in profiles:
+        devices = profile.get("devices")
+        require(isinstance(devices, list) and devices
+                and len(devices) == len(set(devices))
+                and all(isinstance(device, str) and device
+                        for device in devices),
+                f"{profile['id']}: runtime device list must be non-empty and unique")
         allowed = profile.get("runtime_backends")
         preferred = profile.get("preferred_backends")
         require(isinstance(allowed, dict) and isinstance(preferred, dict),
@@ -4200,6 +4217,22 @@ def validate_runtime_catalog(root: Path) -> None:
         for runtime, backend in preferred.items():
             require(backend in allowed.get(runtime, []),
                     f"{profile['id']}: preferred backend must be allowed")
+        for device in devices:
+            if device == "*":
+                continue
+            require(device in catalog_devices
+                    and device not in explicit_profiles,
+                    f"{profile['id']}: runtime device must be unique and catalogued")
+            explicit_profiles[device] = profile
+    require(set(explicit_profiles) == set(catalog_devices),
+            "every officially identified Pixel needs an explicit runtime profile")
+    for codename, device in catalog_devices.items():
+        profile = explicit_profiles[codename]
+        if device["enablement_status"] != "supported":
+            require(profile.get("debuggable_only") is True,
+                    f"{device['marketing_name']}: ungated runtime must be debug-only")
+            require("npu" not in profile["runtime_backends"].get("litert_lm", []),
+                    f"{device['marketing_name']}: unverified NPU must remain disabled")
 
 
 def validate_xml_files(root: Path) -> None:

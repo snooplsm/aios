@@ -240,10 +240,10 @@ class ModelAdmissionTests(unittest.TestCase):
     def test_pending_pixel_9a_profile_is_valid(self):
         validator.validate_model_admission(ROOT)
 
-    def test_catalog_only_pixel_10_codenames_have_no_admission_profiles(self):
+    def test_catalog_only_pixel_10_codenames_have_pending_research_profiles(self):
         policy = load("model_admission.json")
-        profiled_devices = {
-            device
+        profiles_by_device = {
+            device: profile
             for profile in policy["profiles"]
             for device in profile["devices"]
         }
@@ -255,7 +255,46 @@ class ModelAdmissionTests(unittest.TestCase):
         }
         self.assertEqual({"frankel", "blazer", "mustang", "rango"},
                          catalog_only)
-        self.assertTrue(catalog_only.isdisjoint(profiled_devices))
+        self.assertTrue(catalog_only <= set(profiles_by_device))
+        for codename in catalog_only:
+            profile = profiles_by_device[codename]
+            self.assertEqual("benchmark_pending", profile["status"])
+            self.assertEqual([], profile["admitted_models"])
+            self.assertEqual([], profile["evidence"])
+
+    def test_catalog_only_device_cannot_gain_release_admission(self):
+        with tempfile.TemporaryDirectory() as raw:
+            temporary = Path(raw)
+            config = temporary / "config"
+            evidence_dir = temporary / "evidence" / "model-admission"
+            config.mkdir()
+            evidence_dir.mkdir(parents=True)
+            for name in ("model_catalog.json", "model_admission.json",
+                         "model_benchmark_suite.json"):
+                shutil.copy(ROOT / "config" / name,
+                            config / name)
+            evidence_path = evidence_dir / "pixel-10-test.json"
+            evidence_path.write_text(json.dumps(passing_admission_evidence(
+                load("model_catalog.json"),
+                load("model_benchmark_suite.json"),
+                tier_id="edge_12gb",
+                profile_id="pixel_10_frankel",
+                device_codename="frankel",
+                total_ram_mb=12288,
+            )), encoding="utf-8")
+            generated = admission_generator.generate(
+                config / "model_catalog.json",
+                config / "model_admission.json",
+                [evidence_path],
+                config / "generated-admission.json",
+                temporary,
+            )
+            (config / "model_admission.json").write_text(
+                json.dumps(generated), encoding="utf-8")
+
+            with self.assertRaisesRegex(validator.ValidationError,
+                                        "research-only"):
+                validator.validate_model_admission(temporary)
 
     def test_known_device_cannot_lose_its_fail_closed_profile(self):
         with tempfile.TemporaryDirectory() as raw:
@@ -539,6 +578,34 @@ class RuntimeCatalogTests(unittest.TestCase):
             (temporary / "config" / "runtime_catalog.json").write_text(
                 json.dumps(value), encoding="utf-8")
             with self.assertRaisesRegex(validator.ValidationError, "NPU"):
+                validator.validate_runtime_catalog(temporary)
+
+    def test_pixel_10_family_uses_one_debug_only_cpu_gpu_profile(self):
+        value = load("runtime_catalog.json")
+        profile = next(item for item in value["device_profiles"]
+                       if item["id"] == "pixel_10_tensor_g5_planned")
+
+        self.assertEqual({"frankel", "blazer", "mustang", "rango"},
+                         set(profile["devices"]))
+        self.assertTrue(profile["debuggable_only"])
+        self.assertEqual(["gpu", "cpu"],
+                         profile["runtime_backends"]["litert_lm"])
+        self.assertNotIn("npu", profile["runtime_backends"]["litert_lm"])
+
+    def test_official_pixel_codename_cannot_fall_through_to_model_free(self):
+        value = load("runtime_catalog.json")
+        profile = next(item for item in value["device_profiles"]
+                       if item["id"] == "pixel_10_tensor_g5_planned")
+        profile["devices"].remove("frankel")
+        with tempfile.TemporaryDirectory() as raw:
+            temporary = Path(raw)
+            (temporary / "config").mkdir()
+            shutil.copy(ROOT / "config" / "model_catalog.json",
+                        temporary / "config" / "model_catalog.json")
+            (temporary / "config" / "runtime_catalog.json").write_text(
+                json.dumps(value), encoding="utf-8")
+            with self.assertRaisesRegex(validator.ValidationError,
+                                        "every officially identified Pixel"):
                 validator.validate_runtime_catalog(temporary)
 
 

@@ -4,11 +4,13 @@ RAM tiers identify models worth testing; they do not make a model safe or fast
 enough for a phone. `config/model_admission.json` is the separate, AVB-protected
 decision layer consumed by Model Broker.
 
-The checked-in Pixel 9a (`tegu`) profile is `benchmark_pending`. A debuggable
-AIOS build may run its explicit research candidates so measurements can be
+The checked-in Pixel 9a (`tegu`) and officially identified Pixel 10-family
+profiles are `benchmark_pending`. A debuggable AIOS build may run each device's
+explicit tier and fallback research candidates so measurements can be
 collected. A non-debuggable build admits none of them. Unknown device codenames
 always receive no models, even if they report enough RAM to match a catalog
-tier.
+tier. Pixel 10 research profiles do not create a product wrapper, build lane,
+release admission, or physical-device support claim.
 
 ## Evidence contract
 
@@ -103,6 +105,7 @@ that build fingerprint is benchmarked and its admission policy is regenerated.
 The physical negative test for this behavior is
 `model.build_fingerprint_admission_enforced`.
 
-Pixel 10 or a future Pixel gets a profile only after its Android identity and a
-reproducible product/build lane are both known. An official codename, marketing
-name, or RAM estimate alone never creates runtime admission.
+An officially published codename and hardware record may create only a
+debuggable, benchmark-pending research profile. Release admission still requires
+a reproducible product/build lane plus exact device/build/artifact evidence. A
+marketing name or RAM estimate alone never creates runtime admission.

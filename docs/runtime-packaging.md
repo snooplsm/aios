@@ -97,9 +97,11 @@ contract, and physical-call validation boundary.
 
 Runtime activation is userdebug-only for the Pixel 9a until performance,
 thermal, accuracy, crash-recovery, and call-preemption gates have device
-evidence. Tensor G4 NPU is deliberately absent from the allowlist. Pixel 10 is a
-planned profile with no bound codename; GPU/CPU eligibility must not be confused
-with tested support.
+evidence. Tensor G4 NPU is deliberately absent from the allowlist. The official
+Pixel 10-family codenames share a userdebug-only Tensor G5 profile so a future
+compatible port can collect evidence through the production GPU/CPU paths.
+Their NPU remains disabled, and runtime eligibility must not be confused with a
+build lane, release model admission, or tested device support.
 
 Android binding lifecycle contract:
 [`ServiceConnection`](https://developer.android.com/reference/android/content/ServiceConnection).

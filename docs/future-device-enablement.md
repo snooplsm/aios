@@ -22,11 +22,11 @@ Google's official hardware specifications now provide these planning inputs:
 Sources: [Google Pixel hardware specifications](https://support.google.com/pixelphone/answer/7158570?hl=en)
 and [official Android device codenames](https://source.android.com/docs/setup/reference/build-numbers).
 
-These are catalog expectations, not device enablement. The Pixel 10-family
-entries deliberately have no AIOS build lane, product wrapper, or admission
-profile. Four official codenames are known, but a codename is identity—not proof
-that a compatible build input set exists. Pixel 10a remains without a published
-codename in the official codename table checked on 2026-08-09. The official
+These are catalog expectations, not release-device enablement. The Pixel
+10-family entries deliberately have no AIOS build lane or product wrapper. Four
+official codenames are known, but a codename is identity—not proof that a
+compatible build input set exists. Pixel 10a remains without a published
+codename in the official codename table checked on 2026-08-11. The official
 Android 17 `android-latest-release` manifest includes Cuttlefish but no Pixel 10
 device projects, so AIOS cannot truthfully name a buildable upstream Pixel 10
 target from that manifest. The exact compatible platform/device/vendor/kernel
@@ -34,17 +34,27 @@ set used for a physical lane must be locked and verified before a wrapper is
 added. See the
 [official AOSP manifest](https://android.googlesource.com/platform/manifest/+/refs/heads/android-latest-release/default.xml).
 
+The four codenames do have explicit `benchmark_pending` model-admission records
+and one shared Tensor G5 runtime profile. This is research enablement only: on a
+debuggable build it permits the production Broker path to try digest-verified
+GPU/CPU candidates and collect the evidence needed for promotion. A user build
+still selects no research candidates, every release admission list remains
+empty, the NPU remains absent, and the model profile does not imply that an
+AIOS image can yet be built or safely flashed for that device.
+
 RAM makes a tier eligible; it does not authorize its models. Pixel 10 may try the
 E4B tier, while the 16 GB Pro models may try the same interactive E4B model with
 more concurrency/headroom. Every model/backend/artifact combination must still
 pass while streaming ASR and handling a call, and may independently fall back to
 E2B or a smaller ASR candidate. The broker and admission tooling already follow
-the catalog's ordered fallback chain, but no Pixel 10 profile is activated until
-the missing product/build lane and physical-device evidence exist.
+the catalog's ordered fallback chain. A Pixel 10 release profile is not
+activated until the missing product/build lane and physical-device evidence
+exist.
 
-A future Pixel 11 profile will be added only when official hardware facts and a
-reproducibly validated platform/device/vendor/kernel build lane exist. As of
-2026-08-09, the official sources above do not provide a Pixel 11 hardware or AOSP
+A future Pixel 11 catalog and research profile will be added only after its
+hardware facts and codename are official. Release activation will additionally
+require a reproducibly validated platform/device/vendor/kernel build lane. As of
+2026-08-11, the official sources above do not provide a Pixel 11 hardware or AOSP
 build target, so the catalog intentionally contains no speculative Pixel 11
 entry. It will not receive a model based on the name "Pixel 11."
 The runtime measures total memory, backend availability, model smoke tests,
