@@ -75,6 +75,15 @@ disconnect revokes a pending AI-answer timer. Once the replacement service has
 registered its listener and loaded policy, the Phone queues full presence replay
 before `onCallResumed` for each active call, restarting capture without replaying
 the receptionist greeting.
+Each connection registers a distinct listener. Phone accepts transcript, risk,
+assistant-state, status, policy, takeover, and incoming-decision completions only
+from the currently active connection and service proxy. An explicit remote-call
+failure immediately replaces that exact binding instead of retaining a dead
+proxy until the watchdog expires. Because Call Intelligence wire revisions begin
+again after a process restart, Phone maps each generation's risk and assistant
+revisions onto one monotonic owner-visible sequence. The Compose reducer can
+therefore retain the live call UI while accepting fresh state from the restarted
+service without admitting a late callback from its predecessor.
 Call IDs cannot be claimed by two different UIDs. Evaluation and capture require
 the calling UID to own the live call, and each capture session retains that UID
 for takeover and terminal cleanup. The dialer asks Call Intelligence to finalize

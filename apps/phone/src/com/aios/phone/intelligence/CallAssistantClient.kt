@@ -11,6 +11,7 @@ import android.os.Binder
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.RemoteException
 import android.os.SystemClock
 import android.provider.ContactsContract
 import android.telecom.Call
@@ -28,7 +29,6 @@ import com.aios.call.ICallIntelligenceListener
 import com.aios.call.IncomingCallContext
 import com.aios.call.TranscriptSegment
 import com.aios.phone.model.CallUiState
-import com.aios.phone.model.AssistantCallSemantics
 import com.aios.phone.model.AssistantPolicyUiState
 import com.aios.phone.model.AssistantCallUiState
 import com.aios.phone.model.CallRiskLabel
@@ -70,8 +70,14 @@ class CallAssistantClient(
         var decisionRequested: Boolean = false,
         var answeredByAi: Boolean = false,
         var answeredNotified: Boolean = false,
-        var assistantRevision: Long = 0L,
+        val riskRevisions: ServiceGenerationRevisionGate = ServiceGenerationRevisionGate(),
+        val assistantRevisions: ServiceGenerationRevisionGate = ServiceGenerationRevisionGate(),
         var delayedAnswer: Runnable? = null,
+    )
+
+    private data class ServiceLease(
+        val service: IAiosCallIntelligence,
+        val connection: AssistantServiceConnection,
     )
 
     private val main = Handler(Looper.getMainLooper())
@@ -92,85 +98,96 @@ class CallAssistantClient(
     private var started = false
     private var ownerProcessingEnabled: Boolean? = null
 
-    private val listener = object : ICallIntelligenceListener.Stub() {
-        override fun onTranscript(segment: TranscriptSegment?) {
-            if (segment == null || segment.callId.isNullOrBlank()) return
-            val safe = TranscriptUiState(
-                direction = segment.direction.orEmpty().take(16),
-                language = segment.language.orEmpty().take(8),
-                text = segment.text.orEmpty().take(MAX_TRANSCRIPT_CHARS),
-                isFinal = segment.isFinal,
-                startMillis = segment.startMillis,
-            )
-            main.post { if (sessions.containsKey(segment.callId)) callbacks.onTranscript(segment.callId, safe) }
-        }
+    private fun createListener(connection: AssistantServiceConnection) =
+        object : ICallIntelligenceListener.Stub() {
+            override fun onTranscript(segment: TranscriptSegment?) {
+                if (segment == null || segment.callId.isNullOrBlank()) return
+                val callId = segment.callId
+                val safe = TranscriptUiState(
+                    direction = segment.direction.orEmpty().take(16),
+                    language = segment.language.orEmpty().take(8),
+                    text = segment.text.orEmpty().take(MAX_TRANSCRIPT_CHARS),
+                    isFinal = segment.isFinal,
+                    startMillis = segment.startMillis,
+                )
+                main.post {
+                    if (isCurrentListener(connection) && sessions.containsKey(callId)) {
+                        callbacks.onTranscript(callId, safe)
+                    }
+                }
+            }
 
-        override fun onRiskChanged(assessment: CallRiskAssessment?) {
-            val callId = assessment?.callId?.takeIf {
-                it.isNotBlank() && it.length <= MAX_CALL_ID_CHARS
-            } ?: return
-            val label = CallRiskLabel.fromWire(assessment.label) ?: return
-            val source = CallRiskSource.fromWire(assessment.source) ?: return
-            val reasonCode = assessment.reasonCode ?: return
-            if (!label.accepts(assessment.riskScore)
-                || !CallRiskSemantics.isValidReasonCode(reasonCode)
-                || assessment.revision <= 0L
-                || assessment.observedAtEpochMillis <= 0L
-            ) return
-            val safe = RiskUiState(
-                score = assessment.riskScore,
-                label = label,
-                reasonCode = reasonCode,
-                source = source,
-                revision = assessment.revision,
-                observedAtEpochMillis = assessment.observedAtEpochMillis,
-            )
-            main.post { if (sessions.containsKey(callId)) callbacks.onRisk(callId, safe) }
-        }
+            override fun onRiskChanged(assessment: CallRiskAssessment?) {
+                val callId = assessment?.callId?.takeIf {
+                    it.isNotBlank() && it.length <= MAX_CALL_ID_CHARS
+                } ?: return
+                val label = CallRiskLabel.fromWire(assessment.label) ?: return
+                val source = CallRiskSource.fromWire(assessment.source) ?: return
+                val reasonCode = assessment.reasonCode ?: return
+                if (!label.accepts(assessment.riskScore)
+                    || !CallRiskSemantics.isValidReasonCode(reasonCode)
+                    || assessment.revision <= 0L
+                    || assessment.observedAtEpochMillis <= 0L
+                ) return
+                main.post {
+                    if (!isCurrentListener(connection)) return@post
+                    val session = sessions[callId] ?: return@post
+                    val visibleRevision = session.riskRevisions.accept(assessment.revision)
+                        ?: return@post
+                    val safe = RiskUiState(
+                        score = assessment.riskScore,
+                        label = label,
+                        reasonCode = reasonCode,
+                        source = source,
+                        revision = visibleRevision,
+                        observedAtEpochMillis = assessment.observedAtEpochMillis,
+                    )
+                    callbacks.onRisk(callId, safe)
+                }
+            }
 
-        override fun onAssistantStateChanged(state: CallAssistantState?) {
-            val callId = state?.callId?.takeIf {
-                it.isNotBlank() && it.length <= MAX_CALL_ID_CHARS
-            } ?: return
-            if (state.revision <= 0L || state.observedAtEpochMillis <= 0L) return
-            val safe = AssistantCallUiState(
-                aiHandling = state.aiHandling,
-                revision = state.revision,
-                observedAtEpochMillis = state.observedAtEpochMillis,
-            )
-            main.post {
-                sessions[callId]?.let { session ->
-                    if (!AssistantCallSemantics.shouldReplace(
-                            session.assistantRevision,
-                            safe.revision,
-                        )
-                    ) return@post
-                    session.assistantRevision = safe.revision
+            override fun onAssistantStateChanged(state: CallAssistantState?) {
+                val callId = state?.callId?.takeIf {
+                    it.isNotBlank() && it.length <= MAX_CALL_ID_CHARS
+                } ?: return
+                if (state.revision <= 0L || state.observedAtEpochMillis <= 0L) return
+                main.post {
+                    if (!isCurrentListener(connection)) return@post
+                    val session = sessions[callId] ?: return@post
+                    val visibleRevision = session.assistantRevisions.accept(state.revision)
+                        ?: return@post
+                    val safe = AssistantCallUiState(
+                        aiHandling = state.aiHandling,
+                        revision = visibleRevision,
+                        observedAtEpochMillis = state.observedAtEpochMillis,
+                    )
                     session.answeredByAi = safe.aiHandling
                     callbacks.onAssistantCallState(callId, safe)
                 }
             }
-        }
 
-        override fun onServiceStatus(callId: String?, status: Int, detail: String?) {
-            if (callId == "availability" && detail?.startsWith("speech_synthesis_") == true) {
-                main.post { loadPolicy() }
-                return
-            }
-            if (status < 0 && !callId.isNullOrBlank()) {
-                val safeDetail = detail.orEmpty().take(MAX_STATUS_DETAIL_CHARS)
-                main.post {
-                    if (sessions.containsKey(callId)) {
-                        callbacks.onAssistantFailure(callId, status, safeDetail)
+            override fun onServiceStatus(callId: String?, status: Int, detail: String?) {
+                if (callId == "availability" && detail?.startsWith("speech_synthesis_") == true) {
+                    main.post { if (isCurrentListener(connection)) loadPolicy() }
+                    return
+                }
+                if (status < 0 && !callId.isNullOrBlank()) {
+                    val safeDetail = detail.orEmpty().take(MAX_STATUS_DETAIL_CHARS)
+                    main.post {
+                        if (isCurrentListener(connection) && sessions.containsKey(callId)) {
+                            callbacks.onAssistantFailure(callId, status, safeDetail)
+                        }
                     }
                 }
             }
         }
-    }
 
     private inner class AssistantServiceConnection(
         val generation: Long,
     ) : ServiceConnection {
+        val listener: ICallIntelligenceListener = createListener(this)
+        var service: IAiosCallIntelligence? = null
+
         override fun onServiceConnected(name: ComponentName, binder: IBinder) {
             handleServiceConnected(this, binder)
         }
@@ -215,12 +232,13 @@ class CallAssistantClient(
         val connection = activeConnection
         activeConnection = null
         callbacks.onAssistantConnectionChanged(false)
-        if (service != null) worker.execute {
+        val registeredListener = connection?.listener
+        if (service != null && registeredListener != null) worker.execute {
             try {
                 presentCallIds.forEach { callId ->
                     service.setTelecomCallPresent(telecomLifecycleToken, callId, false)
                 }
-                service.unregisterListener(listener)
+                service.unregisterListener(registeredListener)
             } catch (_: Exception) {
                 // The optional process may already be dead.
             }
@@ -292,12 +310,14 @@ class CallAssistantClient(
         worker.execute {
             try {
                 service.onCallEnded(callId, disconnectCause)
-            } catch (_: Exception) {
+            } catch (error: Exception) {
+                if (error is RemoteException) invalidate(service)
                 // Telephony has already ended; cleanup is best effort here.
             } finally {
                 try {
                     service.setTelecomCallPresent(telecomLifecycleToken, callId, false)
-                } catch (_: Exception) {
+                } catch (error: Exception) {
+                    if (error is RemoteException) invalidate(service)
                     // Binder death also releases every call owned by this lifecycle token.
                 }
             }
@@ -319,21 +339,20 @@ class CallAssistantClient(
 
     fun takeOver(callId: String) {
         check(Looper.myLooper() == Looper.getMainLooper())
-        val service = remote
-        if (service == null || !sessions.containsKey(callId)) {
+        val lease = currentServiceLease()
+        if (lease == null || !sessions.containsKey(callId)) {
             callbacks.onTakeOverResult(callId, false)
             return
         }
+        val service = lease.service
         if (!pendingTakeovers.add(callId)) return
         worker.execute {
-            val succeeded = try {
-                service.takeOverCall(callId)
-            } catch (_: Exception) {
-                false
-            }
+            val result = runCatching { service.takeOverCall(callId) }
             main.post {
+                if (result.exceptionOrNull() is RemoteException) invalidate(lease)
                 pendingTakeovers.remove(callId)
                 sessions[callId]?.let { session ->
+                    val succeeded = isCurrentLease(lease) && result.getOrDefault(false)
                     if (succeeded) session.answeredByAi = false
                     callbacks.onTakeOverResult(callId, succeeded)
                 }
@@ -342,36 +361,40 @@ class CallAssistantClient(
     }
 
     fun loadPolicy() {
-        val service = remote
-        if (service == null) {
+        val lease = currentServiceLease()
+        if (lease == null) {
             callbacks.onPolicyChanged(
                 AssistantPolicyUiState(error = "Call-assistant service is unavailable"),
             )
             return
         }
+        val service = lease.service
         callbacks.onPolicyChanged(AssistantPolicyUiState(loading = true))
         worker.execute {
             try {
                 val policy = service.policy
                 main.post {
-                    if (remote === service) {
+                    if (isCurrentLease(lease)) {
                         ownerProcessingEnabled = policy.processingEnabled
                         callbacks.onPolicyChanged(policy.toUi())
                     }
                 }
-            } catch (_: Exception) {
+            } catch (error: Exception) {
                 main.post {
-                    callbacks.onPolicyChanged(
-                        AssistantPolicyUiState(error = "Could not read assistant settings"),
-                    )
+                    if (isCurrentLease(lease)) {
+                        if (error is RemoteException) invalidate(lease)
+                        callbacks.onPolicyChanged(
+                            AssistantPolicyUiState(error = "Could not read assistant settings"),
+                        )
+                    }
                 }
             }
         }
     }
 
     fun savePolicy(value: AssistantPolicyUiState) {
-        val service = remote
-        if (service == null) {
+        val lease = currentServiceLease()
+        if (lease == null) {
             callbacks.onPolicyChanged(value.copy(
                 available = false,
                 saving = false,
@@ -379,6 +402,7 @@ class CallAssistantClient(
             ))
             return
         }
+        val service = lease.service
         callbacks.onPolicyChanged(value.copy(saving = true, error = null))
         worker.execute {
             try {
@@ -390,25 +414,29 @@ class CallAssistantClient(
                 }
                 val saved = service.updatePolicy(requested)
                 main.post {
-                    if (remote === service) {
+                    if (isCurrentLease(lease)) {
                         ownerProcessingEnabled = saved.processingEnabled
                         callbacks.onPolicyChanged(saved.toUi())
                     }
                 }
-            } catch (_: Exception) {
+            } catch (error: Exception) {
                 main.post {
-                    callbacks.onPolicyChanged(value.copy(
-                        available = true,
-                        saving = false,
-                        error = "Could not save assistant settings",
-                    ))
+                    if (isCurrentLease(lease)) {
+                        if (error is RemoteException) invalidate(lease)
+                        callbacks.onPolicyChanged(value.copy(
+                            available = true,
+                            saving = false,
+                            error = "Could not save assistant settings",
+                        ))
+                    }
                 }
             }
         }
     }
 
     private fun requestIncomingDecision(session: Session) {
-        val service = remote ?: return
+        val lease = currentServiceLease() ?: return
+        val service = lease.service
         if (session.decisionRequested || session.state != Call.STATE_RINGING) return
         session.decisionRequested = true
         val numberCheck = session.emergency.beginNumberCheck()
@@ -438,15 +466,17 @@ class CallAssistantClient(
             try {
                 val decision = service.evaluateIncoming(contextValue)
                 main.post {
-                    if (sessions[session.callId] === session) {
+                    if (isCurrentLease(lease) && sessions[session.callId] === session) {
                         session.knownContact = knownContact
                         applyDecision(session.callId, decision)
                     }
                 }
-            } catch (_: Exception) {
+            } catch (error: Exception) {
                 main.post {
-                    sessions[session.callId]?.decisionRequested = false
-                    if (remote === service) disconnect(service)
+                    if (isCurrentLease(lease) && sessions[session.callId] === session) {
+                        session.decisionRequested = false
+                        if (error is RemoteException) invalidate(lease)
+                    }
                 }
             }
         }
@@ -460,8 +490,8 @@ class CallAssistantClient(
                 callIds.forEach { callId ->
                     service.setTelecomCallPresent(telecomLifecycleToken, callId, true)
                 }
-            } catch (_: Exception) {
-                main.post { disconnect(service) }
+            } catch (error: Exception) {
+                if (error is RemoteException) invalidate(service)
             }
         }
     }
@@ -471,8 +501,8 @@ class CallAssistantClient(
         worker.execute {
             try {
                 service.setTelecomCallPresent(telecomLifecycleToken, callId, present)
-            } catch (_: Exception) {
-                main.post { disconnect(service) }
+            } catch (error: Exception) {
+                if (error is RemoteException) invalidate(service)
             }
         }
     }
@@ -541,7 +571,8 @@ class CallAssistantClient(
         worker.execute {
             try {
                 service.onEmergencyCallDetected(session.callId)
-            } catch (_: Exception) {
+            } catch (error: Exception) {
+                if (error is RemoteException) invalidate(service)
                 // Telephony remains authoritative even if optional AI cleanup fails.
             }
         }
@@ -555,11 +586,11 @@ class CallAssistantClient(
         worker.execute {
             try {
                 service.onCallAnswered(session.callId, session.answeredByAi, processing)
-            } catch (_: Exception) {
+            } catch (error: Exception) {
                 main.post {
                     if (sessions[session.callId] === session && remote === service) {
                         session.answeredNotified = false
-                        disconnect(service)
+                        if (error is RemoteException) invalidate(service)
                     }
                 }
             }
@@ -580,11 +611,11 @@ class CallAssistantClient(
                     processing,
                     session.knownContact == true,
                 )
-            } catch (_: Exception) {
+            } catch (error: Exception) {
                 main.post {
                     if (sessions[session.callId] === session && remote === service) {
                         session.answeredNotified = false
-                        disconnect(service)
+                        if (error is RemoteException) invalidate(service)
                     }
                 }
             }
@@ -612,9 +643,10 @@ class CallAssistantClient(
                 return@post
             }
             remote = service
+            connection.service = service
             worker.execute {
                 try {
-                    service.registerListener(listener)
+                    service.registerListener(connection.listener)
                     val policy = service.policy
                     val processing = policy.processingEnabled
                     main.post {
@@ -693,13 +725,36 @@ class CallAssistantClient(
         scheduleRebind(immediate)
     }
 
-    private fun disconnect(expected: IAiosCallIntelligence) {
+    private fun invalidate(expected: IAiosCallIntelligence) {
         main.post {
-            if (!started || remote !== expected) return@post
-            clearRemoteState(expected)
-            activeConnection?.let(::armBindingWatchdog)
+            val connection = activeConnection ?: return@post
+            terminateBindingOnMain(connection, expected, immediate = false)
         }
     }
+
+    private fun invalidate(lease: ServiceLease) {
+        main.post {
+            if (!isCurrentLease(lease)) return@post
+            terminateBindingOnMain(lease.connection, lease.service, immediate = false)
+        }
+    }
+
+    private fun currentServiceLease(): ServiceLease? {
+        val service = remote ?: return null
+        val connection = activeConnection ?: return null
+        return ServiceLease(service, connection).takeIf(::isCurrentLease)
+    }
+
+    private fun isCurrentLease(lease: ServiceLease): Boolean =
+        remote === lease.service && isCurrentConnection(lease.connection)
+
+    private fun isCurrentConnection(connection: AssistantServiceConnection): Boolean =
+        started && activeConnection === connection &&
+            connection.generation == connectionGeneration
+
+    private fun isCurrentListener(connection: AssistantServiceConnection): Boolean =
+        isCurrentConnection(connection) && connection.service != null &&
+            remote === connection.service
 
     private fun clearRemoteState(expected: IAiosCallIntelligence?) {
         if (expected != null && remote !== expected) return
@@ -708,6 +763,8 @@ class CallAssistantClient(
         ownerProcessingEnabled = null
         sessions.values.forEach { session ->
             cancelDelayedAnswer(session)
+            session.riskRevisions.nextGeneration()
+            session.assistantRevisions.nextGeneration()
             if (session.state == Call.STATE_ACTIVE) session.answeredNotified = false
             if (session.state == Call.STATE_RINGING) {
                 session.decisionRequested = false

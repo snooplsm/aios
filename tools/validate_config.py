@@ -789,6 +789,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "apps/phone/AndroidManifest.xml",
         "apps/phone/tests/src/com/aios/phone/intelligence/PendingAiAnswerGateTest.kt",
         "apps/phone/tests/src/com/aios/phone/intelligence/PhoneServiceRebindPolicyTest.kt",
+        "apps/phone/tests/src/com/aios/phone/intelligence/ServiceGenerationRevisionGateTest.kt",
         "apps/phone/tests/src/com/aios/phone/intelligence/EmergencyProcessingGateTest.kt",
         "apps/phone/tests/src/com/aios/phone/model/AssistantCallContractTest.kt",
         "apps/phone/tests/src/com/aios/phone/model/CallRiskContractTest.kt",
@@ -813,6 +814,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "apps/phone/src/com/aios/phone/notifications/CallActionReceiver.kt",
         "apps/phone/src/com/aios/phone/intelligence/CallAssistantClient.kt",
         "apps/phone/src/com/aios/phone/intelligence/PhoneServiceRebindPolicy.kt",
+        "apps/phone/src/com/aios/phone/intelligence/ServiceGenerationRevisionGate.kt",
         "apps/phone/src/com/aios/phone/intelligence/EmergencyProcessingGate.kt",
         "apps/phone/src/com/aios/phone/intelligence/PendingAiAnswerGate.kt",
         "apps/phone/src/com/aios/phone/ui/InCallActivity.kt",
@@ -1659,6 +1661,10 @@ def validate_aosp_overlay(root: Path) -> None:
         root / "apps" / "phone" / "src" / "com" / "aios" / "phone" /
         "intelligence" / "PhoneServiceRebindPolicy.kt"
     ).read_text(encoding="utf-8")
+    service_generation_revision_gate = (
+        root / "apps" / "phone" / "src" / "com" / "aios" / "phone" /
+        "intelligence" / "ServiceGenerationRevisionGate.kt"
+    ).read_text(encoding="utf-8")
     pending_answer_gate = (root / "apps" / "phone" / "src" / "com" / "aios" /
                            "phone" / "intelligence" /
                            "PendingAiAnswerGate.kt").read_text(encoding="utf-8")
@@ -1685,6 +1691,10 @@ def validate_aosp_overlay(root: Path) -> None:
     phone_rebind_test = (
         root / "apps" / "phone" / "tests" / "src" / "com" / "aios" /
         "phone" / "intelligence" / "PhoneServiceRebindPolicyTest.kt"
+    ).read_text(encoding="utf-8")
+    service_generation_revision_test = (
+        root / "apps" / "phone" / "tests" / "src" / "com" / "aios" /
+        "phone" / "intelligence" / "ServiceGenerationRevisionGateTest.kt"
     ).read_text(encoding="utf-8")
     emergency_processing_test = (
         root / "apps" / "phone" / "tests" / "src" / "com" / "aios" /
@@ -2037,6 +2047,29 @@ def validate_aosp_overlay(root: Path) -> None:
             and "onlyOneRetryCanBeScheduled" in phone_rebind_test
             and "successfulConnectionResetsBackoff" in phone_rebind_test,
             "AIOS Phone must recover Call Intelligence bindings and resume active calls")
+    require("val listener: ICallIntelligenceListener = createListener(this)"
+            in assistant_client
+            and "isCurrentListener(connection)" in assistant_client
+            and "remote === connection.service" in assistant_client
+            and "private data class ServiceLease" in assistant_client
+            and "isCurrentLease(lease)" in assistant_client
+            and "invalidate(lease)" in assistant_client
+            and "session.riskRevisions.accept(assessment.revision)" in assistant_client
+            and "session.assistantRevisions.accept(state.revision)" in assistant_client
+            and "session.riskRevisions.nextGeneration()" in assistant_client
+            and "session.assistantRevisions.nextGeneration()" in assistant_client
+            and "error is RemoteException" in assistant_client
+            and "terminateBindingOnMain(connection, expected, immediate = false)"
+            in assistant_client
+            and "candidateWireRevision <= wireRevision"
+            in service_generation_revision_gate
+            and "visibleRevision == Long.MAX_VALUE"
+            in service_generation_revision_gate
+            and "newServiceGenerationKeepsVisibleRevisionMonotonic"
+            in service_generation_revision_test
+            and '"src/com/aios/phone/intelligence/ServiceGenerationRevisionGate.kt"'
+            in phone_build,
+            "AIOS Phone callbacks and visible revisions must be generation-safe across service replacement")
     require("telecomLifecycleToken: IBinder = Binder()" in assistant_client
             and "service.setTelecomCallPresent(telecomLifecycleToken" in assistant_client
             and "announceEveryPresentCall(service)" in assistant_client,
@@ -2070,8 +2103,7 @@ def validate_aosp_overlay(root: Path) -> None:
             and "onAssistantStateChanged" in assistant_client
             and "service.takeOverCall(callId)" in assistant_client
             and "pendingTakeovers.add(callId)" in assistant_client
-            and "session.assistantRevision" in assistant_client
-            and "AssistantCallSemantics.shouldReplace" in assistant_client
+            and "session.assistantRevisions.accept" in assistant_client
             and "AssistantCallSemantics.shouldReplace" in phone_runtime
             and "assistantCalls" in phone_contract
             and "PhoneAction.TakeOver" in phone_runtime
