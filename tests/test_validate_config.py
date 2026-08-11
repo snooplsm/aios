@@ -550,10 +550,13 @@ class ModelPackTests(unittest.TestCase):
                 packager.verify_generated_pack(output)
 
     def test_source_can_select_an_explicit_allowed_backend(self):
+        model_path = (Path(tempfile.gettempdir()) / "models" /
+                      "gemma.litertlm").resolve()
         parsed = packager.parse_source(
-            "gemma4-e2b-mobile-text:cpu=C:\\models\\gemma.litertlm")
+            f"gemma4-e2b-mobile-text:cpu={model_path}")
         self.assertEqual("gemma4-e2b-mobile-text", parsed.model_id)
         self.assertEqual("cpu", parsed.backend)
+        self.assertEqual(model_path, parsed.path)
 
     def test_whisper_ggml_bin_is_allowed_only_by_catalog_mapping(self):
         with tempfile.TemporaryDirectory() as raw:
