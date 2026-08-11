@@ -27,6 +27,15 @@ fresh users without patching the framework or Permission Controller. The owner
 can still change the standard dialer role. Emergency routing and UI remain a
 physical-device release gate, and emergency calls always bypass AI processing.
 
+The minimal locked-boot surface is Direct Boot aware: Telecom may create the
+`InCallService`, launch the in-call activity, and deliver notification actions
+before the first owner unlock. That path initializes only ordinary call state
+and non-sensitive device-encrypted UI preferences. Credential-backed context,
+assistant policy, models, and call artifacts are not moved into Direct Boot
+storage. `ACTION_USER_UNLOCKED` initializes those optional clients and forces an
+immediate, generation-safe AI-service rebind without replacing the live Telecom
+call registry.
+
 Whichever dialer owns Telecom publishes every ringing, dialing, active, waiting,
 held, and conferenced call to Call Intelligence with opaque call IDs and a
 process-owned Binder token. This signal is independent of transcription and AI

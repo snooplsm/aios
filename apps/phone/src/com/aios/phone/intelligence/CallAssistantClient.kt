@@ -214,6 +214,21 @@ class CallAssistantClient(
         scheduleRebind(immediate = true)
     }
 
+    fun onCredentialStorageUnlocked() {
+        check(Looper.myLooper() == Looper.getMainLooper())
+        if (!started || remote != null) return
+        val connection = activeConnection
+        if (connection != null) {
+            terminateBindingOnMain(connection, expected = null, immediate = true)
+            return
+        }
+        rebindTask?.let(main::removeCallbacks)
+        rebindTask = null
+        rebindPolicy.close()
+        rebindPolicy = PhoneServiceRebindPolicy()
+        scheduleRebind(immediate = true)
+    }
+
     fun stop() {
         check(Looper.myLooper() == Looper.getMainLooper())
         if (!started) return

@@ -823,6 +823,8 @@ def validate_aosp_overlay(root: Path) -> None:
         "overlays/frameworkdefaults/res/values/config.xml",
         "apps/phone/Android.bp",
         "apps/phone/AndroidManifest.xml",
+        "apps/phone/src/com/aios/phone/DirectBootPreferencePolicy.kt",
+        "apps/phone/tests/src/com/aios/phone/DirectBootPreferencePolicyTest.kt",
         "apps/phone/tests/src/com/aios/phone/intelligence/PendingAiAnswerGateTest.kt",
         "apps/phone/tests/src/com/aios/phone/intelligence/PhoneServiceRebindPolicyTest.kt",
         "apps/phone/tests/src/com/aios/phone/intelligence/ServiceGenerationRevisionGateTest.kt",
@@ -1308,6 +1310,16 @@ def validate_aosp_overlay(root: Path) -> None:
     phone_build = (root / "apps" / "phone" / "Android.bp").read_text(
         encoding="utf-8"
     )
+    phone_manifest_root = ET.parse(root / "apps" / "phone" /
+                                   "AndroidManifest.xml").getroot()
+    android_name = "{http://schemas.android.com/apk/res/android}name"
+    android_direct_boot = "{http://schemas.android.com/apk/res/android}directBootAware"
+    phone_application = phone_manifest_root.find("application")
+    phone_components = {
+        component.get(android_name): component
+        for kind in ("activity", "service", "receiver")
+        for component in phone_manifest_root.findall(f"application/{kind}")
+    }
     require('android:name="android.telecom.IN_CALL_SERVICE_UI"' in phone_manifest
             and 'android:name="android.telecom.IN_CALL_SERVICE_RINGING"' in phone_manifest
             and 'android:permission="android.permission.BIND_INCALL_SERVICE"'
@@ -1316,6 +1328,22 @@ def validate_aosp_overlay(root: Path) -> None:
     require(phone_manifest.count('android.intent.action.DIAL') == 2
             and 'android:scheme="tel"' in phone_manifest,
             "AIOS Phone must handle ACTION_DIAL with and without a tel URI")
+    direct_boot_components = (
+        ".ui.InCallActivity",
+        ".telecom.AiosInCallService",
+        ".notifications.CallActionReceiver",
+    )
+    credential_components = (".ui.MainActivity", ".ui.SettingsActivity")
+    require(phone_application is not None
+            and phone_application.get(android_name) == ".AiosPhoneApplication"
+            and phone_application.get(android_direct_boot) == "true"
+            and all(phone_components.get(name) is not None
+                    and phone_components[name].get(android_direct_boot) == "true"
+                    for name in direct_boot_components)
+            and all(phone_components.get(name) is not None
+                    and phone_components[name].get(android_direct_boot) == "false"
+                    for name in credential_components),
+            "locked-boot call UI, Telecom service, and actions must be direct-boot aware")
 
     messaging_root = root / "apps" / "messaging"
     messaging_manifest = (messaging_root / "AndroidManifest.xml").read_text(
@@ -1789,6 +1817,14 @@ def validate_aosp_overlay(root: Path) -> None:
     assistant_client = (root / "apps" / "phone" / "src" / "com" / "aios" /
                         "phone" / "intelligence" /
                         "CallAssistantClient.kt").read_text(encoding="utf-8")
+    direct_boot_policy = (
+        root / "apps" / "phone" / "src" / "com" / "aios" / "phone" /
+        "DirectBootPreferencePolicy.kt"
+    ).read_text(encoding="utf-8")
+    direct_boot_test = (
+        root / "apps" / "phone" / "tests" / "src" / "com" / "aios" /
+        "phone" / "DirectBootPreferencePolicyTest.kt"
+    ).read_text(encoding="utf-8")
     phone_rebind_policy = (
         root / "apps" / "phone" / "src" / "com" / "aios" / "phone" /
         "intelligence" / "PhoneServiceRebindPolicy.kt"
@@ -2004,11 +2040,11 @@ def validate_aosp_overlay(root: Path) -> None:
             and "NUMBER_PRESENTATION" in history_source,
             "AIOS Phone call history must be bounded, read-only, and presentation aware")
     require('"aios_context_api"' in phone_build
-            and "CallEventContextClient(value)" in phone_runtime
-            and "contextEvents.setEnabled(held)" in phone_runtime
+            and "CallEventContextClient(application)" in phone_runtime
+            and "contextEvents?.setEnabled(held)" in phone_runtime
             and "startWatchingMode(" in phone_runtime
             and "AppOpsManager.OPSTR_READ_CALL_LOG" in phone_runtime
-            and "contextEvents.onCallLogMayHaveChanged()" in phone_runtime
+            and "contextEvents?.onCallLogMayHaveChanged()" in phone_runtime
             and "registerContentObserver" in call_event_client
             and "service.resolveIdentity(record.address, record.countryIso)"
             in call_event_client
@@ -2284,6 +2320,25 @@ def validate_aosp_overlay(root: Path) -> None:
             and "service.setTelecomCallPresent(telecomLifecycleToken" in assistant_client
             and "announceEveryPresentCall(service)" in assistant_client,
             "AIOS Phone must publish every Telecom call with a replayable lifecycle token")
+    require("createDeviceProtectedStorageContext()" in phone_runtime
+            and "moveSharedPreferencesFrom(application, PREFS)" in phone_runtime
+            and "fun onCredentialStorageUnlocked()" in phone_runtime
+            and "Intent.ACTION_USER_UNLOCKED" in phone_runtime
+            and "registerReceiver(" in phone_runtime
+            and "unregisterReceiver(unlockReceiver)" in phone_runtime
+            and "private var contextEvents: CallEventContextClient? = null"
+            in phone_runtime
+            and "if (contextEvents == null && credentialStorageUnlocked())"
+            in phone_runtime
+            and "assistant.onCredentialStorageUnlocked()" in phone_runtime
+            and "fun onCredentialStorageUnlocked()" in assistant_client
+            and "terminateBindingOnMain(connection, expected = null, immediate = true)"
+            in assistant_client
+            and "WAIT_FOR_UNLOCK" in direct_boot_policy
+            and "MIGRATE_LEGACY" in direct_boot_policy
+            and "credentialPreferencesWaitWhileUserIsLocked" in direct_boot_test
+            and '"src/com/aios/phone/DirectBootPreferencePolicy.kt"' in phone_build,
+            "AIOS Phone must keep call controls available before unlock and recover optional services afterward")
     require("PendingAiAnswerGate()" in assistant_client
             and "pendingAiAnswers.consume(callId, reservation)" in assistant_client
             and "fun cancelAutomaticAnswer(callId: String)" in assistant_client
@@ -4898,6 +4953,7 @@ def validate_release_configuration(root: Path) -> None:
         "telephony.voicemail",
         "dialer.user_role_selection",
         "dialer.preloaded_default_emergency_path",
+        "dialer.direct_boot_call_controls",
         "dialer.multi_call_udf",
         "dialer.light_dark_theme",
         "dialer.emergency_never_ai",

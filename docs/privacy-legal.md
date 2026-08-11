@@ -37,6 +37,10 @@ Engineering defaults for the research image are:
   The dialer latches number-based and Telecom-provided emergency signals for
   both call directions. A late signal stops AI audio/capture and requests
   immediate deletion of any partial call artifact without ending the call.
+- Before first unlock after reboot, only ordinary call controls and
+  non-sensitive UI preferences are Direct Boot available. Assistant policy,
+  contact/context state, call artifacts, model sessions, transcripts, audio, and
+  reconciliation secrets remain credential-encrypted and unavailable.
 
 ## Access control
 

@@ -132,6 +132,13 @@ this document.
 Run gates in this order:
 
 1. Boot, reboot, slot fallback, adb, encryption, lock screen, and factory restore.
+   After a reboot, do not unlock the owner profile. Place a controlled incoming
+   call and verify ringing UI plus answer, ignore, decline, and hang-up controls.
+   Confirm AI answering and transcript/context surfaces remain unavailable and
+   that no credential-encrypted call artifact is created. Unlock while a second
+   controlled call remains active; verify the same Telecom call stays connected,
+   optional AI services reconnect without duplicate call state, and record this
+   physical evidence for `dialer.direct_boot_call_controls`.
 2. Basic cellular/data, incoming/outgoing call, eSIM, VoLTE, VoWiFi, Bluetooth,
    DTMF, and conference-call baselines with all AIOS features off.
 3. On a fresh user, verify `cmd role get-role-holders --user 0

@@ -44,6 +44,14 @@ repeatedly. Partial-ASR notification refreshes are coalesced while the in-call
 transcript remains unthrottled. Ringing notifications never contain transcript
 text.
 
+After a reboot and before the first owner unlock, the Direct Boot aware in-call
+service, activity, and notification actions must preserve ordinary answer,
+decline, ignore, hang-up, and Telecom controls. AI answering, contact/context
+lookups, model inference, and call-artifact creation remain unavailable until
+credential storage unlocks. Only non-sensitive theme and role-prompt preferences
+may use device-encrypted storage. Unlock recovery must reconnect optional AI
+services without replacing live Telecom call identities.
+
 The owner surface presents one of four explicit advisory states: **Likely
 legitimate**, **Still evaluating**, **Suspicious call**, or **High-risk call**.
 It includes a short human explanation, numeric score, and whether the result came

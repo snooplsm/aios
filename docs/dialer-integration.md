@@ -71,6 +71,25 @@ AIOS Phone is preloaded. AIOS Phone excludes emergency calls from every AI path;
 the end-to-end emergency UI and routing behavior must pass the controlled
 physical-device gate before release.
 
+### Locked boot
+
+AIOS Phone declares only the components required for a live call as Direct Boot
+aware: `AiosInCallService`, `InCallActivity`, and notification actions. While
+that process is alive it dynamically registers for `ACTION_USER_UNLOCKED`, as
+required by Android; home and settings activities remain credential-gated. Before
+the first unlock after reboot, the owner must still be able to answer, decline,
+ignore, hang up, and use ordinary Telecom call controls; AI answering is
+unavailable because Call Intelligence and Model Broker are intentionally not
+Direct Boot aware.
+
+The Phone process stores only theme and role-prompt preferences in
+device-encrypted storage. Existing credential-encrypted UI preferences migrate
+once after unlock, without replacing values already written to the device store.
+Call logs, contact-derived context, assistant policy, transcripts, audio, model
+state, and reconciliation secrets remain credential-encrypted. The unlock
+broadcast initializes the deferred context client and retries the optional AI
+binding immediately while preserving every live `Call` identity.
+
 The exact Android 17 AOSP Dialer topic in `patches/` remains a temporary bridge
 for Call Intelligence while AIOS Phone is under validation. It should be removed
 after AIOS Phone passes role selection, incoming/outgoing, emergency routing,

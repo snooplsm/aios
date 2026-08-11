@@ -5,8 +5,10 @@ import android.Manifest
 import android.app.Application
 import android.app.AppOpsManager
 import android.app.role.RoleManager
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
@@ -14,6 +16,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.UserManager
 import android.telecom.Call
 import android.telecom.CallEndpoint
 import android.telecom.PhoneAccountHandle
@@ -58,12 +61,14 @@ object PhoneRuntime {
     private const val PREFS = "phone_ui"
     private const val THEME = "theme"
     private const val SHOW_DIALER_ROLE_PROMPT = "show_dialer_role_prompt"
+    private const val DIRECT_BOOT_MIGRATION_COMPLETE = "direct_boot_migration_complete"
 
     private val main = Handler(Looper.getMainLooper())
     private val mutableState = MutableStateFlow(PhoneUiState())
     val state: StateFlow<PhoneUiState> = mutableState.asStateFlow()
 
     private lateinit var application: Application
+    private lateinit var uiPreferenceContext: Context
     private lateinit var calls: CallRegistry
     @SuppressLint("StaticFieldLeak") // Both owners receive only the Application context.
     private lateinit var notifications: CallNotificationCoordinator
@@ -74,7 +79,7 @@ object PhoneRuntime {
     @SuppressLint("StaticFieldLeak") // Repository receives only the Application context.
     private lateinit var history: CallHistoryRepository
     @SuppressLint("StaticFieldLeak") // Client receives only the Application context.
-    private lateinit var contextEvents: CallEventContextClient
+    private var contextEvents: CallEventContextClient? = null
     @SuppressLint("StaticFieldLeak") // Repository receives only the Application context.
     private lateinit var voicemailRepository: VoicemailRepository
     @SuppressLint("StaticFieldLeak") // Controller receives only the Application context.
@@ -86,6 +91,14 @@ object PhoneRuntime {
     private var transcriptNotificationSync: Runnable? = null
     private var telecomService: AiosInCallService? = null
     private var initialized = false
+    private var unlockReceiverRegistered = false
+    private val unlockReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action == Intent.ACTION_USER_UNLOCKED) {
+                onCredentialStorageUnlocked()
+            }
+        }
+    }
     private val callLogOpChanged = AppOpsManager.OnOpChangedListener { operation, packageName ->
         if (operation == AppOpsManager.OPSTR_READ_CALL_LOG &&
             packageName == application.packageName) refreshRole()
@@ -94,6 +107,7 @@ object PhoneRuntime {
     fun initialize(value: Application) {
         if (initialized) return
         application = value
+        uiPreferenceContext = value.createDeviceProtectedStorageContext()
         rtt = RttSessionController(
             onRemoteText = { callId, chunk ->
                 reduce { current ->
@@ -150,7 +164,7 @@ object PhoneRuntime {
                 },
             )
         }
-        contextEvents = CallEventContextClient(value)
+        ensureCredentialClients()
         voicemailRepository = VoicemailRepository(value) { result ->
             result.fold(
                 onSuccess = { voicemails ->
@@ -283,19 +297,14 @@ object PhoneRuntime {
             }
         })
         initialized = true
+        registerUnlockReceiverIfNeeded()
         value.getSystemService(AppOpsManager::class.java)?.startWatchingMode(
             AppOpsManager.OPSTR_READ_CALL_LOG,
             value.packageName,
             callLogOpChanged,
         )
-        val preferences = value.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        val savedTheme = preferences.getString(THEME, ThemePreference.SYSTEM.name)
-        val theme = runCatching { ThemePreference.valueOf(savedTheme.orEmpty()) }
-            .getOrDefault(ThemePreference.SYSTEM)
-        mutableState.value = mutableState.value.copy(
-            themePreference = theme,
-            showDialerRolePrompt = preferences.getBoolean(SHOW_DIALER_ROLE_PROMPT, true),
-        )
+        migrateLegacyUiPreferencesIfUnlocked()
+        loadUiPreferences()
         assistant.start()
         refreshRole()
     }
@@ -337,7 +346,7 @@ object PhoneRuntime {
             }
         }
         calls.remove(call)
-        contextEvents.onCallLogMayHaveChanged()
+        contextEvents?.onCallLogMayHaveChanged()
         publish()
     }
 
@@ -473,13 +482,13 @@ object PhoneRuntime {
             )
             PhoneAction.ToggleDtmf -> reduce { it.copy(showDtmf = !it.showDtmf) }
             is PhoneAction.ChangeTheme -> {
-                application.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit {
+                uiPreferences().edit {
                     putString(THEME, action.preference.name)
                 }
                 reduce { it.copy(themePreference = action.preference) }
             }
             is PhoneAction.ChangeDialerRolePromptVisible -> {
-                application.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit {
+                uiPreferences().edit {
                     putBoolean(SHOW_DIALER_ROLE_PROMPT, action.visible)
                 }
                 reduce { it.copy(showDialerRolePrompt = action.visible) }
@@ -529,9 +538,23 @@ object PhoneRuntime {
     fun refreshRole() = onMain {
         if (!initialized) return@onMain
         val roleManager = application.getSystemService(RoleManager::class.java)
-        val held = roleManager?.isRoleHeld(RoleManager.ROLE_DIALER) == true
-        contextEvents.setEnabled(held)
+        val held = runCatching {
+            roleManager?.isRoleHeld(RoleManager.ROLE_DIALER) == true
+        }.getOrDefault(false)
+        ensureCredentialClients()
+        contextEvents?.setEnabled(held)
         reduce { it.copy(isDialerRoleHeld = held) }
+    }
+
+    fun onCredentialStorageUnlocked() = onMain {
+        if (!initialized) return@onMain
+        if (!credentialStorageUnlocked()) return@onMain
+        unregisterUnlockReceiver()
+        migrateLegacyUiPreferencesIfUnlocked()
+        loadUiPreferences()
+        ensureCredentialClients()
+        assistant.onCredentialStorageUnlocked()
+        refreshRole()
     }
 
     private fun placeCall(number: String, clearInput: Boolean) {
@@ -866,6 +889,84 @@ object PhoneRuntime {
         block: (AssistantPolicyUiState) -> AssistantPolicyUiState,
     ) {
         reduce { it.copy(assistantPolicy = block(it.assistantPolicy)) }
+    }
+
+    private fun migrateLegacyUiPreferencesIfUnlocked() {
+        val userUnlocked = credentialStorageUnlocked()
+        var preferences = uiPreferences()
+        val action = DirectBootPreferencePolicy.action(
+            userUnlocked = userUnlocked,
+            migrationComplete = preferences.getBoolean(
+                DIRECT_BOOT_MIGRATION_COMPLETE,
+                false,
+            ),
+            deviceValuesPresent = preferences.all.keys.any {
+                it != DIRECT_BOOT_MIGRATION_COMPLETE
+            },
+        )
+        val complete = when (action) {
+            DirectBootPreferencePolicy.Action.WAIT_FOR_UNLOCK,
+            DirectBootPreferencePolicy.Action.ALREADY_COMPLETE,
+            -> false
+            DirectBootPreferencePolicy.Action.KEEP_DEVICE_VALUES -> true
+            DirectBootPreferencePolicy.Action.MIGRATE_LEGACY -> {
+                val legacyIsEmpty = runCatching {
+                    application.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                        .all.isEmpty()
+                }.getOrDefault(false)
+                legacyIsEmpty || runCatching {
+                    uiPreferenceContext.moveSharedPreferencesFrom(application, PREFS)
+                }.getOrDefault(false)
+            }
+        }
+        if (complete) {
+            preferences = uiPreferences()
+            preferences.edit {
+                putBoolean(DIRECT_BOOT_MIGRATION_COMPLETE, true)
+            }
+        }
+    }
+
+    private fun loadUiPreferences() {
+        val preferences = uiPreferences()
+        val savedTheme = preferences.getString(THEME, ThemePreference.SYSTEM.name)
+        val theme = runCatching { ThemePreference.valueOf(savedTheme.orEmpty()) }
+            .getOrDefault(ThemePreference.SYSTEM)
+        mutableState.value = mutableState.value.copy(
+            themePreference = theme,
+            showDialerRolePrompt = preferences.getBoolean(SHOW_DIALER_ROLE_PROMPT, true),
+        )
+    }
+
+    private fun uiPreferences() =
+        uiPreferenceContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+
+    private fun ensureCredentialClients() {
+        if (contextEvents == null && credentialStorageUnlocked()) {
+            contextEvents = CallEventContextClient(application)
+        }
+    }
+
+    private fun credentialStorageUnlocked(): Boolean =
+        application.getSystemService(UserManager::class.java)?.isUserUnlocked == true
+
+    private fun registerUnlockReceiverIfNeeded() {
+        if (credentialStorageUnlocked() || unlockReceiverRegistered) return
+        unlockReceiverRegistered = runCatching {
+            application.registerReceiver(
+                unlockReceiver,
+                IntentFilter(Intent.ACTION_USER_UNLOCKED),
+                Context.RECEIVER_NOT_EXPORTED,
+            )
+            true
+        }.getOrDefault(false)
+        if (credentialStorageUnlocked()) onCredentialStorageUnlocked()
+    }
+
+    private fun unregisterUnlockReceiver() {
+        if (!unlockReceiverRegistered) return
+        unlockReceiverRegistered = false
+        runCatching { application.unregisterReceiver(unlockReceiver) }
     }
 
     private inline fun onMain(crossinline block: () -> Unit) {

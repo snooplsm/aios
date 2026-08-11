@@ -30,6 +30,7 @@
     "telephony.voicemail": {"status": "not_run", "evidence": []},
     "dialer.user_role_selection": {"status": "not_run", "evidence": []},
     "dialer.preloaded_default_emergency_path": {"status": "not_run", "evidence": []},
+    "dialer.direct_boot_call_controls": {"status": "not_run", "evidence": []},
     "dialer.multi_call_udf": {"status": "not_run", "evidence": []},
     "dialer.light_dark_theme": {"status": "not_run", "evidence": []},
     "dialer.owner_answer_cancels_ai": {"status": "not_run", "evidence": []},

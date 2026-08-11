@@ -32,6 +32,11 @@ AIOS Phone the dialer for fresh users while preserving Android's standard,
 owner-changeable dialer role. The stock AOSP Dialer remains installed as a
 recovery alternative, but emergency routing and UI are not called validated
 until the physical-device gate passes.
+The in-call activity, Telecom service, and call-notification actions are Direct
+Boot aware, so ordinary call controls can run after reboot before first unlock.
+Only theme and role-prompt preferences use device-encrypted storage; assistant
+policy, AI services, call artifacts, and communication context stay unavailable
+until credential storage unlocks.
 Call risk now crosses Binder as a typed, revisioned assessment: initial known-
 contact legitimacy is published immediately, late listeners receive the current
 state, stale concurrent updates are ignored, and Compose shows human-readable
