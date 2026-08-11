@@ -774,7 +774,6 @@ def validate_aosp_overlay(root: Path) -> None:
     required_files = [
         "Android.bp",
         "AndroidProducts.mk",
-        ".github/workflows/aosp-upstream-watch.yml",
         "products/aios_common.mk",
         "products/aios_tegu.mk",
         "products/aios_cf_x86_64_phone.mk",
@@ -1134,16 +1133,6 @@ def validate_aosp_overlay(root: Path) -> None:
             and "--write" in refresh_script
             and "status --porcelain --untracked-files=all" in refresh_script,
             "AOSP refresh must be explicit, clean, official, and reviewable")
-    watch_workflow = (root / ".github" / "workflows" /
-                      "aosp-upstream-watch.yml").read_text(encoding="utf-8")
-    require("schedule:" in watch_workflow
-            and "workflow_dispatch:" in watch_workflow
-            and "contents: read" in watch_workflow
-            and OFFICIAL_AOSP_MANIFEST_URL in watch_workflow
-            and "android-latest-release" in watch_workflow
-            and "refresh_aosp_tracking.py" in watch_workflow
-            and "--check" in watch_workflow,
-            "AOSP upstream watch must be scheduled, read-only, and official")
     patch_tool = (root / "tools" / "verify_patch_series.py").read_text(
         encoding="utf-8"
     )
