@@ -103,6 +103,14 @@ generation. Cancel supersedes pending stage/complete work for the same token;
 clear supersedes queued per-source deletes. This closes the service-restart gap
 without resending the carrier MMS or duplicating a context source.
 
+On the service side, Media Intelligence keeps association publication and
+deletion authoritative in its SQLite journal while Communication Context is
+unavailable. Its context binding uses a distinct connection object per attempt,
+rejects late generations on the media worker, replaces terminal or stalled
+bindings, and retries with a one-to-sixty-second backoff. A remote failure never
+marks the durable association published or deleted; reconciliation resumes from
+the journal after reconnection.
+
 This policy chooses a visible failed message over a possible duplicate send. It
 does not claim exactly-once delivery from the carrier network.
 

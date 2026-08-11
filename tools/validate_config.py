@@ -1050,6 +1050,8 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/mediaintelligence/res/xml/data_extraction_rules.xml",
         "services/mediaintelligence/aidl/com/aios/media/IMediaContextAssociation.aidl",
         "services/mediaintelligence/src/com/aios/mediaintelligence/MediaAssociationPolicy.java",
+        "services/mediaintelligence/src/com/aios/mediaintelligence/ContextServiceRebindPolicy.java",
+        "services/mediaintelligence/src/com/aios/mediaintelligence/ResilientContextServiceBinding.java",
         "services/mediaintelligence/src/com/aios/mediaintelligence/MediaContextAssociationService.java",
         "services/mediaintelligence/src/com/aios/mediaintelligence/MediaContextProjection.java",
         "services/mediaintelligence/src/com/aios/mediaintelligence/MediaObserverService.java",
@@ -1059,6 +1061,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/mediaintelligence/src/com/aios/mediaintelligence/MediaLivenessScanner.java",
         "services/mediaintelligence/src/com/aios/mediaintelligence/MediaInferenceJobService.java",
         "services/mediaintelligence/src/com/aios/mediaintelligence/MediaWorkPolicy.java",
+        "services/mediaintelligence/tests/src/com/aios/mediaintelligence/ContextServiceRebindPolicyTest.java",
         "services/mediaintelligence/src/com/aios/mediaintelligence/MediaConstraintProbe.java",
         "services/mediaintelligence/src/com/aios/mediaintelligence/MediaInputPolicy.java",
         "services/mediaintelligence/src/com/aios/mediaintelligence/MediaInferenceAttempt.java",
@@ -3546,6 +3549,16 @@ def validate_aosp_overlay(root: Path) -> None:
                             encoding="utf-8")
     association_service = (media_source_root / "MediaContextAssociationService.java").read_text(
         encoding="utf-8")
+    association_context_binding = (
+        media_source_root / "ResilientContextServiceBinding.java"
+    ).read_text(encoding="utf-8")
+    association_context_rebind_policy = (
+        media_source_root / "ContextServiceRebindPolicy.java"
+    ).read_text(encoding="utf-8")
+    association_context_rebind_test = (
+        root / "services" / "mediaintelligence" / "tests" / "src" / "com" /
+        "aios" / "mediaintelligence" / "ContextServiceRebindPolicyTest.java"
+    ).read_text(encoding="utf-8")
     association_policy_test = (root / "services" / "mediaintelligence" / "tests" /
                                "src" / "com" / "aios" / "mediaintelligence" /
                                "MediaAssociationPolicyTest.java").read_text(encoding="utf-8")
@@ -3573,6 +3586,21 @@ def validate_aosp_overlay(root: Path) -> None:
             and "if (store.clearMmsPhotosPending()) return;" not in association_service
             and "result_digests" in media_store_source,
             "selected-photo context must be signature-gated, carrier-admitted, and lifecycle-bound")
+    require("new ResilientContextServiceBinding" in association_service
+            and "contextBinding.isCurrent(service)" in association_service
+            and "contextBinding.invalidate(failed)" in association_service
+            and "activeConnection != this" in association_context_binding
+            and "onBindingDied" in association_context_binding
+            and "onNullBinding" in association_context_binding
+            and "CONNECT_TIMEOUT_MILLIS = 15_000L" in association_context_binding
+            and "ContextServiceRebindPolicy" in association_context_binding
+            and "MAX_DELAY_MILLIS = 60_000L"
+            in association_context_rebind_policy
+            and "connectionRacingReservedRetryCancelsThatAttempt"
+            in association_context_rebind_test
+            and '"src/com/aios/mediaintelligence/ContextServiceRebindPolicy.java"'
+            in media_bp,
+            "media-context publication must recover through a generation-safe bounded binding")
 
     timing_source = (media_source_root / "MediaTiming.java").read_text(
         encoding="utf-8"

@@ -2,10 +2,8 @@ package com.aios.mediaintelligence;
 
 import android.app.Service;
 import android.app.role.RoleManager;
-import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
-import android.content.ServiceConnection;
 import android.content.pm.PackageManager;
 import android.os.Binder;
 import android.os.Handler;
@@ -34,9 +32,6 @@ public final class MediaContextAssociationService extends Service {
     private static final String ACTION_RECONCILE =
             "com.aios.media.RECONCILE_MEDIA_CONTEXT_ASSOCIATIONS";
     private static final String MESSAGING_PACKAGE = "com.aios.messaging";
-    private static final String CONTEXT_ACTION =
-            "com.aios.context.COMMUNICATION_CONTEXT_SERVICE";
-    private static final String CONTEXT_PACKAGE = "com.aios.contextintelligence";
     private static final String SOURCE_TYPE = "media_metadata";
     private static final String TAG = "AiosMediaContext";
     private static final int PAGE_SIZE = 128;
@@ -48,38 +43,10 @@ public final class MediaContextAssociationService extends Service {
     private Handler worker;
     private MediaJobStore store;
     private ICommunicationContext contextService;
-    private boolean contextBound;
+    private ResilientContextServiceBinding contextBinding;
     private boolean shuttingDown;
 
     private final Runnable reconcileRunnable = this::reconcile;
-
-    private final ServiceConnection contextConnection = new ServiceConnection() {
-        @Override
-        public void onServiceConnected(ComponentName name, IBinder binder) {
-            ICommunicationContext candidate = ICommunicationContext.Stub.asInterface(binder);
-            if (worker != null) {
-                worker.post(() -> {
-                    contextService = candidate;
-                    scheduleReconcile(0L);
-                });
-            }
-        }
-
-        @Override
-        public void onServiceDisconnected(ComponentName name) {
-            if (worker != null) worker.post(() -> contextService = null);
-        }
-
-        @Override
-        public void onBindingDied(ComponentName name) {
-            if (worker != null) worker.post(MediaContextAssociationService.this::restartBinding);
-        }
-
-        @Override
-        public void onNullBinding(ComponentName name) {
-            if (worker != null) worker.post(MediaContextAssociationService.this::restartBinding);
-        }
-    };
 
     private final IMediaContextAssociation.Stub binder = new IMediaContextAssociation.Stub() {
         @Override
@@ -186,7 +153,20 @@ public final class MediaContextAssociationService extends Service {
         thread = new HandlerThread("aios-media-context");
         thread.start();
         worker = new Handler(thread.getLooper());
-        bindContext();
+        contextBinding = new ResilientContextServiceBinding(
+                this,
+                new ResilientContextServiceBinding.Listener() {
+                    @Override
+                    public void onConnected(ICommunicationContext service) {
+                        postContextConnected(service);
+                    }
+
+                    @Override
+                    public void onDisconnected(ICommunicationContext service) {
+                        postContextDisconnected(service);
+                    }
+                });
+        contextBinding.start();
         scheduleReconcile(0L);
     }
 
@@ -204,11 +184,8 @@ public final class MediaContextAssociationService extends Service {
     @Override
     public void onDestroy() {
         shuttingDown = true;
+        if (contextBinding != null) contextBinding.close();
         if (worker != null) worker.removeCallbacksAndMessages(null);
-        if (contextBound) {
-            runCatchingUnbind();
-            contextBound = false;
-        }
         contextService = null;
         if (store != null) store.close();
         if (thread != null) thread.quitSafely();
@@ -261,7 +238,6 @@ public final class MediaContextAssociationService extends Service {
                     Math.max(1L, now - MediaAssociationPolicy.INCOMPLETE_TTL_MILLIS));
             ICommunicationContext remote = contextService;
             if (remote == null) {
-                bindContext();
                 scheduleReconcile(RETRY_MILLIS);
                 return;
             }
@@ -294,7 +270,11 @@ public final class MediaContextAssociationService extends Service {
             }
         } catch (RemoteException error) {
             Log.w(TAG, "communication-context service disconnected", error);
-            restartBinding();
+            ICommunicationContext failed = contextService;
+            contextService = null;
+            if (failed != null && contextBinding != null) {
+                contextBinding.invalidate(failed);
+            }
             scheduleReconcile(RETRY_MILLIS);
         } catch (RuntimeException error) {
             Log.w(TAG, "media-context reconciliation deferred", error);
@@ -396,24 +376,22 @@ public final class MediaContextAssociationService extends Service {
         else candidate.postDelayed(reconcileRunnable, delayMillis);
     }
 
-    private void bindContext() {
-        if (contextBound || shuttingDown) return;
-        Intent intent = new Intent(CONTEXT_ACTION).setPackage(CONTEXT_PACKAGE);
-        contextBound = bindService(intent, contextConnection, Context.BIND_AUTO_CREATE);
+    private void postContextConnected(ICommunicationContext service) {
+        Handler candidate = worker;
+        if (candidate == null || shuttingDown) return;
+        candidate.post(() -> {
+            if (shuttingDown || contextBinding == null
+                    || !contextBinding.isCurrent(service)) return;
+            contextService = service;
+            scheduleReconcile(0L);
+        });
     }
 
-    private void restartBinding() {
-        contextService = null;
-        if (contextBound) runCatchingUnbind();
-        contextBound = false;
-        bindContext();
-    }
-
-    private void runCatchingUnbind() {
-        try {
-            unbindService(contextConnection);
-        } catch (RuntimeException ignored) {
-            // A dead binding may already have been removed by the framework.
-        }
+    private void postContextDisconnected(ICommunicationContext service) {
+        Handler candidate = worker;
+        if (candidate == null || shuttingDown) return;
+        candidate.post(() -> {
+            if (contextService == service) contextService = null;
+        });
     }
 }
