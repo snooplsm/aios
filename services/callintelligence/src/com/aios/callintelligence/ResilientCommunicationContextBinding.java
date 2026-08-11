@@ -9,51 +9,57 @@ import android.os.IBinder;
 import android.os.Looper;
 import android.util.Log;
 
-import com.aios.model.IAiosModelService;
+import com.aios.context.ICommunicationContext;
 
-/** A generation-safe Model Broker binding that replaces terminal and stalled bindings. */
-final class ResilientModelBrokerBinding implements AutoCloseable {
+/** Generation-safe binding for the optional communication-context service. */
+final class ResilientCommunicationContextBinding implements AutoCloseable {
     interface Listener {
-        void onConnected(IAiosModelService service);
+        void onConnected(ICommunicationContext service);
         void onDisconnected();
     }
 
-    private static final String TAG = "AiosBrokerBinding";
-    private static final String BROKER_ACTION = "com.aios.model.MODEL_SERVICE";
-    private static final String BROKER_PACKAGE = "com.aios.modelbroker";
+    private static final String TAG = "AiosContextBinding";
+    private static final String ACTION = "com.aios.context.COMMUNICATION_CONTEXT_SERVICE";
+    private static final String PACKAGE = "com.aios.contextintelligence";
     private static final long CONNECT_TIMEOUT_MILLIS = 15_000L;
 
     private final Context context;
     private final Listener listener;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final ServiceRebindPolicy rebindPolicy = new ServiceRebindPolicy();
-    private BrokerConnection activeConnection;
-    private IAiosModelService service;
+    private ContextConnection activeConnection;
+    private ICommunicationContext service;
     private boolean binding;
-    private boolean ready;
+    private boolean connected;
     private boolean closed;
 
     private final Runnable rebind = () -> {
-        if (rebindPolicy.begin()) bindBroker();
+        if (rebindPolicy.begin()) bindService();
     };
 
-    private final class BrokerConnection implements ServiceConnection {
+    private final class ContextConnection implements ServiceConnection {
         final Runnable timeout = () -> onConnectionTimedOut(this);
 
         @Override
         public void onServiceConnected(ComponentName name, IBinder binder) {
-            IAiosModelService candidate = IAiosModelService.Stub.asInterface(binder);
-            synchronized (ResilientModelBrokerBinding.this) {
-                if (closed || activeConnection != this || candidate == null) return;
-                service = candidate;
-                ready = false;
+            ICommunicationContext candidate = ICommunicationContext.Stub.asInterface(binder);
+            if (candidate == null) {
+                replaceTerminalBinding(this, false);
+                return;
             }
+            synchronized (ResilientCommunicationContextBinding.this) {
+                if (closed || activeConnection != this) return;
+                service = candidate;
+                connected = true;
+            }
+            mainHandler.removeCallbacks(timeout);
+            rebindPolicy.connected();
             notifyConnected(candidate);
         }
 
         @Override
         public void onServiceDisconnected(ComponentName name) {
-            // Android retains an ordinary crash binding and reconnects it.
+            // Android normally retains a crash binding. Replace it if reconnect stalls.
             if (!clearCurrent(this)) return;
             notifyDisconnected();
             armConnectionTimeout(this);
@@ -61,16 +67,16 @@ final class ResilientModelBrokerBinding implements AutoCloseable {
 
         @Override
         public void onBindingDied(ComponentName name) {
-            replaceTerminalBinding(this, true, false);
+            replaceTerminalBinding(this, true);
         }
 
         @Override
         public void onNullBinding(ComponentName name) {
-            replaceTerminalBinding(this, false, false);
+            replaceTerminalBinding(this, false);
         }
     }
 
-    ResilientModelBrokerBinding(Context context, Listener listener) {
+    ResilientCommunicationContextBinding(Context context, Listener listener) {
         this.context = context.getApplicationContext();
         this.listener = listener;
     }
@@ -82,40 +88,29 @@ final class ResilientModelBrokerBinding implements AutoCloseable {
         scheduleRebind(true);
     }
 
-    synchronized boolean isCurrent(IAiosModelService candidate) {
-        return !closed && service == candidate;
+    synchronized boolean isCurrent(ICommunicationContext candidate) {
+        return !closed && connected && service == candidate;
     }
 
-    void markReady(IAiosModelService candidate) {
-        BrokerConnection connection;
-        synchronized (this) {
-            if (closed || service != candidate || activeConnection == null) return;
-            ready = true;
-            connection = activeConnection;
-        }
-        mainHandler.removeCallbacks(connection.timeout);
-        rebindPolicy.connected();
-    }
-
-    void invalidate(IAiosModelService candidate) {
-        BrokerConnection connection;
+    void invalidate(ICommunicationContext candidate) {
+        ContextConnection connection;
         synchronized (this) {
             if (closed || service != candidate) return;
             connection = activeConnection;
         }
-        replaceTerminalBinding(connection, false, false);
+        replaceTerminalBinding(connection, false);
     }
 
     @Override
     public void close() {
-        BrokerConnection connection;
+        ContextConnection connection;
         boolean notify;
         synchronized (this) {
             if (closed) return;
             closed = true;
             notify = service != null;
             service = null;
-            ready = false;
+            connected = false;
             connection = activeConnection;
             activeConnection = null;
             binding = false;
@@ -127,8 +122,8 @@ final class ResilientModelBrokerBinding implements AutoCloseable {
         unbindQuietly(connection);
     }
 
-    private void bindBroker() {
-        BrokerConnection connection = new BrokerConnection();
+    private void bindService() {
+        ContextConnection connection = new ContextConnection();
         synchronized (this) {
             if (closed || activeConnection != null || binding) return;
             activeConnection = connection;
@@ -136,10 +131,10 @@ final class ResilientModelBrokerBinding implements AutoCloseable {
         }
         boolean didBind = false;
         try {
-            Intent intent = new Intent(BROKER_ACTION).setPackage(BROKER_PACKAGE);
+            Intent intent = new Intent(ACTION).setPackage(PACKAGE);
             didBind = context.bindService(intent, connection, Context.BIND_AUTO_CREATE);
         } catch (RuntimeException error) {
-            Log.e(TAG, "Model Broker bind failed", error);
+            Log.e(TAG, "Communication Context bind failed", error);
         }
 
         boolean release = false;
@@ -167,26 +162,23 @@ final class ResilientModelBrokerBinding implements AutoCloseable {
         }
     }
 
-    private boolean clearCurrent(BrokerConnection connection) {
+    private boolean clearCurrent(ContextConnection connection) {
         synchronized (this) {
             if (closed || activeConnection != connection) return false;
             service = null;
-            ready = false;
+            connected = false;
             return true;
         }
     }
 
-    private void replaceTerminalBinding(
-            BrokerConnection connection, boolean immediate, boolean onlyIfNotReady) {
+    private void replaceTerminalBinding(ContextConnection connection, boolean immediate) {
         if (connection == null) return;
         boolean notify;
         synchronized (this) {
-            if (closed || activeConnection != connection || (onlyIfNotReady && ready)) {
-                return;
-            }
+            if (closed || activeConnection != connection) return;
             notify = service != null;
             service = null;
-            ready = false;
+            connected = false;
             activeConnection = null;
             binding = false;
         }
@@ -196,19 +188,19 @@ final class ResilientModelBrokerBinding implements AutoCloseable {
         scheduleRebind(immediate);
     }
 
-    private void armConnectionTimeout(BrokerConnection connection) {
+    private void armConnectionTimeout(ContextConnection connection) {
         synchronized (this) {
-            if (closed || activeConnection != connection || ready) return;
+            if (closed || activeConnection != connection || connected) return;
         }
         mainHandler.removeCallbacks(connection.timeout);
         mainHandler.postDelayed(connection.timeout, CONNECT_TIMEOUT_MILLIS);
     }
 
-    private void onConnectionTimedOut(BrokerConnection connection) {
+    private void onConnectionTimedOut(ContextConnection connection) {
         synchronized (this) {
-            if (closed || activeConnection != connection || ready) return;
+            if (closed || activeConnection != connection || connected) return;
         }
-        replaceTerminalBinding(connection, false, true);
+        replaceTerminalBinding(connection, false);
     }
 
     private void scheduleRebind(boolean immediate) {
@@ -218,11 +210,11 @@ final class ResilientModelBrokerBinding implements AutoCloseable {
         }
     }
 
-    private void notifyConnected(IAiosModelService candidate) {
+    private void notifyConnected(ICommunicationContext candidate) {
         try {
             listener.onConnected(candidate);
         } catch (RuntimeException error) {
-            Log.e(TAG, "Model Broker connection listener failed", error);
+            Log.e(TAG, "Communication Context connection listener failed", error);
             invalidate(candidate);
         }
     }
@@ -231,11 +223,11 @@ final class ResilientModelBrokerBinding implements AutoCloseable {
         try {
             listener.onDisconnected();
         } catch (RuntimeException error) {
-            Log.e(TAG, "Model Broker disconnection listener failed", error);
+            Log.e(TAG, "Communication Context disconnection listener failed", error);
         }
     }
 
-    private void unbindQuietly(BrokerConnection connection) {
+    private void unbindQuietly(ContextConnection connection) {
         if (connection == null) return;
         try {
             context.unbindService(connection);

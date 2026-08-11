@@ -354,8 +354,13 @@ artifacts inherit the 24-hour retention boundary; normal call teardown publishes
 only final bilingual transcript text, assistant replies, and validated risk
 events under the opaque call-directory digest. The presented number exists only
 long enough to resolve the HMAC identity and is never written to either store.
-Context lookup is asynchronous and cannot block answer or capture. Durable call
-events contain no transcript or recording.
+Context lookup is asynchronous and cannot block answer or capture. Its
+generation-safe client replaces failed, null, terminal, and stalled bindings
+with bounded backoff. It retains at most one transient preparation per active
+call and one final index operation only after opaque identity resolution,
+rejects stale generations, and replays only before the artifact expires. The
+transient number is discarded when that call finishes or is cancelled. Durable
+call events contain no transcript or recording.
 
 ## Storage boundaries
 

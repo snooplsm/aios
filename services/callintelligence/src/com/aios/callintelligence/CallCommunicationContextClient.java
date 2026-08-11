@@ -1,10 +1,6 @@
 package com.aios.callintelligence;
 
-import android.content.ComponentName;
 import android.content.Context;
-import android.content.Intent;
-import android.content.ServiceConnection;
-import android.os.IBinder;
 import android.os.RemoteException;
 
 import com.aios.context.ContextDocument;
@@ -47,60 +43,93 @@ final class CallCommunicationContextClient implements AutoCloseable {
         }
     }
 
-    private static final String ACTION =
-            "com.aios.context.COMMUNICATION_CONTEXT_SERVICE";
-    private static final String PACKAGE = "com.aios.contextintelligence";
+    private static final class PendingPrepare {
+        final Object requestIdentity;
+        final String address;
+        final String countryIso;
+        final long nowEpochMillis;
+
+        PendingPrepare(
+                Object requestIdentity,
+                String address,
+                String countryIso,
+                long nowEpochMillis) {
+            this.requestIdentity = requestIdentity;
+            this.address = address;
+            this.countryIso = countryIso;
+            this.nowEpochMillis = nowEpochMillis;
+        }
+    }
+
+    private static final class PendingIndex {
+        final Object requestIdentity;
+        final PreparedContext prepared;
+        final String sourceId;
+        final long revision;
+        final long eventAtEpochMillis;
+        final long expiresAtEpochMillis;
+        final String text;
+
+        PendingIndex(
+                Object requestIdentity,
+                PreparedContext prepared,
+                String sourceId,
+                long revision,
+                long eventAtEpochMillis,
+                long expiresAtEpochMillis,
+                String text) {
+            this.requestIdentity = requestIdentity;
+            this.prepared = prepared;
+            this.sourceId = sourceId;
+            this.revision = revision;
+            this.eventAtEpochMillis = eventAtEpochMillis;
+            this.expiresAtEpochMillis = expiresAtEpochMillis;
+            this.text = text;
+        }
+    }
+
     private static final int MAX_CALL_ID_CHARS = 128;
     private static final int MAX_ADDRESS_CHARS = 256;
     private static final int MAX_ACTIVE_CALLS = 64;
 
-    private final Context context;
     private final Listener listener;
     private final ExecutorService worker = Executors.newSingleThreadExecutor(work -> {
         Thread thread = new Thread(work, "aios-call-context");
         thread.setPriority(Thread.NORM_PRIORITY);
         return thread;
     });
+    private final ResilientCommunicationContextBinding binding;
     private ICommunicationContext service;
     private final CallRequestIdentityTracker activeRequests =
             new CallRequestIdentityTracker();
+    private final Map<String, PendingPrepare> pendingPrepares = new HashMap<>();
+    private final Map<String, Object> preparing = new HashMap<>();
     private final Map<String, ResolvedCall> resolvedCalls = new HashMap<>();
-    private boolean bound;
+    private final Map<String, PendingIndex> pendingIndexes = new HashMap<>();
+    private final Map<String, PendingIndex> indexing = new HashMap<>();
     private boolean closed;
 
-    private final ServiceConnection connection = new ServiceConnection() {
-        @Override
-        public void onServiceConnected(ComponentName name, IBinder binder) {
-            synchronized (CallCommunicationContextClient.this) {
-                if (!closed) service = ICommunicationContext.Stub.asInterface(binder);
-            }
-        }
-
-        @Override
-        public void onServiceDisconnected(ComponentName name) {
-            clearService();
-        }
-
-        @Override
-        public void onBindingDied(ComponentName name) {
-            restartBinding();
-        }
-
-        @Override
-        public void onNullBinding(ComponentName name) {
-            clearService();
-        }
-    };
-
     CallCommunicationContextClient(Context context, Listener listener) {
-        this.context = context;
         this.listener = listener;
+        binding = new ResilientCommunicationContextBinding(
+                context,
+                new ResilientCommunicationContextBinding.Listener() {
+                    @Override
+                    public void onConnected(ICommunicationContext connected) {
+                        handleConnected(connected);
+                    }
+
+                    @Override
+                    public void onDisconnected() {
+                        synchronized (CallCommunicationContextClient.this) {
+                            service = null;
+                        }
+                    }
+                });
     }
 
-    synchronized void start() {
-        if (closed || bound) return;
-        Intent intent = new Intent(ACTION).setPackage(PACKAGE);
-        bound = context.bindService(intent, connection, Context.BIND_AUTO_CREATE);
+    void start() {
+        binding.start();
     }
 
     boolean prepareCall(
@@ -111,27 +140,27 @@ final class CallCommunicationContextClient implements AutoCloseable {
             long nowEpochMillis) {
         ICommunicationContext candidate;
         synchronized (this) {
-            candidate = service;
             if (closed || !validCallId(callId) || requestIdentity == null
                     || transientAddress == null
                     || transientAddress.isBlank()
                     || transientAddress.length() > MAX_ADDRESS_CHARS
-                    || nowEpochMillis <= 0L) {
+                    || nowEpochMillis <= 0L
+                    || !activeRequests.tryStart(
+                            callId, requestIdentity, MAX_ACTIVE_CALLS)) {
                 return false;
             }
-            if (candidate != null) {
-                if (!activeRequests.tryStart(
-                        callId, requestIdentity, MAX_ACTIVE_CALLS)) return false;
-            }
+            pendingPrepares.put(callId, new PendingPrepare(
+                    requestIdentity,
+                    transientAddress,
+                    countryIso == null ? "" : countryIso,
+                    nowEpochMillis));
+            candidate = service;
         }
         if (candidate == null) {
-            listener.onStatus(callId, "communication_context_unavailable");
-            return false;
+            listener.onStatus(callId, "communication_context_deferred");
+        } else {
+            submitPrepare(candidate, callId, requestIdentity);
         }
-        String address = transientAddress;
-        String iso = countryIso == null ? "" : countryIso;
-        worker.execute(() -> resolveAndQuery(
-                candidate, callId, requestIdentity, address, iso, nowEpochMillis));
         return true;
     }
 
@@ -144,7 +173,9 @@ final class CallCommunicationContextClient implements AutoCloseable {
             long expiresAtEpochMillis,
             String text,
             long nowEpochMillis) {
-        Object requestIdentity;
+        PendingIndex pending;
+        ICommunicationContext candidate;
+        String failure = null;
         synchronized (this) {
             if (closed || !validCallId(callId)
                     || sourceId == null || !sourceId.matches("[0-9a-f]{64}")
@@ -153,54 +184,47 @@ final class CallCommunicationContextClient implements AutoCloseable {
                     || text.isBlank() || text.length() > CallContextAccumulator.MAX_DOCUMENT_CHARS) {
                 return;
             }
-            requestIdentity = activeRequests.current(callId);
-        }
-        worker.execute(() -> {
-            PreparedContext effective;
-            ICommunicationContext candidate;
-            synchronized (this) {
-                ResolvedCall resolved = resolvedCalls.get(callId);
-                PreparedContext matchingResolved = resolved != null
-                        && resolved.requestIdentity == requestIdentity
-                        ? resolved.context : null;
-                if (matchingResolved != null) resolvedCalls.remove(callId);
-                activeRequests.finish(callId, requestIdentity);
-                effective = prepared == null ? matchingResolved : prepared;
+            Object requestIdentity = activeRequests.current(callId);
+            ResolvedCall resolved = resolvedCalls.get(callId);
+            PreparedContext matchingResolved = resolved != null
+                    && resolved.requestIdentity == requestIdentity
+                    ? resolved.context : null;
+            PreparedContext effective = prepared == null ? matchingResolved : prepared;
+            pending = new PendingIndex(
+                    requestIdentity,
+                    effective,
+                    sourceId,
+                    revision,
+                    eventAtEpochMillis,
+                    expiresAtEpochMillis,
+                    text);
+            if (requestIdentity == null || effective == null) {
+                finishCallLocked(callId, requestIdentity);
+                failure = "call_context_identity_unavailable";
+                candidate = null;
+            } else if (expiresAtEpochMillis <= Math.max(
+                    nowEpochMillis, System.currentTimeMillis())) {
+                finishCallLocked(callId, requestIdentity);
+                failure = "call_context_index_expired";
+                candidate = null;
+            } else {
+                pendingIndexes.put(callId, pending);
                 candidate = service;
             }
-            if (effective == null || effective.identity == null) {
-                listener.onStatus(callId, "call_context_identity_unavailable");
-                return;
-            }
-            long observedNow = Math.max(nowEpochMillis, System.currentTimeMillis());
-            if (expiresAtEpochMillis <= observedNow || candidate == null) {
-                listener.onStatus(callId, "communication_context_unavailable");
-                return;
-            }
-            try {
-                candidate.upsert(new ContextDocument(
-                        "call_artifact",
-                        sourceId,
-                        revision,
-                        effective.identity,
-                        eventAtEpochMillis,
-                        expiresAtEpochMillis,
-                        text));
-                listener.onStatus(callId, "call_context_indexed");
-            } catch (RemoteException | RuntimeException error) {
-                listener.onStatus(callId, "call_context_index_failed");
-            }
-        });
+        }
+        if (failure != null) {
+            listener.onStatus(callId, failure);
+        } else if (candidate == null) {
+            listener.onStatus(callId, "call_context_index_deferred");
+        } else {
+            submitIndex(candidate, callId, pending);
+        }
     }
 
     void discardCall(String callId) {
         synchronized (this) {
             if (closed || !validCallId(callId)) return;
-            Object discarded = activeRequests.remove(callId);
-            ResolvedCall resolved = resolvedCalls.get(callId);
-            if (resolved != null && resolved.requestIdentity == discarded) {
-                resolvedCalls.remove(callId);
-            }
+            finishCallLocked(callId, activeRequests.current(callId));
         }
     }
 
@@ -211,26 +235,66 @@ final class CallCommunicationContextClient implements AutoCloseable {
             closed = true;
             service = null;
             activeRequests.clear();
+            pendingPrepares.clear();
+            preparing.clear();
             resolvedCalls.clear();
-            if (bound) {
-                context.unbindService(connection);
-                bound = false;
-            }
+            pendingIndexes.clear();
+            indexing.clear();
         }
+        binding.close();
         worker.shutdownNow();
     }
 
+    private void handleConnected(ICommunicationContext connected) {
+        List<Map.Entry<String, PendingPrepare>> prepares;
+        List<Map.Entry<String, PendingIndex>> indexes;
+        synchronized (this) {
+            if (closed || !binding.isCurrent(connected)) return;
+            service = connected;
+            prepares = new ArrayList<>(pendingPrepares.entrySet());
+            indexes = new ArrayList<>(pendingIndexes.entrySet());
+        }
+        for (Map.Entry<String, PendingPrepare> entry : prepares) {
+            submitPrepare(connected, entry.getKey(), entry.getValue().requestIdentity);
+        }
+        for (Map.Entry<String, PendingIndex> entry : indexes) {
+            if (entry.getValue().prepared != null) {
+                submitIndex(connected, entry.getKey(), entry.getValue());
+            }
+        }
+    }
+
+    private void submitPrepare(
+            ICommunicationContext candidate, String callId, Object requestIdentity) {
+        synchronized (this) {
+            PendingPrepare pending = pendingPrepares.get(callId);
+            if (closed || !binding.isCurrent(candidate) || pending == null
+                    || pending.requestIdentity != requestIdentity
+                    || !activeRequests.isCurrent(callId, requestIdentity)
+                    || preparing.containsKey(callId)) {
+                return;
+            }
+            preparing.put(callId, requestIdentity);
+        }
+        worker.execute(() -> resolveAndQuery(candidate, callId, requestIdentity));
+    }
+
     private void resolveAndQuery(
-            ICommunicationContext candidate,
-            String callId,
-            Object requestIdentity,
-            String address,
-            String countryIso,
-            long nowEpochMillis) {
+            ICommunicationContext candidate, String callId, Object requestIdentity) {
+        PendingPrepare pending;
+        synchronized (this) {
+            pending = pendingPrepares.get(callId);
+            if (closed || pending == null || pending.requestIdentity != requestIdentity
+                    || !activeRequests.isCurrent(callId, requestIdentity)) {
+                preparing.remove(callId, requestIdentity);
+                return;
+            }
+        }
         try {
-            ConversationIdentity identity = candidate.resolveIdentity(address, countryIso);
+            ConversationIdentity identity = candidate.resolveIdentity(
+                    pending.address, pending.countryIso);
             List<ContextSnippet> snippets = candidate.query(
-                    identity, "", PriorContextFormatter.MAX_ITEMS, nowEpochMillis);
+                    identity, "", PriorContextFormatter.MAX_ITEMS, pending.nowEpochMillis);
             ArrayList<PriorContextFormatter.Item> values = new ArrayList<>();
             if (snippets != null) {
                 for (ContextSnippet snippet : snippets) {
@@ -242,34 +306,152 @@ final class CallCommunicationContextClient implements AutoCloseable {
             PreparedContext prepared = new PreparedContext(
                     identity, PriorContextFormatter.format(values));
             synchronized (this) {
-                if (closed || !activeRequests.isCurrent(callId, requestIdentity)) return;
+                preparing.remove(callId, requestIdentity);
+                if (closed || !binding.isCurrent(candidate)
+                        || !activeRequests.isCurrent(callId, requestIdentity)
+                        || pendingPrepares.get(callId) != pending) {
+                    retryPrepareIfConnectedLocked(callId, requestIdentity);
+                    return;
+                }
+                pendingPrepares.remove(callId);
                 resolvedCalls.put(callId, new ResolvedCall(requestIdentity, prepared));
             }
             listener.onContextReady(callId, requestIdentity, prepared);
-        } catch (RemoteException | RuntimeException error) {
+        } catch (RemoteException error) {
+            boolean report;
             synchronized (this) {
-                if (closed || !activeRequests.isCurrent(callId, requestIdentity)) return;
+                preparing.remove(callId, requestIdentity);
+                report = activeRequests.isCurrent(callId, requestIdentity)
+                        && pendingPrepares.get(callId) == pending;
             }
-            listener.onStatus(callId, "communication_context_query_failed");
+            if (report) {
+                listener.onStatus(callId, "communication_context_query_deferred");
+            }
+            binding.invalidate(candidate);
+            retryPrepareIfConnected(callId, requestIdentity);
+        } catch (RuntimeException error) {
+            boolean report = false;
+            boolean retry = false;
+            synchronized (this) {
+                preparing.remove(callId, requestIdentity);
+                if (!binding.isCurrent(candidate)) {
+                    retry = true;
+                } else if (activeRequests.isCurrent(callId, requestIdentity)
+                        && pendingPrepares.get(callId) == pending) {
+                    pendingPrepares.remove(callId);
+                    finishCallLocked(callId, requestIdentity);
+                    report = true;
+                }
+            }
+            if (report) {
+                listener.onStatus(callId, "communication_context_query_failed");
+            } else if (retry) {
+                retryPrepareIfConnected(callId, requestIdentity);
+            }
         }
     }
 
-    private synchronized void clearService() {
-        service = null;
+    private void submitIndex(
+            ICommunicationContext candidate, String callId, PendingIndex pending) {
+        synchronized (this) {
+            if (closed || !binding.isCurrent(candidate)
+                    || pending.prepared == null
+                    || pendingIndexes.get(callId) != pending
+                    || indexing.containsKey(callId)) {
+                return;
+            }
+            indexing.put(callId, pending);
+        }
+        worker.execute(() -> performIndex(candidate, callId, pending));
     }
 
-    private void restartBinding() {
-        synchronized (this) {
-            service = null;
-            if (closed || !bound) return;
-            bound = false;
+    private void performIndex(
+            ICommunicationContext candidate, String callId, PendingIndex pending) {
+        long observedNow = System.currentTimeMillis();
+        if (pending.expiresAtEpochMillis <= observedNow) {
+            synchronized (this) {
+                indexing.remove(callId, pending);
+                if (pendingIndexes.get(callId) == pending) {
+                    finishCallLocked(callId, pending.requestIdentity);
+                }
+            }
+            listener.onStatus(callId, "call_context_index_expired");
+            return;
         }
         try {
-            context.unbindService(connection);
-        } catch (RuntimeException ignored) {
-            // A dead binding may already have been removed by the framework.
+            candidate.upsert(new ContextDocument(
+                    "call_artifact",
+                    pending.sourceId,
+                    pending.revision,
+                    pending.prepared.identity,
+                    pending.eventAtEpochMillis,
+                    pending.expiresAtEpochMillis,
+                    pending.text));
+            synchronized (this) {
+                indexing.remove(callId, pending);
+                if (pendingIndexes.get(callId) != pending) return;
+                finishCallLocked(callId, pending.requestIdentity);
+            }
+            listener.onStatus(callId, "call_context_indexed");
+        } catch (RemoteException error) {
+            boolean report;
+            synchronized (this) {
+                indexing.remove(callId, pending);
+                report = pendingIndexes.get(callId) == pending;
+            }
+            if (report) listener.onStatus(callId, "call_context_index_deferred");
+            binding.invalidate(candidate);
+            retryIndexIfConnected(callId, pending);
+        } catch (RuntimeException error) {
+            boolean report = false;
+            boolean retry = false;
+            synchronized (this) {
+                indexing.remove(callId, pending);
+                if (!binding.isCurrent(candidate)) {
+                    retry = true;
+                } else if (pendingIndexes.get(callId) == pending) {
+                    finishCallLocked(callId, pending.requestIdentity);
+                    report = true;
+                }
+            }
+            if (report) {
+                listener.onStatus(callId, "call_context_index_failed");
+            } else if (retry) {
+                retryIndexIfConnected(callId, pending);
+            }
         }
-        start();
+    }
+
+    private void retryPrepareIfConnected(String callId, Object requestIdentity) {
+        ICommunicationContext candidate;
+        synchronized (this) {
+            candidate = service;
+        }
+        if (candidate != null) submitPrepare(candidate, callId, requestIdentity);
+    }
+
+    private void retryPrepareIfConnectedLocked(String callId, Object requestIdentity) {
+        ICommunicationContext candidate = service;
+        if (candidate != null) {
+            worker.execute(() -> submitPrepare(candidate, callId, requestIdentity));
+        }
+    }
+
+    private void retryIndexIfConnected(String callId, PendingIndex pending) {
+        ICommunicationContext candidate;
+        synchronized (this) {
+            candidate = service;
+        }
+        if (candidate != null) submitIndex(candidate, callId, pending);
+    }
+
+    private void finishCallLocked(String callId, Object requestIdentity) {
+        if (requestIdentity != null) activeRequests.finish(callId, requestIdentity);
+        pendingPrepares.remove(callId);
+        preparing.remove(callId);
+        resolvedCalls.remove(callId);
+        pendingIndexes.remove(callId);
+        indexing.remove(callId);
     }
 
     private static boolean validCallId(String value) {

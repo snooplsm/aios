@@ -1,7 +1,7 @@
 package com.aios.callintelligence;
 
-/** Bounded exponential retry state shared by Call Intelligence broker clients. */
-final class BrokerServiceRebindPolicy {
+/** Bounded exponential retry state shared by long-lived Call Intelligence bindings. */
+final class ServiceRebindPolicy {
     static final long INITIAL_DELAY_MILLIS = 1_000L;
     static final long MAX_DELAY_MILLIS = 60_000L;
     static final long NO_RETRY = -1L;

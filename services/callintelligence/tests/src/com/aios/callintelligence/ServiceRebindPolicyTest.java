@@ -6,17 +6,17 @@ import static org.junit.Assert.assertTrue;
 
 import org.junit.Test;
 
-public final class BrokerServiceRebindPolicyTest {
+public final class ServiceRebindPolicyTest {
     @Test
     public void terminalDeathCanReserveImmediateReplacement() {
-        BrokerServiceRebindPolicy policy = new BrokerServiceRebindPolicy();
+        ServiceRebindPolicy policy = new ServiceRebindPolicy();
         assertEquals(0L, policy.reserve(true));
         assertTrue(policy.begin());
     }
 
     @Test
     public void failuresBackOffAndCapAtOneMinute() {
-        BrokerServiceRebindPolicy policy = new BrokerServiceRebindPolicy();
+        ServiceRebindPolicy policy = new ServiceRebindPolicy();
         long[] expected = {1_000L, 2_000L, 4_000L, 8_000L, 16_000L, 32_000L,
                 60_000L, 60_000L};
         for (long delay : expected) {
@@ -27,16 +27,16 @@ public final class BrokerServiceRebindPolicyTest {
 
     @Test
     public void onlyOneRetryCanBeScheduled() {
-        BrokerServiceRebindPolicy policy = new BrokerServiceRebindPolicy();
+        ServiceRebindPolicy policy = new ServiceRebindPolicy();
         assertEquals(1_000L, policy.reserve(false));
-        assertEquals(BrokerServiceRebindPolicy.NO_RETRY, policy.reserve(true));
+        assertEquals(ServiceRebindPolicy.NO_RETRY, policy.reserve(true));
         assertTrue(policy.begin());
         assertFalse(policy.begin());
     }
 
     @Test
     public void successResetsBackoff() {
-        BrokerServiceRebindPolicy policy = new BrokerServiceRebindPolicy();
+        ServiceRebindPolicy policy = new ServiceRebindPolicy();
         assertEquals(1_000L, policy.reserve(false));
         assertTrue(policy.begin());
         assertEquals(2_000L, policy.reserve(false));
@@ -46,11 +46,21 @@ public final class BrokerServiceRebindPolicyTest {
     }
 
     @Test
+    public void connectionRacingReservedRetryCancelsThatAttempt() {
+        ServiceRebindPolicy policy = new ServiceRebindPolicy();
+        assertEquals(1_000L, policy.reserve(false));
+        policy.connected();
+        assertFalse(policy.begin());
+        assertEquals(1_000L, policy.reserve(false));
+        assertTrue(policy.begin());
+    }
+
+    @Test
     public void closeSuppressesReservedAndFutureRetries() {
-        BrokerServiceRebindPolicy policy = new BrokerServiceRebindPolicy();
+        ServiceRebindPolicy policy = new ServiceRebindPolicy();
         assertEquals(1_000L, policy.reserve(false));
         policy.close();
         assertFalse(policy.begin());
-        assertEquals(BrokerServiceRebindPolicy.NO_RETRY, policy.reserve(true));
+        assertEquals(ServiceRebindPolicy.NO_RETRY, policy.reserve(true));
     }
 }

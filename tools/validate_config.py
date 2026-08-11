@@ -996,6 +996,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/callintelligence/src/com/aios/callintelligence/CallPolicyEngine.java",
         "services/callintelligence/src/com/aios/callintelligence/CallProductProperties.java",
         "services/callintelligence/src/com/aios/callintelligence/CallCommunicationContextClient.java",
+        "services/callintelligence/src/com/aios/callintelligence/ResilientCommunicationContextBinding.java",
         "services/callintelligence/src/com/aios/callintelligence/CallContextAccumulator.java",
         "services/callintelligence/src/com/aios/callintelligence/IncrementalCallerTranscript.java",
         "services/callintelligence/src/com/aios/callintelligence/TranscriptRevisionGate.java",
@@ -1010,7 +1011,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/callintelligence/src/com/aios/callintelligence/PriorContextFormatter.java",
         "services/callintelligence/src/com/aios/callintelligence/SpeechSynthesisBrokerClient.java",
         "services/callintelligence/src/com/aios/callintelligence/AsrBrokerClient.java",
-        "services/callintelligence/src/com/aios/callintelligence/BrokerServiceRebindPolicy.java",
+        "services/callintelligence/src/com/aios/callintelligence/ServiceRebindPolicy.java",
         "services/callintelligence/src/com/aios/callintelligence/ResilientModelBrokerBinding.java",
         "services/callintelligence/src/com/aios/callintelligence/SpamRiskEngine.java",
         "services/callintelligence/src/com/aios/callintelligence/RiskAssessmentTracker.java",
@@ -1034,7 +1035,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/callintelligence/tests/src/com/aios/callintelligence/RequiredCaptureGateTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/PriorContextFormatterTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/TelecomCallPresenceTrackerTest.java",
-        "services/callintelligence/tests/src/com/aios/callintelligence/BrokerServiceRebindPolicyTest.java",
+        "services/callintelligence/tests/src/com/aios/callintelligence/ServiceRebindPolicyTest.java",
         "services/callintelligence/src/com/aios/callintelligence/ResilientFanoutOutputStream.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/ResilientFanoutOutputStreamTest.java",
         "docs/dialer-integration.md",
@@ -2647,7 +2648,7 @@ def validate_aosp_overlay(root: Path) -> None:
             in call_host_test
             and '"src/com/aios/callintelligence/AssistantGreetingPolicy.java"'
             in call_host_test
-            and '"src/com/aios/callintelligence/BrokerServiceRebindPolicy.java"'
+            and '"src/com/aios/callintelligence/ServiceRebindPolicy.java"'
             in call_host_test
             and '"src/com/aios/callintelligence/ResilientFanoutOutputStream.java"'
             in call_host_test
@@ -2693,12 +2694,15 @@ def validate_aosp_overlay(root: Path) -> None:
     broker_binding = (call_source_root /
                       "ResilientModelBrokerBinding.java").read_text(
                           encoding="utf-8")
-    broker_rebind_policy = (call_source_root /
-                            "BrokerServiceRebindPolicy.java").read_text(
-                                encoding="utf-8")
-    broker_rebind_test = (
+    context_binding = (call_source_root /
+                       "ResilientCommunicationContextBinding.java").read_text(
+                           encoding="utf-8")
+    service_rebind_policy = (call_source_root /
+                             "ServiceRebindPolicy.java").read_text(
+                                 encoding="utf-8")
+    service_rebind_test = (
         root / "services" / "callintelligence" / "tests" / "src" / "com" /
-        "aios" / "callintelligence" / "BrokerServiceRebindPolicyTest.java"
+        "aios" / "callintelligence" / "ServiceRebindPolicyTest.java"
     ).read_text(encoding="utf-8")
     call_context_accumulator = (
         call_source_root / "CallContextAccumulator.java"
@@ -2765,7 +2769,8 @@ def validate_aosp_overlay(root: Path) -> None:
             and "!context.emergency" in call_service
             and "!context.emergencyCallbackMode" in call_service,
             "raw caller identity must be transient and retrieved only for authorized non-emergency processing")
-    require("candidate.resolveIdentity(address, countryIso)" in call_context_client
+    require("candidate.resolveIdentity(" in call_context_client
+            and "pending.address, pending.countryIso" in call_context_client
             and 'identity, "", PriorContextFormatter.MAX_ITEMS' in call_context_client
             and '"call_artifact"' in call_context_client
             and "candidate.upsert(new ContextDocument(" in call_context_client
@@ -2776,6 +2781,19 @@ def validate_aosp_overlay(root: Path) -> None:
             and "MAX_EXCERPT_CHARS = 512" in prior_context_formatter
             and '"source_id"' not in prior_context_formatter,
             "call RAG must resolve opaque identity, retrieve bounded context, and publish only expiring summaries")
+    require("new ResilientCommunicationContextBinding" in call_context_client
+            and "pendingPrepares" in call_context_client
+            and "pendingIndexes" in call_context_client
+            and '"communication_context_deferred"' in call_context_client
+            and '"call_context_index_deferred"' in call_context_client
+            and "binding.isCurrent(candidate)" in call_context_client
+            and "binding.invalidate(candidate)" in call_context_client
+            and "onBindingDied" in context_binding
+            and "onNullBinding" in context_binding
+            and "CONNECT_TIMEOUT_MILLIS = 15_000L" in context_binding
+            and "activeConnection != this" in context_binding
+            and "ServiceRebindPolicy" in context_binding,
+            "call context must replay bounded live work through a generation-safe binding")
     require("if (!isFinal" in call_context_accumulator
             and "MAX_DOCUMENT_CHARS = 4_096" in call_context_accumulator
             and "latestAssessment" in call_context_accumulator
@@ -2930,10 +2948,12 @@ def validate_aosp_overlay(root: Path) -> None:
             and all("new ResilientModelBrokerBinding" in source for source in (
                 asr_client, classifier_source, receptionist_source,
                 speech_broker_source))
-            and "MAX_DELAY_MILLIS = 60_000L" in broker_rebind_policy
-            and "failuresBackOffAndCapAtOneMinute" in broker_rebind_test
-            and "closeSuppressesReservedAndFutureRetries" in broker_rebind_test,
-            "every call Model Broker client must replace terminal, null, failed, and stalled bindings with bounded retries")
+            and "MAX_DELAY_MILLIS = 60_000L" in service_rebind_policy
+            and "failuresBackOffAndCapAtOneMinute" in service_rebind_test
+            and "connectionRacingReservedRetryCancelsThatAttempt"
+            in service_rebind_test
+            and "closeSuppressesReservedAndFutureRetries" in service_rebind_test,
+            "every long-lived Call Intelligence binding must replace terminal, null, failed, and stalled bindings with bounded retries")
     require("Object streamIdentity" in asr_client
             and "nextStreamGeneration" in asr_client
             and "expected.identity == streamIdentity" in call_service
