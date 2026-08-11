@@ -144,6 +144,14 @@ Run gates in this order:
    then select each SIM in turn and confirm the exact provider subscription ID
    and carrier path for both SMS and MMS.
 5. Downlink/uplink capture with synthetic, consented English and Spanish calls.
+   During an active AI-handled call, kill Call Intelligence and confirm the
+   carrier call and ordinary controls remain usable. Keep speaking while AI is
+   absent. Verify Phone cancels any pending auto-answer work, reconnects with a
+   new binding generation, replays Telecom presence, and resumes both capture
+   directions against the artifact's original expiry. The remote endpoint must
+   not hear the receptionist greeting a second time. Repeat with an owner-
+   handled call and with terminal/null test bindings for
+   `call.telephony_survives_ai_crash`.
 6. Airplane-mode ASR and model-broker failure injection. For
    `model.build_fingerprint_admission_enforced`, verify the admitted models load
    under the benchmarked build fingerprint, then boot an image with a different

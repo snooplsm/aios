@@ -192,56 +192,18 @@ public final class CallIntelligenceService extends Service {
         @Override
         public void onCallAnswered(
                 String callId, boolean answeredByAi, boolean processingAllowed) {
-            enforceControlPermission();
-            int ownerUid = android.os.Binder.getCallingUid();
-            if (callId == null || callId.isEmpty() || callId.length() > 128) {
-                notifyStatus(callId, 0, "invalid_call_id");
-                return;
-            }
-            if (!ownsPresentTelecomCall(ownerUid, callId)) {
-                notifyStatus(callId, -8, "telecom_call_not_owned_or_active");
-                return;
-            }
-            PendingIncomingCall pending;
-            Integer emergencyOwner;
-            synchronized (sessions) {
-                emergencyOwner = emergencyProtectedCalls.get(callId);
-                pending = pendingIncomingCalls.get(callId);
-                if (pending != null && pending.ownerUid == ownerUid) {
-                    pendingIncomingCalls.remove(callId);
-                }
-            }
-            if (emergencyOwner != null) {
-                if (emergencyOwner != ownerUid) {
-                    notifyStatus(callId, -8, "emergency_call_owned_by_another_uid");
-                } else {
-                    notifyStatus(callId, 0, "emergency_processing_blocked");
-                }
-                return;
-            }
-            if (pending != null && pending.ownerUid != ownerUid) {
-                notifyStatus(callId, -8, "call_admission_owned_by_another_uid");
-                return;
-            }
-            boolean admittedProcessing = pending == null || pending.processingAllowed;
-            boolean ownerProcessingEnabled = ownerPreferences().getBoolean(
-                    "processing_enabled", false);
-            if (!processingAllowed || !admittedProcessing || !ownerProcessingEnabled) {
-                notifyStatus(callId, 0, "processing_not_allowed");
-                return;
-            }
-            boolean knownContact = pending != null && pending.knownContact;
+            handleConnectedCall(
+                    callId, answeredByAi, processingAllowed, false, false);
+        }
 
-            if (!answeredByAi) {
-                beginCapture(callId, ownerUid, false, knownContact);
-                return;
-            }
-
-            if (!callerInteractionTransportReady()) {
-                notifyStatus(callId, -4, automaticAnswerUnavailableReason());
-                return;
-            }
-            beginCapture(callId, ownerUid, true, knownContact);
+        @Override
+        public void onCallResumed(
+                String callId,
+                boolean aiHandling,
+                boolean processingAllowed,
+                boolean knownContact) {
+            handleConnectedCall(
+                    callId, aiHandling, processingAllowed, true, knownContact);
         }
 
         @Override
@@ -450,6 +412,76 @@ public final class CallIntelligenceService extends Service {
         }
     };
 
+    private void handleConnectedCall(
+            String callId,
+            boolean answeredByAi,
+            boolean processingAllowed,
+            boolean resumedAfterServiceLoss,
+            boolean resumedKnownContact) {
+        enforceControlPermission();
+        int ownerUid = android.os.Binder.getCallingUid();
+        if (callId == null || callId.isEmpty() || callId.length() > 128) {
+            notifyStatus(callId, 0, "invalid_call_id");
+            return;
+        }
+        if (!ownsPresentTelecomCall(ownerUid, callId)) {
+            notifyStatus(callId, -8, "telecom_call_not_owned_or_active");
+            return;
+        }
+        PendingIncomingCall pending;
+        Integer emergencyOwner;
+        synchronized (sessions) {
+            emergencyOwner = emergencyProtectedCalls.get(callId);
+            pending = pendingIncomingCalls.get(callId);
+            if (pending != null && pending.ownerUid == ownerUid) {
+                pendingIncomingCalls.remove(callId);
+            }
+        }
+        if (emergencyOwner != null) {
+            if (emergencyOwner != ownerUid) {
+                notifyStatus(callId, -8, "emergency_call_owned_by_another_uid");
+            } else {
+                notifyStatus(callId, 0, "emergency_processing_blocked");
+            }
+            return;
+        }
+        if (pending != null && pending.ownerUid != ownerUid) {
+            notifyStatus(callId, -8, "call_admission_owned_by_another_uid");
+            return;
+        }
+        boolean admittedProcessing = pending == null || pending.processingAllowed;
+        boolean ownerProcessingEnabled = ownerPreferences().getBoolean(
+                "processing_enabled", false);
+        if (!processingAllowed || !admittedProcessing || !ownerProcessingEnabled) {
+            notifyStatus(callId, 0, "processing_not_allowed");
+            return;
+        }
+        boolean knownContact = pending != null
+                ? pending.knownContact
+                : resumedAfterServiceLoss && resumedKnownContact;
+
+        if (!answeredByAi) {
+            beginCapture(
+                    callId,
+                    ownerUid,
+                    false,
+                    knownContact,
+                    resumedAfterServiceLoss);
+            return;
+        }
+
+        if (!callerInteractionTransportReady()) {
+            notifyStatus(callId, -4, automaticAnswerUnavailableReason());
+            return;
+        }
+        beginCapture(
+                callId,
+                ownerUid,
+                true,
+                knownContact,
+                resumedAfterServiceLoss);
+    }
+
     @Override
     public void onCreate() {
         super.onCreate();
@@ -648,7 +680,11 @@ public final class CallIntelligenceService extends Service {
     }
 
     private void beginCapture(
-            String callId, int ownerUid, boolean answeredByAi, boolean knownContact) {
+            String callId,
+            int ownerUid,
+            boolean answeredByAi,
+            boolean knownContact,
+            boolean resumedAfterServiceLoss) {
         ActiveSession started;
         synchronized (telecomPresenceLock) {
             if (telecomPresenceStopping || !telecomPresence.ownsCall(ownerUid, callId)) {
@@ -671,7 +707,10 @@ public final class CallIntelligenceService extends Service {
             publishAssessment(callId, started, started.initialAssessment());
             publishAssistantState(callId, started, started.initialAssistantState());
         }
-        if (started != null && answeredByAi && started.beginGreeting()) {
+        if (started != null
+                && AssistantGreetingPolicy.shouldGreet(
+                        answeredByAi, resumedAfterServiceLoss)
+                && started.beginGreeting()) {
             String language = "es".equals(Locale.getDefault().getLanguage()) ? "es" : "en";
             String greeting = "es".equals(language)
                     ? "Hola, ¿cómo puedo ayudarle?"

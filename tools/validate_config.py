@@ -789,6 +789,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "apps/phone/Android.bp",
         "apps/phone/AndroidManifest.xml",
         "apps/phone/tests/src/com/aios/phone/intelligence/PendingAiAnswerGateTest.kt",
+        "apps/phone/tests/src/com/aios/phone/intelligence/AssistantServiceRebindPolicyTest.kt",
         "apps/phone/tests/src/com/aios/phone/intelligence/EmergencyProcessingGateTest.kt",
         "apps/phone/tests/src/com/aios/phone/model/AssistantCallContractTest.kt",
         "apps/phone/tests/src/com/aios/phone/model/CallRiskContractTest.kt",
@@ -811,6 +812,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "apps/phone/src/com/aios/phone/notifications/CallNotificationCoordinator.kt",
         "apps/phone/src/com/aios/phone/notifications/CallActionReceiver.kt",
         "apps/phone/src/com/aios/phone/intelligence/CallAssistantClient.kt",
+        "apps/phone/src/com/aios/phone/intelligence/AssistantServiceRebindPolicy.kt",
         "apps/phone/src/com/aios/phone/intelligence/EmergencyProcessingGate.kt",
         "apps/phone/src/com/aios/phone/intelligence/PendingAiAnswerGate.kt",
         "apps/phone/src/com/aios/phone/ui/InCallActivity.kt",
@@ -990,6 +992,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/callintelligence/aidl/com/aios/call/IncomingCallContext.aidl",
         "services/callintelligence/src/com/aios/callintelligence/AnswerDelayPolicy.java",
         "services/callintelligence/src/com/aios/callintelligence/AssistantHandlingTracker.java",
+        "services/callintelligence/src/com/aios/callintelligence/AssistantGreetingPolicy.java",
         "services/callintelligence/src/com/aios/callintelligence/AssistantTurnQueue.java",
         "services/callintelligence/src/com/aios/callintelligence/CallPolicyEngine.java",
         "services/callintelligence/src/com/aios/callintelligence/CallProductProperties.java",
@@ -1016,6 +1019,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/callintelligence/src/com/aios/callintelligence/TelecomCallPresenceTracker.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/SpamRiskEngineTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/AssistantHandlingTrackerTest.java",
+        "services/callintelligence/tests/src/com/aios/callintelligence/AssistantGreetingPolicyTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/RiskAssessmentTrackerTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/AssistantTurnQueueTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/ReceptionistReplyPolicyTest.java",
@@ -1591,6 +1595,10 @@ def validate_aosp_overlay(root: Path) -> None:
     assistant_client = (root / "apps" / "phone" / "src" / "com" / "aios" /
                         "phone" / "intelligence" /
                         "CallAssistantClient.kt").read_text(encoding="utf-8")
+    assistant_rebind_policy = (
+        root / "apps" / "phone" / "src" / "com" / "aios" / "phone" /
+        "intelligence" / "AssistantServiceRebindPolicy.kt"
+    ).read_text(encoding="utf-8")
     pending_answer_gate = (root / "apps" / "phone" / "src" / "com" / "aios" /
                            "phone" / "intelligence" /
                            "PendingAiAnswerGate.kt").read_text(encoding="utf-8")
@@ -1610,6 +1618,10 @@ def validate_aosp_overlay(root: Path) -> None:
     pending_answer_test = (root / "apps" / "phone" / "tests" / "src" / "com" /
                            "aios" / "phone" / "intelligence" /
                            "PendingAiAnswerGateTest.kt").read_text(encoding="utf-8")
+    assistant_rebind_test = (
+        root / "apps" / "phone" / "tests" / "src" / "com" / "aios" /
+        "phone" / "intelligence" / "AssistantServiceRebindPolicyTest.kt"
+    ).read_text(encoding="utf-8")
     emergency_processing_test = (
         root / "apps" / "phone" / "tests" / "src" / "com" / "aios" /
         "phone" / "intelligence" / "EmergencyProcessingGateTest.kt"
@@ -1933,9 +1945,19 @@ def validate_aosp_overlay(root: Path) -> None:
             in emergency_processing_test,
             "AIOS Phone must stop and erase processing for emergency calls in either direction")
     require("service.onCallAnswered" in assistant_client
+            and "service.onCallResumed" in assistant_client
             and "service.onCallEnded" in assistant_client
-            and "onServiceDisconnected" in assistant_client,
-            "AIOS Phone must bracket intelligence sessions and survive Binder loss")
+            and "onServiceDisconnected" in assistant_client
+            and "onBindingDied" in assistant_client
+            and "onNullBinding" in assistant_client
+            and "connection.generation != connectionGeneration" in assistant_client
+            and "BINDING_WATCHDOG_MILLIS = 15_000L" in assistant_client
+            and "resumeActiveCall(session, processing)" in assistant_client
+            and "session.answeredNotified = false" in assistant_client
+            and "MAX_DELAY_MILLIS = 60_000L" in assistant_rebind_policy
+            and "onlyOneRetryCanBeScheduled" in assistant_rebind_test
+            and "successfulConnectionResetsBackoff" in assistant_rebind_test,
+            "AIOS Phone must recover Call Intelligence bindings and resume active calls")
     require("telecomLifecycleToken: IBinder = Binder()" in assistant_client
             and "service.setTelecomCallPresent(telecomLifecycleToken" in assistant_client
             and "announceEveryPresentCall(service)" in assistant_client,
@@ -1950,6 +1972,8 @@ def validate_aosp_overlay(root: Path) -> None:
     require("reservations.remove(callId)" in pending_answer_gate
             and "ownerCancellationRejectsAlreadyQueuedCallback" in pending_answer_test
             and 'name: "aios_phone_host_tests"' in phone_build
+            and '"src/com/aios/phone/intelligence/AssistantServiceRebindPolicy.kt"'
+            in phone_build
             and 'kotlin.directories.add("../../apps/phone/tests/src")' in prodcheck_build
             and 'testImplementation("junit:junit:4.13.2")' in prodcheck_build,
             "delayed AI-answer cancellation must have a host-tested stale-callback guard")
@@ -2542,7 +2566,8 @@ def validate_aosp_overlay(root: Path) -> None:
                          "IncomingCallContext.aidl").read_text(encoding="utf-8")
     require("import android.os.IBinder" in call_api
             and "void setTelecomCallPresent(" in call_api
-            and "in IBinder lifecycleToken" in call_api,
+            and "in IBinder lifecycleToken" in call_api
+            and "void onCallResumed(" in call_api,
             "Call Intelligence must expose death-linked Telecom presence independently of AI")
 
     call_source_root = (
@@ -2605,6 +2630,13 @@ def validate_aosp_overlay(root: Path) -> None:
                               "src" / "com" / "aios" / "callintelligence" /
                               "AssistantHandlingTrackerTest.java").read_text(
                                   encoding="utf-8")
+    assistant_greeting_policy = (call_source_root /
+                                 "AssistantGreetingPolicy.java").read_text(
+                                     encoding="utf-8")
+    assistant_greeting_test = (root / "services" / "callintelligence" / "tests" /
+                               "src" / "com" / "aios" / "callintelligence" /
+                               "AssistantGreetingPolicyTest.java").read_text(
+                                   encoding="utf-8")
     require("advisory only" in spam_source
             and 'new Signal("gift_card_payment"' in spam_source
             and 'new Signal("credential_request"' in spam_source
@@ -2616,8 +2648,16 @@ def validate_aosp_overlay(root: Path) -> None:
     require('name: "aios_callintelligence_host_tests"' in call_host_test
             and '"src/com/aios/callintelligence/CallRequestIdentityTracker.java"'
             in call_host_test
+            and '"src/com/aios/callintelligence/AssistantGreetingPolicy.java"'
+            in call_host_test
             and '"tests/src/**/*.java"' in call_host_test,
             "Soong Call Intelligence host tests must include the full Android-free source closure")
+    require("resumedAfterServiceLoss && resumedKnownContact" in call_service
+            and "AssistantGreetingPolicy.shouldGreet" in call_service
+            and "answeredByAi && !resumedAfterServiceLoss"
+            in assistant_greeting_policy
+            and "resumedAiSessionDoesNotReplayGreeting" in assistant_greeting_test,
+            "restored call capture must not replay the receptionist greeting")
     require('include(":callservicecheck")' in preview_settings
             and 'include("com/aios/callintelligence/**/*.java")'
             in call_service_compile_build
@@ -2892,7 +2932,8 @@ def validate_aosp_overlay(root: Path) -> None:
             and "callerInteractionTransportReady()" in call_service
             and "caller_audio_injection_requires_physical_validation" in call_service
             and "AutomaticAnswerGate.mayAnswer" in call_service
-            and "beginCapture(callId, ownerUid, true, knownContact)" in call_service,
+            and "beginCapture(\n                callId,\n                ownerUid,\n                true,"
+            in call_service,
             "AI answer must start capture directly but retain the physical caller-audio gate")
     require("ownsPresentTelecomCall(ownerUid, context.callId)" in call_service
             and "ownsPresentTelecomCall(ownerUid, callId)" in call_service

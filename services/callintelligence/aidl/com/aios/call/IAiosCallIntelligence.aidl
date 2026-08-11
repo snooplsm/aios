@@ -27,6 +27,14 @@ interface IAiosCallIntelligence {
 
     void onCallAnswered(String callId, boolean answeredByAi, boolean processingAllowed);
 
+    /** Restore optional processing after this service was rebound; never replay a greeting. */
+    void onCallResumed(
+        String callId,
+        boolean aiHandling,
+        boolean processingAllowed,
+        boolean knownContact
+    );
+
     /** Immediately stop and erase optional AI processing for an emergency call. */
     void onEmergencyCallDetected(String callId);
 

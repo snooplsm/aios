@@ -33,6 +33,13 @@ recording-state, first-frame, and sink failures tear down the optional AI
 session; the Telecom call itself remains untouched and the Dialer explicitly
 tells the owner that the connected call has been handed back to them.
 
+If the service process or package binding is replaced during a live call, AIOS
+Phone first reasserts the call's death-linked Telecom presence and then invokes
+the explicit resume operation. Capture, ASR, risk, and AI-handling state restart
+against the original 24-hour artifact deadline. A resumed AI receptionist does
+not repeat its greeting; it waits for the next finalized caller turn. Delayed
+callbacks from an older binding generation cannot affect the restored call.
+
 Downlink transcript segments first pass through an explainable English/Spanish
 heuristic scorer with deduplicated high-risk signals. A debounced Gemma
 `call_classification` request can provide a second opinion from a bounded 4 KiB

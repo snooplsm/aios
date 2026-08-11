@@ -68,6 +68,13 @@ ringing, outgoing, active, waiting, held, and conference calls independently
 balanced. A Call Intelligence rebind replays the current set before new policy
 requests. This call-presence signal is what preempts media inference; capture and
 transcription sessions remain optional work within that protected interval.
+AIOS Phone uses generation-specific service connections, bounded exponential
+retry, and a 15-second no-callback watchdog. Terminal/null bindings are unbound;
+an ordinary process disconnect is first left for Android to reconnect. Every
+disconnect revokes a pending AI-answer timer. Once the replacement service has
+registered its listener and loaded policy, the Phone queues full presence replay
+before `onCallResumed` for each active call, restarting capture without replaying
+the receptionist greeting.
 Call IDs cannot be claimed by two different UIDs. Evaluation and capture require
 the calling UID to own the live call, and each capture session retains that UID
 for takeover and terminal cleanup. The dialer asks Call Intelligence to finalize

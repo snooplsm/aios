@@ -40,6 +40,15 @@ explicit final presence release applies the same teardown, so an orderly dialer
 unbind cannot leave capture running. A release after `onCallEnded` is idempotent
 and does not discard the already-finalized communication-context record.
 
+AIOS Phone retains an ordinary `onServiceDisconnected` binding for Android to
+reconnect, but explicitly replaces terminal/null bindings. Failed binds retry
+with bounded one-second-to-one-minute backoff, and a 15-second watchdog replaces
+a binding or initialization that never completes. Each attempt has a distinct
+connection generation, so late callbacks from an abandoned binding are ignored.
+Disconnect cancels delayed automatic answers. After reconnection the dialer
+replays Telecom presence before resuming optional capture for already-active
+calls; an AI-handled resumed call never repeats the initial greeting.
+
 Every asynchronous result is generation-bound rather than trusted by call ID
 alone. ASR callbacks carry an opaque stream identity; classifier and receptionist
 requests retain their exact call-state object; context queries retain an opaque

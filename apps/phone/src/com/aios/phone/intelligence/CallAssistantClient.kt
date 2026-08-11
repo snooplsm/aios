@@ -66,6 +66,7 @@ class CallAssistantClient(
         var state: Int,
         val emergency: EmergencyProcessingGate,
         var processingAllowed: Boolean? = null,
+        var knownContact: Boolean? = null,
         var decisionRequested: Boolean = false,
         var answeredByAi: Boolean = false,
         var answeredNotified: Boolean = false,
@@ -82,7 +83,12 @@ class CallAssistantClient(
     }
     private val sessions = linkedMapOf<String, Session>()
     private var remote: IAiosCallIntelligence? = null
-    private var bound = false
+    private var rebindPolicy = AssistantServiceRebindPolicy()
+    private var activeConnection: AssistantServiceConnection? = null
+    private var rebindTask: Runnable? = null
+    private var bindingWatchdog: Runnable? = null
+    private var connectionGeneration = 0L
+    private var connectionReady = false
     private var started = false
     private var ownerProcessingEnabled: Boolean? = null
 
@@ -162,50 +168,32 @@ class CallAssistantClient(
         }
     }
 
-    private val connection = object : ServiceConnection {
+    private inner class AssistantServiceConnection(
+        val generation: Long,
+    ) : ServiceConnection {
         override fun onServiceConnected(name: ComponentName, binder: IBinder) {
-            val service = IAiosCallIntelligence.Stub.asInterface(binder)
-            remote = service
-            worker.execute {
-                try {
-                    service.registerListener(listener)
-                    val policy = service.policy
-                    val processing = policy.processingEnabled
-                    main.post {
-                        if (remote === service) {
-                            ownerProcessingEnabled = processing
-                            callbacks.onAssistantConnectionChanged(true)
-                            callbacks.onPolicyChanged(policy.toUi())
-                            announceEveryPresentCall(service)
-                            sessions.values.forEach { session ->
-                                if (session.emergency.isProtected()) {
-                                    applyEmergencyProtection(session)
-                                } else if (session.direction != Call.Details.DIRECTION_INCOMING) {
-                                    requestOutgoingProcessingDecision(session, processing)
-                                } else {
-                                    requestIncomingDecision(session)
-                                }
-                            }
-                        }
-                    }
-                } catch (_: Exception) {
-                    main.post { disconnect(service) }
-                }
-            }
+            handleServiceConnected(this, binder)
         }
 
-        override fun onServiceDisconnected(name: ComponentName) = disconnect(remote)
-        override fun onBindingDied(name: ComponentName) = disconnect(remote)
-        override fun onNullBinding(name: ComponentName) = disconnect(remote)
+        override fun onServiceDisconnected(name: ComponentName) {
+            handleServiceDisconnected(this)
+        }
+
+        override fun onBindingDied(name: ComponentName) {
+            terminateBinding(this, immediate = true)
+        }
+
+        override fun onNullBinding(name: ComponentName) {
+            terminateBinding(this, immediate = true)
+        }
     }
 
     fun start() {
         check(Looper.myLooper() == Looper.getMainLooper())
         if (started) return
         started = true
-        val intent = Intent(SERVICE_ACTION).setPackage(SERVICE_PACKAGE)
-        bound = context.bindService(intent, connection, Context.BIND_AUTO_CREATE)
-        if (!bound) callbacks.onAssistantConnectionChanged(false)
+        rebindPolicy = AssistantServiceRebindPolicy()
+        scheduleRebind(immediate = true)
     }
 
     fun stop() {
@@ -218,6 +206,14 @@ class CallAssistantClient(
         pendingAiAnswers.clear()
         val service = remote
         remote = null
+        connectionReady = false
+        ownerProcessingEnabled = null
+        cancelBindingWatchdog()
+        rebindTask?.let(main::removeCallbacks)
+        rebindTask = null
+        rebindPolicy.close()
+        val connection = activeConnection
+        activeConnection = null
         callbacks.onAssistantConnectionChanged(false)
         if (service != null) worker.execute {
             try {
@@ -229,10 +225,7 @@ class CallAssistantClient(
                 // The optional process may already be dead.
             }
         }
-        if (bound) {
-            runCatching { context.unbindService(connection) }
-            bound = false
-        }
+        if (connection != null) runCatching { context.unbindService(connection) }
     }
 
     fun onCallAdded(callId: String, call: Call) {
@@ -444,7 +437,12 @@ class CallAssistantClient(
             }
             try {
                 val decision = service.evaluateIncoming(contextValue)
-                main.post { applyDecision(session.callId, decision) }
+                main.post {
+                    if (sessions[session.callId] === session) {
+                        session.knownContact = knownContact
+                        applyDecision(session.callId, decision)
+                    }
+                }
             } catch (_: Exception) {
                 main.post {
                     sessions[session.callId]?.decisionRequested = false
@@ -558,7 +556,37 @@ class CallAssistantClient(
             try {
                 service.onCallAnswered(session.callId, session.answeredByAi, processing)
             } catch (_: Exception) {
-                // The call continues without AI if its optional process fails.
+                main.post {
+                    if (sessions[session.callId] === session && remote === service) {
+                        session.answeredNotified = false
+                        disconnect(service)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun resumeActiveCall(session: Session, processingEnabled: Boolean) {
+        if (session.answeredNotified || session.state != Call.STATE_ACTIVE) return
+        val service = remote ?: return
+        val processing = session.processingAllowed ?: processingEnabled
+        session.processingAllowed = processing
+        session.answeredNotified = true
+        worker.execute {
+            try {
+                service.onCallResumed(
+                    session.callId,
+                    session.answeredByAi,
+                    processing,
+                    session.knownContact == true,
+                )
+            } catch (_: Exception) {
+                main.post {
+                    if (sessions[session.callId] === session && remote === service) {
+                        session.answeredNotified = false
+                        disconnect(service)
+                    }
+                }
             }
         }
     }
@@ -569,20 +597,185 @@ class CallAssistantClient(
         session.delayedAnswer = null
     }
 
-    private fun disconnect(expected: IAiosCallIntelligence?) {
+    private fun handleServiceConnected(
+        connection: AssistantServiceConnection,
+        binder: IBinder,
+    ) {
         main.post {
-            if (expected != null && remote !== expected) return@post
-            remote = null
-            ownerProcessingEnabled = null
-            sessions.values.forEach { session ->
-                cancelDelayedAnswer(session)
-                if (session.state == Call.STATE_RINGING) {
-                    session.decisionRequested = false
-                    session.processingAllowed = null
+            if (!started || activeConnection !== connection ||
+                connection.generation != connectionGeneration
+            ) return@post
+            armBindingWatchdog(connection)
+            val service = IAiosCallIntelligence.Stub.asInterface(binder)
+            if (service == null) {
+                terminateBindingOnMain(connection, expected = null, immediate = false)
+                return@post
+            }
+            remote = service
+            worker.execute {
+                try {
+                    service.registerListener(listener)
+                    val policy = service.policy
+                    val processing = policy.processingEnabled
+                    main.post {
+                        if (started && activeConnection === connection &&
+                            remote === service
+                        ) {
+                            connectionReady = true
+                            cancelBindingWatchdog()
+                            rebindPolicy.connected()
+                            ownerProcessingEnabled = processing
+                            callbacks.onAssistantConnectionChanged(true)
+                            callbacks.onPolicyChanged(policy.toUi())
+                            announceEveryPresentCall(service)
+                            sessions.values.forEach { session ->
+                                if (session.emergency.isProtected()) {
+                                    applyEmergencyProtection(session)
+                                } else if (session.state == Call.STATE_ACTIVE) {
+                                    resumeActiveCall(session, processing)
+                                } else if (
+                                    session.direction != Call.Details.DIRECTION_INCOMING
+                                ) {
+                                    requestOutgoingProcessingDecision(session, processing)
+                                } else {
+                                    requestIncomingDecision(session)
+                                }
+                            }
+                        }
+                    }
+                } catch (_: Exception) {
+                    main.post {
+                        terminateBindingOnMain(
+                            connection,
+                            expected = service,
+                            immediate = false,
+                        )
+                    }
                 }
             }
-            callbacks.onAssistantConnectionChanged(false)
         }
+    }
+
+    private fun handleServiceDisconnected(connection: AssistantServiceConnection) {
+        main.post {
+            if (!started || activeConnection !== connection ||
+                connection.generation != connectionGeneration
+            ) return@post
+            clearRemoteState(expected = null)
+            // Android retains ordinary disconnected bindings. The watchdog only
+            // replaces it if the framework never reconnects the same generation.
+            armBindingWatchdog(connection)
+        }
+    }
+
+    private fun terminateBinding(
+        connection: AssistantServiceConnection,
+        immediate: Boolean,
+    ) {
+        main.post {
+            terminateBindingOnMain(connection, expected = null, immediate = immediate)
+        }
+    }
+
+    private fun terminateBindingOnMain(
+        connection: AssistantServiceConnection,
+        expected: IAiosCallIntelligence?,
+        immediate: Boolean,
+    ) {
+        if (!started || activeConnection !== connection ||
+            connection.generation != connectionGeneration ||
+            (expected != null && remote !== expected)
+        ) return
+        cancelBindingWatchdog()
+        clearRemoteState(expected = null)
+        runCatching { context.unbindService(connection) }
+        activeConnection = null
+        scheduleRebind(immediate)
+    }
+
+    private fun disconnect(expected: IAiosCallIntelligence) {
+        main.post {
+            if (!started || remote !== expected) return@post
+            clearRemoteState(expected)
+            activeConnection?.let(::armBindingWatchdog)
+        }
+    }
+
+    private fun clearRemoteState(expected: IAiosCallIntelligence?) {
+        if (expected != null && remote !== expected) return
+        remote = null
+        connectionReady = false
+        ownerProcessingEnabled = null
+        sessions.values.forEach { session ->
+            cancelDelayedAnswer(session)
+            if (session.state == Call.STATE_ACTIVE) session.answeredNotified = false
+            if (session.state == Call.STATE_RINGING) {
+                session.decisionRequested = false
+                session.processingAllowed = null
+            }
+        }
+        callbacks.onAssistantConnectionChanged(false)
+    }
+
+    private fun scheduleRebind(immediate: Boolean) {
+        if (!started || activeConnection != null) return
+        val delay = rebindPolicy.reserve(immediate)
+        if (delay == AssistantServiceRebindPolicy.NO_RETRY) return
+        lateinit var task: Runnable
+        task = Runnable {
+            if (rebindTask !== task) return@Runnable
+            rebindTask = null
+            if (rebindPolicy.begin()) bindNow()
+        }
+        rebindTask = task
+        if (!main.postDelayed(task, delay)) {
+            rebindTask = null
+            rebindPolicy.close()
+        }
+    }
+
+    private fun bindNow() {
+        if (!started || activeConnection != null) return
+        if (connectionGeneration == Long.MAX_VALUE) {
+            callbacks.onAssistantConnectionChanged(false)
+            return
+        }
+        val connection = AssistantServiceConnection(++connectionGeneration)
+        activeConnection = connection
+        connectionReady = false
+        val intent = Intent(SERVICE_ACTION).setPackage(SERVICE_PACKAGE)
+        val bound = runCatching {
+            context.bindService(intent, connection, Context.BIND_AUTO_CREATE)
+        }.getOrDefault(false)
+        if (!bound) {
+            activeConnection = null
+            callbacks.onAssistantConnectionChanged(false)
+            scheduleRebind(immediate = false)
+            return
+        }
+        armBindingWatchdog(connection)
+    }
+
+    private fun armBindingWatchdog(connection: AssistantServiceConnection) {
+        cancelBindingWatchdog()
+        lateinit var task: Runnable
+        task = Runnable {
+            if (bindingWatchdog !== task) return@Runnable
+            bindingWatchdog = null
+            if (started && activeConnection === connection && !connectionReady) {
+                terminateBindingOnMain(connection, expected = null, immediate = false)
+            }
+        }
+        bindingWatchdog = task
+        if (!main.postDelayed(task, BINDING_WATCHDOG_MILLIS)) {
+            bindingWatchdog = null
+            terminateBindingOnMain(connection, expected = null, immediate = false)
+        }
+    }
+
+    private fun cancelBindingWatchdog() {
+        bindingWatchdog?.let(main::removeCallbacks)
+        bindingWatchdog = null
     }
 
     private fun isKnownContact(number: String): Boolean {
@@ -677,5 +870,6 @@ class CallAssistantClient(
         const val MAX_TRANSCRIPT_CHARS = 512
         const val MAX_STATUS_DETAIL_CHARS = 160
         const val EMERGENCY_CALLBACK_WINDOW_MILLIS = 5 * 60 * 1000L
+        const val BINDING_WATCHDOG_MILLIS = 15_000L
     }
 }

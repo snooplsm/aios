@@ -34,6 +34,7 @@ java_test_host {
     srcs: [
         "src/com/aios/phone/model/AssistantCallContract.kt",
         "src/com/aios/phone/model/CallRiskContract.kt",
+        "src/com/aios/phone/intelligence/AssistantServiceRebindPolicy.kt",
         "src/com/aios/phone/intelligence/EmergencyProcessingGate.kt",
         "src/com/aios/phone/intelligence/PendingAiAnswerGate.kt",
         "src/com/aios/phone/context/CallEventContract.kt",
