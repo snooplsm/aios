@@ -2110,6 +2110,8 @@ def validate_aosp_overlay(root: Path) -> None:
             in broker_host_test
             and '"src/com/aios/modelbroker/SessionDeadlineQueue.java"'
             in broker_host_test
+            and '"src/com/aios/modelbroker/RuntimeActivationState.java"'
+            in broker_host_test
             and '"src/com/aios/modelbroker/VerifiedArtifact.java"'
             in broker_host_test
             and '"tests/src/**/*.java"' in broker_host_test,
@@ -2165,16 +2167,25 @@ def validate_aosp_overlay(root: Path) -> None:
         root / "services" / "modelbroker" / "tests" / "src" / "com" / "aios" /
         "modelbroker" / "RuntimeCandidatePolicyTest.java"
     ).read_text(encoding="utf-8")
+    runtime_activation_state = (
+        broker_source_root / "RuntimeActivationState.java"
+    ).read_text(encoding="utf-8")
+    runtime_activation_test = (
+        root / "services" / "modelbroker" / "tests" / "src" / "com" / "aios" /
+        "modelbroker" / "RuntimeActivationStateTest.java"
+    ).read_text(encoding="utf-8")
     require("RuntimeCandidatePolicy.capabilities" in broker_state
             and "RuntimeCandidatePolicy.requestCandidates" in broker_state
             and "request.allowFallback" in broker_state
             and "!existing.available && available" in runtime_candidate_policy
             and "firstUnavailable" in runtime_candidate_policy
             and "if (!allowFallback)" in runtime_candidate_policy
-            and "for (VerifiedArtifact candidate : record.candidates)"
-            in session_controller
+            and "record.activation.beginNext()" in session_controller
             and "callbackFor(record, attempt)" in session_controller
-            and "failedBeforeAcceptance" in session_controller
+            and "record.activation.allowCallback" in session_controller
+            and "List.copyOf(candidates)" in runtime_activation_state
+            and "current != attempt" in runtime_activation_state
+            and "accepted == attempt" in runtime_activation_state
             and "readyPrimaryWinsForCapabilitiesAndRequests"
             in runtime_candidate_test
             and "readyFallbackReplacesUnavailablePrimary"
@@ -2184,7 +2195,12 @@ def validate_aosp_overlay(root: Path) -> None:
             and "noFallbackBindsRequestToPrimaryEvenWhenFallbackIsReady"
             in runtime_candidate_test
             and "fallbackOptInCarriesCompleteOrderedActivationChain"
-            in runtime_candidate_test,
+            in runtime_candidate_test
+            and "rejectionAdvancesThroughTheExactOrderedChain"
+            in runtime_activation_test
+            and "earlyCallbackRejectsAttemptAndStaleCallbackCannotHitFallback"
+            in runtime_activation_test
+            and "unresolvedAttemptCannotBeSkipped" in runtime_activation_test,
             "broker must honor fallback opt-in through race-safe ordered activation")
     admission_source = (broker_source_root / "DeviceModelAdmission.java").read_text(
         encoding="utf-8"

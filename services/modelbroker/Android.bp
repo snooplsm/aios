@@ -34,6 +34,7 @@ java_test_host {
         "src/com/aios/modelbroker/BuildFingerprintPolicy.java",
         "src/com/aios/modelbroker/CatalogTierPlanner.java",
         "src/com/aios/modelbroker/PolicyFileReader.java",
+        "src/com/aios/modelbroker/RuntimeActivationState.java",
         "src/com/aios/modelbroker/RuntimeCandidatePolicy.java",
         "src/com/aios/modelbroker/RuntimeRebindPolicy.java",
         "src/com/aios/modelbroker/SessionArbiter.java",

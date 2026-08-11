@@ -155,19 +155,10 @@ final class SessionController implements AutoCloseable {
         }
     }
 
-    private static final class ActivationAttempt {
-        final VerifiedArtifact artifact;
-        boolean failedBeforeAcceptance;
-
-        ActivationAttempt(VerifiedArtifact artifact) {
-            this.artifact = artifact;
-        }
-    }
-
     private static final class Record {
         final long id;
         final int ownerUid;
-        final List<VerifiedArtifact> candidates;
+        final RuntimeActivationState activation;
         final ModelRequest request;
         final IModelCallback callback;
         final IBinder.DeathRecipient deathRecipient;
@@ -175,7 +166,6 @@ final class SessionController implements AutoCloseable {
         final Object callbackLock = new Object();
         final ArrayDeque<PendingInput> pending = new ArrayDeque<>();
         VerifiedArtifact artifact;
-        ActivationAttempt activationAttempt;
         RuntimeAdapter.Session runtimeSession;
         boolean audioOutputAttached;
         boolean terminal;
@@ -193,7 +183,7 @@ final class SessionController implements AutoCloseable {
                 long createdAtElapsedMillis) {
             this.id = id;
             this.ownerUid = ownerUid;
-            this.candidates = List.copyOf(candidates);
+            activation = new RuntimeActivationState(candidates);
             this.request = request;
             this.callback = callback;
             this.deathRecipient = deathRecipient;
@@ -523,14 +513,16 @@ final class SessionController implements AutoCloseable {
             }
         }
 
-        for (VerifiedArtifact candidate : record.candidates) {
-            ActivationAttempt attempt = new ActivationAttempt(candidate);
+        while (true) {
+            RuntimeActivationState.Attempt attempt;
             synchronized (this) {
                 if (records.get(id) != record || record.runtimeSession != null) {
                     return;
                 }
-                record.activationAttempt = attempt;
+                attempt = record.activation.beginNext();
             }
+            if (attempt == null) break;
+            VerifiedArtifact candidate = attempt.artifact;
 
             RuntimeAdapter.Session runtime;
             try {
@@ -538,9 +530,7 @@ final class SessionController implements AutoCloseable {
                         candidate, record.request, callbackFor(record, attempt));
             } catch (IOException | RemoteException | RuntimeException error) {
                 synchronized (this) {
-                    if (record.activationAttempt == attempt) {
-                        record.activationAttempt = null;
-                    }
+                    record.activation.reject(attempt);
                 }
                 continue;
             }
@@ -551,16 +541,15 @@ final class SessionController implements AutoCloseable {
             synchronized (this) {
                 recordGone = records.get(id) != record;
                 if (!recordGone
-                        && record.activationAttempt == attempt
-                        && !attempt.failedBeforeAcceptance
-                        && record.runtimeSession == null) {
+                        && record.runtimeSession == null
+                        && record.activation.accept(attempt)) {
                     record.artifact = candidate;
                     record.runtimeSession = runtime;
                     pending = new ArrayList<>(record.pending);
                     record.pending.clear();
                     accepted = true;
-                } else if (record.activationAttempt == attempt) {
-                    record.activationAttempt = null;
+                } else {
+                    record.activation.reject(attempt);
                 }
             }
             if (!accepted) {
@@ -581,7 +570,7 @@ final class SessionController implements AutoCloseable {
     }
 
     private IModelCallback callbackFor(
-            Record record, ActivationAttempt activationAttempt) {
+            Record record, RuntimeActivationState.Attempt activationAttempt) {
         return new IModelCallback.Stub() {
             @Override
             public void onChunk(GenerationChunk chunk) {
@@ -640,16 +629,10 @@ final class SessionController implements AutoCloseable {
     }
 
     private synchronized boolean acceptRuntimeCallback(
-            Record record, ActivationAttempt activationAttempt) {
-        if (records.get(record.id) != record
-                || record.activationAttempt != activationAttempt) {
-            return false;
-        }
-        if (record.runtimeSession == null) {
-            activationAttempt.failedBeforeAcceptance = true;
-            return false;
-        }
-        return true;
+            Record record, RuntimeActivationState.Attempt activationAttempt) {
+        if (records.get(record.id) != record) return false;
+        return record.activation.allowCallback(activationAttempt)
+                && record.runtimeSession != null;
     }
 
     private void failOwned(int ownerUid, long sessionId, int code, String message) {

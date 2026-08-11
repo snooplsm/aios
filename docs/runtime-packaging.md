@@ -23,7 +23,9 @@ the broker tries the full admitted candidate chain in order when a runtime is
 absent or rejects creation. Inputs remain bounded in the broker until an attempt
 is accepted. Attempt-specific callbacks reject synchronous failures and stale
 events from abandoned providers, and result validation is bound to the artifact
-that actually accepted the session.
+that actually accepted the session. The Android-free activation state has direct
+host tests for ordered rejection, synchronous callbacks during open, stale
+callbacks, unresolved-attempt skipping, and exact-chain exhaustion.
 
 Runtime-provider API version 2 adds `attachAudioOutput`: the broker transfers
 the writable end of a reliable PCM pipe to a `speech_synthesis` provider while
