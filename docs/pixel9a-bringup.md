@@ -144,7 +144,11 @@ Run gates in this order:
    then select each SIM in turn and confirm the exact provider subscription ID
    and carrier path for both SMS and MMS.
 5. Downlink/uplink capture with synthetic, consented English and Spanish calls.
-6. Airplane-mode ASR and model-broker failure injection.
+6. Airplane-mode ASR and model-broker failure injection. For
+   `model.build_fingerprint_admission_enforced`, verify the admitted models load
+   under the benchmarked build fingerprint, then boot an image with a different
+   build fingerprint but the old admission policy. Confirm release inference
+   stays unavailable until new evidence is installed.
 7. Retention using a test-only shortened clock/injected time, followed by the
    real 24-hour soak.
 8. Media queue constraints and original-preservation corpus.

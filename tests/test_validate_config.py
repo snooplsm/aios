@@ -273,6 +273,39 @@ class ModelAdmissionTests(unittest.TestCase):
                                         "known device lacks"):
                 validator.validate_model_admission(temporary)
 
+    def test_admission_profile_cannot_span_device_codenames(self):
+        with tempfile.TemporaryDirectory() as raw:
+            temporary = Path(raw)
+            (temporary / "config").mkdir()
+            for name in ("model_catalog.json", "model_admission.json",
+                         "model_benchmark_suite.json"):
+                shutil.copy(ROOT / "config" / name,
+                            temporary / "config" / name)
+            value = load("model_admission.json")
+            value["profiles"][0]["devices"].append("another-device")
+            (temporary / "config" / "model_admission.json").write_text(
+                json.dumps(value), encoding="utf-8")
+
+            with self.assertRaisesRegex(validator.ValidationError,
+                                        "exactly one device codename"):
+                validator.validate_model_admission(temporary)
+            evidence_dir = temporary / "evidence" / "model-admission"
+            evidence_dir.mkdir(parents=True)
+            evidence_path = evidence_dir / "multi-device.json"
+            evidence_path.write_text(json.dumps(passing_admission_evidence(
+                load("model_catalog.json"),
+                load("model_benchmark_suite.json"),
+            )), encoding="utf-8")
+            with self.assertRaisesRegex(admission_generator.AdmissionError,
+                                        "exactly one device codename"):
+                admission_generator.generate(
+                    temporary / "config" / "model_catalog.json",
+                    temporary / "config" / "model_admission.json",
+                    [evidence_path],
+                    temporary / "config" / "generated-admission.json",
+                    temporary,
+                )
+
     def test_generator_binds_passes_to_exact_artifacts_and_evidence(self):
         with tempfile.TemporaryDirectory() as raw:
             temporary = Path(raw)
@@ -371,6 +404,23 @@ class ModelAdmissionTests(unittest.TestCase):
                 evidence_paths.append(path)
 
             output = config / "generated-admission.json"
+            fallback_original = evidence_paths[1].read_text(encoding="utf-8")
+            mismatched = json.loads(fallback_original)
+            mismatched["build_fingerprint_sha256"] = "2" * 64
+            evidence_paths[1].write_text(
+                json.dumps(mismatched), encoding="utf-8")
+            with self.assertRaisesRegex(
+                    admission_generator.AdmissionError,
+                    "share device, RAM, and build fingerprint"):
+                admission_generator.generate(
+                    config / "model_catalog.json",
+                    config / "model_admission.json",
+                    evidence_paths,
+                    output,
+                    temporary,
+                )
+            evidence_paths[1].write_text(
+                fallback_original, encoding="utf-8")
             generated = admission_generator.generate(
                 config / "model_catalog.json",
                 config / "model_admission.json",
@@ -388,6 +438,26 @@ class ModelAdmissionTests(unittest.TestCase):
             (config / "model_admission.json").write_text(
                 json.dumps(generated), encoding="utf-8")
             validator.validate_model_admission(temporary)
+
+            fallback_evidence = json.loads(fallback_original)
+            fallback_evidence["build_fingerprint_sha256"] = "2" * 64
+            evidence_paths[1].write_text(
+                json.dumps(fallback_evidence), encoding="utf-8")
+            fallback_entry = next(
+                item for item in profile["evidence"]
+                if item["path"].endswith("fallback.json"))
+            old_digest = fallback_entry["sha256"]
+            new_digest = hashlib.sha256(evidence_paths[1].read_bytes()).hexdigest()
+            fallback_entry["sha256"] = new_digest
+            fallback_entry["build_fingerprint_sha256"] = "2" * 64
+            for admission in profile["admitted_models"]:
+                if admission["evidence_sha256"] == old_digest:
+                    admission["evidence_sha256"] = new_digest
+            (config / "model_admission.json").write_text(
+                json.dumps(generated), encoding="utf-8")
+            with self.assertRaisesRegex(validator.ValidationError,
+                                        "one build fingerprint"):
+                validator.validate_model_admission(temporary)
 
     def test_generator_rejects_incomplete_tier_measurements(self):
         catalog = load("model_catalog.json")

@@ -62,7 +62,8 @@ final class BrokerState {
                     tierCandidates,
                     Build.DEVICE,
                     totalRamMb,
-                    BrokerProductProperties.isDebuggableBuild());
+                    BrokerProductProperties.isDebuggableBuild(),
+                    BuildFingerprintPolicy.sha256(Build.FINGERPRINT));
             selected = deviceSelection.artifacts;
             Log.i(TAG, "selected " + selected.size() + " verified model artifact(s)"
                     + " for profile=" + deviceSelection.profileId

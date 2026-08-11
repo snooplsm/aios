@@ -5,9 +5,7 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -17,7 +15,6 @@ import java.util.Set;
 
 /** AVB-protected, evidence-backed model admission for one measured device profile. */
 final class DeviceModelAdmission {
-    private static final int MAX_POLICY_BYTES = 2 * 1024 * 1024;
     private static final String STATUS_PENDING = "benchmark_pending";
     private static final String STATUS_SUPPORTED = "supported";
 
@@ -41,22 +38,27 @@ final class DeviceModelAdmission {
         final String backend;
         final String artifactSha256;
         final String evidenceSha256;
+        final String buildFingerprintSha256;
 
         Admission(
                 String modelId,
                 String backend,
                 String artifactSha256,
-                String evidenceSha256) {
+                String evidenceSha256,
+                String buildFingerprintSha256) {
             this.modelId = modelId;
             this.backend = backend;
             this.artifactSha256 = artifactSha256;
             this.evidenceSha256 = evidenceSha256;
+            this.buildFingerprintSha256 = buildFingerprintSha256;
         }
 
-        boolean matches(VerifiedArtifact artifact) {
+        boolean matches(VerifiedArtifact artifact, String runningBuildSha256) {
             return modelId.equals(artifact.modelId)
                     && backend.equals(artifact.backend)
-                    && artifactSha256.equals(artifact.sha256);
+                    && artifactSha256.equals(artifact.sha256)
+                    && BuildFingerprintPolicy.matches(
+                            buildFingerprintSha256, runningBuildSha256);
         }
     }
 
@@ -101,7 +103,7 @@ final class DeviceModelAdmission {
 
     static DeviceModelAdmission load(File path) throws IOException {
         try {
-            JSONObject root = new JSONObject(readUtf8(path, MAX_POLICY_BYTES));
+            JSONObject root = new JSONObject(PolicyFileReader.readUtf8(path));
             if (root.getInt("schema_version") != 1
                     || !"deny".equals(root.getString("default_action"))
                     || !"known_profiles_research_candidates".equals(
@@ -119,8 +121,9 @@ final class DeviceModelAdmission {
                     throw new IOException("duplicate or invalid admission profile ID");
                 }
                 Set<String> devices = strings(value.getJSONArray("devices"));
-                if (devices.isEmpty()) {
-                    throw new IOException("admission profile has no device codenames");
+                if (devices.size() != 1) {
+                    throw new IOException(
+                            "admission profile must identify exactly one device codename");
                 }
                 long minimum = value.getLong("min_total_ram_mb");
                 long maximum = value.getLong("max_total_ram_mb");
@@ -133,11 +136,16 @@ final class DeviceModelAdmission {
                 }
                 Set<String> research = strings(
                         value.getJSONArray("research_candidate_models"));
-                Set<String> evidenceDigests = evidenceDigests(
+                Map<String, String> buildFingerprintByEvidence = evidenceBuilds(
                         value.getJSONArray("evidence"));
                 Map<String, Admission> admissions = admissions(
-                        value.getJSONArray("admitted_models"), evidenceDigests);
-                int evidenceCount = evidenceDigests.size();
+                        value.getJSONArray("admitted_models"),
+                        buildFingerprintByEvidence);
+                int evidenceCount = buildFingerprintByEvidence.size();
+                if (new HashSet<>(buildFingerprintByEvidence.values()).size() > 1) {
+                    throw new IOException(
+                            "one admission profile cannot span multiple build fingerprints");
+                }
                 if (STATUS_PENDING.equals(status)
                         && (!admissions.isEmpty() || evidenceCount != 0)) {
                     throw new IOException("pending profile cannot admit release models");
@@ -164,7 +172,8 @@ final class DeviceModelAdmission {
             Map<String, VerifiedArtifact> tierArtifacts,
             String device,
             long totalRamMb,
-            boolean debuggable) {
+            boolean debuggable,
+            String runningBuildSha256) {
         Profile profile = profilesByDevice.get(device);
         if (profile == null || !profile.matches(device, totalRamMb)) {
             return new Selection("unmatched", false, Map.of());
@@ -179,7 +188,8 @@ final class DeviceModelAdmission {
             }
             Admission admission = profile.admissions.get(artifact.modelId);
             if (STATUS_SUPPORTED.equals(profile.status)
-                    && admission != null && admission.matches(artifact)) {
+                    && admission != null
+                    && admission.matches(artifact, runningBuildSha256)) {
                 result.put(item.getKey(), artifact);
             }
         }
@@ -187,19 +197,22 @@ final class DeviceModelAdmission {
     }
 
     private static Map<String, Admission> admissions(
-            JSONArray values, Set<String> evidenceDigests) throws JSONException {
+            JSONArray values,
+            Map<String, String> buildFingerprintByEvidence) throws JSONException {
         Map<String, Admission> result = new HashMap<>();
         for (int index = 0; index < values.length(); index++) {
             JSONObject value = values.getJSONObject(index);
+            String evidenceSha256 = value.getString("evidence_sha256");
             Admission admission = new Admission(
                     value.getString("model_id"),
                     value.getString("backend"),
                     value.getString("artifact_sha256"),
-                    value.getString("evidence_sha256"));
+                    evidenceSha256,
+                    buildFingerprintByEvidence.get(evidenceSha256));
             if (!admission.modelId.matches("[a-z0-9][a-z0-9._-]{0,127}")
                     || !admission.backend.matches("[a-z0-9][a-z0-9._-]{0,31}")
                     || !admission.artifactSha256.matches("[0-9a-f]{64}")
-                    || !evidenceDigests.contains(admission.evidenceSha256)
+                    || admission.buildFingerprintSha256 == null
                     || result.put(admission.modelId, admission) != null) {
                 throw new JSONException("duplicate or invalid model admission");
             }
@@ -207,8 +220,9 @@ final class DeviceModelAdmission {
         return result;
     }
 
-    private static Set<String> evidenceDigests(JSONArray values) throws JSONException {
-        Set<String> result = new HashSet<>();
+    private static Map<String, String> evidenceBuilds(JSONArray values)
+            throws JSONException {
+        Map<String, String> result = new HashMap<>();
         for (int index = 0; index < values.length(); index++) {
             JSONObject value = values.getJSONObject(index);
             String digest = value.getString("sha256");
@@ -222,7 +236,7 @@ final class DeviceModelAdmission {
                     || !path.matches("evidence/model-admission/[a-zA-Z0-9._/-]+\\.json")
                     || path.contains("..")
                     || !completedAt.matches("[0-9TZ:+.-]{10,64}")
-                    || !result.add(digest)) {
+                    || result.put(digest, fingerprint) != null) {
                 throw new JSONException("duplicate or invalid admission evidence");
             }
         }
@@ -238,22 +252,5 @@ final class DeviceModelAdmission {
             }
         }
         return result;
-    }
-
-    private static String readUtf8(File path, int maximumBytes) throws IOException {
-        if (!path.isFile() || path.length() <= 0L || path.length() > maximumBytes) {
-            throw new IOException("model admission is absent, empty, or oversized");
-        }
-        byte[] bytes = new byte[(int) path.length()];
-        int offset = 0;
-        try (FileInputStream stream = new FileInputStream(path)) {
-            while (offset < bytes.length) {
-                int count = stream.read(bytes, offset, bytes.length - offset);
-                if (count < 0) throw new IOException("truncated model admission");
-                if (count > 0) offset += count;
-            }
-            if (stream.read() >= 0) throw new IOException("model admission grew while reading");
-        }
-        return new String(bytes, StandardCharsets.UTF_8);
     }
 }

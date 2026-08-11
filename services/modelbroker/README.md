@@ -27,6 +27,12 @@ models. A fallback is usable only when its exact artifact digest was separately
 admitted for the device profile; merely declaring `fallback_tier` never admits
 weights in a release build.
 
+Release admission is also build-specific. The broker SHA-256 hashes the running
+`Build.FINGERPRINT` and compares it with the fingerprint digest attached to the
+admitted model's benchmark evidence. A mismatch exposes no release model from
+that evidence. Debuggable pending profiles remain available only for collecting
+new measurements on a known device.
+
 All broker policy JSON is read through one Android-compatible 2 MiB bounded
 reader. Missing, empty, oversized, truncated, or concurrently growing files fail
 closed before parsing. `preview:modelservicecheck` stages the entire broker and

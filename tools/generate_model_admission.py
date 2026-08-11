@@ -281,7 +281,11 @@ def generate(
         profile = by_id.get(checked["profile_id"])
         if profile is None:
             raise AdmissionError(f"unknown base profile: {checked['profile_id']}")
-        if checked["device_codename"] not in profile.get("devices", []) \
+        profile_devices = profile.get("devices")
+        if not isinstance(profile_devices, list) or len(profile_devices) != 1:
+            raise AdmissionError(
+                "one admission profile must identify exactly one device codename")
+        if checked["device_codename"] not in profile_devices \
                 or checked["catalog_tier"] != profile.get("catalog_tier") \
                 or not profile.get("min_total_ram_mb", 0) \
                 <= checked["total_ram_mb"] \
@@ -293,10 +297,20 @@ def generate(
             raise AdmissionError("benchmark evidence must be stored under the repository") \
                 from error
         evidence_sha256 = hashlib.sha256(raw).hexdigest()
+        identity = {
+            "device_codename": checked["device_codename"],
+            "total_ram_mb": checked["total_ram_mb"],
+            "build_fingerprint_sha256": checked["build_fingerprint_sha256"],
+        }
         promotion = promotions.setdefault(checked["profile_id"], {
             "models": {},
             "evidence": {},
+            "identity": identity,
         })
+        if promotion["identity"] != identity:
+            raise AdmissionError(
+                "evidence merged into one profile must share device, RAM, "
+                "and build fingerprint")
         evidence_record = {
             "path": evidence_label,
             "sha256": evidence_sha256,

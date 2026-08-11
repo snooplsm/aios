@@ -498,11 +498,11 @@ def validate_model_admission(root: Path) -> None:
                 "device admission profile IDs must be valid and unique")
         profile_ids.add(profile["id"])
         device_names = profile["devices"]
-        require(isinstance(device_names, list) and device_names
+        require(isinstance(device_names, list) and len(device_names) == 1
                 and len(device_names) == len(set(device_names))
                 and all(re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,127}", str(item))
                         for item in device_names),
-                f"{profile['id']}: device codenames must be unique identifiers")
+                f"{profile['id']}: exactly one device codename is required")
         require(not devices_seen.intersection(device_names),
                 "a device codename cannot appear in multiple admission profiles")
         devices_seen.update(device_names)
@@ -535,6 +535,7 @@ def validate_model_admission(root: Path) -> None:
         require(admitted and evidence_entries,
                 f"{profile['id']}: supported profile requires models and evidence")
         evidence_digests: set[str] = set()
+        evidence_build_fingerprints: set[str] = set()
         passed_by_evidence: dict[str, set[tuple[str, str, str]]] = {}
         for evidence in evidence_entries:
             require(isinstance(evidence, dict) and set(evidence) == {
@@ -555,6 +556,12 @@ def validate_model_admission(root: Path) -> None:
                     and evidence["sha256"] not in evidence_digests,
                     f"{profile['id']}: evidence digest mismatch or duplicate")
             evidence_digests.add(evidence["sha256"])
+            evidence_fingerprint = evidence["build_fingerprint_sha256"]
+            require(isinstance(evidence_fingerprint, str)
+                    and re.fullmatch(r"[0-9a-f]{64}", evidence_fingerprint)
+                    is not None,
+                    f"{profile['id']}: evidence build fingerprint is invalid")
+            evidence_build_fingerprints.add(evidence_fingerprint)
             benchmark = load_json(evidence_path)
             require(set(benchmark) == {
                         "schema_version", "suite_version", "suite_sha256",
@@ -652,6 +659,8 @@ def validate_model_admission(root: Path) -> None:
                     and set(coverage["at_least_one"]).intersection(measured_roles),
                     f"{profile['id']}: benchmark needs text/media/TTS/ASR coverage")
             passed_by_evidence[evidence["sha256"]] = passes
+        require(len(evidence_build_fingerprints) == 1,
+                f"{profile['id']}: evidence must bind one build fingerprint")
         admitted_ids: set[str] = set()
         for item in admitted:
             require(isinstance(item, dict) and set(item) == {
@@ -893,6 +902,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/modelbroker/src/com/aios/modelbroker/ModelBrokerService.java",
         "services/modelbroker/src/com/aios/modelbroker/ArtifactVerifier.java",
         "services/modelbroker/src/com/aios/modelbroker/AuthorizedClientPolicy.java",
+        "services/modelbroker/src/com/aios/modelbroker/BuildFingerprintPolicy.java",
         "services/modelbroker/src/com/aios/modelbroker/CatalogPolicy.java",
         "services/modelbroker/src/com/aios/modelbroker/CatalogTierPlanner.java",
         "services/modelbroker/src/com/aios/modelbroker/DeviceModelAdmission.java",
@@ -913,6 +923,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/modelbroker/tests/src/com/aios/modelbroker/SessionDeadlinePolicyTest.java",
         "services/modelbroker/tests/src/com/aios/modelbroker/SessionDeadlineQueueTest.java",
         "services/modelbroker/tests/src/com/aios/modelbroker/CallActivityLeaseTrackerTest.java",
+        "services/modelbroker/tests/src/com/aios/modelbroker/BuildFingerprintPolicyTest.java",
         "services/modelbroker/tests/src/com/aios/modelbroker/PolicyFileReaderTest.java",
         "services/modelbroker/tests/src/com/aios/modelbroker/CatalogTierPlannerTest.java",
         "tools/generate_model_pack.py",
@@ -2099,6 +2110,8 @@ def validate_aosp_overlay(root: Path) -> None:
         encoding="utf-8")
     broker_host_test = broker_bp[broker_bp.index("java_test_host {"):]
     require('name: "aios_modelbroker_host_tests"' in broker_host_test
+            and '"src/com/aios/modelbroker/BuildFingerprintPolicy.java"'
+            in broker_host_test
             and '"src/com/aios/modelbroker/CatalogTierPlanner.java"'
             in broker_host_test
             and '"src/com/aios/modelbroker/PolicyFileReader.java"' in broker_host_test
@@ -2157,15 +2170,32 @@ def validate_aosp_overlay(root: Path) -> None:
     admission_source = (broker_source_root / "DeviceModelAdmission.java").read_text(
         encoding="utf-8"
     )
+    build_fingerprint_policy = (
+        broker_source_root / "BuildFingerprintPolicy.java"
+    ).read_text(encoding="utf-8")
+    build_fingerprint_test = (
+        root / "services" / "modelbroker" / "tests" / "src" / "com" / "aios" /
+        "modelbroker" / "BuildFingerprintPolicyTest.java"
+    ).read_text(encoding="utf-8")
     require("DeviceModelAdmission.load" in broker_state
             and "Build.DEVICE" in broker_state
+            and "Build.FINGERPRINT" in broker_state
+            and "BuildFingerprintPolicy.sha256" in broker_state
             and "BrokerProductProperties.isDebuggableBuild()" in broker_state
             and "SystemProperties" not in broker_state
             and '"model_admission.json"' in broker_state
             and '"deny".equals(root.getString("default_action"))' in admission_source
             and "artifactSha256.equals(artifact.sha256)" in admission_source
+            and "BuildFingerprintPolicy.matches" in admission_source
+            and "one admission profile cannot span multiple build fingerprints"
+            in admission_source
             and "STATUS_PENDING.equals(profile.status) && debuggable" in admission_source,
-            "broker model selection must be device-scoped, digest-bound, and debug-only while unbenchmarked")
+            "broker model selection must be device/build-scoped, digest-bound, and debug-only while unbenchmarked")
+    require('MessageDigest.getInstance("SHA-256")' in build_fingerprint_policy
+            and "MessageDigest.isEqual" in build_fingerprint_policy
+            and "hashesTheExactUtf8Fingerprint" in build_fingerprint_test
+            and "onlyExactLowercaseDigestsMatch" in build_fingerprint_test,
+            "build admission must hash the exact fingerprint and compare it fail closed")
     runtime_registry = (broker_source_root / "RuntimeRegistry.java").read_text(
         encoding="utf-8"
     )
@@ -2203,6 +2233,7 @@ def validate_aosp_overlay(root: Path) -> None:
             and "policy file grew while reading" in policy_reader
             and "PolicyFileReader.readUtf8" in authorized_policy
             and "PolicyFileReader.readUtf8" in catalog_policy
+            and "PolicyFileReader.readUtf8" in admission_source
             and "PolicyFileReader.readUtf8" in runtime_registry
             and "Files.readString" not in authorized_policy
             and "Files.readString" not in catalog_policy
@@ -3904,6 +3935,7 @@ def validate_release_configuration(root: Path) -> None:
         "media.video_subtitles_indexed",
         "media.pixel9a_latency_profile",
         "model.runtime_dependency_lock_verified",
+        "model.build_fingerprint_admission_enforced",
         "model.runtime_identity_enforced",
         "model.runtime_crash_isolated",
         "model.litertlm_known_answer",

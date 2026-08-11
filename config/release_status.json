@@ -78,6 +78,7 @@
     "media.enhanced_video_metadata_reader": {"status": "not_run", "evidence": []},
     "media.pixel9a_latency_profile": {"status": "not_run", "evidence": []},
     "model.artifact_digest_enforced": {"status": "not_run", "evidence": []},
+    "model.build_fingerprint_admission_enforced": {"status": "not_run", "evidence": []},
     "model.call_preempts_media": {"status": "not_run", "evidence": []},
     "model.runtime_dependency_lock_verified": {"status": "not_run", "evidence": []},
     "model.runtime_identity_enforced": {"status": "not_run", "evidence": []},

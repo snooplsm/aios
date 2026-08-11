@@ -25,7 +25,8 @@ Promotion also requires passes for text, media, and TTS plus at least one ASR
 candidate from the profile's declared tier/fallback chain. This prevents a
 nominally "supported" device profile from silently shipping without a complete
 receptionist/media path. It also lets one physical-device run measure a complete
-preferred configuration and another measure a complete fallback configuration;
+preferred configuration and another run on the same device/build measure a
+complete fallback configuration;
 the admission generator can merge those evidence files into one profile. Every
 admitted model still points to the exact evidence file that passed its backend
 and artifact digest, and conflicting results for the same model are rejected.
@@ -83,15 +84,21 @@ python3 tools/generate_model_admission.py \
 ```
 
 Repeat `--evidence` to combine independently captured preferred and fallback
-configurations for the same profile. Each file must provide a complete
-text/media/TTS/ASR configuration; partial evidence files cannot collectively
-hide a configuration that was never tested end to end.
+configurations for the same profile. Every file must identify the same device,
+measured RAM, and hashed build fingerprint. Each file must also provide a
+complete text/media/TTS/ASR configuration; partial evidence files cannot
+collectively hide a configuration that was never tested end to end.
 
 Review the evidence and generated diff before replacing the checked-in policy.
 The generator copies the evidence digest into every admitted model. At boot,
-Model Broker again requires the verified packaged artifact's backend and digest
-to match that admission. Re-quantizing, rebuilding, or replacing weights makes
-the old benchmark admission unusable by design.
+Model Broker again hashes the running `Build.FINGERPRINT` and requires it, the
+verified packaged artifact's backend, and the artifact digest to match that
+admission. Re-quantizing, rebuilding, replacing weights, or installing a system
+build with a different fingerprint makes the old benchmark admission unusable
+by design. An AOSP update therefore remains model-free in a release build until
+that build fingerprint is benchmarked and its admission policy is regenerated.
+The physical negative test for this behavior is
+`model.build_fingerprint_admission_enforced`.
 
 Pixel 10 or a future Pixel gets a profile only after its Android identity and a
 reproducible product/build lane are both known. An official codename, marketing
