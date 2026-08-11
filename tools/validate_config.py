@@ -404,7 +404,7 @@ def validate_model_benchmark_suite(root: Path) -> None:
         "schema_version", "suite_version", "required_observations",
         "required_role_coverage", "gate_profiles",
     } and suite["schema_version"] == 1
-            and suite["suite_version"] == 3,
+            and suite["suite_version"] == 4,
             "unsupported model benchmark suite")
     observations = suite["required_observations"]
     require(isinstance(observations, list) and observations
@@ -448,6 +448,8 @@ def validate_model_benchmark_suite(root: Path) -> None:
             <= {gate["metric"] for gate in profiles["text_model"]}
             and {
                 "en_wer", "es_wer", "live_non_final_partial_rate",
+                "live_final_endpoint_rate", "en_language_detection_rate",
+                "es_language_detection_rate",
                 "p95_partial_latency_ms", "p95_final_latency_ms",
                 "p95_endpoint_delay_ms", "p95_first_partial_source_span_ms",
             }
@@ -1341,7 +1343,12 @@ def validate_aosp_overlay(root: Path) -> None:
             and "writeAsrPcm" in benchmark_source
             and 'audioFormat(ASR_SAMPLE_RATE, "downlink"), false'
             in benchmark_source
+            and '"streaming_asr", "call_rx", "und", 0' in benchmark_source
             and '"live_non_final_partial_rate"' in benchmark_source
+            and '"live_final_endpoint_rate"' in benchmark_source
+            and '"en_language_detection_rate"' in benchmark_source
+            and '"es_language_detection_rate"' in benchmark_source
+            and "finalChunkLanguage" in benchmark_source
             and '"p95_endpoint_delay_ms"' in benchmark_source
             and '"p95_first_partial_source_span_ms"' in benchmark_source
             and "aios_measurements_base64" in benchmark_source,

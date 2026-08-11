@@ -125,7 +125,7 @@ public final class ModelAdmissionBenchmarkTest {
 
             JSONObject measurements = new JSONObject()
                     .put("schema_version", 1)
-                    .put("suite_version", 3)
+                    .put("suite_version", 4)
                     .put("results", results);
             Bundle output = new Bundle();
             output.putString(
@@ -314,7 +314,10 @@ public final class ModelAdmissionBenchmarkTest {
         List<Long> firstPartialSourceSpan = new ArrayList<>();
         List<Double> realtimeFactors = new ArrayList<>();
         int livePartialSuccesses = 0;
+        int liveFinalSuccesses = 0;
         int liveAttempts = 0;
+        int englishLanguageDetections = 0;
+        int spanishLanguageDetections = 0;
         double englishWer = 0.0;
         double spanishWer = 0.0;
         for (String language : List.of("en", "es")) {
@@ -325,12 +328,16 @@ public final class ModelAdmissionBenchmarkTest {
             for (int run = 0; run < RUNS_PER_LANGUAGE; run++) {
                 Invocation live;
                 try (ResourceSampler sampler = new ResourceSampler(context)) {
-                    live = invokeAsr(
-                            broker, language, withEndpointSilence, true);
+                    live = invokeAsr(broker, withEndpointSilence, true);
                     aggregate.record(live, artifact, sampler.finish());
                 }
                 liveAttempts++;
                 if (live.sawNonFinalPartial()) livePartialSuccesses++;
+                if (live.sawFinalEndpoint()) liveFinalSuccesses++;
+                if (language.equals(live.finalChunkLanguage)) {
+                    if (language.equals("es")) spanishLanguageDetections++;
+                    else englishLanguageDetections++;
+                }
                 partialLatency.add(live.firstPartialProcessingLagOrTimeout());
                 finalLatency.add(live.finalProcessingLagOrTimeout());
                 endpointDelay.add(live.finalEndpointDelayOrTimeout(
@@ -345,8 +352,7 @@ public final class ModelAdmissionBenchmarkTest {
 
                 Invocation throughput;
                 try (ResourceSampler sampler = new ResourceSampler(context)) {
-                    throughput = invokeAsr(
-                            broker, language, withEndpointSilence, false);
+                    throughput = invokeAsr(broker, withEndpointSilence, false);
                     aggregate.record(throughput, artifact, sampler.finish());
                 }
                 double sourceSeconds = Math.max(
@@ -358,6 +364,12 @@ public final class ModelAdmissionBenchmarkTest {
         JSONObject metrics = aggregate.commonMetrics()
                 .put("live_non_final_partial_rate",
                         BenchmarkMath.rate(livePartialSuccesses, liveAttempts))
+                .put("live_final_endpoint_rate",
+                        BenchmarkMath.rate(liveFinalSuccesses, liveAttempts))
+                .put("en_language_detection_rate",
+                        BenchmarkMath.rate(englishLanguageDetections, RUNS_PER_LANGUAGE))
+                .put("es_language_detection_rate",
+                        BenchmarkMath.rate(spanishLanguageDetections, RUNS_PER_LANGUAGE))
                 .put("p95_partial_latency_ms",
                         BenchmarkMath.percentileLong(partialLatency, 0.95))
                 .put("p95_final_latency_ms",
@@ -462,7 +474,6 @@ public final class ModelAdmissionBenchmarkTest {
 
     private static Invocation invokeAsr(
             IAiosModelService broker,
-            String language,
             byte[] pcm,
             boolean paceAtRealtime) throws Exception {
         Invocation invocation = new Invocation();
@@ -471,7 +482,7 @@ public final class ModelAdmissionBenchmarkTest {
         ParcelFileDescriptor[] pipe = null;
         try {
             ModelRequest request = request(
-                    "streaming_asr", "call_rx", language, 0);
+                    "streaming_asr", "call_rx", "und", 0);
             if (paceAtRealtime) {
                 request.deadlineElapsedRealtimeMillis = Long.MAX_VALUE;
             }
@@ -859,6 +870,7 @@ public final class ModelAdmissionBenchmarkTest {
         volatile InferenceResult result;
         volatile String error = "";
         volatile String latestChunk = "";
+        volatile String finalChunkLanguage = "";
 
         final IModelCallback callback = new IModelCallback.Stub() {
             @Override
@@ -873,6 +885,7 @@ public final class ModelAdmissionBenchmarkTest {
                 if (chunk != null && chunk.isFinal
                         && finalChunkAt.compareAndSet(0L, observedAt)) {
                     finalSourceEndMillis.set(chunk.sourceEndMillis);
+                    finalChunkLanguage = chunk.language == null ? "" : chunk.language;
                 }
                 if (chunk != null && chunk.text != null && !chunk.text.isBlank()) {
                     latestChunk = chunk.text;
@@ -927,6 +940,10 @@ public final class ModelAdmissionBenchmarkTest {
 
         boolean sawNonFinalPartial() {
             return firstNonFinalChunkAt.get() > 0L;
+        }
+
+        boolean sawFinalEndpoint() {
+            return finalChunkAt.get() > 0L;
         }
 
         long firstPartialProcessingLagOrTimeout() {

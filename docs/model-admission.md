@@ -45,8 +45,11 @@ Broker sequentially for text, a generated red JPEG, bilingual Supertonic TTS,
 and the selected Whisper ASR candidate. TTS output is resampled and looped into
 ASR as a deterministic bilingual integration/performance fixture. ASR runs once
 with source-timed 100 ms writes to measure a real non-final revision, chunk-
-relative processing lag, and silence endpoint delay, then once without pacing
-to measure decode real-time factor. The runner
+relative processing lag, English/Spanish auto-detection, and successful silence
+endpoint finalization plus delay, then once without pacing to measure decode
+real-time factor. Every ASR request uses `language=und`, matching the production
+provider contract; expected English or Spanish is used only to score the final
+detected language and transcript. The runner
 refuses to start during a live call, samples runtime-process PSS and Android
 thermal status throughout each invocation, and emits measurements without
 pass/fail fields.

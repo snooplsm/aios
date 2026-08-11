@@ -28,8 +28,11 @@ status are sampled throughout each invocation, rather than only after it. The
 host-side evaluator owns gate fields and decisions.
 
 The paced ASR pass submits 100 ms PCM frames at their source time, uses the same
-lifecycle-bound deadline mode as a call, and requires at least one non-final
-revision whose source span is no more than 2.1 seconds. Partial and final latency
+lifecycle-bound deadline mode and `language=und` auto-detection contract as a
+call, and requires at least one non-final revision whose source span is no more
+than 2.1 seconds. English and Spanish runs must each report the correct final
+detected language, and every paced run must emit a final endpoint. Partial and
+final latency
 are processing lag after the chunk's source audio became available—not listening
 time. Endpoint delay is measured from the end of speech and therefore includes
 the 600 ms silence endpoint plus decode lag. The fast pass keeps throughput

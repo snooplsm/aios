@@ -98,6 +98,32 @@ class ModelBenchmarkEvaluationTests(unittest.TestCase):
         self.assertEqual("failed", result["decision"])
         self.assertEqual(["first_token_latency"], result["failed_gates"])
 
+    def test_language_detection_regression_fails_asr_candidate(self):
+        raw = raw_benchmark()
+        candidate = next(item for item in raw["results"]
+                         if item["model_id"] == "whisper-base-multilingual-quantized")
+        candidate["metrics"]["es_language_detection_rate"] = 0.8
+
+        evidence = self.evaluate(raw)
+        result = next(item for item in evidence["results"]
+                      if item["model_id"] == candidate["model_id"])
+
+        self.assertEqual("failed", result["decision"])
+        self.assertIn("spanish_language_detection", result["failed_gates"])
+
+    def test_missing_live_endpoint_fails_asr_candidate(self):
+        raw = raw_benchmark()
+        candidate = next(item for item in raw["results"]
+                         if item["model_id"] == "whisper-base-multilingual-quantized")
+        candidate["metrics"]["live_final_endpoint_rate"] = 0.9
+
+        evidence = self.evaluate(raw)
+        result = next(item for item in evidence["results"]
+                      if item["model_id"] == candidate["model_id"])
+
+        self.assertEqual("failed", result["decision"])
+        self.assertIn("live_final_endpoint", result["failed_gates"])
+
     def test_missing_thermal_observation_is_rejected(self):
         raw = raw_benchmark()
         del raw["results"][0]["metrics"]["thermal_status_max"]
