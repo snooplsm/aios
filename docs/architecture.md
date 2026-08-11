@@ -131,6 +131,9 @@ The Model Broker is a signature-protected Binder service. It:
   device-specific, evidence-backed artifact admission;
 - owns model mappings so apps cannot copy raw weights;
 - enforces one foreground real-time lease and bounded background leases;
+- isolates every native runtime behind a verified service binding, fails active
+  sessions on provider loss, and explicitly replaces terminal/null bindings
+  with bounded backoff and a connection watchdog;
 - cancels media work when a call begins or thermal pressure becomes severe; and
 - records aggregate performance counters without recording prompts or media.
 
@@ -148,7 +151,10 @@ dialer therefore cannot collide with or terminate another dialer's AI session.
 Initial execution uses LiteRT-LM for supported Gemma mobile artifacts and a
 separate runtime adapter for streaming ASR. Backends are discovered and
 benchmarked; NPU availability is never inferred solely from a marketing model
-name.
+name. Ordinary provider-process crashes retain Android's reconnectable binding;
+package-update binding death and null bindings are explicitly unbound and
+recreated. Every attempt rechecks the system-app/permission identity, and an
+opening session is rejected if the provider generation changes during creation.
 
 ### Media Intelligence service
 

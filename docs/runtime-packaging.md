@@ -7,6 +7,16 @@ AVB-protected runtime catalog, requires a system app holding the signature-only
 provider permission, and checks provider API, runtime, implementation version,
 and backend identity before advertising a capability.
 
+The broker distinguishes an ordinary provider-process disconnect, for which
+Android retains and reconnects the existing binding, from terminal
+`onBindingDied` and `onNullBinding` callbacks. Terminal bindings are unbound and
+replaced, failed binds retry with a one-second-to-one-minute bounded exponential
+backoff, and a 15-second watchdog repairs bindings that never deliver a
+connection callback. Provider package and permission checks run before every
+attempt. Active sessions fail immediately on loss, and a session created across
+a provider-generation race is cancelled instead of entering the broker's live
+session set.
+
 Runtime-provider API version 2 adds `attachAudioOutput`: the broker transfers
 the writable end of a reliable PCM pipe to a `speech_synthesis` provider while
 the authorized client retains only the read end. The broker accepts exactly one
@@ -70,3 +80,6 @@ thermal, accuracy, crash-recovery, and call-preemption gates have device
 evidence. Tensor G4 NPU is deliberately absent from the allowlist. Pixel 10 is a
 planned profile with no bound codename; GPU/CPU eligibility must not be confused
 with tested support.
+
+Android binding lifecycle contract:
+[`ServiceConnection`](https://developer.android.com/reference/android/content/ServiceConnection).

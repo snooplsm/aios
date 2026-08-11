@@ -912,6 +912,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/modelbroker/src/com/aios/modelbroker/RuntimeCandidatePolicy.java",
         "services/modelbroker/src/com/aios/modelbroker/RuntimeAdapter.java",
         "services/modelbroker/src/com/aios/modelbroker/RemoteRuntimeAdapter.java",
+        "services/modelbroker/src/com/aios/modelbroker/RuntimeRebindPolicy.java",
         "services/modelbroker/src/com/aios/modelbroker/RuntimeRegistry.java",
         "services/modelbroker/src/com/aios/modelbroker/SessionController.java",
         "services/modelbroker/src/com/aios/modelbroker/SessionArbiter.java",
@@ -929,6 +930,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/modelbroker/tests/src/com/aios/modelbroker/PolicyFileReaderTest.java",
         "services/modelbroker/tests/src/com/aios/modelbroker/CatalogTierPlannerTest.java",
         "services/modelbroker/tests/src/com/aios/modelbroker/RuntimeCandidatePolicyTest.java",
+        "services/modelbroker/tests/src/com/aios/modelbroker/RuntimeRebindPolicyTest.java",
         "tools/generate_model_pack.py",
         "tools/generate_model_admission.py",
         "tools/generate_runtime_pack.py",
@@ -2274,6 +2276,14 @@ def validate_aosp_overlay(root: Path) -> None:
             and "PROVIDE_MODEL_RUNTIME" in remote_runtime
             and "getImplementationVersion" in remote_runtime,
             "runtime providers must be system, signature-authorized, and version-pinned")
+    require("onBindingDied" in remote_runtime
+            and "replaceTerminalBinding(this" in remote_runtime
+            and "unbindService(connection)" in remote_runtime
+            and "scheduleRebind(immediate)" in remote_runtime
+            and "CONNECT_TIMEOUT_MILLIS" in remote_runtime
+            and "armConnectionTimeout" in remote_runtime
+            and "provider == current" in remote_runtime,
+            "runtime bindings must recover from terminal death and missing callbacks, while session opens reject provider races")
     require("linkToDeath" in session_controller
             and "requireOwner(record, ownerUid)" in session_controller
             and "MAX_PENDING_INPUTS" in session_controller,
@@ -3972,6 +3982,7 @@ def validate_release_configuration(root: Path) -> None:
         "model.runtime_fallback_selection",
         "model.runtime_identity_enforced",
         "model.runtime_crash_isolated",
+        "model.runtime_provider_recovery",
         "model.litertlm_known_answer",
         "model.pixel9a_gpu_benchmark",
     }

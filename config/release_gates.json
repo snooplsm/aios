@@ -84,6 +84,7 @@
     {"id": "model.runtime_fallback_selection", "category": "model", "required": true},
     {"id": "model.runtime_identity_enforced", "category": "model", "required": true},
     {"id": "model.runtime_crash_isolated", "category": "model", "required": true},
+    {"id": "model.runtime_provider_recovery", "category": "model", "required": true},
     {"id": "model.litertlm_known_answer", "category": "model", "required": true},
     {"id": "model.pixel9a_gpu_benchmark", "category": "model", "required": true},
     {"id": "security.no_model_weight_paths", "category": "security", "required": true},

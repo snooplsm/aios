@@ -84,6 +84,7 @@
     "model.runtime_fallback_selection": {"status": "not_run", "evidence": []},
     "model.runtime_identity_enforced": {"status": "not_run", "evidence": []},
     "model.runtime_crash_isolated": {"status": "not_run", "evidence": []},
+    "model.runtime_provider_recovery": {"status": "not_run", "evidence": []},
     "model.litertlm_known_answer": {"status": "not_run", "evidence": []},
     "model.pixel9a_gpu_benchmark": {"status": "not_run", "evidence": []},
     "security.no_model_weight_paths": {"status": "not_run", "evidence": []},

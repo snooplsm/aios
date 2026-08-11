@@ -154,6 +154,14 @@ Run gates in this order:
    advertised. Confirm capability discovery and a new session select the
    fallback, then restore the preferred backend and confirm new work returns to
    it without interrupting an already-running fallback session.
+   For `model.runtime_provider_recovery`, run an admitted inference session,
+   kill the provider process and confirm the active session fails while a new
+   session succeeds after Android reconnects it. Then replace the provider APK
+   with the exact same admitted/version-pinned build, confirm the terminal
+   binding is explicitly recreated, and prove new inference succeeds without
+   restarting Model Broker. Repeat with a test provider that returns a null
+   binding and one that crashes during creation; recovery must remain bounded
+   and the broker process must stay alive.
 7. Retention using a test-only shortened clock/injected time: arm cleanup, roll
    wall time backward, and confirm deletion still occurs at the persisted
    elapsed-realtime deadline for `retention.expiry_24_hours`. Reboot before an

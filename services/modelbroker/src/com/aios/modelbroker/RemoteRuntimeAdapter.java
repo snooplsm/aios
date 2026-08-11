@@ -7,7 +7,9 @@ import android.content.ServiceConnection;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
+import android.os.Handler;
 import android.os.IBinder;
+import android.os.Looper;
 import android.os.ParcelFileDescriptor;
 import android.os.RemoteException;
 import android.util.Log;
@@ -30,6 +32,7 @@ final class RemoteRuntimeAdapter implements RuntimeAdapter {
     private static final String TAG = "AiosRemoteRuntime";
     private static final String PROVIDER_PERMISSION =
             "com.aios.permission.PROVIDE_MODEL_RUNTIME";
+    private static final long CONNECT_TIMEOUT_MILLIS = 15_000L;
 
     static final class Spec {
         final int apiVersion;
@@ -61,16 +64,29 @@ final class RemoteRuntimeAdapter implements RuntimeAdapter {
     private final Context context;
     private final Spec spec;
     private final Set<RemoteSession> sessions = new HashSet<>();
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
+    private final RuntimeRebindPolicy rebindPolicy = new RuntimeRebindPolicy();
     private IAiosRuntimeProvider provider;
     private Set<String> providerBackends = Set.of();
-    private boolean bound;
+    private ProviderConnection activeConnection;
+    private boolean binding;
+    private boolean closed;
 
-    private final ServiceConnection connection = new ServiceConnection() {
+    private final Runnable rebind = () -> {
+        if (rebindPolicy.begin()) {
+            bindVerifiedProvider();
+        }
+    };
+
+    private final class ProviderConnection implements ServiceConnection {
+        final Runnable timeout = () -> onConnectionTimedOut(this);
+
         @Override
         public void onServiceConnected(ComponentName name, IBinder binder) {
             IAiosRuntimeProvider candidate = IAiosRuntimeProvider.Stub.asInterface(binder);
             try {
-                if (candidate.getProviderApiVersion() != spec.apiVersion
+                if (candidate == null
+                        || candidate.getProviderApiVersion() != spec.apiVersion
                         || !spec.runtimeId.equals(candidate.getRuntimeId())
                         || !spec.implementationVersion.equals(
                                 candidate.getImplementationVersion())) {
@@ -87,34 +103,45 @@ final class RemoteRuntimeAdapter implements RuntimeAdapter {
                     }
                 }
                 synchronized (RemoteRuntimeAdapter.this) {
+                    if (closed || activeConnection != this) {
+                        return;
+                    }
                     provider = candidate;
                     providerBackends = Set.copyOf(backends);
                 }
+                mainHandler.removeCallbacks(timeout);
+                rebindPolicy.connected();
                 Log.i(TAG, "connected " + spec.runtimeId + " "
                         + spec.implementationVersion + " with " + backends);
-            } catch (RemoteException error) {
+            } catch (RemoteException | RuntimeException error) {
                 Log.e(TAG, "runtime identity query failed", error);
             }
         }
 
         @Override
         public void onServiceDisconnected(ComponentName name) {
-            failAll("runtime provider disconnected");
+            // Android retains an ordinary crash binding and reconnects it.
+            failCurrent(this, "runtime provider disconnected");
+            armConnectionTimeout(this);
         }
 
         @Override
         public void onBindingDied(ComponentName name) {
-            failAll("runtime provider binding died");
+            // This binding can never reconnect. Release it and bind a fresh
+            // ServiceConnection immediately, as required by the platform API.
+            replaceTerminalBinding(this, "runtime provider binding died", true);
         }
 
         @Override
         public void onNullBinding(ComponentName name) {
-            failAll("runtime provider returned a null binding");
+            // A null binding is permanently unusable and must also be released.
+            replaceTerminalBinding(
+                    this, "runtime provider returned a null binding", false);
         }
-    };
+    }
 
     RemoteRuntimeAdapter(Context context, Spec spec) {
-        this.context = context;
+        this.context = context.getApplicationContext();
         this.spec = spec;
     }
 
@@ -153,54 +180,206 @@ final class RemoteRuntimeAdapter implements RuntimeAdapter {
             throw new IOException("runtime provider rejected the session");
         }
         session.attach(providerSessionId);
+        boolean accepted;
         synchronized (this) {
-            if (!session.closed) {
+            accepted = !closed && provider == current && !session.closed;
+            if (accepted) {
                 sessions.add(session);
             }
+        }
+        if (!accepted) {
+            session.close();
+            throw new IOException("runtime provider changed while opening the session");
         }
         return session;
     }
 
     @Override
     public void start() {
-        Intent intent = new Intent(spec.action)
-                .setComponent(new ComponentName(spec.packageName, spec.serviceClass));
-        PackageManager packages = context.getPackageManager();
-        ResolveInfo resolved = packages.resolveService(intent, PackageManager.MATCH_SYSTEM_ONLY);
-        if (resolved == null || resolved.serviceInfo == null
-                || !spec.packageName.equals(resolved.serviceInfo.packageName)
-                || !spec.serviceClass.equals(resolved.serviceInfo.name)
-                || (resolved.serviceInfo.applicationInfo.flags & ApplicationInfo.FLAG_SYSTEM) == 0
-                || !PROVIDER_PERMISSION.equals(resolved.serviceInfo.permission)
-                || packages.checkPermission(PROVIDER_PERMISSION, spec.packageName)
-                != PackageManager.PERMISSION_GRANTED) {
-            Log.i(TAG, "verified provider absent for " + spec.runtimeId);
-            return;
+        synchronized (this) {
+            if (closed || activeConnection != null || binding) {
+                return;
+            }
         }
-        bound = context.bindService(intent, connection, Context.BIND_AUTO_CREATE);
-        if (!bound) {
-            Log.e(TAG, "could not bind verified provider for " + spec.runtimeId);
-        }
+        scheduleRebind(true);
     }
 
     @Override
     public void close() {
-        failAll("runtime registry closed");
-        if (bound) {
-            context.unbindService(connection);
-            bound = false;
-        }
-    }
-
-    private void failAll(String message) {
+        ProviderConnection connection;
         ArrayList<RemoteSession> snapshot;
         synchronized (this) {
+            if (closed) {
+                return;
+            }
+            closed = true;
+            provider = null;
+            providerBackends = Set.of();
+            connection = activeConnection;
+            activeConnection = null;
+            binding = false;
+            snapshot = new ArrayList<>(sessions);
+            sessions.clear();
+        }
+        rebindPolicy.close();
+        mainHandler.removeCallbacks(rebind);
+        failSessions(snapshot, "runtime registry closed");
+        if (connection != null) {
+            mainHandler.removeCallbacks(connection.timeout);
+        }
+        unbindQuietly(connection);
+    }
+
+    private void failCurrent(ProviderConnection connection, String message) {
+        ArrayList<RemoteSession> snapshot;
+        synchronized (this) {
+            if (closed || activeConnection != connection) {
+                return;
+            }
             provider = null;
             providerBackends = Set.of();
             snapshot = new ArrayList<>(sessions);
             sessions.clear();
         }
-        for (RemoteSession session : snapshot) {
+        failSessions(snapshot, message);
+    }
+
+    private void replaceTerminalBinding(
+            ProviderConnection connection, String message, boolean immediate) {
+        ArrayList<RemoteSession> snapshot;
+        synchronized (this) {
+            if (closed || activeConnection != connection) {
+                return;
+            }
+            provider = null;
+            providerBackends = Set.of();
+            activeConnection = null;
+            binding = false;
+            snapshot = new ArrayList<>(sessions);
+            sessions.clear();
+        }
+        failSessions(snapshot, message);
+        mainHandler.removeCallbacks(connection.timeout);
+        unbindQuietly(connection);
+        scheduleRebind(immediate);
+    }
+
+    private void bindVerifiedProvider() {
+        Intent intent = verifiedProviderIntent();
+        if (intent == null) {
+            Log.i(TAG, "verified provider absent for " + spec.runtimeId);
+            scheduleRebind(false);
+            return;
+        }
+
+        ProviderConnection connection = new ProviderConnection();
+        synchronized (this) {
+            if (closed || activeConnection != null || binding) {
+                return;
+            }
+            activeConnection = connection;
+            binding = true;
+        }
+
+        boolean didBind = false;
+        try {
+            didBind = context.bindService(intent, connection, Context.BIND_AUTO_CREATE);
+        } catch (RuntimeException error) {
+            Log.e(TAG, "verified provider bind failed for " + spec.runtimeId, error);
+        }
+
+        boolean release = false;
+        boolean retry = false;
+        synchronized (this) {
+            if (activeConnection != connection) {
+                release = didBind;
+            } else {
+                binding = false;
+                if (closed) {
+                    activeConnection = null;
+                    release = didBind;
+                } else if (!didBind) {
+                    activeConnection = null;
+                    retry = true;
+                }
+            }
+        }
+        if (release) {
+            unbindQuietly(connection);
+        } else if (retry) {
+            Log.e(TAG, "could not bind verified provider for " + spec.runtimeId);
+            scheduleRebind(false);
+        } else {
+            armConnectionTimeout(connection);
+        }
+    }
+
+    private void armConnectionTimeout(ProviderConnection connection) {
+        synchronized (this) {
+            if (closed || activeConnection != connection || provider != null) {
+                return;
+            }
+        }
+        mainHandler.removeCallbacks(connection.timeout);
+        mainHandler.postDelayed(connection.timeout, CONNECT_TIMEOUT_MILLIS);
+    }
+
+    private void onConnectionTimedOut(ProviderConnection connection) {
+        synchronized (this) {
+            if (closed || activeConnection != connection || provider != null) {
+                return;
+            }
+        }
+        replaceTerminalBinding(
+                connection, "runtime provider connection timed out", false);
+    }
+
+    private Intent verifiedProviderIntent() {
+        Intent intent = new Intent(spec.action)
+                .setComponent(new ComponentName(spec.packageName, spec.serviceClass));
+        PackageManager packages = context.getPackageManager();
+        try {
+            ResolveInfo resolved = packages.resolveService(
+                    intent, PackageManager.MATCH_SYSTEM_ONLY);
+            if (resolved == null || resolved.serviceInfo == null
+                    || !spec.packageName.equals(resolved.serviceInfo.packageName)
+                    || !spec.serviceClass.equals(resolved.serviceInfo.name)
+                    || (resolved.serviceInfo.applicationInfo.flags
+                    & ApplicationInfo.FLAG_SYSTEM) == 0
+                    || !PROVIDER_PERMISSION.equals(resolved.serviceInfo.permission)
+                    || packages.checkPermission(PROVIDER_PERMISSION, spec.packageName)
+                    != PackageManager.PERMISSION_GRANTED) {
+                return null;
+            }
+        } catch (RuntimeException error) {
+            Log.e(TAG, "runtime provider verification failed for " + spec.runtimeId, error);
+            return null;
+        }
+        return intent;
+    }
+
+    private void scheduleRebind(boolean immediate) {
+        long delay = rebindPolicy.reserve(immediate);
+        if (delay != RuntimeRebindPolicy.NO_RETRY) {
+            mainHandler.postDelayed(rebind, delay);
+        }
+    }
+
+    private void unbindQuietly(ProviderConnection connection) {
+        if (connection == null) {
+            return;
+        }
+        try {
+            context.unbindService(connection);
+        } catch (IllegalArgumentException ignored) {
+            // A close can race the completion of bindService(). The successful
+            // attempt observes the cleared activeConnection and retries unbind.
+        }
+    }
+
+    private static void failSessions(
+            ArrayList<RemoteSession> sessions, String message) {
+        for (RemoteSession session : sessions) {
             session.fail(message);
         }
     }
@@ -209,7 +388,7 @@ final class RemoteRuntimeAdapter implements RuntimeAdapter {
         private final IAiosRuntimeProvider owner;
         private final IModelCallback callback;
         private long id = -1L;
-        private boolean closed;
+        private volatile boolean closed;
 
         final IModelCallback transport = new IModelCallback.Stub() {
             @Override
