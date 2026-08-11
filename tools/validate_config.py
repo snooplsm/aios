@@ -970,6 +970,11 @@ def validate_aosp_overlay(root: Path) -> None:
         "preview/telecomsmoke/src/debug/AndroidManifest.xml",
         "preview/telecomsmoke/src/debug/kotlin/com/aios/phone/smoke/EmulatorCallActivity.kt",
         "preview/telecomsmoke/src/debug/kotlin/com/aios/phone/smoke/EmulatorConnectionService.kt",
+        "preview/callassistantsmoke/build.gradle.kts",
+        "preview/callassistantsmoke/src/main/AndroidManifest.xml",
+        "preview/callassistantsmoke/src/main/java/com/aios/callintelligence/EmulatorGuard.java",
+        "preview/callassistantsmoke/src/main/java/com/aios/callintelligence/EmulatorCallAssistantControlActivity.java",
+        "preview/callassistantsmoke/src/main/java/com/aios/callintelligence/EmulatorCallAssistantService.java",
         "scripts/emulator-telecom-smoke.ps1",
         "scripts/emulator-messaging-smoke.ps1",
         "scripts/emulator-call-retention-smoke.ps1",
@@ -2000,6 +2005,26 @@ def validate_aosp_overlay(root: Path) -> None:
     smoke_connection = (root / "preview" / "telecomsmoke" / "src" / "debug" /
                         "kotlin" / "com" / "aios" / "phone" / "smoke" /
                         "EmulatorConnectionService.kt").read_text(encoding="utf-8")
+    assistant_smoke_build = (root / "preview" / "callassistantsmoke" /
+                             "build.gradle.kts").read_text(encoding="utf-8")
+    assistant_smoke_manifest = (
+        root / "preview" / "callassistantsmoke" / "src" / "main" /
+        "AndroidManifest.xml"
+    ).read_text(encoding="utf-8")
+    assistant_smoke_guard = (
+        root / "preview" / "callassistantsmoke" / "src" / "main" / "java" /
+        "com" / "aios" / "callintelligence" / "EmulatorGuard.java"
+    ).read_text(encoding="utf-8")
+    assistant_smoke_control = (
+        root / "preview" / "callassistantsmoke" / "src" / "main" / "java" /
+        "com" / "aios" / "callintelligence" /
+        "EmulatorCallAssistantControlActivity.java"
+    ).read_text(encoding="utf-8")
+    assistant_smoke_service = (
+        root / "preview" / "callassistantsmoke" / "src" / "main" / "java" /
+        "com" / "aios" / "callintelligence" /
+        "EmulatorCallAssistantService.java"
+    ).read_text(encoding="utf-8")
     smoke_script = (root / "scripts" /
                     "emulator-telecom-smoke.ps1").read_text(encoding="utf-8")
     require("data class PhoneUiState" in phone_contract
@@ -2270,6 +2295,24 @@ def validate_aosp_overlay(root: Path) -> None:
             and 'fixtureEvents += "separate"' in smoke_connection
             and "auditSnapshot()" in smoke_connection,
             "the debug Telecom fixture must model outgoing, DTMF, and conference transitions")
+    require('applicationId = "com.aios.callintelligence"' in assistant_smoke_build
+            and "AnswerDelayPolicy.java" in assistant_smoke_build
+            and "CallPolicyEngine.java" in assistant_smoke_build
+            and '../../services/callintelligence/aidl' in assistant_smoke_build
+            and "com.aios.permission.CONTROL_CALL_INTELLIGENCE"
+            in assistant_smoke_manifest
+            and 'android:protectionLevel="signature"' in assistant_smoke_manifest
+            and "com.aios.call.CALL_INTELLIGENCE_SERVICE"
+            in assistant_smoke_manifest
+            and "Build.HARDWARE" in assistant_smoke_guard
+            and "The call-assistant fixture only runs on an emulator"
+            in assistant_smoke_control
+            and "!EmulatorGuard.isEmulator()" in assistant_smoke_service
+            and "return null;" in assistant_smoke_service
+            and "new CallPolicyEngine(" in assistant_smoke_service
+            and "It intentionally supplies no capture, ASR, model, or caller-audio"
+            in assistant_smoke_service,
+            "the automatic-answer AIDL peer must reuse production policy and remain emulator-only")
     require("Intent(application, InCallActivity::class.java)" in phone_runtime
             and '"Call placed. Tap the active-call card to open controls"'
             in phone_runtime,
@@ -2342,6 +2385,20 @@ def validate_aosp_overlay(root: Path) -> None:
             and "channel=ongoing_calls_private_v2" in smoke_script
             and "channel=ongoing_calls_v1" not in smoke_script
             and "full_screen_intent_launched_automatically" in smoke_script
+            and '$assistantPackage = "com.aios.callintelligence"' in smoke_script
+            and "Get-FileHash -LiteralPath $assistantApkPath -Algorithm SHA256"
+            in smoke_script
+            and "automatic_answer_fixed_delays" in smoke_script
+            and "random_1010_3990_ms" in smoke_script
+            and "owner_answer_cancelled_pending_ai" in smoke_script
+            and "decline_cancelled_pending_ai" in smoke_script
+            and "ignore_preserved_automatic_ai" in smoke_script
+            and "service_loss_revoked_old_pending_ai" in smoke_script
+            and "service_reconnect_restarted_full_delay_ms" in smoke_script
+            and "synthetic_emergency_never_evaluated_for_ai" in smoke_script
+            and "AutomaticAnswerOnly" in smoke_script
+            and "assistant_package_removed" in smoke_script
+            and "private_automatic_answer_audits_removed" in smoke_script
             and "[IO.File]::WriteAllText" in smoke_script,
             "the Telecom smoke script must be digest-bound, emulator-only, reversible, and non-release evidence")
     require("isKnownContact" in assistant_client

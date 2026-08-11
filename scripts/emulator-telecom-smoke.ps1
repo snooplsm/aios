@@ -1,7 +1,9 @@
 param(
     [string]$Serial = "emulator-5554",
     [string]$Apk = "$PSScriptRoot\..\preview\telecomsmoke\build\outputs\apk\debug\telecomsmoke-debug.apk",
+    [string]$AssistantApk = "$PSScriptRoot\..\preview\callassistantsmoke\build\outputs\apk\debug\callassistantsmoke-debug.apk",
     [string]$EvidenceDirectory = "$PSScriptRoot\..\preview\screenshots",
+    [switch]$AutomaticAnswerOnly,
     [switch]$KeepInstalled
 )
 
@@ -34,7 +36,7 @@ function Get-SelectedOutgoingAccount {
     $match = [regex]::Match(
         $dump,
         '(?m)^\s*defaultOutgoing:\s+(?:(?:ComponentInfo\{(?<component>[^}]+)\},\s*' +
-            '(?<id>[^,\r\n]+),\s*UserHandle\{(?<user>\d+)\})|null)\s*$')
+            '(?<id>[^,\r\n]+),\s*UserHandle\{(?<user>\d+)\})|null|none)\s*$')
     if (-not $match.Success) {
         throw "Could not read Telecom's selected outgoing phone account"
     }
@@ -63,11 +65,22 @@ if ($qemu -ne "1") {
 if (-not (Test-Path -LiteralPath $Apk)) {
     throw "Smoke APK not found: $Apk"
 }
+if (-not (Test-Path -LiteralPath $AssistantApk)) {
+    throw "Call-assistant smoke APK not found: $AssistantApk"
+}
 $apkPath = [IO.Path]::GetFullPath($Apk)
 $apkBytes = (Get-Item -LiteralPath $apkPath).Length
 $apkSha256 = (Get-FileHash -LiteralPath $apkPath -Algorithm SHA256).Hash.ToLowerInvariant()
 if ($apkBytes -le 0 -or $apkSha256 -notmatch '^[0-9a-f]{64}$') {
     throw "Telecom smoke APK identity is invalid"
+}
+$assistantApkPath = [IO.Path]::GetFullPath($AssistantApk)
+$assistantApkBytes = (Get-Item -LiteralPath $assistantApkPath).Length
+$assistantApkSha256 = (
+    Get-FileHash -LiteralPath $assistantApkPath -Algorithm SHA256
+).Hash.ToLowerInvariant()
+if ($assistantApkBytes -le 0 -or $assistantApkSha256 -notmatch '^[0-9a-f]{64}$') {
+    throw "Call-assistant smoke APK identity is invalid"
 }
 $androidRelease = (Invoke-Adb shell getprop ro.build.version.release |
     Select-Object -First 1).Trim()
@@ -83,12 +96,22 @@ $fixtureActivity = "$package/com.aios.phone.smoke.EmulatorCallActivity"
 $fixtureService = "$package/com.aios.phone.smoke.EmulatorConnectionService"
 $fixtureAccount = "aios-emulator-smoke"
 $fixtureSecondaryAccount = "aios-emulator-smoke-secondary"
+$assistantPackage = "com.aios.callintelligence"
+$assistantActivity = "$assistantPackage/.EmulatorCallAssistantControlActivity"
+$assistantAuditFile = "cache/aios-call-assistant-smoke-audit.txt"
 $existingPackage = @(
     Invoke-Adb shell pm list packages --user 0 $package |
         Where-Object { $_ -eq "package:$package" }
 )
 if ($existingPackage.Count -ne 0) {
     throw "Refusing to replace an existing $package installation on the emulator"
+}
+$existingAssistantPackage = @(
+    Invoke-Adb shell pm list packages --user 0 $assistantPackage |
+        Where-Object { $_ -eq "package:$assistantPackage" }
+)
+if ($existingAssistantPackage.Count -ne 0) {
+    throw "Refusing to replace an existing $assistantPackage installation on the emulator"
 }
 $originalHolders = @(
     Invoke-Adb shell cmd role get-role-holders --user 0 $role |
@@ -97,6 +120,7 @@ $originalHolders = @(
 $originalOutgoingAccount = Get-SelectedOutgoingAccount
 $callStarted = $false
 $installed = $false
+$assistantInstalled = $false
 $registered = $false
 $outgoingAccountChanged = $false
 $screenPrepared = $false
@@ -179,7 +203,161 @@ function Get-FocusedWindow {
     ) -join "`n"
 }
 
+function Set-AssistantPolicy {
+    param(
+        [Parameter(Mandatory)][string]$AnswerMode,
+        [Parameter(Mandatory)][string]$DelayMode,
+        [bool]$Available = $true,
+        [bool]$ProcessingEnabled = $true
+    )
+
+    Invoke-Adb shell am start -W `
+        -a com.aios.callintelligence.smoke.CONFIGURE `
+        -n $assistantActivity `
+        --ez available $Available.ToString().ToLowerInvariant() `
+        --es answer_mode $AnswerMode `
+        --es answer_delay_mode $DelayMode `
+        --ez processing_enabled $ProcessingEnabled.ToString().ToLowerInvariant() | Out-Null
+    Start-Sleep -Milliseconds 400
+}
+
+function Reset-AutomaticAnswerAudit {
+    Invoke-Adb shell am start -W -a com.aios.phone.smoke.RESET_AUDIT `
+        -n $fixtureActivity | Out-Null
+    Invoke-Adb shell am start -W -a com.aios.callintelligence.smoke.RESET_AUDIT `
+        -n $assistantActivity | Out-Null
+}
+
+function Get-AssistantAudit {
+    $matches = @(
+        Invoke-Adb shell run-as $assistantPackage find cache -maxdepth 1 `
+            -name "aios-call-assistant-smoke-audit.txt" |
+            Where-Object { $_ }
+    )
+    if ($matches.Count -eq 0) {
+        return ""
+    }
+    return @(
+        Invoke-Adb shell run-as $assistantPackage cat $assistantAuditFile |
+            Where-Object { $_ }
+    ) -join "`n"
+}
+
+function Get-ConnectionAudit {
+    Invoke-Adb shell am start -W -a com.aios.phone.smoke.EXPORT_AUDIT `
+        -n $fixtureActivity | Out-Null
+    return @(
+        Invoke-Adb shell run-as $package cat $privateAuditFile |
+            Where-Object { $_ }
+    ) -join "`n"
+}
+
+function Wait-ForAssistantAudit {
+    param(
+        [Parameter(Mandatory)][string]$Pattern,
+        [int]$TimeoutMillis = 5000
+    )
+
+    $deadline = [Environment]::TickCount64 + $TimeoutMillis
+    do {
+        $audit = Get-AssistantAudit
+        if ($audit -match $Pattern) {
+            return $audit
+        }
+        Start-Sleep -Milliseconds 100
+    } while ([Environment]::TickCount64 -lt $deadline)
+    throw "Timed out waiting for call-assistant audit pattern: $Pattern"
+}
+
+function Wait-ForTelecomPattern {
+    param(
+        [Parameter(Mandatory)][string]$Pattern,
+        [int]$TimeoutMillis = 5000
+    )
+
+    $deadline = [Environment]::TickCount64 + $TimeoutMillis
+    do {
+        $calls = Get-CurrentTelecomCalls
+        if ($calls -match $Pattern) {
+            return $calls
+        }
+        Start-Sleep -Milliseconds 100
+    } while ([Environment]::TickCount64 -lt $deadline)
+    throw "Timed out waiting for Telecom state pattern: $Pattern"
+}
+
+function Start-SmokeIncoming {
+    param([Parameter(Mandatory)][string]$Number)
+
+    Invoke-Adb shell am start -W -a com.aios.phone.smoke.INCOMING `
+        -n $fixtureActivity --es number $Number | Out-Null
+    $script:callStarted = $true
+    Invoke-Adb shell cmd telecom wait-on-handlers | Out-Null
+}
+
+function End-SmokeCalls {
+    Invoke-Adb shell am start -W -a com.aios.phone.smoke.DISCONNECT `
+        -n $fixtureActivity | Out-Null
+    Invoke-Adb shell cmd telecom wait-on-handlers | Out-Null
+    Start-Sleep -Milliseconds 300
+    if ((Get-CurrentTelecomCalls) -match 'state=(RINGING|ACTIVE|DIALING|ON_HOLD|HOLDING)') {
+        throw "Synthetic call survived fixture disconnect"
+    }
+    $script:callStarted = $false
+}
+
+function Invoke-AutomaticAnswerTimingCase {
+    param(
+        [Parameter(Mandatory)][string]$DelayMode,
+        [int]$ExpectedDelayMillis = -1,
+        [switch]$RandomDelay
+    )
+
+    Set-AssistantPolicy -AnswerMode "all" -DelayMode $DelayMode
+    Reset-AutomaticAnswerAudit
+    Start-SmokeIncoming -Number "15551230200"
+    $assistantAudit = Wait-ForAssistantAudit -Pattern '(?m)^\d+:decision:\d+:1:'
+    $decision = [regex]::Match(
+        $assistantAudit,
+        '(?m)^(?<at>\d+):decision:(?<delay>\d+):1:')
+    if (-not $decision.Success) {
+        throw "The production policy did not return an automatic-answer decision"
+    }
+    $decisionAt = [long]$decision.Groups['at'].Value
+    $resolvedDelay = [int]$decision.Groups['delay'].Value
+    if ($RandomDelay) {
+        if ($resolvedDelay -lt 1010 -or $resolvedDelay -gt 3990) {
+            throw "Random automatic-answer delay was outside 1010..3990 ms: $resolvedDelay"
+        }
+    } elseif ($resolvedDelay -ne $ExpectedDelayMillis) {
+        throw "Delay mode $DelayMode resolved to $resolvedDelay ms, expected $ExpectedDelayMillis ms"
+    }
+    Wait-ForTelecomPattern -Pattern 'state=ACTIVE' `
+        -TimeoutMillis ($resolvedDelay + 3000) | Out-Null
+    $assistantAudit = Wait-ForAssistantAudit -Pattern '(?m)^\d+:answered:ai:true$'
+    $connectionAudit = Get-ConnectionAudit
+    $answers = [regex]::Matches($connectionAudit, '(?m)^answer:(?<at>\d+)$')
+    if ($answers.Count -ne 1) {
+        throw "Automatic answer reached the managed connection $($answers.Count) times"
+    }
+    $answeredAt = [long]$answers[0].Groups['at'].Value
+    $observedDelay = $answeredAt - $decisionAt
+    if ($observedDelay -lt $resolvedDelay -or $observedDelay -gt ($resolvedDelay + 1500)) {
+        throw "Telecom answer timing was $observedDelay ms for resolved delay $resolvedDelay ms"
+    }
+    End-SmokeCalls
+    return [ordered]@{
+        mode = $DelayMode
+        resolved_delay_ms = $resolvedDelay
+        observed_decision_to_connection_ms = $observedDelay
+        ai_answer_callback = $assistantAudit -match '(?m)^\d+:answered:ai:true$'
+        connection_answer_count = $answers.Count
+    }
+}
+
 try {
+    Invoke-Adb install -r $assistantApkPath | Out-Null
+    $assistantInstalled = $true
     Invoke-Adb install -r $apkPath | Out-Null
     $installed = $true
     Invoke-Adb shell cmd role add-role-holder --user 0 $role $package | Out-Null
@@ -189,6 +367,7 @@ try {
     Invoke-Adb shell cmd telecom wait-on-handlers | Out-Null
     Invoke-Adb shell cmd telecom set-phone-account-enabled $fixtureService $fixtureAccount 0 | Out-Null
     Invoke-Adb shell cmd telecom wait-on-handlers | Out-Null
+    if (-not $AutomaticAnswerOnly) {
     # Full-screen call intents are intentionally suppressed while an unlocked
     # app is foreground. Put the emulator to sleep so this also verifies the
     # production turnScreenOn/showWhenLocked path.
@@ -608,58 +787,259 @@ try {
     }
     $callStarted = $false
     $privateAuditRemoved = $true
+    } else {
+        # Give the production Phone application time to establish its optional
+        # AIDL binding before the focused automatic-answer phase configures it.
+        Start-Sleep -Seconds 2
+    }
 
+    # The normal checks above run with the companion transport unavailable and
+    # preserve the production fail-closed behavior. The following emulator-only
+    # phase enables a controlled AIDL peer. Decisions come from the production
+    # CallPolicyEngine/AnswerDelayPolicy; the production Phone owns the Handler
+    # timer and the real Telecom Call.answer() mutation.
+    $fixedAutomaticAnswer = @(
+        Invoke-AutomaticAnswerTimingCase `
+            -DelayMode "fixed_1000_ms" -ExpectedDelayMillis 1000
+        Invoke-AutomaticAnswerTimingCase `
+            -DelayMode "fixed_2000_ms" -ExpectedDelayMillis 2000
+        Invoke-AutomaticAnswerTimingCase `
+            -DelayMode "fixed_3000_ms" -ExpectedDelayMillis 3000
+        Invoke-AutomaticAnswerTimingCase `
+            -DelayMode "fixed_4000_ms" -ExpectedDelayMillis 4000
+    )
+    $randomAutomaticAnswer = Invoke-AutomaticAnswerTimingCase `
+        -DelayMode "random_1010_3990_ms" -RandomDelay
+
+    Set-AssistantPolicy -AnswerMode "all" -DelayMode "fixed_4000_ms"
+    Reset-AutomaticAnswerAudit
+    Start-SmokeIncoming -Number "15551230210"
+    Wait-ForAssistantAudit -Pattern '(?m)^\d+:decision:4000:1:' | Out-Null
+    Invoke-Adb shell am start -W -a com.aios.phone.smoke.SHOW `
+        -n $fixtureActivity | Out-Null
+    Start-Sleep -Milliseconds 250
+    Invoke-UiControl "Answer"
+    Wait-ForTelecomPattern -Pattern 'state=ACTIVE' -TimeoutMillis 2000 | Out-Null
+    Start-Sleep -Milliseconds 4300
+    $ownerAnswerAssistantAudit = Get-AssistantAudit
+    $ownerAnswerConnectionAudit = Get-ConnectionAudit
+    $ownerAnswerCount = [regex]::Matches(
+        $ownerAnswerConnectionAudit, '(?m)^answer:\d+$').Count
+    if ($ownerAnswerAssistantAudit -notmatch '(?m)^\d+:answered:owner:true$' -or
+        $ownerAnswerAssistantAudit -match '(?m)^\d+:answered:ai:' -or
+        $ownerAnswerCount -ne 1) {
+        throw "Owner Answer did not synchronously cancel the pending AI reservation"
+    }
+    End-SmokeCalls
+
+    Set-AssistantPolicy -AnswerMode "all" -DelayMode "fixed_4000_ms"
+    Reset-AutomaticAnswerAudit
+    Start-SmokeIncoming -Number "15551230211"
+    Wait-ForAssistantAudit -Pattern '(?m)^\d+:decision:4000:1:' | Out-Null
+    Invoke-Adb shell am start -W -a com.aios.phone.smoke.SHOW `
+        -n $fixtureActivity | Out-Null
+    Start-Sleep -Milliseconds 250
+    Invoke-UiControl "Decline"
+    Invoke-Adb shell cmd telecom wait-on-handlers | Out-Null
+    Start-Sleep -Milliseconds 4300
+    $declineAssistantAudit = Get-AssistantAudit
+    $declineConnectionAudit = Get-ConnectionAudit
+    if ((Get-CurrentTelecomCalls) -match 'state=(RINGING|ACTIVE)' -or
+        $declineAssistantAudit -match '(?m)^\d+:answered:' -or
+        $declineConnectionAudit -notmatch '(?m)^reject:\d+$' -or
+        $declineConnectionAudit -match '(?m)^answer:\d+$') {
+        throw "Decline did not cancel the pending AI reservation before rejecting Telecom"
+    }
+    $callStarted = $false
+
+    # Ignore is intentionally distinct from Decline: it silences owner-facing
+    # ringing while leaving an enabled receptionist policy free to answer.
+    Set-AssistantPolicy -AnswerMode "all" -DelayMode "fixed_4000_ms"
+    Reset-AutomaticAnswerAudit
+    Start-SmokeIncoming -Number "15551230212"
+    Wait-ForAssistantAudit -Pattern '(?m)^\d+:decision:4000:1:' | Out-Null
+    Invoke-Adb shell am start -W -a com.aios.phone.smoke.SHOW `
+        -n $fixtureActivity | Out-Null
+    Start-Sleep -Milliseconds 250
+    Invoke-UiControl "Ignore"
+    Start-Sleep -Milliseconds 300
+    $notificationsAfterAutomaticIgnore = (
+        Invoke-Adb shell dumpsys notification --noredact) -join "`n"
+    if ((Get-CurrentTelecomCalls) -notmatch 'state=RINGING' -or
+        $notificationsAfterAutomaticIgnore -notmatch 'channel=incoming_calls_silent_v1') {
+        throw "Ignore did not silence and preserve the pending automatic-answer call"
+    }
+    Wait-ForTelecomPattern -Pattern 'state=ACTIVE' -TimeoutMillis 6000 | Out-Null
+    $ignoreAssistantAudit = Wait-ForAssistantAudit `
+        -Pattern '(?m)^\d+:answered:ai:true$'
+    End-SmokeCalls
+
+    # A dead optional AI service must revoke its old timer. Android may recreate
+    # the still-bound service immediately; recovery is allowed to request a new
+    # decision, but that decision must receive a fresh, complete delay.
+    Set-AssistantPolicy -AnswerMode "all" -DelayMode "fixed_4000_ms"
+    Reset-AutomaticAnswerAudit
+    Start-SmokeIncoming -Number "15551230213"
+    $serviceLossAudit = Wait-ForAssistantAudit `
+        -Pattern '(?m)^\d+:decision:4000:1:'
+    $firstServiceDecision = [regex]::Match(
+        $serviceLossAudit, '(?m)^(?<at>\d+):decision:4000:1:')
+    Start-Sleep -Milliseconds 3200
+    Invoke-Adb shell am force-stop $assistantPackage | Out-Null
+    $secondServiceDecision = $null
+    $serviceDecisionDeadline = [Environment]::TickCount64 + 3000
+    do {
+        $serviceLossAudit = Get-AssistantAudit
+        $serviceDecisions = [regex]::Matches(
+            $serviceLossAudit, '(?m)^(?<at>\d+):decision:4000:1:')
+        if ($serviceDecisions.Count -ge 2) {
+            $secondServiceDecision = $serviceDecisions[1]
+            break
+        }
+        Start-Sleep -Milliseconds 100
+    } while ([Environment]::TickCount64 -lt $serviceDecisionDeadline)
+    if ($null -eq $secondServiceDecision) {
+        throw "Call-assistant replacement did not reevaluate the still-ringing call"
+    }
+    $firstServiceDecisionAt = [long]$firstServiceDecision.Groups['at'].Value
+    $secondServiceDecisionAt = [long]$secondServiceDecision.Groups['at'].Value
+    if ($secondServiceDecisionAt -le $firstServiceDecisionAt) {
+        throw "Replacement decision did not have a newer elapsed-realtime identity"
+    }
+    $oldDeadlineRemaining = [Math]::Max(
+        0L,
+        ($firstServiceDecisionAt + 4300L) - $secondServiceDecisionAt)
+    if ($oldDeadlineRemaining -gt 0L) {
+        Start-Sleep -Milliseconds ([int]$oldDeadlineRemaining)
+    }
+    if ((Get-CurrentTelecomCalls) -notmatch 'state=RINGING') {
+        throw "The revoked pre-loss automatic-answer deadline still answered the call"
+    }
+    Wait-ForTelecomPattern -Pattern 'state=ACTIVE' -TimeoutMillis 5500 | Out-Null
+    $serviceLossAudit = Wait-ForAssistantAudit `
+        -Pattern '(?m)^\d+:answered:ai:true$'
+    $serviceLossConnectionAudit = Get-ConnectionAudit
+    $serviceLossAnswers = [regex]::Matches(
+        $serviceLossConnectionAudit, '(?m)^answer:(?<at>\d+)$')
+    if ($serviceLossAnswers.Count -ne 1) {
+        throw "Recovered automatic answer reached Telecom $($serviceLossAnswers.Count) times"
+    }
+    $serviceLossAnsweredAt = [long]$serviceLossAnswers[0].Groups['at'].Value
+    $serviceLossRestartedDelay = $serviceLossAnsweredAt - $secondServiceDecisionAt
+    if ($serviceLossRestartedDelay -lt 4000L -or
+        $serviceLossRestartedDelay -gt 5500L) {
+        throw "Recovered AI decision did not receive a fresh four-second delay: $serviceLossRestartedDelay ms"
+    }
+    End-SmokeCalls
+
+    # Starting the control activity clears force-stop and lets the production
+    # client reconnect. A synthetic 911 presentation then verifies that the
+    # phone-side emergency gate never consumes the one-second AI policy.
+    Set-AssistantPolicy -AnswerMode "all" -DelayMode "fixed_1000_ms"
+    Start-Sleep -Seconds 2
+    Reset-AutomaticAnswerAudit
+    Start-SmokeIncoming -Number "911"
+    Start-Sleep -Milliseconds 1800
+    $emergencyAssistantAudit = Get-AssistantAudit
+    if ((Get-CurrentTelecomCalls) -notmatch 'state=RINGING' -or
+        $emergencyAssistantAudit -match '(?m)^\d+:decision:' -or
+        $emergencyAssistantAudit -match '(?m)^\d+:answered:ai:') {
+        throw "Synthetic emergency presentation reached the automatic-answer decision path"
+    }
+    # Emulator Telecom does not model the carrier emergency UI contract. End
+    # this synthetic presentation through the fixture after proving AI bypass;
+    # the physical emergency-control matrix remains a separate release gate.
+    End-SmokeCalls
+
+    Invoke-Adb shell run-as $package rm -f $privateAuditFile | Out-Null
+    Invoke-Adb shell run-as $assistantPackage rm -f $assistantAuditFile | Out-Null
+    $remainingAssistantAudit = @(
+        Invoke-Adb shell run-as $assistantPackage find cache -maxdepth 1 `
+            -name "aios-call-assistant-smoke-audit.txt" |
+            Where-Object { $_ }
+    )
+    if ($remainingAssistantAudit.Count -ne 0) {
+        throw "The private call-assistant smoke audit survived verification"
+    }
+
+    $baselineEvidence = if ($AutomaticAnswerOnly) { $null } else { $true }
     $evidence = [ordered]@{
-        schema_version = 1
+        schema_version = 2
+        execution_mode = if ($AutomaticAnswerOnly) { "automatic_answer_only" } else { "full" }
         serial = $Serial
         qemu = $true
         android_release = $androidRelease
         api_level = $apiLevel
         apk_bytes = $apkBytes
         apk_sha256 = $apkSha256
+        assistant_apk_bytes = $assistantApkBytes
+        assistant_apk_sha256 = $assistantApkSha256
         role_holder = $package
-        simulated_number = "15551230182"
+        simulated_number = if ($AutomaticAnswerOnly) { $null } else { "15551230182" }
         simulated_transport = "managed_connection_service"
-        in_call_activity_visible = $true
-        full_screen_intent_launched_automatically = $fullScreenIntentVisible
-        in_call_service_bound = $true
-        incoming_notification_posted = $true
-        ignore_preserved_ringing_call = $true
-        ignore_selected_silent_channel = $true
-        answer_activated_call = $true
-        phone_process_survived_answer = $true
-        phone_call_foreground_service = $true
-        ongoing_notification_posted = $true
-        decline_disconnected_call = $true
-        ai_action_fail_closed = $true
-        outgoing_dial_intent_populated = $true
-        outgoing_compose_call_action = $true
-        outgoing_connection_dialing = $true
-        outgoing_in_call_activity_visible = $true
-        outgoing_connection_active = $true
-        phone_process_survived_outgoing = $true
-        mute_unmute_round_trip = $true
-        hold_resume_round_trip = $true
-        dtmf_play_stop_callbacks = $true
-        post_dial_digits_redacted = $true
-        post_dial_continue_callback = $true
-        post_dial_cancel_callback = $true
-        waiting_call_selected = $true
-        waiting_answer_held_existing_call = $true
-        conference_merge_separate_callbacks = $true
-        multi_account_selector_visible = $true
-        secondary_phone_account_selected = $true
-        selected_account_reached_connection_service = $true
-        private_dtmf_audit_removed = $privateAuditRemoved
-        private_post_dial_audit_removed = $privateAuditRemoved
-        private_conference_audit_removed = $privateAuditRemoved
-        private_account_selection_audit_removed = $privateAuditRemoved
-        outgoing_end_call_disconnected = $true
-        screenshot = [IO.Path]::GetFullPath($screenshot)
-        outgoing_screenshot = [IO.Path]::GetFullPath($outgoingScreenshot)
+        in_call_activity_visible = $baselineEvidence
+        full_screen_intent_launched_automatically = if ($AutomaticAnswerOnly) {
+            $null
+        } else {
+            $fullScreenIntentVisible
+        }
+        in_call_service_bound = $baselineEvidence
+        incoming_notification_posted = $baselineEvidence
+        ignore_preserved_ringing_call = $baselineEvidence
+        ignore_selected_silent_channel = $baselineEvidence
+        answer_activated_call = $baselineEvidence
+        phone_process_survived_answer = $baselineEvidence
+        phone_call_foreground_service = $baselineEvidence
+        ongoing_notification_posted = $baselineEvidence
+        decline_disconnected_call = $baselineEvidence
+        ai_action_fail_closed = $baselineEvidence
+        automatic_answer_fixed_delays = $fixedAutomaticAnswer
+        automatic_answer_random_delay = $randomAutomaticAnswer
+        owner_answer_cancelled_pending_ai = $true
+        decline_cancelled_pending_ai = $true
+        ignore_preserved_automatic_ai = `
+            $ignoreAssistantAudit -match '(?m)^\d+:answered:ai:true$'
+        service_loss_revoked_old_pending_ai = $true
+        service_reconnect_restarted_full_delay_ms = $serviceLossRestartedDelay
+        synthetic_emergency_never_evaluated_for_ai = $true
+        outgoing_dial_intent_populated = $baselineEvidence
+        outgoing_compose_call_action = $baselineEvidence
+        outgoing_connection_dialing = $baselineEvidence
+        outgoing_in_call_activity_visible = $baselineEvidence
+        outgoing_connection_active = $baselineEvidence
+        phone_process_survived_outgoing = $baselineEvidence
+        mute_unmute_round_trip = $baselineEvidence
+        hold_resume_round_trip = $baselineEvidence
+        dtmf_play_stop_callbacks = $baselineEvidence
+        post_dial_digits_redacted = $baselineEvidence
+        post_dial_continue_callback = $baselineEvidence
+        post_dial_cancel_callback = $baselineEvidence
+        waiting_call_selected = $baselineEvidence
+        waiting_answer_held_existing_call = $baselineEvidence
+        conference_merge_separate_callbacks = $baselineEvidence
+        multi_account_selector_visible = $baselineEvidence
+        secondary_phone_account_selected = $baselineEvidence
+        selected_account_reached_connection_service = $baselineEvidence
+        private_dtmf_audit_removed = $baselineEvidence
+        private_post_dial_audit_removed = $baselineEvidence
+        private_conference_audit_removed = $baselineEvidence
+        private_account_selection_audit_removed = $baselineEvidence
+        private_automatic_answer_audits_removed = $true
+        outgoing_end_call_disconnected = $baselineEvidence
+        screenshot = if ($AutomaticAnswerOnly) { $null } else { [IO.Path]::GetFullPath($screenshot) }
+        outgoing_screenshot = if ($AutomaticAnswerOnly) {
+            $null
+        } else {
+            [IO.Path]::GetFullPath($outgoingScreenshot)
+        }
         physical_gate_evidence = $false
     }
-    $evidencePath = Join-Path $EvidenceDirectory "aios-telecom-smoke.json"
+    $evidenceFileName = if ($AutomaticAnswerOnly) {
+        "aios-emulator-auto-answer-smoke.json"
+    } else {
+        "aios-telecom-smoke.json"
+    }
+    $evidencePath = Join-Path $EvidenceDirectory $evidenceFileName
 } finally {
     if ($callStarted) {
         & $adb -s $Serial shell am start -a com.aios.phone.smoke.DISCONNECT `
@@ -681,6 +1061,10 @@ try {
     if ($installed) {
         & $adb -s $Serial shell run-as $package rm -f $privateAuditFile | Out-Null
     }
+    if ($assistantInstalled) {
+        & $adb -s $Serial shell run-as $assistantPackage `
+            rm -f $assistantAuditFile | Out-Null
+    }
     if ($registered) {
         & $adb -s $Serial shell am start -a com.aios.phone.smoke.UNREGISTER `
             -n $fixtureActivity | Out-Null
@@ -694,6 +1078,9 @@ try {
         if (-not $KeepInstalled) {
             & $adb -s $Serial uninstall $package | Out-Null
         }
+    }
+    if ($assistantInstalled -and -not $KeepInstalled) {
+        & $adb -s $Serial uninstall $assistantPackage | Out-Null
     }
     if ($screenPrepared) {
         $screenIsAwake = ((& $adb -s $Serial shell dumpsys power) -join "`n") -match `
@@ -725,6 +1112,13 @@ $remainingPackage = @(
 if (-not $KeepInstalled -and $remainingPackage.Count -ne 0) {
     throw "Telecom smoke package survived cleanup"
 }
+$remainingAssistantPackage = @(
+    Invoke-Adb shell pm list packages --user 0 $assistantPackage |
+        Where-Object { $_ -eq "package:$assistantPackage" }
+)
+if (-not $KeepInstalled -and $remainingAssistantPackage.Count -ne 0) {
+    throw "Call-assistant smoke package survived cleanup"
+}
 $telecomAfter = (Invoke-Adb shell dumpsys telecom) -join "`n"
 if ($telecomAfter -match [regex]::Escape($fixtureAccount)) {
     throw "Telecom smoke phone account survived cleanup"
@@ -755,6 +1149,7 @@ $evidence["original_role_holders_restored"] = $true
 $evidence["original_outgoing_account_restored"] = $true
 $evidence["fixture_phone_account_removed"] = $true
 $evidence["package_removed"] = -not $KeepInstalled
+$evidence["assistant_package_removed"] = -not $KeepInstalled
 $evidence["remote_screenshot_removed"] = $true
 $evidence["remote_ui_dump_removed"] = $true
 $evidence["captured_at"] = [DateTime]::UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
@@ -763,4 +1158,4 @@ $utf8WithoutBom = [Text.UTF8Encoding]::new($false)
     [IO.Path]::GetFullPath($evidencePath),
     ($evidence | ConvertTo-Json -Depth 4),
     $utf8WithoutBom)
-Write-Output "AIOS emulator Telecom smoke check passed: $screenshot"
+Write-Output "AIOS emulator Telecom smoke check passed: $evidencePath"

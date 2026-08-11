@@ -2,6 +2,7 @@ package com.aios.phone.smoke
 
 import android.content.ComponentName
 import android.net.Uri
+import android.os.SystemClock
 import android.telecom.Conference
 import android.telecom.Connection
 import android.telecom.ConnectionRequest
@@ -76,11 +77,15 @@ class EmulatorConnectionService : ConnectionService() {
         }
 
         override fun onAnswer() {
+            fixtureEvents += "answer:${SystemClock.elapsedRealtime()}"
             setActive()
             refreshConferenceableConnections()
         }
 
-        override fun onReject() = end(DisconnectCause.REJECTED)
+        override fun onReject() {
+            fixtureEvents += "reject:${SystemClock.elapsedRealtime()}"
+            end(DisconnectCause.REJECTED)
+        }
 
         override fun onDisconnect() = end(DisconnectCause.LOCAL)
 

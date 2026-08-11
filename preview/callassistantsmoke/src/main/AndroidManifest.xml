@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <permission
+        android:name="com.aios.permission.CONTROL_CALL_INTELLIGENCE"
+        android:protectionLevel="signature" />
+
+    <application
+        android:allowBackup="false"
+        android:label="AIOS emulator call-assistant fixture"
+        android:supportsRtl="true">
+        <activity
+            android:name=".EmulatorCallAssistantControlActivity"
+            android:excludeFromRecents="true"
+            android:exported="true"
+            android:theme="@android:style/Theme.NoDisplay" />
+
+        <service
+            android:name=".EmulatorCallAssistantService"
+            android:exported="true"
+            android:permission="com.aios.permission.CONTROL_CALL_INTELLIGENCE">
+            <intent-filter>
+                <action android:name="com.aios.call.CALL_INTELLIGENCE_SERVICE" />
+            </intent-filter>
+        </service>
+    </application>
+</manifest>

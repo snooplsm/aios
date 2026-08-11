@@ -58,7 +58,10 @@ a binding or initialization that never completes. Each attempt has a distinct
 connection generation, so late callbacks from an abandoned binding are ignored.
 Disconnect cancels delayed automatic answers. After reconnection the dialer
 replays Telecom presence before resuming optional capture for already-active
-calls; an AI-handled resumed call never repeats the initial greeting.
+calls; an AI-handled resumed call never repeats the initial greeting. A call
+that is still ringing may be reevaluated, but any replacement automatic-answer
+decision receives a new complete delay rather than inheriting the canceled
+deadline.
 
 Every asynchronous result is generation-bound rather than trusted by call ID
 alone. ASR callbacks carry an opaque stream identity; classifier and receptionist

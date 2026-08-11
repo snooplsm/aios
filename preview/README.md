@@ -125,14 +125,21 @@ a subtitle renderer, and removes the APK, source, derived rows, journals, and
 cached output when it finishes.
 
 `telecomsmoke` packages those same sources as `com.aios.phone` solely for an
-AOSP emulator. It is debug-signed, cannot use the signature-protected AIOS
-services, and must never be installed on a physical phone or treated as a
-release artifact. Its purpose is to verify the real `ROLE_DIALER` and
+AOSP emulator. It is debug-signed and must never be installed on a physical
+phone or treated as a release artifact. Its purpose is to verify the real `ROLE_DIALER` and
 `InCallService` callback path. The current emulator console no longer exposes
 the legacy `gsm call` command, so a debug-source-set-only managed
 `ConnectionService` injects a synthetic call through Android Telecom. The
 fixture checks for emulator hardware at runtime and is absent from the product
 and `prodcheck` builds.
+
+`callassistantsmoke` is its separate, same-debug-signature Binder peer under the
+production `com.aios.callintelligence` identity. It stages the production answer
+scope/delay policy classes while deliberately implementing no capture, model,
+ASR, TTS, or caller-uplink path. Its service returns no binder on physical
+hardware and its control activity also refuses non-emulators. This lets the real
+Phone client and Telecom mutation exercise controlled automatic-answer decisions
+without weakening the production image's caller-audio admission gate.
 
 `scripts/emulator-telecom-smoke.ps1` binds its ignored JSON evidence to the
 exact APK size/SHA-256 and refuses API levels below 35, physical serials, QEMU
@@ -147,6 +154,16 @@ retain the ringing call on the silent channel, **Answer** must produce a live
 Telecom call owned by the `phoneCall` foreground `AiosInCallService`, and
 **Decline** must remove a second managed call. The **AI** action remains disabled
 because an emulator cannot satisfy the caller-audio release gate.
+
+In its controlled companion phase, the same runner verifies fixed 1/2/3/4-second
+and inclusive-random 1.01–3.99-second decisions through the production Handler
+timer into exactly one managed `Connection.onAnswer`. Owner **Answer** and
+**Decline** must revoke the pending reservation, while **Ignore** preserves it.
+Service replacement must invalidate the old deadline and give a reconnected
+decision a fresh complete delay. A synthetic emergency presentation must never
+reach policy evaluation. `-AutomaticAnswerOnly` runs this matrix separately and
+records unexecuted baseline fields as null; neither mode is physical/carrier or
+real caller-audio evidence.
 
 For the outgoing path, the runner temporarily selects the fixture account,
 opens AIOS Phone through a standard `ACTION_DIAL` intent, activates **Call**,

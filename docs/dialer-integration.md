@@ -294,6 +294,35 @@ filenames are unique and their deletion is verified after pulling. These
 postconditions make repeated emulator runs auditable without turning them into
 release claims.
 
+The separate `preview/callassistantsmoke` APK uses the exact
+`com.aios.callintelligence` package/action and the same debug signing identity as
+the Phone fixture. It stages the production `CallPolicyEngine` and
+`AnswerDelayPolicy`, but supplies no audio capture, ASR, model, or caller-uplink
+implementation. Its Binder and shell control activity both refuse physical
+hardware. With the transport unavailable, the ordinary Telecom run still proves
+the production **AI** action fails closed. The controlled phase then enables the
+emulator AIDL peer and leaves scheduling plus `Call.answer()` entirely inside
+the production Phone code.
+
+That phase measures one automatic Telecom answer for each exact fixed delay and
+for one newly sampled inclusive 1,010–3,990 ms random delay. It waits beyond the
+four-second deadline after owner **Answer** and **Decline** to reject stale
+callbacks. **Ignore** is intentionally different: it silences the owner-facing
+notification while preserving the ringing call and its eligible receptionist
+timer. A forced service replacement must revoke the old reservation; if Android
+rebinds while the call is still ringing, the replacement decision receives a
+fresh complete delay. A synthetic `911` presentation must remain ringing without
+ever reaching the assistant decision callback. Emulator Telecom does not model
+carrier emergency UI/routing, so that last call is fixture-disconnected and all
+three release gates remain `not_run` until the physical matrix passes.
+
+Use `-AutomaticAnswerOnly` to run just this focused matrix and write
+`aios-emulator-auto-answer-smoke.json`. This is useful on desktop AVDs that
+cannot remain stable for the combined baseline-plus-timer run; omitted baseline
+fields are written as JSON `null`, never as successful observations. Both debug
+APKs, both private audits, the synthetic accounts/calls, and the temporary role
+are still removed and verified.
+
 The same run locates the labeled Compose controls through UI Automator rather
 than fixed coordinates. It verifies that **Ignore** leaves the call ringing on
 the silent channel, **Answer** reaches Telecom `ACTIVE`, and **Decline** removes
