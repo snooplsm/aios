@@ -83,7 +83,7 @@ class CallAssistantClient(
     }
     private val sessions = linkedMapOf<String, Session>()
     private var remote: IAiosCallIntelligence? = null
-    private var rebindPolicy = AssistantServiceRebindPolicy()
+    private var rebindPolicy = PhoneServiceRebindPolicy()
     private var activeConnection: AssistantServiceConnection? = null
     private var rebindTask: Runnable? = null
     private var bindingWatchdog: Runnable? = null
@@ -192,7 +192,7 @@ class CallAssistantClient(
         check(Looper.myLooper() == Looper.getMainLooper())
         if (started) return
         started = true
-        rebindPolicy = AssistantServiceRebindPolicy()
+        rebindPolicy = PhoneServiceRebindPolicy()
         scheduleRebind(immediate = true)
     }
 
@@ -720,7 +720,7 @@ class CallAssistantClient(
     private fun scheduleRebind(immediate: Boolean) {
         if (!started || activeConnection != null) return
         val delay = rebindPolicy.reserve(immediate)
-        if (delay == AssistantServiceRebindPolicy.NO_RETRY) return
+        if (delay == PhoneServiceRebindPolicy.NO_RETRY) return
         lateinit var task: Runnable
         task = Runnable {
             if (rebindTask !== task) return@Runnable

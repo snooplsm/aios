@@ -1,7 +1,7 @@
 package com.aios.phone.intelligence
 
-/** Bounded retry state for the optional Call Intelligence service binding. */
-internal class AssistantServiceRebindPolicy {
+/** Bounded retry state shared by long-lived AIOS Phone service bindings. */
+internal class PhoneServiceRebindPolicy {
     private var nextDelayMillis = INITIAL_DELAY_MILLIS
     private var scheduled = false
     private var closed = false

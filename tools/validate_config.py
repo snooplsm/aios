@@ -788,7 +788,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "apps/phone/Android.bp",
         "apps/phone/AndroidManifest.xml",
         "apps/phone/tests/src/com/aios/phone/intelligence/PendingAiAnswerGateTest.kt",
-        "apps/phone/tests/src/com/aios/phone/intelligence/AssistantServiceRebindPolicyTest.kt",
+        "apps/phone/tests/src/com/aios/phone/intelligence/PhoneServiceRebindPolicyTest.kt",
         "apps/phone/tests/src/com/aios/phone/intelligence/EmergencyProcessingGateTest.kt",
         "apps/phone/tests/src/com/aios/phone/model/AssistantCallContractTest.kt",
         "apps/phone/tests/src/com/aios/phone/model/CallRiskContractTest.kt",
@@ -797,6 +797,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "apps/phone/src/com/aios/phone/PhoneRuntime.kt",
         "apps/phone/src/com/aios/phone/context/CallEventContract.kt",
         "apps/phone/src/com/aios/phone/context/CallEventContextClient.kt",
+        "apps/phone/src/com/aios/phone/context/ResilientCommunicationContextBinding.kt",
         "apps/phone/src/com/aios/phone/data/CallHistoryRepository.kt",
         "apps/phone/src/com/aios/phone/data/VoicemailRepository.kt",
         "apps/phone/src/com/aios/phone/model/PhoneContract.kt",
@@ -811,7 +812,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "apps/phone/src/com/aios/phone/notifications/CallNotificationCoordinator.kt",
         "apps/phone/src/com/aios/phone/notifications/CallActionReceiver.kt",
         "apps/phone/src/com/aios/phone/intelligence/CallAssistantClient.kt",
-        "apps/phone/src/com/aios/phone/intelligence/AssistantServiceRebindPolicy.kt",
+        "apps/phone/src/com/aios/phone/intelligence/PhoneServiceRebindPolicy.kt",
         "apps/phone/src/com/aios/phone/intelligence/EmergencyProcessingGate.kt",
         "apps/phone/src/com/aios/phone/intelligence/PendingAiAnswerGate.kt",
         "apps/phone/src/com/aios/phone/ui/InCallActivity.kt",
@@ -1635,9 +1636,9 @@ def validate_aosp_overlay(root: Path) -> None:
     assistant_client = (root / "apps" / "phone" / "src" / "com" / "aios" /
                         "phone" / "intelligence" /
                         "CallAssistantClient.kt").read_text(encoding="utf-8")
-    assistant_rebind_policy = (
+    phone_rebind_policy = (
         root / "apps" / "phone" / "src" / "com" / "aios" / "phone" /
-        "intelligence" / "AssistantServiceRebindPolicy.kt"
+        "intelligence" / "PhoneServiceRebindPolicy.kt"
     ).read_text(encoding="utf-8")
     pending_answer_gate = (root / "apps" / "phone" / "src" / "com" / "aios" /
                            "phone" / "intelligence" /
@@ -1652,15 +1653,19 @@ def validate_aosp_overlay(root: Path) -> None:
     call_event_client = (root / "apps" / "phone" / "src" / "com" / "aios" /
                          "phone" / "context" /
                          "CallEventContextClient.kt").read_text(encoding="utf-8")
+    call_event_binding = (
+        root / "apps" / "phone" / "src" / "com" / "aios" / "phone" /
+        "context" / "ResilientCommunicationContextBinding.kt"
+    ).read_text(encoding="utf-8")
     call_event_test = (root / "apps" / "phone" / "tests" / "src" / "com" /
                        "aios" / "phone" / "context" /
                        "CallEventContractTest.kt").read_text(encoding="utf-8")
     pending_answer_test = (root / "apps" / "phone" / "tests" / "src" / "com" /
                            "aios" / "phone" / "intelligence" /
                            "PendingAiAnswerGateTest.kt").read_text(encoding="utf-8")
-    assistant_rebind_test = (
+    phone_rebind_test = (
         root / "apps" / "phone" / "tests" / "src" / "com" / "aios" /
-        "phone" / "intelligence" / "AssistantServiceRebindPolicyTest.kt"
+        "phone" / "intelligence" / "PhoneServiceRebindPolicyTest.kt"
     ).read_text(encoding="utf-8")
     emergency_processing_test = (
         root / "apps" / "phone" / "tests" / "src" / "com" / "aios" /
@@ -1821,6 +1826,21 @@ def validate_aosp_overlay(root: Path) -> None:
             and "../../services/contextintelligence/aidl" in prodcheck_build
             and "../../services/contextintelligence/api" in prodcheck_build,
             "call-event changes and tombstones must be durable, monotonic, and compile checked")
+    require("ResilientCommunicationContextBinding(" in call_event_client
+            and "result.exceptionOrNull() is RemoteException" in call_event_client
+            and "binding.invalidate(service)" in call_event_client
+            and "binding.start()" in call_event_client
+            and "binding.stop()" in call_event_client
+            and "ContextConnection(++generation)" in call_event_binding
+            and "activeConnection === connection" in call_event_binding
+            and "connection.generation == generation" in call_event_binding
+            and "onBindingDied" in call_event_binding
+            and "onNullBinding" in call_event_binding
+            and "CONNECT_TIMEOUT_MILLIS = 15_000L" in call_event_binding
+            and "PhoneServiceRebindPolicy" in call_event_binding
+            and "connectionRacingReservedRetryCancelsThatAttempt"
+            in phone_rebind_test,
+            "Phone call-event reconciliation must replace failed bindings without accepting stale callbacks")
     require("onCallDestroyed" in phone_registry
             and "InCallService.onCallRemoved is the canonical terminal event"
             in phone_registry,
@@ -1994,9 +2014,9 @@ def validate_aosp_overlay(root: Path) -> None:
             and "BINDING_WATCHDOG_MILLIS = 15_000L" in assistant_client
             and "resumeActiveCall(session, processing)" in assistant_client
             and "session.answeredNotified = false" in assistant_client
-            and "MAX_DELAY_MILLIS = 60_000L" in assistant_rebind_policy
-            and "onlyOneRetryCanBeScheduled" in assistant_rebind_test
-            and "successfulConnectionResetsBackoff" in assistant_rebind_test,
+            and "MAX_DELAY_MILLIS = 60_000L" in phone_rebind_policy
+            and "onlyOneRetryCanBeScheduled" in phone_rebind_test
+            and "successfulConnectionResetsBackoff" in phone_rebind_test,
             "AIOS Phone must recover Call Intelligence bindings and resume active calls")
     require("telecomLifecycleToken: IBinder = Binder()" in assistant_client
             and "service.setTelecomCallPresent(telecomLifecycleToken" in assistant_client
@@ -2012,7 +2032,7 @@ def validate_aosp_overlay(root: Path) -> None:
     require("reservations.remove(callId)" in pending_answer_gate
             and "ownerCancellationRejectsAlreadyQueuedCallback" in pending_answer_test
             and 'name: "aios_phone_host_tests"' in phone_build
-            and '"src/com/aios/phone/intelligence/AssistantServiceRebindPolicy.kt"'
+            and '"src/com/aios/phone/intelligence/PhoneServiceRebindPolicy.kt"'
             in phone_build
             and 'kotlin.directories.add("../../apps/phone/tests/src")' in prodcheck_build
             and 'testImplementation("junit:junit:4.13.2")' in prodcheck_build,

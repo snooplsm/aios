@@ -1,15 +1,12 @@
 package com.aios.phone.context
 
 import android.app.role.RoleManager
-import android.content.ComponentName
 import android.content.Context
-import android.content.Intent
-import android.content.ServiceConnection
 import android.database.ContentObserver
 import android.database.Cursor
 import android.os.Handler
-import android.os.IBinder
 import android.os.Looper
+import android.os.RemoteException
 import android.provider.CallLog
 import android.telecom.TelecomManager
 import android.telephony.PhoneNumberUtils
@@ -21,7 +18,6 @@ import java.security.SecureRandom
 import java.util.Locale
 import java.util.concurrent.Executors
 import kotlin.math.max
-import kotlin.math.min
 
 /**
  * Reconciles the newest presented CallLog rows into identifier-free context.
@@ -43,42 +39,25 @@ internal class CallEventContextClient(context: Context) {
 
     @Volatile private var enabled = false
     @Volatile private var remote: ICommunicationContext? = null
-    private var bound = false
     private var observerRegistered = false
     private var inFlight = false
     private var rerun = false
-    private var retryDelayMillis = INITIAL_RETRY_MILLIS
+    private val binding = ResilientCommunicationContextBinding(
+        application,
+        object : ResilientCommunicationContextBinding.Listener {
+            override fun onConnected(service: ICommunicationContext) {
+                remote = service
+                scheduleReconcile(0L)
+            }
 
-    private val connection = object : ServiceConnection {
-        override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
-            remote = ICommunicationContext.Stub.asInterface(binder)
-            retryDelayMillis = INITIAL_RETRY_MILLIS
-            scheduleReconcile(0L)
-        }
-
-        override fun onServiceDisconnected(name: ComponentName?) {
-            remote = null
-            // Android retains this binding and reconnects when the service returns.
-        }
-
-        override fun onBindingDied(name: ComponentName?) {
-            remote = null
-            if (bound) runCatching { application.unbindService(this) }
-            bound = false
-            scheduleRetry()
-        }
-
-        override fun onNullBinding(name: ComponentName?) {
-            remote = null
-            if (bound) runCatching { application.unbindService(this) }
-            bound = false
-            scheduleRetry()
-        }
-    }
+            override fun onDisconnected(service: ICommunicationContext) {
+                if (remote === service) remote = null
+            }
+        },
+    )
 
     fun setEnabled(value: Boolean) = onMain {
         enabled = value
-        retryDelayMillis = INITIAL_RETRY_MILLIS
         if (value) registerObserver() else unregisterObserver()
         scheduleReconcile(0L)
     }
@@ -104,10 +83,13 @@ internal class CallEventContextClient(context: Context) {
             val result = runCatching { reconcile(service, targetEnabled) }
             main.post {
                 inFlight = false
+                if (result.exceptionOrNull() is RemoteException) {
+                    if (remote === service) remote = null
+                    binding.invalidate(service)
+                }
                 if (result.exceptionOrNull() is DesiredStateChangedException) {
                     scheduleReconcile(0L)
                 } else if (result.isFailure) scheduleRetry()
-                else retryDelayMillis = INITIAL_RETRY_MILLIS
                 if (rerun) {
                     rerun = false
                     scheduleReconcile(0L)
@@ -287,14 +269,12 @@ internal class CallEventContextClient(context: Context) {
     }
 
     private fun ensureBound() {
-        if (bound || (!enabled && loadLedger().isEmpty())) return
-        val intent = Intent(ACTION).setComponent(ComponentName(SERVICE_PACKAGE, SERVICE_CLASS))
-        bound = application.bindService(intent, connection, Context.BIND_AUTO_CREATE)
+        if (!enabled && loadLedger().isEmpty()) return
+        binding.start()
     }
 
     private fun disconnect() {
-        if (bound) runCatching { application.unbindService(connection) }
-        bound = false
+        binding.stop()
         remote = null
     }
 
@@ -305,8 +285,7 @@ internal class CallEventContextClient(context: Context) {
 
     private fun scheduleRetry() {
         if (!enabled && loadLedger().isEmpty()) return
-        scheduleReconcile(retryDelayMillis)
-        retryDelayMillis = min(retryDelayMillis * 2L, MAX_RETRY_MILLIS)
+        scheduleReconcile(RECONCILE_RETRY_MILLIS)
     }
 
     private inline fun onMain(crossinline operation: () -> Unit) {
@@ -317,10 +296,6 @@ internal class CallEventContextClient(context: Context) {
     private class DesiredStateChangedException : RuntimeException()
 
     private companion object {
-        const val ACTION = "com.aios.context.COMMUNICATION_CONTEXT_SERVICE"
-        const val SERVICE_PACKAGE = "com.aios.contextintelligence"
-        const val SERVICE_CLASS =
-            "com.aios.contextintelligence.CommunicationContextService"
         const val SOURCE_CALL_EVENT = "call_event"
         const val PREFS = "call_event_context"
         const val LEDGER = "indexed_events"
@@ -329,8 +304,7 @@ internal class CallEventContextClient(context: Context) {
         const val FINGERPRINT_SECRET_BYTES = 32
         const val MAX_ADDRESS_CHARS = 80
         const val CALL_LOG_SETTLE_MILLIS = 1_500L
-        const val INITIAL_RETRY_MILLIS = 15_000L
-        const val MAX_RETRY_MILLIS = 15L * 60L * 1_000L
+        const val RECONCILE_RETRY_MILLIS = 15_000L
         val PROJECTION = arrayOf(
             CallLog.Calls._ID,
             CallLog.Calls.NUMBER,

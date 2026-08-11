@@ -155,6 +155,12 @@ A private 256-entry ledger stores only source IDs and keyed HMAC fingerprints.
 Provider deletions, rows aging out of the window, and loss of the dialer role all
 produce ordered tombstones. A synchronously persisted global revision clock
 prevents an older retry from winning after restart or call-log ID reuse.
+The reconciler uses a generation-scoped Communication Context binding: service
+death, null bindings, failed remote calls, and connections that stall for 15
+seconds are replaced with bounded 1-to-60-second backoff. Stale callbacks cannot
+displace a newer service, and the durable ledger replays only mutations that did
+not complete. Losing the dialer role drains required tombstones and then stops
+the binding; regaining it starts a fresh retry epoch.
 
 Because call-log IDs continually increase, `call_event` deletions use one
 source-level delete watermark in the context database rather than accumulating
