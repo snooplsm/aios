@@ -83,6 +83,11 @@ binding is replaced. Each retry receives a fresh callback identity but inherits
 the semantic turn's original 15-second deadline, and the outer turn queue does
 not advance on the non-terminal recovery status. This prevents both duplicate
 speech and an outage-driven renewal of the response budget.
+Once a reply reaches TTS, its synthesis object and telephony-uplink stream form
+one terminal identity pair. Normal TTS completion lets buffered PCM drain;
+provider error or Broker loss closes only that matching pair and advances the
+turn once. A concurrent late audio callback cannot consume a newer turn, and
+partially delivered speech is not replayed automatically.
 
 Pipeline:
 

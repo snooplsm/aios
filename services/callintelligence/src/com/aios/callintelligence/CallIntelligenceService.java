@@ -583,7 +583,7 @@ public final class CallIntelligenceService extends Service {
         callerAudio = new CallerAudioUplink(this);
         speech = new SpeechSynthesisBrokerClient(
                 this,
-                (requestId, detail) -> notifyStatus(requestId, 5, detail));
+                this::handleSpeechSynthesisStatus);
         speech.start();
     }
 
@@ -1281,6 +1281,29 @@ public final class CallIntelligenceService extends Service {
         }
     }
 
+    private void handleSpeechSynthesisStatus(
+            String callId,
+            String requestId,
+            SpeechSynthesisBrokerClient.Speech expectedSpeech,
+            String detail) {
+        notifyStatus(callId == null ? requestId : callId, 5, detail);
+        if (callId == null || expectedSpeech == null
+                || !SpeechSynthesisStatusPolicy.terminatesCallerAudio(detail)) {
+            return;
+        }
+        ActiveSession session;
+        synchronized (sessions) {
+            session = sessions.get(callId);
+        }
+        if (session == null || !session.isAiHandling()) return;
+        ActiveSession.AssistantCompletion completion =
+                session.completeAssistantOperation(expectedSpeech);
+        if (completion != null) {
+            notifyStatus(callId, -7, "assistant_speech_interrupted");
+            continueAfterAssistantCompletion(callId, session, completion);
+        }
+    }
+
     private void speakToCaller(
             String callId, ActiveSession session, String language, String text) {
         SpeechSynthesisBrokerClient.Speech synthesized = null;
@@ -1288,13 +1311,14 @@ public final class CallIntelligenceService extends Service {
         try {
             long generation = nextSpeechRequestSerial();
             synthesized = speech.synthesize(
-                    callId + ":tts:" + generation, language, text);
+                    callId, callId + ":tts:" + generation, language, text);
             uplink = callerAudio.open(
                     callId,
                     synthesized.takePcmInput(),
                     synthesized.sampleRateHz,
-                    (completedCallId, detail) ->
-                            handleCallerAudioStatus(completedCallId, session, detail));
+                    (completedCallId, completedUplink, detail) ->
+                            handleCallerAudioStatus(
+                                    completedCallId, session, completedUplink, detail));
             if (!session.attachAssistantAudio(synthesized, uplink)) {
                 throw new IOException("call ended during assistant audio setup");
             }
@@ -1309,20 +1333,37 @@ public final class CallIntelligenceService extends Service {
     }
 
     private void handleCallerAudioStatus(
-            String callId, ActiveSession expectedSession, String detail) {
+            String callId,
+            ActiveSession expectedSession,
+            CallerAudioUplink.Stream expectedUplink,
+            String detail) {
         ActiveSession session;
         synchronized (sessions) {
             session = sessions.get(callId);
         }
-        if (session != expectedSession || !session.isOpen()) return;
-        notifyStatus(callId, 7, detail);
-        if (!"caller_audio_complete".equals(detail)
-                && !"caller_audio_failed".equals(detail)) return;
-        continueAfterAssistantOperation(callId, session);
+        if (session != expectedSession) return;
+        boolean terminal = "caller_audio_complete".equals(detail)
+                || "caller_audio_failed".equals(detail);
+        if (terminal) {
+            ActiveSession.AssistantCompletion completion =
+                    session.completeAssistantOperation(expectedUplink);
+            if (completion == null) return;
+            notifyStatus(callId, 7, detail);
+            continueAfterAssistantCompletion(callId, session, completion);
+        } else if (session.acceptsAssistantAudio(expectedUplink)) {
+            notifyStatus(callId, 7, detail);
+        }
     }
 
     private void continueAfterAssistantOperation(String callId, ActiveSession session) {
         ActiveSession.AssistantCompletion completion = session.completeAssistantOperation();
+        continueAfterAssistantCompletion(callId, session, completion);
+    }
+
+    private void continueAfterAssistantCompletion(
+            String callId,
+            ActiveSession session,
+            ActiveSession.AssistantCompletion completion) {
         completion.closeAudio();
         AssistantTurnQueue.CallerTurn nextTurn = completion.nextTurn;
         while (nextTurn != null && session.isAiHandling()) {
@@ -1520,6 +1561,8 @@ public final class CallIntelligenceService extends Service {
         private final int ownerUid;
         private final boolean knownContact;
         private final AssistantTurnQueue turnQueue = new AssistantTurnQueue();
+        private final AssistantAudioIdentityGate assistantAudioIdentities =
+                new AssistantAudioIdentityGate();
         private final CallContextAccumulator communicationSummary =
                 new CallContextAccumulator();
         private CallCommunicationContextClient.PreparedContext communicationContext;
@@ -1764,6 +1807,7 @@ public final class CallIntelligenceService extends Service {
                     activeSpeech, activeUplink, null);
             activeSpeech = null;
             activeUplink = null;
+            assistantAudioIdentities.clear();
             return new TakeoverResult(update, knownContact, completion);
         }
 
@@ -1782,7 +1826,8 @@ public final class CallIntelligenceService extends Service {
                 SpeechSynthesisBrokerClient.Speech speech,
                 CallerAudioUplink.Stream uplink) {
             if (closed || !assistantHandling.isAiHandling() || !turnQueue.isBusy()
-                    || activeSpeech != null || activeUplink != null) {
+                    || activeSpeech != null || activeUplink != null
+                    || !assistantAudioIdentities.attach(speech, uplink)) {
                 return false;
             }
             activeSpeech = speech;
@@ -1795,8 +1840,28 @@ public final class CallIntelligenceService extends Service {
             CallerAudioUplink.Stream uplink = activeUplink;
             activeSpeech = null;
             activeUplink = null;
+            assistantAudioIdentities.clear();
             AssistantTurnQueue.CallerTurn next = closed ? null : turnQueue.complete();
             return new AssistantCompletion(speech, uplink, next);
+        }
+
+        synchronized AssistantCompletion completeAssistantOperation(
+                SpeechSynthesisBrokerClient.Speech expectedSpeech) {
+            if (expectedSpeech == null || activeSpeech != expectedSpeech
+                    || !assistantAudioIdentities.consumeSpeech(expectedSpeech)) return null;
+            return completeAssistantOperation();
+        }
+
+        synchronized boolean acceptsAssistantAudio(CallerAudioUplink.Stream expectedUplink) {
+            return !closed && expectedUplink != null && activeUplink == expectedUplink
+                    && assistantAudioIdentities.acceptsUplink(expectedUplink);
+        }
+
+        synchronized AssistantCompletion completeAssistantOperation(
+                CallerAudioUplink.Stream expectedUplink) {
+            if (!acceptsAssistantAudio(expectedUplink)
+                    || !assistantAudioIdentities.consumeUplink(expectedUplink)) return null;
+            return completeAssistantOperation();
         }
 
         synchronized RiskAssessmentTracker.Update observeHeuristicRevision(
@@ -1830,6 +1895,7 @@ public final class CallIntelligenceService extends Service {
             if (activeSpeech != null) activeSpeech.close();
             activeUplink = null;
             activeSpeech = null;
+            assistantAudioIdentities.clear();
             capture.close();
             if (downlinkAsr != null) {
                 downlinkAsr.close();

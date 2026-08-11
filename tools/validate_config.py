@@ -1026,6 +1026,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/callintelligence/src/com/aios/callintelligence/AnswerDelayPolicy.java",
         "services/callintelligence/src/com/aios/callintelligence/AssistantHandlingTracker.java",
         "services/callintelligence/src/com/aios/callintelligence/AssistantGreetingPolicy.java",
+        "services/callintelligence/src/com/aios/callintelligence/AssistantAudioIdentityGate.java",
         "services/callintelligence/src/com/aios/callintelligence/AssistantTurnQueue.java",
         "services/callintelligence/src/com/aios/callintelligence/CallPolicyEngine.java",
         "services/callintelligence/src/com/aios/callintelligence/CallProductProperties.java",
@@ -1046,6 +1047,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/callintelligence/src/com/aios/callintelligence/Pcm16MonoToStereo48k.java",
         "services/callintelligence/src/com/aios/callintelligence/PriorContextFormatter.java",
         "services/callintelligence/src/com/aios/callintelligence/SpeechSynthesisBrokerClient.java",
+        "services/callintelligence/src/com/aios/callintelligence/SpeechSynthesisStatusPolicy.java",
         "services/callintelligence/src/com/aios/callintelligence/AsrBrokerClient.java",
         "services/callintelligence/src/com/aios/callintelligence/ServiceRebindPolicy.java",
         "services/callintelligence/src/com/aios/callintelligence/ResilientModelBrokerBinding.java",
@@ -1060,6 +1062,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/callintelligence/tests/src/com/aios/callintelligence/SpamRiskEngineTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/AssistantHandlingTrackerTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/AssistantGreetingPolicyTest.java",
+        "services/callintelligence/tests/src/com/aios/callintelligence/AssistantAudioIdentityGateTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/RiskAssessmentTrackerTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/AssistantTurnQueueTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/ReceptionistReplyPolicyTest.java",
@@ -1074,6 +1077,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/callintelligence/tests/src/com/aios/callintelligence/PcmTranscriptTimelineTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/CallRequestIdentityTrackerTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/Pcm16MonoToStereo48kTest.java",
+        "services/callintelligence/tests/src/com/aios/callintelligence/SpeechSynthesisStatusPolicyTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/RequiredCaptureGateTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/PriorContextFormatterTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/TelecomCallPresenceTrackerTest.java",
@@ -3547,12 +3551,46 @@ def validate_aosp_overlay(root: Path) -> None:
     caller_uplink = (call_source_root / "CallerAudioUplink.java").read_text(
         encoding="utf-8"
     )
+    assistant_audio_gate = (
+        call_source_root / "AssistantAudioIdentityGate.java"
+    ).read_text(encoding="utf-8")
+    assistant_audio_gate_test = (
+        root / "services" / "callintelligence" / "tests" / "src" / "com" /
+        "aios" / "callintelligence" / "AssistantAudioIdentityGateTest.java"
+    ).read_text(encoding="utf-8")
+    speech_status_policy = (
+        call_source_root / "SpeechSynthesisStatusPolicy.java"
+    ).read_text(encoding="utf-8")
+    speech_status_policy_test = (
+        root / "services" / "callintelligence" / "tests" / "src" / "com" /
+        "aios" / "callintelligence" / "SpeechSynthesisStatusPolicyTest.java"
+    ).read_text(encoding="utf-8")
     require("AudioDeviceInfo.TYPE_TELEPHONY" in caller_uplink
             and "setPreferredDevice" in caller_uplink
             and "getRoutedDevice" in caller_uplink
             and "getPlaybackHeadPosition" in caller_uplink
             and "MODIFY_PHONE_STATE" in caller_uplink,
             "caller audio must verify telephony-TX routing and drain every frame")
+    require("void onStatus(String callId, Stream stream, String detail)" in caller_uplink
+            and "listener.onStatus(callId, this, detail)" in caller_uplink
+            and "speech_synthesis_broker_disconnected" in speech_broker_source
+            and "Speech speech, String detail" in speech_broker_source
+            and "SpeechSynthesisStatusPolicy.terminatesCallerAudio(detail)"
+            in call_service
+            and "session.completeAssistantOperation(expectedSpeech)" in call_service
+            and "session.completeAssistantOperation(expectedUplink)" in call_service
+            and "assistantAudioIdentities.consumeSpeech" in call_service
+            and "assistantAudioIdentities.consumeUplink" in call_service
+            and "speech != expectedSpeech" in assistant_audio_gate
+            and "uplink == expectedUplink" in assistant_audio_gate
+            and "ttsFailureWinsOnceAndRejectsLateUplinkCompletion"
+            in assistant_audio_gate_test
+            and "uplinkCompletionWinsOnceAndRejectsLateTtsFailure"
+            in assistant_audio_gate_test
+            and "speech_synthesis_complete" in speech_status_policy_test
+            and "completionAllowsThePcmPipeToDrain" in speech_status_policy_test
+            and "speech_synthesis_broker_disconnected" in speech_status_policy,
+            "TTS loss and caller-audio completion must race through one identity-bound terminal gate")
     require("CallerDisclosureCoordinator" not in call_service
             and "pendingAiDisclosures" not in call_service,
             "mandatory spoken disclosure state must not remain in the AI answer path")

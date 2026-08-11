@@ -38,7 +38,7 @@ final class CallerAudioUplink implements AutoCloseable {
     private static final long PLAYBACK_DRAIN_GRACE_MILLIS = 2_000L;
 
     interface Listener {
-        void onStatus(String callId, String detail);
+        void onStatus(String callId, Stream stream, String detail);
     }
 
     static final class Probe {
@@ -324,7 +324,7 @@ final class CallerAudioUplink implements AutoCloseable {
 
         private void notifyStatus(String detail) {
             try {
-                listener.onStatus(callId, detail);
+                listener.onStatus(callId, this, detail);
             } catch (RuntimeException error) {
                 Log.w(TAG, "caller-audio listener failed", error);
             }

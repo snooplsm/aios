@@ -104,6 +104,11 @@ remain occupied and retry through the replacement binding under its original
 absolute deadline. Recovery must change callback identity, must not append the
 caller text to history again, and must not allow a predecessor callback to
 produce speech or advance the queued next turn.
+If Broker loss or a provider error occurs after TTS audio is attached, Call
+Intelligence must close the exact matching synthesis/uplink pair and advance the
+assistant queue at most once. Normal synthesis completion must allow buffered
+PCM to drain. A stale TTS or uplink callback may not stop newer audio, and AIOS
+must not automatically replay speech that the caller may have heard partially.
 
 Raw call audio is never exposed through the shared-media filesystem. Other apps
 receive scoped model APIs, not access to call artifacts or model files.

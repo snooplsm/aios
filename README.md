@@ -41,6 +41,10 @@ An interrupted finalized receptionist turn survives Model Broker replacement as
 one immutable prompt with a fresh callback identity and its original 15-second
 deadline; recovery cannot duplicate history, renew the response budget, or
 release later queued caller speech early.
+After TTS starts, Broker loss or provider error stops only the matching
+synthesis/uplink pair and advances the dialogue once. Normal completion still
+lets buffered PCM drain, while stale callbacks cannot stop newer caller audio
+and possibly partial speech is never replayed automatically.
 The low-priority ongoing call notification carries a bounded live preview of the
 latest incoming speech with AI/risk status beneath it. Transcript previews are
 private lock-screen content, sanitized for control characters, and never appear
