@@ -367,6 +367,9 @@ public final class CallIntelligenceService extends Service {
                         contextRecord.revision,
                         contextRecord.eventAtEpochMillis,
                         contextRecord.expiresAtEpochMillis,
+                        contextRecord.expiryBootIdentity,
+                        contextRecord.createdAtElapsedRealtimeMillis,
+                        contextRecord.expiresAtElapsedRealtimeMillis,
                         contextRecord.text,
                         now);
             } else {
@@ -1441,6 +1444,9 @@ public final class CallIntelligenceService extends Service {
             final long revision;
             final long eventAtEpochMillis;
             final long expiresAtEpochMillis;
+            final String expiryBootIdentity;
+            final long createdAtElapsedRealtimeMillis;
+            final long expiresAtElapsedRealtimeMillis;
             final String text;
 
             ContextRecord(
@@ -1449,12 +1455,18 @@ public final class CallIntelligenceService extends Service {
                     long revision,
                     long eventAtEpochMillis,
                     long expiresAtEpochMillis,
+                    String expiryBootIdentity,
+                    long createdAtElapsedRealtimeMillis,
+                    long expiresAtElapsedRealtimeMillis,
                     String text) {
                 this.prepared = prepared;
                 this.sourceId = sourceId;
                 this.revision = revision;
                 this.eventAtEpochMillis = eventAtEpochMillis;
                 this.expiresAtEpochMillis = expiresAtEpochMillis;
+                this.expiryBootIdentity = expiryBootIdentity;
+                this.createdAtElapsedRealtimeMillis = createdAtElapsedRealtimeMillis;
+                this.expiresAtElapsedRealtimeMillis = expiresAtElapsedRealtimeMillis;
                 this.text = text;
             }
         }
@@ -1590,6 +1602,9 @@ public final class CallIntelligenceService extends Service {
                     revision,
                     stored.createdAtEpochMillis,
                     stored.expiresAtEpochMillis,
+                    stored.expiryBootIdentity,
+                    stored.createdAtElapsedRealtimeMillis,
+                    stored.expiresAtElapsedRealtimeMillis,
                     communicationSummary.finish(disconnectCause));
         }
 

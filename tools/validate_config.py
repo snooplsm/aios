@@ -897,9 +897,13 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/contextintelligence/api/com/aios/context/ContextDocument.java",
         "services/contextintelligence/api/com/aios/context/ContextSnippet.java",
         "services/contextintelligence/src/com/aios/contextintelligence/CommunicationContextService.java",
+        "services/contextintelligence/src/com/aios/contextintelligence/ContextExpiryPolicy.java",
+        "services/contextintelligence/src/com/aios/contextintelligence/ContextRetentionAlarm.java",
+        "services/contextintelligence/src/com/aios/contextintelligence/ContextRetentionClock.java",
         "services/contextintelligence/src/com/aios/contextintelligence/ContextStore.java",
         "services/contextintelligence/src/com/aios/contextintelligence/ContextPolicy.java",
         "services/contextintelligence/src/com/aios/contextintelligence/RevisionGate.java",
+        "services/contextintelligence/tests/src/com/aios/contextintelligence/ContextExpiryPolicyTest.java",
         "services/contextintelligence/tests/src/com/aios/contextintelligence/ContextPolicyTest.java",
         "services/contextintelligence/tests/src/com/aios/contextintelligence/RevisionGateTest.java",
         "docs/communications-context.md",
@@ -1607,6 +1611,27 @@ def validate_aosp_overlay(root: Path) -> None:
     context_policy = (context_root / "src" / "com" / "aios" /
                       "contextintelligence" / "ContextPolicy.java").read_text(
                           encoding="utf-8")
+    context_expiry = (context_root / "src" / "com" / "aios" /
+                      "contextintelligence" / "ContextExpiryPolicy.java").read_text(
+                          encoding="utf-8")
+    context_alarm = (context_root / "src" / "com" / "aios" /
+                     "contextintelligence" / "ContextRetentionAlarm.java").read_text(
+                         encoding="utf-8")
+    context_boot = (context_root / "src" / "com" / "aios" /
+                    "contextintelligence" / "ContextBootReceiver.java").read_text(
+                        encoding="utf-8")
+    context_expiry_test = (context_root / "tests" / "src" / "com" / "aios" /
+                           "contextintelligence" /
+                           "ContextExpiryPolicyTest.java").read_text(encoding="utf-8")
+    context_document = (context_root / "api" / "com" / "aios" / "context" /
+                        "ContextDocument.java").read_text(encoding="utf-8")
+    call_context_writer = (root / "services" / "callintelligence" / "src" / "com" /
+                           "aios" / "callintelligence" /
+                           "CallCommunicationContextClient.java").read_text(
+                               encoding="utf-8")
+    call_artifact_store = (root / "services" / "callintelligence" / "src" / "com" /
+                           "aios" / "callintelligence" /
+                           "CallArtifactStore.java").read_text(encoding="utf-8")
     context_aidl = (context_root / "aidl" / "com" / "aios" / "context" /
                     "ICommunicationContext.aidl").read_text(encoding="utf-8")
     require('protectionLevel="signature|privileged"' in context_manifest
@@ -1636,6 +1661,46 @@ def validate_aosp_overlay(root: Path) -> None:
             and "CALL_ARTIFACT_TTL_MILLIS" in context_policy
             and "call artifacts must expire within 24 hours" in context_policy,
             "communication retrieval must be bounded, revisioned, and retention-aware")
+    require("expiry_boot_identity TEXT NOT NULL" in context_store
+            and "created_at_elapsed_ms INTEGER NOT NULL" in context_store
+            and "expires_at_elapsed_ms INTEGER NOT NULL" in context_store
+            and "oldVersion < 5" in context_store
+            and "document.expiryBootIdentity" in context_store
+            and "document.createdAtElapsedRealtimeMillis" in context_store
+            and "document.expiresAtElapsedRealtimeMillis" in context_store
+            and "expiry_boot_identity<>?" in context_store
+            and "created_at_elapsed_ms>?" in context_store
+            and "expires_at_elapsed_ms-created_at_elapsed_ms<>?" in context_store
+            and "expires_at_elapsed_ms<=?" in context_store
+            and "nextExpiryElapsedRealtimeMillis" in context_store
+            and "!Objects.equals(expiryBootIdentity, currentBootIdentity)"
+            in context_expiry
+            and "static boolean isWellFormed" in context_expiry
+            and "Math.addExact" in context_expiry
+            and "public final String expiryBootIdentity" in context_document
+            and "public final long createdAtElapsedRealtimeMillis" in context_document
+            and "public final long expiresAtElapsedRealtimeMillis" in context_document
+            and "document.expiryBootIdentity" in context_service
+            and "document.createdAtElapsedRealtimeMillis" in context_service
+            and "document.expiresAtElapsedRealtimeMillis" in context_service
+            and "pending.expiryBootIdentity" in call_context_writer
+            and "pending.createdAtElapsedRealtimeMillis" in call_context_writer
+            and "pending.expiresAtElapsedRealtimeMillis" in call_context_writer
+            and "CallArtifactRetention.isExpired" in call_context_writer
+            and "deadline.bootIdentity" in call_artifact_store
+            and "deadline.createdAtElapsedRealtimeMillis" in call_artifact_store
+            and "deadline.expiresAtElapsedRealtimeMillis" in call_artifact_store
+            and "setExactAndAllowWhileIdle" in context_alarm
+            and "AlarmManager.ELAPSED_REALTIME_WAKEUP" in context_alarm
+            and "ContextRetentionAlarm.scheduleNext" in context_service
+            and "ContextRetentionAlarm.ACTION_CLEANUP" in context_boot
+            and "wallClockRollbackCannotExtendTheMonotonicDeadline"
+            in context_expiry_test
+            and "rebootAndLegacyRowsExpireFailClosed" in context_expiry_test
+            and 'android.permission.USE_EXACT_ALARM' in context_manifest
+            and 'com.aios.contextintelligence.CLEANUP_EXPIRED_CONTEXT'
+            in context_manifest,
+            "call-derived communication context needs automatic dual-clock expiry")
     require("rawAddress" not in context_store
             and "phone_number" not in context_store
             and "contact_lookup" not in context_store,
@@ -3152,7 +3217,9 @@ def validate_aosp_overlay(root: Path) -> None:
             and 'identity, "", PriorContextFormatter.MAX_ITEMS' in call_context_client
             and '"call_artifact"' in call_context_client
             and "candidate.upsert(new ContextDocument(" in call_context_client
-            and "expiresAtEpochMillis <= observedNow" in call_context_client
+            and "isExpired(pending, observedNow)" in call_context_client
+            and "pending.expiryBootIdentity" in call_context_client
+            and "pending.expiresAtElapsedRealtimeMillis" in call_context_client
             and "resolvedCalls.remove(callId)" in call_context_client
             and "void discardCall(String callId)" in call_context_client
             and "MAX_ITEMS = 8" in prior_context_formatter

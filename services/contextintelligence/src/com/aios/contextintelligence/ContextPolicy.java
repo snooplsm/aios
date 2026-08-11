@@ -52,6 +52,9 @@ final class ContextPolicy {
             String[] relatedConversationKeys,
             long eventAtEpochMillis,
             long expiresAtEpochMillis,
+            String expiryBootIdentity,
+            long createdAtElapsedRealtimeMillis,
+            long expiresAtElapsedRealtimeMillis,
             String text) {
         Set<String> allowed = WRITERS.get(packageName);
         if (allowed == null || !allowed.contains(sourceType)) {
@@ -64,14 +67,29 @@ final class ContextPolicy {
         }
         validateIdentity(conversationKey, contactKey, relatedConversationKeys);
         if (CALL_ARTIFACT.equals(sourceType)) {
-            long maximumExpiry = saturatedAdd(eventAtEpochMillis, CALL_ARTIFACT_TTL_MILLIS);
-            if (expiresAtEpochMillis <= eventAtEpochMillis
-                    || expiresAtEpochMillis > maximumExpiry) {
+            if (!ContextExpiryPolicy.isWellFormed(
+                            eventAtEpochMillis,
+                            expiresAtEpochMillis,
+                            createdAtElapsedRealtimeMillis,
+                            expiresAtElapsedRealtimeMillis)
+                    || expiryBootIdentity == null || expiryBootIdentity.isBlank()
+                    || expiryBootIdentity.length() > 128
+                    || hasControlCharacter(expiryBootIdentity)) {
                 throw new IllegalArgumentException("call artifacts must expire within 24 hours");
             }
-        } else if (expiresAtEpochMillis != 0L) {
+        } else if (expiresAtEpochMillis != 0L
+                || expiryBootIdentity == null || !expiryBootIdentity.isEmpty()
+                || createdAtElapsedRealtimeMillis != 0L
+                || expiresAtElapsedRealtimeMillis != 0L) {
             throw new IllegalArgumentException("only call artifacts may carry a TTL");
         }
+    }
+
+    private static boolean hasControlCharacter(String value) {
+        for (int index = 0; index < value.length(); index++) {
+            if (Character.isISOControl(value.charAt(index))) return true;
+        }
+        return false;
     }
 
     static void validateDelete(
@@ -136,7 +154,4 @@ final class ContextPolicy {
         }
     }
 
-    private static long saturatedAdd(long left, long right) {
-        return left > Long.MAX_VALUE - right ? Long.MAX_VALUE : left + right;
-    }
 }

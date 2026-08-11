@@ -68,6 +68,9 @@ final class CallCommunicationContextClient implements AutoCloseable {
         final long revision;
         final long eventAtEpochMillis;
         final long expiresAtEpochMillis;
+        final String expiryBootIdentity;
+        final long createdAtElapsedRealtimeMillis;
+        final long expiresAtElapsedRealtimeMillis;
         final String text;
 
         PendingIndex(
@@ -77,6 +80,9 @@ final class CallCommunicationContextClient implements AutoCloseable {
                 long revision,
                 long eventAtEpochMillis,
                 long expiresAtEpochMillis,
+                String expiryBootIdentity,
+                long createdAtElapsedRealtimeMillis,
+                long expiresAtElapsedRealtimeMillis,
                 String text) {
             this.requestIdentity = requestIdentity;
             this.prepared = prepared;
@@ -84,6 +90,9 @@ final class CallCommunicationContextClient implements AutoCloseable {
             this.revision = revision;
             this.eventAtEpochMillis = eventAtEpochMillis;
             this.expiresAtEpochMillis = expiresAtEpochMillis;
+            this.expiryBootIdentity = expiryBootIdentity;
+            this.createdAtElapsedRealtimeMillis = createdAtElapsedRealtimeMillis;
+            this.expiresAtElapsedRealtimeMillis = expiresAtElapsedRealtimeMillis;
             this.text = text;
         }
     }
@@ -92,6 +101,7 @@ final class CallCommunicationContextClient implements AutoCloseable {
     private static final int MAX_ADDRESS_CHARS = 256;
     private static final int MAX_ACTIVE_CALLS = 64;
 
+    private final Context context;
     private final Listener listener;
     private final ExecutorService worker = Executors.newSingleThreadExecutor(work -> {
         Thread thread = new Thread(work, "aios-call-context");
@@ -110,9 +120,10 @@ final class CallCommunicationContextClient implements AutoCloseable {
     private boolean closed;
 
     CallCommunicationContextClient(Context context, Listener listener) {
+        this.context = context.getApplicationContext();
         this.listener = listener;
         binding = new ResilientCommunicationContextBinding(
-                context,
+                this.context,
                 new ResilientCommunicationContextBinding.Listener() {
                     @Override
                     public void onConnected(ICommunicationContext connected) {
@@ -171,6 +182,9 @@ final class CallCommunicationContextClient implements AutoCloseable {
             long revision,
             long eventAtEpochMillis,
             long expiresAtEpochMillis,
+            String expiryBootIdentity,
+            long createdAtElapsedRealtimeMillis,
+            long expiresAtElapsedRealtimeMillis,
             String text,
             long nowEpochMillis) {
         PendingIndex pending;
@@ -180,7 +194,10 @@ final class CallCommunicationContextClient implements AutoCloseable {
             if (closed || !validCallId(callId)
                     || sourceId == null || !sourceId.matches("[0-9a-f]{64}")
                     || revision <= 0L || eventAtEpochMillis <= 0L
-                    || expiresAtEpochMillis <= eventAtEpochMillis || text == null
+                    || expiresAtEpochMillis <= eventAtEpochMillis
+                    || expiryBootIdentity == null || expiryBootIdentity.isBlank()
+                    || createdAtElapsedRealtimeMillis < 0L
+                    || expiresAtElapsedRealtimeMillis <= 0L || text == null
                     || text.isBlank() || text.length() > CallContextAccumulator.MAX_DOCUMENT_CHARS) {
                 return;
             }
@@ -197,13 +214,16 @@ final class CallCommunicationContextClient implements AutoCloseable {
                     revision,
                     eventAtEpochMillis,
                     expiresAtEpochMillis,
+                    expiryBootIdentity,
+                    createdAtElapsedRealtimeMillis,
+                    expiresAtElapsedRealtimeMillis,
                     text);
             if (requestIdentity == null || effective == null) {
                 finishCallLocked(callId, requestIdentity);
                 failure = "call_context_identity_unavailable";
                 candidate = null;
-            } else if (expiresAtEpochMillis <= Math.max(
-                    nowEpochMillis, System.currentTimeMillis())) {
+            } else if (isExpired(pending, Math.max(
+                    nowEpochMillis, System.currentTimeMillis()))) {
                 finishCallLocked(callId, requestIdentity);
                 failure = "call_context_index_expired";
                 candidate = null;
@@ -368,7 +388,7 @@ final class CallCommunicationContextClient implements AutoCloseable {
     private void performIndex(
             ICommunicationContext candidate, String callId, PendingIndex pending) {
         long observedNow = System.currentTimeMillis();
-        if (pending.expiresAtEpochMillis <= observedNow) {
+        if (isExpired(pending, observedNow)) {
             synchronized (this) {
                 indexing.remove(callId, pending);
                 if (pendingIndexes.get(callId) == pending) {
@@ -386,6 +406,9 @@ final class CallCommunicationContextClient implements AutoCloseable {
                     pending.prepared.identity,
                     pending.eventAtEpochMillis,
                     pending.expiresAtEpochMillis,
+                    pending.expiryBootIdentity,
+                    pending.createdAtElapsedRealtimeMillis,
+                    pending.expiresAtElapsedRealtimeMillis,
                     pending.text));
             synchronized (this) {
                 indexing.remove(callId, pending);
@@ -443,6 +466,20 @@ final class CallCommunicationContextClient implements AutoCloseable {
             candidate = service;
         }
         if (candidate != null) submitIndex(candidate, callId, pending);
+    }
+
+    private boolean isExpired(PendingIndex pending, long nowEpochMillis) {
+        RetentionClock.Snapshot now = RetentionClock.capture(context, nowEpochMillis);
+        return CallArtifactRetention.isExpired(
+                new CallArtifactRetention.Deadline(
+                        pending.expiryBootIdentity,
+                        pending.eventAtEpochMillis,
+                        pending.expiresAtEpochMillis,
+                        pending.createdAtElapsedRealtimeMillis,
+                        pending.expiresAtElapsedRealtimeMillis),
+                now.bootIdentity,
+                now.epochMillis,
+                now.elapsedRealtimeMillis);
     }
 
     private void finishCallLocked(String callId, Object requestIdentity) {

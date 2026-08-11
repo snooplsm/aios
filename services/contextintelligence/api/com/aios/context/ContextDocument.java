@@ -13,6 +13,9 @@ public final class ContextDocument implements Parcelable {
     public final ConversationIdentity identity;
     public final long eventAtEpochMillis;
     public final long expiresAtEpochMillis;
+    public final String expiryBootIdentity;
+    public final long createdAtElapsedRealtimeMillis;
+    public final long expiresAtElapsedRealtimeMillis;
     public final String text;
 
     public ContextDocument(
@@ -23,12 +26,39 @@ public final class ContextDocument implements Parcelable {
             long eventAtEpochMillis,
             long expiresAtEpochMillis,
             String text) {
+        this(
+                sourceType,
+                sourceId,
+                revision,
+                identity,
+                eventAtEpochMillis,
+                expiresAtEpochMillis,
+                "",
+                0L,
+                0L,
+                text);
+    }
+
+    public ContextDocument(
+            String sourceType,
+            String sourceId,
+            long revision,
+            ConversationIdentity identity,
+            long eventAtEpochMillis,
+            long expiresAtEpochMillis,
+            String expiryBootIdentity,
+            long createdAtElapsedRealtimeMillis,
+            long expiresAtElapsedRealtimeMillis,
+            String text) {
         this.sourceType = Objects.requireNonNull(sourceType);
         this.sourceId = Objects.requireNonNull(sourceId);
         this.revision = revision;
         this.identity = Objects.requireNonNull(identity);
         this.eventAtEpochMillis = eventAtEpochMillis;
         this.expiresAtEpochMillis = expiresAtEpochMillis;
+        this.expiryBootIdentity = Objects.requireNonNull(expiryBootIdentity);
+        this.createdAtElapsedRealtimeMillis = createdAtElapsedRealtimeMillis;
+        this.expiresAtElapsedRealtimeMillis = expiresAtElapsedRealtimeMillis;
         this.text = Objects.requireNonNull(text);
     }
 
@@ -38,6 +68,9 @@ public final class ContextDocument implements Parcelable {
                 Objects.requireNonNull(source.readString()),
                 source.readLong(),
                 Objects.requireNonNull(source.readTypedObject(ConversationIdentity.CREATOR)),
+                source.readLong(),
+                source.readLong(),
+                Objects.requireNonNull(source.readString()),
                 source.readLong(),
                 source.readLong(),
                 Objects.requireNonNull(source.readString()));
@@ -56,6 +89,9 @@ public final class ContextDocument implements Parcelable {
         destination.writeTypedObject(identity, flags);
         destination.writeLong(eventAtEpochMillis);
         destination.writeLong(expiresAtEpochMillis);
+        destination.writeString(expiryBootIdentity);
+        destination.writeLong(createdAtElapsedRealtimeMillis);
+        destination.writeLong(expiresAtElapsedRealtimeMillis);
         destination.writeString(text);
     }
 

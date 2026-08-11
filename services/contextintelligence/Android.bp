@@ -30,6 +30,7 @@ android_app {
 java_test_host {
     name: "aios_contextintelligence_host_tests",
     srcs: [
+        "src/com/aios/contextintelligence/ContextExpiryPolicy.java",
         "src/com/aios/contextintelligence/ContextPolicy.java",
         "src/com/aios/contextintelligence/RevisionGate.java",
         "tests/src/**/*.java",

@@ -122,6 +122,11 @@ stalled context-service bindings and replays bounded preparation or final-index
 work only while the call identity and artifact lifetime remain current. A
 dedicated public-SDK module compiles and tests this Binder client; physical
 behavior remains a Pixel release gate.
+Call-derived retrieval rows now carry the artifact's exact wall and monotonic
+creation/expiry pairs plus its original internal boot identity. The nearest
+deadline has its own local idle-capable alarm, and reboot, service startup, or an
+unsafe legacy deadline deletes the row fail-closed instead of waiting for a
+later search or trusting a rolled-back wall clock.
 
 It has not yet been compiled by Soong or flashed. Android 17's official manifest
 does not contain the Pixel 9a `device/google/tegu` project, so the build strategy

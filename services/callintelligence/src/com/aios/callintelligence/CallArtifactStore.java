@@ -77,7 +77,10 @@ final class CallArtifactStore {
                     directory,
                     sourceId,
                     deadline.createdAtEpochMillis,
-                    deadline.expiresAtEpochMillis);
+                    deadline.expiresAtEpochMillis,
+                    deadline.bootIdentity,
+                    deadline.createdAtElapsedRealtimeMillis,
+                    deadline.expiresAtElapsedRealtimeMillis);
             ACTIVE_SESSIONS.put(directory.getAbsoluteFile(), session);
             return session;
         }
@@ -218,6 +221,9 @@ final class CallArtifactStore {
         final String sourceId;
         final long createdAtEpochMillis;
         final long expiresAtEpochMillis;
+        final String expiryBootIdentity;
+        final long createdAtElapsedRealtimeMillis;
+        final long expiresAtElapsedRealtimeMillis;
         private OutputStream downlink;
         private OutputStream uplink;
 
@@ -225,11 +231,17 @@ final class CallArtifactStore {
                 File directory,
                 String sourceId,
                 long createdAtEpochMillis,
-                long expiresAtEpochMillis) {
+                long expiresAtEpochMillis,
+                String expiryBootIdentity,
+                long createdAtElapsedRealtimeMillis,
+                long expiresAtElapsedRealtimeMillis) {
             this.directory = directory;
             this.sourceId = sourceId;
             this.createdAtEpochMillis = createdAtEpochMillis;
             this.expiresAtEpochMillis = expiresAtEpochMillis;
+            this.expiryBootIdentity = expiryBootIdentity;
+            this.createdAtElapsedRealtimeMillis = createdAtElapsedRealtimeMillis;
+            this.expiresAtElapsedRealtimeMillis = expiresAtElapsedRealtimeMillis;
         }
 
         synchronized OutputStream openDownlink() throws IOException {

@@ -79,10 +79,15 @@ public final class CommunicationContextService extends Service {
                     document.identity.relatedConversationKeys,
                     document.eventAtEpochMillis,
                     document.expiresAtEpochMillis,
+                    document.expiryBootIdentity,
+                    document.createdAtElapsedRealtimeMillis,
+                    document.expiresAtElapsedRealtimeMillis,
                     document.text);
             long token = Binder.clearCallingIdentity();
             try {
                 store.upsert(document);
+                ContextRetentionAlarm.scheduleNext(
+                        CommunicationContextService.this, store);
             } finally {
                 Binder.restoreCallingIdentity(token);
             }
@@ -95,6 +100,8 @@ public final class CommunicationContextService extends Service {
             long token = Binder.clearCallingIdentity();
             try {
                 store.deleteSource(sourceType, sourceId, revision);
+                ContextRetentionAlarm.scheduleNext(
+                        CommunicationContextService.this, store);
             } finally {
                 Binder.restoreCallingIdentity(token);
             }
@@ -106,7 +113,10 @@ public final class CommunicationContextService extends Service {
             ContextPolicy.validateDeleteType(caller, sourceType, revision);
             long token = Binder.clearCallingIdentity();
             try {
-                return store.deleteSourceType(sourceType, revision);
+                long effectiveRevision = store.deleteSourceType(sourceType, revision);
+                ContextRetentionAlarm.scheduleNext(
+                        CommunicationContextService.this, store);
+                return effectiveRevision;
             } finally {
                 Binder.restoreCallingIdentity(token);
             }
@@ -143,6 +153,8 @@ public final class CommunicationContextService extends Service {
             long token = Binder.clearCallingIdentity();
             try {
                 store.purgeExpired(nowEpochMillis);
+                ContextRetentionAlarm.scheduleNext(
+                        CommunicationContextService.this, store);
             } finally {
                 Binder.restoreCallingIdentity(token);
             }
@@ -153,6 +165,8 @@ public final class CommunicationContextService extends Service {
     public void onCreate() {
         super.onCreate();
         store = new ContextStore(this);
+        store.purgeExpired(System.currentTimeMillis());
+        ContextRetentionAlarm.scheduleNext(this, store);
     }
 
     @Override

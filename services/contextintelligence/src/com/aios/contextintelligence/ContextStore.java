@@ -17,10 +17,13 @@ import java.util.Locale;
 /** Credential-encrypted, revisioned lexical index for bounded local retrieval. */
 final class ContextStore extends SQLiteOpenHelper {
     private static final String DATABASE = "communication_context.db";
-    private static final int VERSION = 4;
+    private static final int VERSION = 5;
+
+    private final Context context;
 
     ContextStore(Context context) {
-        super(context, DATABASE, null, VERSION);
+        super(context.getApplicationContext(), DATABASE, null, VERSION);
+        this.context = context.getApplicationContext();
     }
 
     @Override
@@ -40,6 +43,9 @@ final class ContextStore extends SQLiteOpenHelper {
                         + "contact_key TEXT NOT NULL,"
                         + "event_at_epoch_ms INTEGER NOT NULL,"
                         + "expires_at_epoch_ms INTEGER NOT NULL,"
+                        + "expiry_boot_identity TEXT NOT NULL,"
+                        + "created_at_elapsed_ms INTEGER NOT NULL,"
+                        + "expires_at_elapsed_ms INTEGER NOT NULL,"
                         + "body TEXT NOT NULL,"
                         + "UNIQUE(source_type, source_id))");
         database.execSQL(
@@ -80,6 +86,20 @@ final class ContextStore extends SQLiteOpenHelper {
         if (oldVersion < 4) {
             migrateTombstonesToWatermark(database, ContextPolicy.MEDIA_METADATA);
         }
+        if (oldVersion < 5) {
+            // Existing expiring rows cannot prove a monotonic deadline or boot
+            // identity. Empty/zero migration values make them fail closed on
+            // the first query, service start, boot sweep, or expiry alarm.
+            database.execSQL(
+                    "ALTER TABLE entries ADD COLUMN expiry_boot_identity"
+                            + " TEXT NOT NULL DEFAULT ''");
+            database.execSQL(
+                    "ALTER TABLE entries ADD COLUMN created_at_elapsed_ms"
+                            + " INTEGER NOT NULL DEFAULT 0");
+            database.execSQL(
+                    "ALTER TABLE entries ADD COLUMN expires_at_elapsed_ms"
+                            + " INTEGER NOT NULL DEFAULT 0");
+        }
     }
 
     void upsert(ContextDocument document) {
@@ -106,6 +126,13 @@ final class ContextStore extends SQLiteOpenHelper {
             values.put("contact_key", document.identity.contactKey);
             values.put("event_at_epoch_ms", document.eventAtEpochMillis);
             values.put("expires_at_epoch_ms", document.expiresAtEpochMillis);
+            values.put("expiry_boot_identity", document.expiryBootIdentity);
+            values.put(
+                    "created_at_elapsed_ms",
+                    document.createdAtElapsedRealtimeMillis);
+            values.put(
+                    "expires_at_elapsed_ms",
+                    document.expiresAtElapsedRealtimeMillis);
             values.put("body", document.text);
             if (database.insertOrThrow("entries", null, values) < 0L) {
                 throw new IllegalStateException("cannot store communication context");
@@ -229,10 +256,41 @@ final class ContextStore extends SQLiteOpenHelper {
     }
 
     void purgeExpired(long nowEpochMillis) {
-        if (nowEpochMillis <= 0L) throw new IllegalArgumentException("invalid purge time");
+        ContextRetentionClock.Snapshot now = ContextRetentionClock.capture(context, nowEpochMillis);
+        if (now.epochMillis <= 0L || now.elapsedRealtimeMillis < 0L
+                || now.bootIdentity == null || now.bootIdentity.isBlank()) {
+            throw new IllegalArgumentException("invalid purge time");
+        }
         getWritableDatabase().delete(
-                "entries", "expires_at_epoch_ms>0 AND expires_at_epoch_ms<=?",
-                new String[]{Long.toString(nowEpochMillis)});
+                "entries",
+                "expires_at_epoch_ms>0 AND (expires_at_epoch_ms<=?"
+                        + " OR expires_at_epoch_ms-event_at_epoch_ms<>?"
+                        + " OR expiry_boot_identity<>?"
+                        + " OR created_at_elapsed_ms<0"
+                        + " OR created_at_elapsed_ms>?"
+                        + " OR expires_at_elapsed_ms<=0"
+                        + " OR expires_at_elapsed_ms-created_at_elapsed_ms<>?"
+                        + " OR expires_at_elapsed_ms<=?)",
+                new String[]{
+                        Long.toString(now.epochMillis),
+                        Long.toString(ContextPolicy.CALL_ARTIFACT_TTL_MILLIS),
+                        now.bootIdentity,
+                        Long.toString(now.elapsedRealtimeMillis),
+                        Long.toString(ContextPolicy.CALL_ARTIFACT_TTL_MILLIS),
+                        Long.toString(now.elapsedRealtimeMillis)});
+    }
+
+    long nextExpiryElapsedRealtimeMillis() {
+        ContextRetentionClock.Snapshot now = ContextRetentionClock.capture(
+                context, System.currentTimeMillis());
+        purgeExpired(now.epochMillis);
+        try (Cursor cursor = getReadableDatabase().rawQuery(
+                "SELECT MIN(expires_at_elapsed_ms) FROM entries"
+                        + " WHERE expires_at_epoch_ms>0",
+                null)) {
+            if (!cursor.moveToFirst() || cursor.isNull(0)) return Long.MAX_VALUE;
+            return Math.max(now.elapsedRealtimeMillis, cursor.getLong(0));
+        }
     }
 
     private static long revision(

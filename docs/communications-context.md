@@ -128,6 +128,17 @@ transcript segments, assistant replies, and validated risk events in a bounded
 directory name, not a number, and its expiry is copied from the immutable local
 artifact metadata. A context write is skipped if that expiry has already passed.
 No separate context TTL can extend the 24-hour call-artifact lifetime.
+Call Intelligence passes the artifact's original elapsed-realtime creation and
+expiry pair plus Android boot identity with the expiring call document; the
+context database validates and stores them without reconstructing them from
+wall time. Both the wall and monotonic pairs must equal creation plus exactly
+24 hours. Either
+the wall or monotonic deadline removes the row. A reboot, unreadable legacy
+deadline, arithmetic overflow, or apparent remaining lifetime beyond 24 hours
+fails closed. The nearest monotonic deadline is scheduled as an exact,
+idle-capable local alarm (with an inexact fallback), so expiry does not depend
+on another app query. Boot and service startup sweep missed alarms and schedule
+the next row.
 
 Every source has a monotonic revision. Deletion removes the entry and advances a
 source watermark, so a delayed stale indexing callback cannot resurrect it.
@@ -135,8 +146,9 @@ Direct message callbacks and provider reconciliation share one synchronously
 persisted revision clock. Provider deletion, restore-time edits, application
 restart, and SMS-role loss therefore converge without accumulating one durable
 tombstone for every deleted message. Normal call teardown now publishes the
-expiring call artifact. Call-artifact expiry is purged during queries and after
-boot. Durable Phone call events and selected-photo metadata producers are now
+expiring call artifact. Call-artifact context is purged during queries, at
+service startup, after boot, and by its persisted monotonic expiry alarm.
+Durable Phone call events and selected-photo metadata producers are now
 wired; physical Pixel evidence is still required before their release gates pass.
 
 Media Intelligence removes its authoritative private result when the MediaStore

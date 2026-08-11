@@ -365,6 +365,13 @@ artifacts inherit the 24-hour retention boundary; normal call teardown publishes
 only final bilingual transcript text, assistant replies, and validated risk
 events under the opaque call-directory digest. The presented number exists only
 long enough to resolve the HMAC identity and is never written to either store.
+The context copy receives the artifact's original internal Android boot identity
+and elapsed-realtime creation/expiry pair alongside its wall pair. Both pairs
+must prove the same exact 24-hour interval. Either clock expires it; reboot or
+legacy rows without a provable monotonic deadline fail closed. An exact idle-capable
+local alarm targets the nearest deadline, with boot, service-start, and query
+sweeps repairing missed delivery. Non-expiring SMS, MMS, call-event, and media
+records retain zeroed expiry metadata and are unaffected by the call TTL alarm.
 Context lookup is asynchronous and cannot block answer or capture. Its
 generation-safe client replaces failed, null, terminal, and stalled bindings
 with bounded backoff. It retains at most one transient preparation per active
