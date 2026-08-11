@@ -29,3 +29,10 @@ replaced by a compile-only adapter that always returns false. The production
 Soong app retains the platform adapter. This lane catches Android API drift but
 does not replace the locked Soong build, provider smoke tests, or Pixel model
 admission benchmarks.
+
+Accepted sessions are also registered in an elapsed-realtime deadline queue.
+The broker expires queued or running work with `ERROR_DEADLINE_EXCEEDED` (6),
+closes the runtime lease and pending descriptors, and prevents a racing provider
+completion from delivering a second terminal callback. The pure deadline-order
+policy is covered by both Soong and Gradle host tests; Android scheduling and
+real provider cancellation still require device integration evidence.

@@ -24,10 +24,10 @@ import java.util.Map;
 /**
  * Privileged entry point for on-device inference.
  *
- * This first implementation deliberately advertises no capabilities until the
- * catalog loader, digest verification, and runtime adapters are connected. A
- * fail-closed broker is safe to include in early bring-up images: clients get a
- * typed error and telephony/media continue without AI.
+ * Capabilities become visible only after catalog admission, artifact digest
+ * verification, and exact runtime-provider discovery succeed. A fail-closed
+ * broker is safe to include in early bring-up images: clients get a typed error
+ * and telephony/media continue without AI.
  */
 public final class ModelBrokerService extends Service {
     private static final String TAG = "AiosModelBroker";
@@ -38,6 +38,7 @@ public final class ModelBrokerService extends Service {
     public static final int ERROR_BUSY = 3;
     public static final int ERROR_PREEMPTED = 4;
     public static final int ERROR_RUNTIME_FAILED = 5;
+    public static final int ERROR_DEADLINE_EXCEEDED = 6;
     private static final long CALL_STATE_RETRY_MILLIS = 100L;
 
     private final Object callActivityLock = new Object();

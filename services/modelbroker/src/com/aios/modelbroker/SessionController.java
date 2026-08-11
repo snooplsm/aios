@@ -3,6 +3,7 @@ package com.aios.modelbroker;
 import android.os.IBinder;
 import android.os.ParcelFileDescriptor;
 import android.os.RemoteException;
+import android.os.SystemClock;
 
 import com.aios.model.AudioStreamFormat;
 import com.aios.model.GenerationChunk;
@@ -19,6 +20,9 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
 /** Owns public session IDs, callback death, queued inputs, and runtime leases. */
@@ -159,9 +163,11 @@ final class SessionController implements AutoCloseable {
         final ModelRequest request;
         final IModelCallback callback;
         final IBinder.DeathRecipient deathRecipient;
+        final Object callbackLock = new Object();
         final ArrayDeque<PendingInput> pending = new ArrayDeque<>();
         RuntimeAdapter.Session runtimeSession;
         boolean audioOutputAttached;
+        boolean terminal;
         long lastChunkSequence = -1L;
         int chunkCount;
 
@@ -181,15 +187,35 @@ final class SessionController implements AutoCloseable {
         }
     }
 
+    private static final class PreparedChange {
+        final SessionArbiter.Change change;
+        final List<Record> cancelled;
+
+        PreparedChange(SessionArbiter.Change change, List<Record> cancelled) {
+            this.change = change;
+            this.cancelled = cancelled;
+        }
+    }
+
     private final AtomicLong nextId = new AtomicLong(1L);
     private final RuntimeRegistry runtimes;
     private final SessionArbiter arbiter;
     private final Map<Long, Record> records = new HashMap<>();
+    private final SessionDeadlineQueue deadlines = new SessionDeadlineQueue();
+    private final ScheduledThreadPoolExecutor deadlineExecutor;
+    private ScheduledFuture<?> deadlineFuture;
+    private long deadlineGeneration;
     private boolean closed;
 
     SessionController(RuntimeRegistry runtimes, int capacity) {
         this.runtimes = runtimes;
         arbiter = new SessionArbiter(capacity);
+        deadlineExecutor = new ScheduledThreadPoolExecutor(1, task -> {
+            Thread thread = new Thread(task, "aios-model-deadlines");
+            thread.setDaemon(true);
+            return thread;
+        });
+        deadlineExecutor.setRemoveOnCancelPolicy(true);
     }
 
     long create(
@@ -198,6 +224,11 @@ final class SessionController implements AutoCloseable {
             VerifiedArtifact artifact,
             ModelRequest request,
             IModelCallback callback) {
+        if (request.deadlineElapsedRealtimeMillis <= 0L) {
+            notifyError(callback, ModelBrokerService.ERROR_INVALID_REQUEST,
+                    "request deadline must be positive elapsed realtime");
+            return -1L;
+        }
         long id = nextId.getAndIncrement();
         IBinder.DeathRecipient deathRecipient = () -> cancelAfterClientDeath(id, ownerUid);
         Record record = new Record(
@@ -208,14 +239,14 @@ final class SessionController implements AutoCloseable {
             return -1L;
         }
 
-        SessionArbiter.Change change;
+        PreparedChange prepared;
         synchronized (this) {
             if (closed) {
                 callback.asBinder().unlinkToDeath(deathRecipient, 0);
                 notifyError(callback, ModelBrokerService.ERROR_NOT_READY, "broker is stopping");
                 return -1L;
             }
-            change = arbiter.submit(
+            SessionArbiter.Change change = arbiter.submit(
                     id,
                     ownerUid,
                     WorkClass.fromAuthorizedWorkload(request.workload),
@@ -227,8 +258,11 @@ final class SessionController implements AutoCloseable {
                 return -1L;
             }
             records.put(id, record);
+            deadlines.add(id, request.deadlineElapsedRealtimeMillis);
+            rescheduleDeadlineLocked();
+            prepared = prepareChangeLocked(change);
         }
-        apply(change);
+        apply(prepared);
         return id;
     }
 
@@ -317,7 +351,7 @@ final class SessionController implements AutoCloseable {
 
     void cancel(int ownerUid, long sessionId) {
         Record record;
-        SessionArbiter.Change change;
+        PreparedChange prepared;
         synchronized (this) {
             record = records.get(sessionId);
             if (record == null) {
@@ -325,18 +359,27 @@ final class SessionController implements AutoCloseable {
             }
             requireOwner(record, ownerUid);
             records.remove(sessionId);
-            change = arbiter.finish(sessionId, ownerUid);
+            removeDeadlineLocked(sessionId);
+            prepared = prepareChangeLocked(arbiter.finish(sessionId, ownerUid));
         }
         dispose(record, false, 0, null, true);
-        apply(change);
+        apply(prepared);
     }
 
     void setCallActive(boolean active) {
-        apply(arbiter.setCallActive(active));
+        PreparedChange prepared;
+        synchronized (this) {
+            prepared = prepareChangeLocked(arbiter.setCallActive(active));
+        }
+        apply(prepared);
     }
 
     void onMemoryPressure() {
-        apply(arbiter.preemptBackgroundForMemoryPressure());
+        PreparedChange prepared;
+        synchronized (this) {
+            prepared = prepareChangeLocked(arbiter.preemptBackgroundForMemoryPressure());
+        }
+        apply(prepared);
     }
 
     @Override
@@ -349,7 +392,10 @@ final class SessionController implements AutoCloseable {
             closed = true;
             snapshot = new ArrayList<>(records.values());
             records.clear();
+            deadlines.clear();
+            cancelDeadlineWakeupLocked();
         }
+        deadlineExecutor.shutdownNow();
         for (Record record : snapshot) {
             dispose(record, true, ModelBrokerService.ERROR_NOT_READY,
                     "broker is stopping", true);
@@ -417,18 +463,27 @@ final class SessionController implements AutoCloseable {
         }
     }
 
-    private void apply(SessionArbiter.Change change) {
+    private PreparedChange prepareChangeLocked(SessionArbiter.Change change) {
+        List<Record> cancelled = new ArrayList<>();
         for (long id : change.cancelled) {
-            Record record;
-            synchronized (this) {
-                record = records.remove(id);
-            }
+            Record record = records.remove(id);
             if (record != null) {
-                dispose(record, true, ModelBrokerService.ERROR_PREEMPTED,
-                        "session preempted by call inference", true);
+                cancelled.add(record);
+                deadlines.remove(id);
             }
         }
-        for (long id : change.activated) {
+        if (!cancelled.isEmpty()) {
+            rescheduleDeadlineLocked();
+        }
+        return new PreparedChange(change, cancelled);
+    }
+
+    private void apply(PreparedChange prepared) {
+        for (Record record : prepared.cancelled) {
+            dispose(record, true, ModelBrokerService.ERROR_PREEMPTED,
+                    "session preempted by call inference", true);
+        }
+        for (long id : prepared.change.activated) {
             activate(id);
         }
     }
@@ -470,21 +525,76 @@ final class SessionController implements AutoCloseable {
         return new IModelCallback.Stub() {
             @Override
             public void onChunk(GenerationChunk chunk) {
-                if (!acceptChunk(record, chunk)) {
+                boolean invalid = false;
+                boolean clientDied = false;
+                synchronized (record.callbackLock) {
+                    if (record.terminal) {
+                        return;
+                    }
+                    if (!acceptChunk(record, chunk)) {
+                        invalid = true;
+                    } else {
+                        try {
+                            record.callback.onChunk(chunk);
+                        } catch (RemoteException error) {
+                            clientDied = true;
+                        }
+                    }
+                }
+                if (invalid) {
                     failOwned(record.ownerUid, record.id,
                             ModelBrokerService.ERROR_RUNTIME_FAILED,
                             "runtime returned an invalid chunk");
                     return;
                 }
-                try {
-                    record.callback.onChunk(chunk);
-                } catch (RemoteException error) {
+                if (clientDied) {
                     cancelAfterClientDeath(record.id, record.ownerUid);
                 }
             }
 
             @Override
             public void onCompleted(InferenceResult result) {
+                completeFromRuntime(record, result);
+            }
+
+            @Override
+            public void onError(int code, String message) {
+                int safeCode = code == ModelBrokerService.ERROR_INVALID_REQUEST
+                        || code == ModelBrokerService.ERROR_BUSY
+                        ? code : ModelBrokerService.ERROR_RUNTIME_FAILED;
+                String safeMessage = message == null
+                        ? "runtime provider failed"
+                        : message.substring(0, Math.min(message.length(), 256));
+                failFromRuntime(record, safeCode, safeMessage);
+            }
+        };
+    }
+
+    private void failOwned(int ownerUid, long sessionId, int code, String message) {
+        Record record;
+        PreparedChange prepared;
+        synchronized (this) {
+            record = records.get(sessionId);
+            if (record == null) {
+                return;
+            }
+            requireOwner(record, ownerUid);
+            records.remove(sessionId);
+            removeDeadlineLocked(sessionId);
+            prepared = prepareChangeLocked(arbiter.finish(sessionId, ownerUid));
+        }
+        dispose(record, true, code, message, true);
+        apply(prepared);
+    }
+
+    private void completeFromRuntime(Record record, InferenceResult result) {
+        PreparedChange prepared = claimRuntimeTerminal(record);
+        if (prepared == null) {
+            return;
+        }
+        synchronized (record.callbackLock) {
+            if (!record.terminal) {
+                record.terminal = true;
                 try {
                     if (validResult(record, result)) {
                         record.callback.onCompleted(result);
@@ -494,59 +604,31 @@ final class SessionController implements AutoCloseable {
                     }
                 } catch (RemoteException ignored) {
                     // Completion still releases the lease.
-                } finally {
-                    finishFromRuntime(record.id, record.ownerUid);
                 }
             }
-
-            @Override
-            public void onError(int code, String message) {
-                try {
-                    int safeCode = code == ModelBrokerService.ERROR_INVALID_REQUEST
-                            || code == ModelBrokerService.ERROR_BUSY
-                            ? code : ModelBrokerService.ERROR_RUNTIME_FAILED;
-                    String safeMessage = message == null
-                            ? "runtime provider failed"
-                            : message.substring(0, Math.min(message.length(), 256));
-                    record.callback.onError(safeCode, safeMessage);
-                } catch (RemoteException ignored) {
-                    // Failure still releases the lease.
-                } finally {
-                    finishFromRuntime(record.id, record.ownerUid);
-                }
-            }
-        };
+        }
+        cleanup(record, false);
+        apply(prepared);
     }
 
-    private void failOwned(int ownerUid, long sessionId, int code, String message) {
-        Record record;
-        SessionArbiter.Change change;
-        synchronized (this) {
-            record = records.get(sessionId);
-            if (record == null) {
-                return;
-            }
-            requireOwner(record, ownerUid);
-            records.remove(sessionId);
-            change = arbiter.finish(sessionId, ownerUid);
+    private void failFromRuntime(Record record, int code, String message) {
+        PreparedChange prepared = claimRuntimeTerminal(record);
+        if (prepared == null) {
+            return;
         }
-        dispose(record, true, code, message, true);
-        apply(change);
+        dispose(record, true, code, message, false);
+        apply(prepared);
     }
 
-    private void finishFromRuntime(long sessionId, int ownerUid) {
-        Record record;
-        SessionArbiter.Change change;
+    private PreparedChange claimRuntimeTerminal(Record record) {
         synchronized (this) {
-            record = records.get(sessionId);
-            if (record == null || record.ownerUid != ownerUid) {
-                return;
+            if (records.get(record.id) != record) {
+                return null;
             }
-            records.remove(sessionId);
-            change = arbiter.finish(sessionId, ownerUid);
+            records.remove(record.id);
+            removeDeadlineLocked(record.id);
+            return prepareChangeLocked(arbiter.finish(record.id, record.ownerUid));
         }
-        dispose(record, false, 0, null, false);
-        apply(change);
     }
 
     private void cancelAfterClientDeath(long sessionId, int ownerUid) {
@@ -602,6 +684,18 @@ final class SessionController implements AutoCloseable {
             int errorCode,
             String message,
             boolean closeRuntime) {
+        synchronized (record.callbackLock) {
+            if (!record.terminal) {
+                record.terminal = true;
+                if (reportError) {
+                    notifyError(record.callback, errorCode, message);
+                }
+            }
+        }
+        cleanup(record, closeRuntime);
+    }
+
+    private static void cleanup(Record record, boolean closeRuntime) {
         record.callback.asBinder().unlinkToDeath(record.deathRecipient, 0);
         for (PendingInput input : record.pending) {
             input.close();
@@ -610,8 +704,59 @@ final class SessionController implements AutoCloseable {
         if (closeRuntime && record.runtimeSession != null) {
             record.runtimeSession.close();
         }
-        if (reportError) {
-            notifyError(record.callback, errorCode, message);
+    }
+
+    private void removeDeadlineLocked(long sessionId) {
+        if (deadlines.remove(sessionId)) {
+            rescheduleDeadlineLocked();
+        }
+    }
+
+    private void rescheduleDeadlineLocked() {
+        cancelDeadlineWakeupLocked();
+        if (closed) {
+            return;
+        }
+        long delayMillis = deadlines.millisUntilNext(SystemClock.elapsedRealtime());
+        if (delayMillis == Long.MAX_VALUE) {
+            return;
+        }
+        long generation = deadlineGeneration;
+        deadlineFuture = deadlineExecutor.schedule(
+                () -> expireDeadlines(generation), delayMillis, TimeUnit.MILLISECONDS);
+    }
+
+    private void cancelDeadlineWakeupLocked() {
+        deadlineGeneration++;
+        if (deadlineFuture != null) {
+            deadlineFuture.cancel(false);
+            deadlineFuture = null;
+        }
+    }
+
+    private void expireDeadlines(long generation) {
+        List<Record> expired = new ArrayList<>();
+        List<PreparedChange> changes = new ArrayList<>();
+        synchronized (this) {
+            if (closed || generation != deadlineGeneration) {
+                return;
+            }
+            deadlineFuture = null;
+            for (long id : deadlines.removeExpired(SystemClock.elapsedRealtime())) {
+                Record record = records.remove(id);
+                if (record != null) {
+                    expired.add(record);
+                    changes.add(prepareChangeLocked(arbiter.finish(id, record.ownerUid)));
+                }
+            }
+            rescheduleDeadlineLocked();
+        }
+        for (Record record : expired) {
+            dispose(record, true, ModelBrokerService.ERROR_DEADLINE_EXCEEDED,
+                    "session deadline exceeded", true);
+        }
+        for (PreparedChange change : changes) {
+            apply(change);
         }
     }
 

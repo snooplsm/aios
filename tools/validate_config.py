@@ -863,8 +863,10 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/modelbroker/src/com/aios/modelbroker/RuntimeRegistry.java",
         "services/modelbroker/src/com/aios/modelbroker/SessionController.java",
         "services/modelbroker/src/com/aios/modelbroker/SessionArbiter.java",
+        "services/modelbroker/src/com/aios/modelbroker/SessionDeadlineQueue.java",
         "services/modelbroker/src/com/aios/modelbroker/CallActivityLeaseTracker.java",
         "services/modelbroker/tests/src/com/aios/modelbroker/SessionArbiterTest.java",
+        "services/modelbroker/tests/src/com/aios/modelbroker/SessionDeadlineQueueTest.java",
         "services/modelbroker/tests/src/com/aios/modelbroker/CallActivityLeaseTrackerTest.java",
         "services/modelbroker/tests/src/com/aios/modelbroker/PolicyFileReaderTest.java",
         "tools/generate_model_pack.py",
@@ -1935,6 +1937,8 @@ def validate_aosp_overlay(root: Path) -> None:
                "modelbroker" / "ModelBrokerService.java").read_text(encoding="utf-8")
     require("ERROR_NOT_READY" in service and "state.runtimeAvailable" in service,
             "unconfigured model broker must fail closed")
+    require("ERROR_DEADLINE_EXCEEDED" in service,
+            "model broker must expose a distinct session-deadline failure")
     require("onTrimMemory" in service
             and "sessions.onMemoryPressure()" in service,
             "model broker must preempt background work under Android memory pressure")
@@ -1961,6 +1965,12 @@ def validate_aosp_overlay(root: Path) -> None:
             "broker media input must admit explicit image and storyboard-video capabilities")
     require('"media".equals(format.direction)' in session_controller,
             "broker audio input must admit the background video timeline direction")
+    require("deadlines.removeExpired(SystemClock.elapsedRealtime())"
+            in session_controller
+            and "deadlineExecutor.schedule" in session_controller
+            and "record.callbackLock" in session_controller
+            and "ERROR_DEADLINE_EXCEEDED" in session_controller,
+            "broker must expire queued/running sessions with one terminal callback")
 
     runtime_api = (root / "services" / "runtimeapi" / "aidl" / "com" / "aios" /
                    "runtime" / "IAiosRuntimeProvider.aidl").read_text(encoding="utf-8")
@@ -1989,8 +1999,10 @@ def validate_aosp_overlay(root: Path) -> None:
     broker_host_test = broker_bp[broker_bp.index("java_test_host {"):]
     require('name: "aios_modelbroker_host_tests"' in broker_host_test
             and '"src/com/aios/modelbroker/PolicyFileReader.java"' in broker_host_test
+            and '"src/com/aios/modelbroker/SessionDeadlineQueue.java"'
+            in broker_host_test
             and '"tests/src/**/*.java"' in broker_host_test,
-            "Soong Model Broker host tests must include the bounded policy reader")
+            "Soong Model Broker host tests must include bounded policy and deadline logic")
     require('include(":modelservicecheck")' in model_preview_settings
             and 'include("com/aios/modelbroker/**/*.java")'
             in model_service_compile_build

@@ -3,9 +3,11 @@
 ## Startup
 
 The broker is persistent but fail-closed. It loads the product catalog, verifies
-the detached artifact manifest, discovers runtime backends, and performs a tiny
-known-answer smoke test. Only then does `listCapabilities` mark a capability
-available.
+the detached artifact manifest, and discovers exact allowlisted runtime
+backends. `listCapabilities` marks a capability available only when catalog,
+artifact, device-admission, and provider-identity checks all pass. Provider
+known-answer tests remain a separate release qualification gate; startup does
+not claim that evidence merely because a provider binds successfully.
 
 ## Session states
 
@@ -17,9 +19,14 @@ CREATED -> QUEUED -> LOADING -> RUNNING -> DRAINING -> COMPLETED
 
 - Each session belongs to the Binder calling UID and callback binder.
 - Binder death cancels the session, closes its pipes, and releases its lease.
-- Session IDs are unpredictable process-local handles, not persistent IDs.
+- Session IDs are opaque process-local handles, not persistent IDs or secrets.
 - A caller cannot submit to, inspect, or cancel another UID's session.
 - Deadlines use elapsed realtime, never wall-clock time.
+- One broker-owned timer expires both queued and running sessions. Expiration
+  closes descriptors and the runtime lease, reports `ERROR_DEADLINE_EXCEEDED`,
+  and promotes eligible queued work.
+- Chunk and terminal callback delivery is serialized per session so expiration,
+  cancellation, and runtime completion cannot produce two terminal callbacks.
 
 ## Arbitration
 
