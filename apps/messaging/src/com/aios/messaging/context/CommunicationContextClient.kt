@@ -1,14 +1,11 @@
 package com.aios.messaging.context
 
 import android.app.role.RoleManager
-import android.content.ComponentName
 import android.content.Context
-import android.content.Intent
-import android.content.ServiceConnection
 import android.database.ContentObserver
 import android.os.Handler
-import android.os.IBinder
 import android.os.Looper
+import android.os.RemoteException
 import android.provider.Telephony
 import android.telephony.TelephonyManager
 import android.util.Base64
@@ -20,7 +17,6 @@ import java.security.SecureRandom
 import java.util.Locale
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicInteger
-import kotlin.math.min
 
 class CommunicationContextClient(
     context: Context,
@@ -35,7 +31,7 @@ class CommunicationContextClient(
     private val ledger = MessageContextLedger(application)
     private val provider = MessageContextProvider(application)
     private val preferences = application.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-    private val pending = mutableListOf<(ICommunicationContext) -> Unit>()
+    private val pending = mutableListOf<PendingRequest>()
     private val pendingMutations = mutableListOf<PendingMutation>()
     private val reconciliationWaiters = mutableListOf<(Result<Unit>) -> Unit>()
     private val observer = object : ContentObserver(main) {
@@ -47,59 +43,43 @@ class CommunicationContextClient(
     }
 
     @Volatile private var providerReconciliationEnabled = false
-    private var remote: ICommunicationContext? = null
-    private var bound = false
+    @Volatile private var remote: ICommunicationContext? = null
     private var observerRegistered = false
     private var reconciliationInFlight = false
     private var reconciliationRerun = false
-    private var retryDelayMillis = INITIAL_RETRY_MILLIS
+    private var closed = false
     private val queuedMutations = AtomicInteger()
-
-    private val connection = object : ServiceConnection {
-        override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
-            val value = ICommunicationContext.Stub.asInterface(service) ?: return
-            remote = value
-            val work = pending.toList()
-            pending.clear()
-            work.forEach { operation -> runCatching { operation(value) } }
-            val mutations = pendingMutations.toList()
-            pendingMutations.clear()
-            mutations.forEach { mutation ->
-                submitMutation(value, mutation.revisionFloor, mutation.operation)
+    private val binding = ResilientCommunicationContextBinding(
+        application,
+        object : ResilientCommunicationContextBinding.Listener {
+            override fun onConnected(service: ICommunicationContext) {
+                if (closed) return
+                remote = service
+                val requests = pending.toList()
+                pending.clear()
+                requests.forEach { request -> submitRequest(service, request) }
+                val mutations = pendingMutations.toList()
+                pendingMutations.clear()
+                mutations.forEach { mutation ->
+                    submitMutation(service, mutation.revisionFloor, mutation.operation)
+                }
+                scheduleReconciliation(0L)
             }
-            retryDelayMillis = INITIAL_RETRY_MILLIS
-            scheduleReconciliation(0L)
-        }
 
-        override fun onServiceDisconnected(name: ComponentName?) {
-            remote = null
-        }
+            override fun onDisconnected(service: ICommunicationContext) {
+                if (remote === service) remote = null
+            }
+        },
+    )
 
-        override fun onBindingDied(name: ComponentName?) {
-            remote = null
-            if (bound) runCatching { application.unbindService(this) }
-            bound = false
-            scheduleRetry()
-        }
-
-        override fun onNullBinding(name: ComponentName?) {
-            remote = null
-            if (bound) runCatching { application.unbindService(this) }
-            bound = false
-            scheduleRetry()
-        }
-    }
-
-    fun connect() {
-        if (bound) return
-        val intent = Intent(ACTION).setComponent(ComponentName(SERVICE_PACKAGE, SERVICE_CLASS))
-        bound = application.bindService(intent, connection, Context.BIND_AUTO_CREATE)
+    fun connect() = onMain {
+        if (!closed) binding.start()
     }
 
     fun setProviderReconciliationEnabled(value: Boolean) = onMain {
+        if (closed) return@onMain
         val changed = providerReconciliationEnabled != value
         providerReconciliationEnabled = value
-        retryDelayMillis = INITIAL_RETRY_MILLIS
         if (value) {
             if (changed) {
                 check(preferences.edit().putBoolean(ROLE_CLEANUP_COMPLETE, false).commit()) {
@@ -110,13 +90,17 @@ class CommunicationContextClient(
             connect()
         } else {
             unregisterObserver()
-            pending.clear()
+            failPendingRequests()
             pendingMutations.clear()
         }
         if (changed || (!value && needsRoleCleanup())) scheduleReconciliation(0L)
     }
 
     fun requestProviderReconciliation(completion: (Result<Unit>) -> Unit) = onMain {
+        if (closed) {
+            completion(Result.failure(IllegalStateException("message-context client closed")))
+            return@onMain
+        }
         if (!providerReconciliationEnabled && !needsRoleCleanup()) {
             completion(Result.success(Unit))
             return@onMain
@@ -237,15 +221,23 @@ class CommunicationContextClient(
             callback(emptyList())
             return
         }
-        withService { service ->
-            val result = service.query(
-                service.resolveIdentity(address, countryIso()),
-                "",
-                8,
-                System.currentTimeMillis(),
-            )
-            main.post { callback(result) }
-        }
+        withService(PendingRequest(
+            execute = { service ->
+                val result = service.query(
+                    service.resolveIdentity(address, countryIso()),
+                    "",
+                    8,
+                    System.currentTimeMillis(),
+                )
+                main.post {
+                    callback(
+                        if (providerReconciliationEnabled && remote === service) result
+                        else emptyList(),
+                    )
+                }
+            },
+            reject = { callback(emptyList()) },
+        ))
     }
 
     fun resolveIdentity(address: String, callback: (ConversationIdentity?) -> Unit) {
@@ -253,28 +245,30 @@ class CommunicationContextClient(
             callback(null)
             return
         }
-        withService { service ->
-            worker.execute {
-                val identity = runCatching {
-                    service.resolveIdentity(address, countryIso())
-                }.getOrNull()
-                main.post { callback(identity) }
-            }
-        }
+        withService(PendingRequest(
+            execute = { service ->
+                val identity = service.resolveIdentity(address, countryIso())
+                main.post {
+                    callback(identity.takeIf { providerReconciliationEnabled && remote === service })
+                }
+            },
+            reject = { callback(null) },
+        ))
     }
 
-    fun close() {
+    fun close() = onMain {
+        if (closed) return@onMain
+        closed = true
         providerReconciliationEnabled = false
         unregisterObserver()
         main.removeCallbacks(reconcileRunnable)
-        pending.clear()
+        failPendingRequests()
         pendingMutations.clear()
         reconciliationWaiters.forEach {
             it(Result.failure(IllegalStateException("message-context client closed")))
         }
         reconciliationWaiters.clear()
-        if (bound) runCatching { application.unbindService(connection) }
-        bound = false
+        binding.stop()
         remote = null
         worker.shutdownNow()
     }
@@ -282,6 +276,7 @@ class CommunicationContextClient(
     private val reconcileRunnable = Runnable { beginReconciliation() }
 
     private fun beginReconciliation() {
+        if (closed) return
         if (reconciliationInFlight) {
             reconciliationRerun = true
             return
@@ -303,7 +298,12 @@ class CommunicationContextClient(
                 if (targetEnabled) reconcileProvider(service) else clearProviderContext(service)
             }
             main.post {
+                if (closed) return@post
                 reconciliationInFlight = false
+                if (result.exceptionOrNull() is RemoteException) {
+                    if (remote === service) remote = null
+                    binding.invalidate(service)
+                }
                 when {
                     result.exceptionOrNull() is DesiredStateChangedException ||
                         result.exceptionOrNull() is ReconciliationYieldException ->
@@ -313,7 +313,6 @@ class CommunicationContextClient(
                         scheduleRetry()
                     }
                     else -> {
-                        retryDelayMillis = INITIAL_RETRY_MILLIS
                         if (!targetEnabled) {
                             check(preferences.edit()
                                 .putBoolean(ROLE_CLEANUP_COMPLETE, true)
@@ -470,14 +469,14 @@ class CommunicationContextClient(
     }
 
     private fun scheduleReconciliation(delayMillis: Long) {
+        if (closed) return
         main.removeCallbacks(reconcileRunnable)
         main.postDelayed(reconcileRunnable, delayMillis.coerceAtLeast(0L))
     }
 
     private fun scheduleRetry() {
         if (!providerReconciliationEnabled && !needsRoleCleanup()) return
-        scheduleReconciliation(retryDelayMillis)
-        retryDelayMillis = min(retryDelayMillis * 2L, MAX_RETRY_MILLIS)
+        scheduleReconciliation(RECONCILIATION_RETRY_MILLIS)
     }
 
     private fun completeReconciliationWaiters(result: Result<Unit>) {
@@ -490,8 +489,7 @@ class CommunicationContextClient(
         !preferences.getBoolean(ROLE_CLEANUP_COMPLETE, false) || !ledger.isEmpty()
 
     private fun disconnect() {
-        if (bound) runCatching { application.unbindService(connection) }
-        bound = false
+        binding.stop()
         remote = null
     }
 
@@ -510,21 +508,51 @@ class CommunicationContextClient(
         return generated
     }
 
-    private fun withService(operation: (ICommunicationContext) -> Unit) {
+    private fun withService(request: PendingRequest) = onMain {
+        if (closed || !providerReconciliationEnabled) {
+            request.reject()
+            return@onMain
+        }
         val value = remote
         if (value != null) {
-            runCatching { operation(value) }
+            submitRequest(value, request)
         } else {
-            pending += operation
-            if (pending.size > MAX_PENDING_OPERATIONS) pending.removeAt(0)
-            connect()
+            pending += request
+            if (pending.size > MAX_PENDING_OPERATIONS) pending.removeAt(0).reject()
+            binding.start()
         }
+    }
+
+    private fun submitRequest(service: ICommunicationContext, request: PendingRequest) {
+        try {
+            worker.execute {
+                val result = runCatching { request.execute(service) }
+                result.exceptionOrNull()?.let { error ->
+                    main.post {
+                        if (error is RemoteException) {
+                            if (remote === service) remote = null
+                            binding.invalidate(service)
+                        }
+                        request.reject()
+                    }
+                }
+            }
+        } catch (_: RuntimeException) {
+            request.reject()
+        }
+    }
+
+    private fun failPendingRequests() {
+        val requests = pending.toList()
+        pending.clear()
+        requests.forEach { request -> runCatching(request.reject) }
     }
 
     private fun withMutation(
         revisionFloor: Long = System.currentTimeMillis(),
         operation: (ICommunicationContext, Long) -> Unit,
     ) = onMain {
+        if (closed) return@onMain
         val value = remote
         if (value != null) {
             submitMutation(value, revisionFloor, operation)
@@ -541,22 +569,33 @@ class CommunicationContextClient(
         operation: (ICommunicationContext, Long) -> Unit,
     ) {
         queuedMutations.incrementAndGet()
-        worker.execute {
-            try {
-                if (!providerReconciliationEnabled || !smsRoleHeld()) return@execute
-                runCatching {
-                    operation(
-                        service,
-                        ledger.nextRevision(
-                            revisionFloor.coerceAtLeast(System.currentTimeMillis()),
-                        ),
-                    )
-                }.onFailure {
-                    main.post { scheduleReconciliation(PROVIDER_SETTLE_MILLIS) }
+        try {
+            worker.execute {
+                try {
+                    if (!providerReconciliationEnabled || !smsRoleHeld()) return@execute
+                    val result = runCatching {
+                        operation(
+                            service,
+                            ledger.nextRevision(
+                                revisionFloor.coerceAtLeast(System.currentTimeMillis()),
+                            ),
+                        )
+                    }
+                    result.exceptionOrNull()?.let { error ->
+                        main.post {
+                            if (error is RemoteException) {
+                                if (remote === service) remote = null
+                                binding.invalidate(service)
+                            }
+                            scheduleReconciliation(PROVIDER_SETTLE_MILLIS)
+                        }
+                    }
+                } finally {
+                    queuedMutations.decrementAndGet()
                 }
-            } finally {
-                queuedMutations.decrementAndGet()
             }
+        } catch (_: RuntimeException) {
+            queuedMutations.decrementAndGet()
         }
     }
 
@@ -579,11 +618,12 @@ class CommunicationContextClient(
         val operation: (ICommunicationContext, Long) -> Unit,
     )
 
+    private data class PendingRequest(
+        val execute: (ICommunicationContext) -> Unit,
+        val reject: () -> Unit,
+    )
+
     private companion object {
-        const val ACTION = "com.aios.context.COMMUNICATION_CONTEXT_SERVICE"
-        const val SERVICE_PACKAGE = "com.aios.contextintelligence"
-        const val SERVICE_CLASS =
-            "com.aios.contextintelligence.CommunicationContextService"
         const val SOURCE_SMS = "sms"
         const val SOURCE_MMS = "mms"
         const val MAX_INDEX_CHARS = 4_096
@@ -597,8 +637,7 @@ class CommunicationContextClient(
         const val PROVIDER_PAGE_SIZE = 128
         const val LEDGER_PAGE_SIZE = 128
         const val PROVIDER_SETTLE_MILLIS = 1_500L
-        const val INITIAL_RETRY_MILLIS = 15_000L
-        const val MAX_RETRY_MILLIS = 15L * 60L * 1_000L
+        const val RECONCILIATION_RETRY_MILLIS = 15_000L
         val SOURCE_TYPES = listOf(SOURCE_SMS, SOURCE_MMS)
         val CONTEXT_STORE_INSTANCE_PATTERN = Regex("[0-9a-f]{32}")
     }

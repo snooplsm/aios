@@ -1,7 +1,7 @@
 package com.aios.messaging.context
 
-/** Bounded retry state for the long-lived Messaging-to-Media binding. */
-internal class AssociationServiceRebindPolicy {
+/** Bounded retry state shared by long-lived AIOS Messaging service bindings. */
+internal class MessagingServiceRebindPolicy {
     private var nextDelayMillis = INITIAL_DELAY_MILLIS
     private var scheduled = false
     private var closed = false

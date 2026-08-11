@@ -829,7 +829,8 @@ def validate_aosp_overlay(root: Path) -> None:
         "apps/messaging/src/com/aios/messaging/model/SubscriptionSelectionPolicy.kt",
         "apps/messaging/src/com/aios/messaging/data/MessagingRepository.kt",
         "apps/messaging/src/com/aios/messaging/context/CommunicationContextClient.kt",
-        "apps/messaging/src/com/aios/messaging/context/AssociationServiceRebindPolicy.kt",
+        "apps/messaging/src/com/aios/messaging/context/ResilientCommunicationContextBinding.kt",
+        "apps/messaging/src/com/aios/messaging/context/MessagingServiceRebindPolicy.kt",
         "apps/messaging/src/com/aios/messaging/context/LatestOperationQueue.kt",
         "apps/messaging/src/com/aios/messaging/context/MediaContextAssociationClient.kt",
         "apps/messaging/src/com/aios/messaging/context/MessageContextLedger.kt",
@@ -854,7 +855,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "apps/messaging/tests/src/com/aios/messaging/model/MessagePolicyTest.kt",
         "apps/messaging/tests/src/com/aios/messaging/model/SubscriptionSelectionPolicyTest.kt",
         "apps/messaging/tests/src/com/aios/messaging/context/MessageContextPolicyTest.kt",
-        "apps/messaging/tests/src/com/aios/messaging/context/AssociationServiceRebindPolicyTest.kt",
+        "apps/messaging/tests/src/com/aios/messaging/context/MessagingServiceRebindPolicyTest.kt",
         "apps/messaging/tests/src/com/aios/messaging/context/LatestOperationQueueTest.kt",
         "apps/messaging/tests/src/com/aios/messaging/mms/MmsOperationPolicyTest.kt",
         "patches/0002-framework-mms-aios-visibility.patch",
@@ -1336,16 +1337,20 @@ def validate_aosp_overlay(root: Path) -> None:
     context_client = (messaging_root / "src" / "com" / "aios" / "messaging" /
                        "context" / "CommunicationContextClient.kt").read_text(
                            encoding="utf-8")
+    messaging_context_binding = (
+        messaging_root / "src" / "com" / "aios" / "messaging" / "context" /
+        "ResilientCommunicationContextBinding.kt"
+    ).read_text(encoding="utf-8")
     media_context_client = (messaging_root / "src" / "com" / "aios" / "messaging" /
                             "context" / "MediaContextAssociationClient.kt").read_text(
                                 encoding="utf-8")
-    association_rebind_policy = (
+    messaging_rebind_policy = (
         messaging_root / "src" / "com" / "aios" / "messaging" / "context" /
-        "AssociationServiceRebindPolicy.kt"
+        "MessagingServiceRebindPolicy.kt"
     ).read_text(encoding="utf-8")
-    association_rebind_test = (
+    messaging_rebind_test = (
         messaging_root / "tests" / "src" / "com" / "aios" / "messaging" /
-        "context" / "AssociationServiceRebindPolicyTest.kt"
+        "context" / "MessagingServiceRebindPolicyTest.kt"
     ).read_text(encoding="utf-8")
     association_queue = (
         messaging_root / "src" / "com" / "aios" / "messaging" / "context" /
@@ -1509,9 +1514,9 @@ def validate_aosp_overlay(root: Path) -> None:
             and "onNullBinding" in media_context_client
             and "CONNECT_TIMEOUT_MILLIS = 15_000L" in media_context_client
             and "MAX_PENDING_OPERATIONS = 128" in media_context_client
-            and "MAX_DELAY_MILLIS = 60_000L" in association_rebind_policy
+            and "MAX_DELAY_MILLIS = 60_000L" in messaging_rebind_policy
             and "connectionRacingReservedRetryCancelsThatAttempt"
-            in association_rebind_test
+            in messaging_rebind_test
             and "protectedKey" in association_queue
             and "removeIfCurrent" in association_queue
             and "replacementRejectsLateCompletionFromSupersededOperation"
@@ -1548,6 +1553,20 @@ def validate_aosp_overlay(root: Path) -> None:
             and "android.permission.RECEIVE_BOOT_COMPLETED" in messaging_manifest
             and "android.permission.BIND_JOB_SERVICE" in messaging_manifest,
             "Messaging context must durably reconcile bounded authoritative provider pages")
+    require("ResilientCommunicationContextBinding(" in context_client
+            and "result.exceptionOrNull() is RemoteException" in context_client
+            and "binding.invalidate(service)" in context_client
+            and "submitRequest(service, request)" in context_client
+            and "request.reject()" in context_client
+            and "ContextConnection(++generation)" in messaging_context_binding
+            and "activeConnection === connection" in messaging_context_binding
+            and "connection.generation == generation" in messaging_context_binding
+            and "onBindingDied" in messaging_context_binding
+            and "onNullBinding" in messaging_context_binding
+            and "CONNECT_TIMEOUT_MILLIS = 15_000L" in messaging_context_binding
+            and '"src/com/aios/messaging/context/MessagingServiceRebindPolicy.kt"'
+            in messaging_bp,
+            "Messaging provider reconciliation must replace failed context bindings and complete queries")
 
     context_root = root / "services" / "contextintelligence"
     context_manifest = (context_root / "AndroidManifest.xml").read_text(encoding="utf-8")

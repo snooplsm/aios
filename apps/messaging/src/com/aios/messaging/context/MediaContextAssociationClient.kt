@@ -28,7 +28,7 @@ class MediaContextAssociationClient(context: Context) {
     private val worker = Executors.newSingleThreadExecutor { work ->
         Thread(work, "aios-message-media-context")
     }
-    private val rebindPolicy = AssociationServiceRebindPolicy()
+    private val rebindPolicy = MessagingServiceRebindPolicy()
     private val pending = LatestOperationQueue<PendingOperation>(MAX_PENDING_OPERATIONS)
     private val cancelled = LinkedHashSet<String>()
     private var activeOperation: PendingOperation? = null
@@ -359,7 +359,7 @@ class MediaContextAssociationClient(context: Context) {
 
     private fun scheduleRebind(immediate: Boolean) {
         val delay = rebindPolicy.reserve(immediate)
-        if (delay != AssociationServiceRebindPolicy.NO_RETRY) {
+        if (delay != MessagingServiceRebindPolicy.NO_RETRY) {
             main.postDelayed(rebind, delay)
         }
     }

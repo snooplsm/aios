@@ -54,6 +54,13 @@ source type, provider ID, a per-install HMAC fingerprint, and the last completed
 sweep epoch; it never stores an address or message body. A persisted no-network
 job repeats the pass after boot or an SMS-role change. Failed/draft SMS, failed
 or in-flight MMS, and undownloaded MMS notifications are excluded.
+The provider reconciler owns a generation-scoped Communication Context binding.
+Failed remote calls, terminal or null bindings, and connections that remain
+disconnected for 15 seconds are replaced with bounded 1-to-60-second backoff.
+Stale callbacks cannot displace a newer service. Provider mutations remain
+replayable from the authoritative provider and private ledger, while interactive
+context and identity queries execute off the main thread and always complete
+with an empty result if their exact service generation disappears.
 The context service exposes a random, non-identifying store-instance token; a
 new Messaging ledger or changed token forces a source reset and complete rebuild
 instead of treating a missing remote database as already synchronized.
