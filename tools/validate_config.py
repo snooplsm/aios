@@ -728,6 +728,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "Android.bp",
         "AndroidProducts.mk",
         ".github/workflows/aosp-upstream-watch.yml",
+        ".github/workflows/repository-validation.yml",
         "products/aios_common.mk",
         "products/aios_tegu.mk",
         "products/aios_cf_x86_64_phone.mk",
@@ -1071,6 +1072,27 @@ def validate_aosp_overlay(root: Path) -> None:
             and "refresh_aosp_tracking.py" in watch_workflow
             and "--check" in watch_workflow,
             "AOSP upstream watch must be scheduled, read-only, and official")
+    validation_workflow = (root / ".github" / "workflows" /
+                           "repository-validation.yml").read_text(encoding="utf-8")
+    require("pull_request:" in validation_workflow
+            and "workflow_dispatch:" in validation_workflow
+            and '"integration/**"' in validation_workflow
+            and '"release/**"' in validation_workflow
+            and "permissions:\n  contents: read" in validation_workflow
+            and "pull_request_target:" not in validation_workflow
+            and "contents: write" not in validation_workflow,
+            "repository validation must cover review branches with read-only permissions")
+    require("actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683"
+            in validation_workflow
+            and "persist-credentials: false" in validation_workflow
+            and "timeout-minutes: 10" in validation_workflow
+            and "cancel-in-progress: true" in validation_workflow,
+            "repository CI must pin checkout, drop credentials, and bound duplicate work")
+    require("python3 tools/validate_config.py" in validation_workflow
+            and "python3 -m unittest discover -s tests -v" in validation_workflow
+            and "python3 tools/release_report.py" in validation_workflow
+            and "--require-pass" not in validation_workflow,
+            "repository CI must run host contracts without claiming physical release gates")
     patch_tool = (root / "tools" / "verify_patch_series.py").read_text(
         encoding="utf-8"
     )

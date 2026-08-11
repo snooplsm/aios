@@ -1,0 +1,33 @@
+name: AIOS repository validation
+
+on:
+  push:
+    branches:
+      - main
+      - "integration/**"
+      - "release/**"
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: repository-validation-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out AIOS without retaining credentials
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Validate product and integration contracts
+        run: python3 tools/validate_config.py
+      - name: Run dependency-free host tests
+        run: python3 -m unittest discover -s tests -v
+      - name: Report unproven release gates
+        run: python3 tools/release_report.py
