@@ -97,6 +97,7 @@ class CallAssistantClient(
     private var connectionReady = false
     private var started = false
     private var ownerProcessingEnabled: Boolean? = null
+    private var ownerCallerHistoryEnabled: Boolean? = null
 
     private fun createListener(connection: AssistantServiceConnection) =
         object : ICallIntelligenceListener.Stub() {
@@ -225,6 +226,7 @@ class CallAssistantClient(
         remote = null
         connectionReady = false
         ownerProcessingEnabled = null
+        ownerCallerHistoryEnabled = null
         cancelBindingWatchdog()
         rebindTask?.let(main::removeCallbacks)
         rebindTask = null
@@ -376,6 +378,7 @@ class CallAssistantClient(
                 main.post {
                     if (isCurrentLease(lease)) {
                         ownerProcessingEnabled = policy.processingEnabled
+                        ownerCallerHistoryEnabled = policy.callerHistoryEnabled
                         callbacks.onPolicyChanged(policy.toUi())
                     }
                 }
@@ -411,11 +414,13 @@ class CallAssistantClient(
                     answerDelayMode = value.answerDelayMode
                     missedDelayMillis = value.missedDelayMillis.coerceIn(3_000L, 60_000L)
                     processingEnabled = value.processingEnabled
+                    callerHistoryEnabled = value.callerHistoryEnabled
                 }
                 val saved = service.updatePolicy(requested)
                 main.post {
                     if (isCurrentLease(lease)) {
                         ownerProcessingEnabled = saved.processingEnabled
+                        ownerCallerHistoryEnabled = saved.callerHistoryEnabled
                         callbacks.onPolicyChanged(saved.toUi())
                     }
                 }
@@ -447,7 +452,10 @@ class CallAssistantClient(
             val emergency = numberEmergency || session.emergency.isEmergencyCall()
             val emergencyCallbackMode = session.emergency.isEmergencyCallbackMode()
             val contextAddress = session.address.takeIf {
-                ownerProcessingEnabled == true && !emergency && !emergencyCallbackMode
+                ownerProcessingEnabled == true
+                    && ownerCallerHistoryEnabled == true
+                    && !emergency
+                    && !emergencyCallbackMode
             }.orEmpty()
             val contextValue = IncomingCallContext().apply {
                 callId = session.callId
@@ -649,6 +657,7 @@ class CallAssistantClient(
                     service.registerListener(connection.listener)
                     val policy = service.policy
                     val processing = policy.processingEnabled
+                    val callerHistory = policy.callerHistoryEnabled
                     main.post {
                         if (started && activeConnection === connection &&
                             remote === service
@@ -657,6 +666,7 @@ class CallAssistantClient(
                             cancelBindingWatchdog()
                             rebindPolicy.connected()
                             ownerProcessingEnabled = processing
+                            ownerCallerHistoryEnabled = callerHistory
                             callbacks.onAssistantConnectionChanged(true)
                             callbacks.onPolicyChanged(policy.toUi())
                             announceEveryPresentCall(service)
@@ -761,6 +771,7 @@ class CallAssistantClient(
         remote = null
         connectionReady = false
         ownerProcessingEnabled = null
+        ownerCallerHistoryEnabled = null
         sessions.values.forEach { session ->
             cancelDelayedAnswer(session)
             session.riskRevisions.nextGeneration()
@@ -909,6 +920,7 @@ class CallAssistantClient(
             loading = false,
             saving = false,
             processingEnabled = processingEnabled,
+            callerHistoryEnabled = callerHistoryEnabled,
             answerMode = answerMode,
             answerDelayMode = answerDelayMode,
             missedDelayMillis = missedDelayMillis,

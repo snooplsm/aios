@@ -940,6 +940,13 @@ fun SettingsScreen(
                         ) { dispatch(PhoneAction.ChangeProcessingEnabled(it)) }
 
                         SettingSwitch(
+                            title = "Use caller history",
+                            detail = "Privately use recent calls, messages, and sent-photo descriptions. Changes apply to new calls.",
+                            checked = policy.callerHistoryEnabled,
+                            enabled = policy.available && !policy.saving,
+                        ) { dispatch(PhoneAction.ChangeCallerHistoryEnabled(it)) }
+
+                        SettingSwitch(
                             title = "Auto AI answer",
                             detail = "Let the on-device receptionist answer eligible calls automatically.",
                             checked = policy.autoAnswerEnabled,

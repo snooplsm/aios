@@ -159,6 +159,9 @@ class PreviewActivity : ComponentActivity() {
             is PhoneAction.ChangeProcessingEnabled -> state.copy(
                 assistantPolicy = state.assistantPolicy.copy(processingEnabled = action.enabled),
             )
+            is PhoneAction.ChangeCallerHistoryEnabled -> state.copy(
+                assistantPolicy = state.assistantPolicy.copy(callerHistoryEnabled = action.enabled),
+            )
             is PhoneAction.ChangeAutoAnswerEnabled -> state.copy(
                 assistantPolicy = state.assistantPolicy.copy(
                     answerMode = if (action.enabled) {
@@ -287,6 +290,7 @@ class PreviewActivity : ComponentActivity() {
             assistantPolicy = AssistantPolicyUiState(
                 available = true,
                 processingEnabled = true,
+                callerHistoryEnabled = true,
                 answerMode = "unknown_only",
                 answerDelayMode = "fixed_2000_ms",
                 missedDelayMillis = 15_000L,

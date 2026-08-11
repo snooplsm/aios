@@ -85,7 +85,7 @@ public final class CallIntelligenceService extends Service {
         }
 
         @Override
-        public CallAssistantPolicy updatePolicy(CallAssistantPolicy requested) {
+        public synchronized CallAssistantPolicy updatePolicy(CallAssistantPolicy requested) {
             enforceControlPermission();
             if (requested == null || !CallPolicyEngine.isKnownMode(requested.answerMode)
                     || !AnswerDelayPolicy.isKnownMode(requested.answerDelayMode)
@@ -93,13 +93,20 @@ public final class CallIntelligenceService extends Service {
                     || requested.missedDelayMillis > 60_000L) {
                 throw new IllegalArgumentException("invalid call-assistant policy");
             }
-            SharedPreferences.Editor editor = ownerPreferences().edit()
+            SharedPreferences preferences = ownerPreferences();
+            boolean callerHistoryWasEnabled = preferences.getBoolean(
+                    "caller_history_enabled", false);
+            SharedPreferences.Editor editor = preferences.edit()
                     .putString("answer_mode", requested.answerMode)
                     .putString("answer_delay_mode", requested.answerDelayMode)
                     .putLong("missed_delay_ms", requested.missedDelayMillis)
-                    .putBoolean("processing_enabled", requested.processingEnabled);
+                    .putBoolean("processing_enabled", requested.processingEnabled)
+                    .putBoolean("caller_history_enabled", requested.callerHistoryEnabled);
             if (!editor.commit()) {
                 throw new IllegalStateException("call-assistant policy could not be saved");
+            }
+            if (callerHistoryWasEnabled && !requested.callerHistoryEnabled) {
+                revokeCallerHistory();
             }
             return readPolicy();
         }
@@ -129,11 +136,12 @@ public final class CallIntelligenceService extends Service {
                 decision = deniedAutomaticAnswerDecision(
                         decision.processingAllowed, automaticAnswerUnavailableReason());
             }
-            boolean prepareContext = !context.emergency
-                    && !context.emergencyCallbackMode
-                    && decision.processingAllowed
-                    && context.transientAddress != null
-                    && !context.transientAddress.isBlank();
+            boolean prepareContext = CallerHistoryPolicy.shouldPrepare(
+                    ownerPreferences().getBoolean("caller_history_enabled", false),
+                    context.emergency,
+                    context.emergencyCallbackMode,
+                    decision.processingAllowed,
+                    context.transientAddress);
             Object contextRequestIdentity = prepareContext ? new Object() : null;
             synchronized (telecomPresenceLock) {
                 if (telecomPresenceStopping
@@ -155,6 +163,10 @@ public final class CallIntelligenceService extends Service {
                             context.callId,
                             new PendingIncomingCall(
                                     ownerUid, context.knownContact, decision.processingAllowed));
+                    if (prepareContext && !ownerPreferences().getBoolean(
+                            "caller_history_enabled", false)) {
+                        prepareContext = false;
+                    }
                     if (prepareContext) {
                         if (!communicationContextRequests.tryStart(
                                 context.callId,
@@ -645,6 +657,8 @@ public final class CallIntelligenceService extends Service {
         value.missedDelayMillis = CallPolicyEngine.clampDelay(
                 preferences.getLong("missed_delay_ms", DEFAULT_MISSED_DELAY_MILLIS));
         value.processingEnabled = preferences.getBoolean("processing_enabled", false);
+        value.callerHistoryEnabled = preferences.getBoolean(
+                "caller_history_enabled", false);
         value.automaticAnswerAvailable = callerInteractionTransportReady();
         value.automaticAnswerUnavailableReason = value.automaticAnswerAvailable
                 ? "" : automaticAnswerUnavailableReason();
@@ -1042,9 +1056,17 @@ public final class CallIntelligenceService extends Service {
             CallCommunicationContextClient.PreparedContext prepared) {
         if (callId == null || requestIdentity == null
                 || prepared == null || prepared.identity == null) return;
+        boolean historyEnabled = ownerPreferences().getBoolean(
+                "caller_history_enabled", false);
         ActiveSession session;
         synchronized (sessions) {
             if (!communicationContextRequests.isCurrent(callId, requestIdentity)) return;
+            if (!historyEnabled) {
+                communicationContextRequests.finish(callId, requestIdentity);
+                pendingCommunicationContexts.remove(callId);
+                communicationContext.discardCall(callId);
+                return;
+            }
             session = sessions.get(callId);
             if (session == null) {
                 pendingCommunicationContexts.put(callId, prepared);
@@ -1056,6 +1078,25 @@ public final class CallIntelligenceService extends Service {
             receptionist.updatePriorContext(callId, prepared.priorContextJson);
         }
         notifyStatus(callId, 9, "communication_context_ready");
+    }
+
+    private void revokeCallerHistory() {
+        List<String> callIds;
+        synchronized (sessions) {
+            callIds = communicationContextRequests.callIds();
+            communicationContextRequests.clear();
+            pendingCommunicationContexts.clear();
+            for (Map.Entry<String, ActiveSession> entry : sessions.entrySet()) {
+                if (entry.getValue().clearCommunicationContext()
+                        && !callIds.contains(entry.getKey())) {
+                    callIds.add(entry.getKey());
+                }
+            }
+        }
+        for (String callId : callIds) {
+            if (communicationContext != null) communicationContext.discardCall(callId);
+            if (receptionist != null) receptionist.updatePriorContext(callId, "[]");
+        }
     }
 
     private void handleTranscript(
@@ -1482,6 +1523,12 @@ public final class CallIntelligenceService extends Service {
             if (!closed && prepared != null && prepared.identity != null) {
                 communicationContext = prepared;
             }
+        }
+
+        synchronized boolean clearCommunicationContext() {
+            if (closed || communicationContext == null) return false;
+            communicationContext = null;
+            return true;
         }
 
         void appendContextTranscript(

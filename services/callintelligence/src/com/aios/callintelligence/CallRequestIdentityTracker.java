@@ -1,6 +1,8 @@
 package com.aios.callintelligence;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
@@ -43,6 +45,10 @@ final class CallRequestIdentityTracker {
 
     synchronized int size() {
         return active.size();
+    }
+
+    synchronized List<String> callIds() {
+        return new ArrayList<>(active.keySet());
     }
 
     synchronized void clear() {

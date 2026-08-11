@@ -1934,6 +1934,12 @@ def validate_aosp_overlay(root: Path) -> None:
             and '"src/com/aios/phone/model/AssistantPolicySemantics.kt"'
             in phone_build,
             "Phone settings must expose every supported AI-answer scope with distinct delay semantics")
+    require("callerHistoryEnabled: Boolean = false" in phone_contract
+            and "ChangeCallerHistoryEnabled" in phone_contract
+            and "ownerCallerHistoryEnabled == true" in assistant_client
+            and "callerHistoryEnabled = value.callerHistoryEnabled" in assistant_client
+            and 'title = "Use caller history"' in phone_screens,
+            "Phone must expose an independent default-off caller-history control and withhold raw identity when disabled")
     require("data class MessageNumber" in phone_contract
             and "Intent.ACTION_SENDTO" in phone_runtime
             and '"smsto"' in phone_runtime
@@ -2696,6 +2702,9 @@ def validate_aosp_overlay(root: Path) -> None:
     call_api = (root / "services" / "callintelligence" / "aidl" / "com" /
                 "aios" / "call" / "IAiosCallIntelligence.aidl").read_text(
                     encoding="utf-8")
+    call_policy_api = (root / "services" / "callintelligence" / "aidl" / "com" /
+                       "aios" / "call" / "CallAssistantPolicy.aidl").read_text(
+                           encoding="utf-8")
     call_listener_api = (root / "services" / "callintelligence" / "aidl" / "com" /
                          "aios" / "call" /
                          "ICallIntelligenceListener.aidl").read_text(encoding="utf-8")
@@ -2718,6 +2727,11 @@ def validate_aosp_overlay(root: Path) -> None:
         root / "services" / "callintelligence" / "src" / "com" / "aios" /
         "callintelligence"
     )
+    caller_history_policy = (call_source_root / "CallerHistoryPolicy.java").read_text(
+        encoding="utf-8")
+    caller_history_test = (root / "services" / "callintelligence" / "tests" /
+                           "src" / "com" / "aios" / "callintelligence" /
+                           "CallerHistoryPolicyTest.java").read_text(encoding="utf-8")
     call_service_bp = (root / "services" / "callintelligence" / "Android.bp").read_text(
         encoding="utf-8")
     call_service_compile_build = (
@@ -2792,6 +2806,8 @@ def validate_aosp_overlay(root: Path) -> None:
     require('name: "aios_callintelligence_host_tests"' in call_host_test
             and '"src/com/aios/callintelligence/CallRequestIdentityTracker.java"'
             in call_host_test
+            and '"src/com/aios/callintelligence/CallerHistoryPolicy.java"'
+            in call_host_test
             and '"src/com/aios/callintelligence/AssistantGreetingPolicy.java"'
             in call_host_test
             and '"src/com/aios/callintelligence/ServiceRebindPolicy.java"'
@@ -2800,6 +2816,16 @@ def validate_aosp_overlay(root: Path) -> None:
             in call_host_test
             and '"tests/src/**/*.java"' in call_host_test,
             "Soong Call Intelligence host tests must include the full Android-free source closure")
+    require("boolean callerHistoryEnabled" in call_policy_api
+            and '"caller_history_enabled", false' in call_service
+            and "CallerHistoryPolicy.shouldPrepare(" in call_service
+            and "if (prepareContext && !ownerPreferences().getBoolean(" in call_service
+            and "revokeCallerHistory()" in call_service
+            and 'updatePriorContext(callId, "[]")' in call_service
+            and "enabled" in caller_history_policy
+            and "admitsOnlyExplicitlyEnabledEligibleCalls" in caller_history_test
+            and "rejectsEmergencyAndMissingAddresses" in caller_history_test,
+            "caller-history retrieval must be default-off, emergency-safe, revocable, and host-tested")
     require("resumedAfterServiceLoss && resumedKnownContact" in call_service
             and "AssistantGreetingPolicy.shouldGreet" in call_service
             and "answeredByAi && !resumedAfterServiceLoss"
@@ -2909,11 +2935,13 @@ def validate_aosp_overlay(root: Path) -> None:
             and "String countryIso" in incoming_call_api
             and incoming_call_api.index("ringingSinceElapsedRealtimeMillis")
             < incoming_call_api.index("transientAddress")
-            and "ownerProcessingEnabled == true && !emergency" in assistant_client
+            and "ownerProcessingEnabled == true" in assistant_client
+            and "ownerCallerHistoryEnabled == true" in assistant_client
+            and "&& !emergency" in assistant_client
             and "context.transientAddress" in call_service
             and "decision.processingAllowed" in call_service
-            and "!context.emergency" in call_service
-            and "!context.emergencyCallbackMode" in call_service,
+            and "context.emergency," in call_service
+            and "context.emergencyCallbackMode," in call_service,
             "raw caller identity must be transient and retrieved only for authorized non-emergency processing")
     require("candidate.resolveIdentity(" in call_context_client
             and "pending.address, pending.countryIso" in call_context_client

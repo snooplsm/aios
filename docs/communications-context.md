@@ -101,11 +101,19 @@ without changing identity, authorization, retention, or deletion semantics.
 
 For an incoming call, AIOS Phone appends the presented number and country ISO to
 the version-tolerant tail of `IncomingCallContext` only when the owner has enabled
-processing and the call is not an emergency or emergency callback. Call
+both processing and the separate **Use caller history** setting, and the call is
+not an emergency or emergency callback. The history setting defaults off. Call
 Intelligence passes that value directly to `resolveIdentity` on a background
 worker; it is not logged, added to a map, or written to the call-artifact
 directory. Retrieval never delays Telecom policy, pickup, or capture. If the
 context service is absent or slow, the call continues without history.
+
+Turning caller history off invalidates pending retrieval generations, discards
+prepared context, clears prior context from active receptionist state, and stops
+new raw caller addresses at the Phone boundary. Transcription and AI answering
+remain independently controlled. A call without prepared identity is not
+published into cross-app retrieval at teardown, although its encrypted local
+artifact remains subject to the same 24-hour deletion deadline.
 
 An AI-handled call may receive the retrieved context before or after capture
 starts. The receptionist prompt receives an identifier-free JSON array with at
@@ -194,6 +202,7 @@ lifecycle gates.
   hardware before passing `context.photo_metadata_lifecycle`;
 - exercise call-event reconciliation across deletion, reboot, role loss, and
   clock changes on Pixel hardware before passing `context.call_source_lifecycle`;
-- add a user control to exclude a conversation or source from retrieval; and
+- add per-conversation and per-source exclusions beyond Phone's global caller-
+  history control; and
 - run SMS/MMS, reboot, restore, deletion, lock-screen notification, and emergency
   interaction tests on the Pixel hardware lane.

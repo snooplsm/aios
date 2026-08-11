@@ -486,6 +486,9 @@ object PhoneRuntime {
             is PhoneAction.ChangeProcessingEnabled -> updatePolicyDraft {
                 it.copy(processingEnabled = action.enabled, error = null)
             }
+            is PhoneAction.ChangeCallerHistoryEnabled -> updatePolicyDraft {
+                it.copy(callerHistoryEnabled = action.enabled, error = null)
+            }
             is PhoneAction.ChangeAutoAnswerEnabled -> updatePolicyDraft {
                 it.copy(
                     answerMode = AssistantPolicySemantics.modeAfterAutoAnswerToggle(

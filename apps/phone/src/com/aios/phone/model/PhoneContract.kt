@@ -46,6 +46,7 @@ data class AssistantPolicyUiState(
     val loading: Boolean = false,
     val saving: Boolean = false,
     val processingEnabled: Boolean = false,
+    val callerHistoryEnabled: Boolean = false,
     val answerMode: String = "off",
     val answerDelayMode: String = "fixed_2000_ms",
     val missedDelayMillis: Long = 15_000L,
@@ -228,6 +229,7 @@ sealed interface PhoneAction {
     data class ChangeTheme(val preference: ThemePreference) : PhoneAction
     data class ChangeDialerRolePromptVisible(val visible: Boolean) : PhoneAction
     data class ChangeProcessingEnabled(val enabled: Boolean) : PhoneAction
+    data class ChangeCallerHistoryEnabled(val enabled: Boolean) : PhoneAction
     data class ChangeAutoAnswerEnabled(val enabled: Boolean) : PhoneAction
     data class ChangeAnswerMode(val mode: String) : PhoneAction
     data class ChangeAnswerDelayMode(val mode: String) : PhoneAction

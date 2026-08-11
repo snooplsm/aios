@@ -185,6 +185,10 @@ or summaries may not remain retrievable after the 24-hour call-artifact expiry.
 Caller history retrieval must be optional, asynchronous, identifier-free at the
 model boundary, and unable to delay Telecom answer or capture. Historical
 snippets are private context and may not be quoted or disclosed to a caller.
+Phone must expose an independent, default-off caller-history setting. Disabling
+it must stop new raw caller identities at the Phone process boundary, invalidate
+pending retrieval, and clear prepared history from subsequent receptionist
+turns without disabling call processing or transcription.
 
 ## Model platform
 

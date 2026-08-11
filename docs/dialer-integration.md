@@ -153,6 +153,14 @@ also fails closed unless call processing is enabled and the service reports that
 the caller-audio interaction transport is ready. The setting may be configured
 in advance, but it cannot override those runtime safety gates.
 
+Phone settings separately expose a default-off **Use caller history** switch.
+Only when both call processing and this switch are enabled may Phone send the
+presented address transiently to Call Intelligence for background retrieval.
+Turning it off invalidates pending lookups and clears prepared history from
+future receptionist turns in live sessions; it does not turn off transcription
+or AI answering. Retrieval remains fail-open for Telecom and never delays answer
+or capture.
+
 Emergency protection is direction-independent. AIOS Phone latches the network
 emergency property, emergency callback mode, and the platform emergency-number
 check before it admits outgoing or incoming processing. If Telecom supplies a

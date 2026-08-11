@@ -42,6 +42,7 @@ java_test_host {
         "src/com/aios/callintelligence/TranscriptRevisionGate.java",
         "src/com/aios/callintelligence/CallArtifactRetention.java",
         "src/com/aios/callintelligence/CallRequestIdentityTracker.java",
+        "src/com/aios/callintelligence/CallerHistoryPolicy.java",
         "src/com/aios/callintelligence/Pcm16MonoToStereo48k.java",
         "src/com/aios/callintelligence/PriorContextFormatter.java",
         "src/com/aios/callintelligence/RequiredCaptureGate.java",

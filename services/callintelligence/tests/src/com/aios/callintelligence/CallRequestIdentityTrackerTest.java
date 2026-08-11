@@ -1,6 +1,7 @@
 package com.aios.callintelligence;
 
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
@@ -8,6 +9,18 @@ import static org.junit.Assert.assertTrue;
 import org.junit.Test;
 
 public final class CallRequestIdentityTrackerTest {
+    @Test
+    public void snapshotsActiveCallIdsWithoutExposingMutableRegistry() {
+        CallRequestIdentityTracker tracker = new CallRequestIdentityTracker();
+        tracker.tryStart("call-a", new Object(), 2);
+        tracker.tryStart("call-b", new Object(), 2);
+
+        java.util.List<String> ids = tracker.callIds();
+        ids.clear();
+
+        assertEquals(2, tracker.size());
+    }
+
     @Test
     public void replacementRejectsAndCannotBeRemovedByTheOldIdentity() {
         CallRequestIdentityTracker tracker = new CallRequestIdentityTracker();
