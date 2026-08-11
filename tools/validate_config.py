@@ -1061,8 +1061,12 @@ def validate_aosp_overlay(root: Path) -> None:
         "runtime/whisperprovider/app/src/main/java/com/aios/runtime/whispercpp/NativeWhisper.kt",
         "runtime/whisperprovider/app/src/main/java/com/aios/runtime/whispercpp/WhisperRuntimeService.kt",
         "runtime/whisperprovider/app/src/main/java/com/aios/runtime/whispercpp/DecodeCancellationFence.java",
+        "runtime/whisperprovider/app/src/main/java/com/aios/runtime/whispercpp/Pcm16EnergyVad.java",
+        "runtime/whisperprovider/app/src/main/java/com/aios/runtime/whispercpp/StreamingVadState.java",
         "runtime/whisperprovider/app/src/main/java/com/aios/runtime/whispercpp/StreamingAsrTurnAccumulator.java",
         "runtime/whisperprovider/app/src/test/java/com/aios/runtime/whispercpp/DecodeCancellationFenceTest.java",
+        "runtime/whisperprovider/app/src/test/java/com/aios/runtime/whispercpp/Pcm16EnergyVadTest.java",
+        "runtime/whisperprovider/app/src/test/java/com/aios/runtime/whispercpp/StreamingVadStateTest.java",
         "runtime/whisperprovider/app/src/test/java/com/aios/runtime/whispercpp/StreamingAsrTurnAccumulatorTest.java",
         "runtime/whisperprovider/bootstrap_source.sh",
         "runtime/whisperprovider/bootstrap_dependency_locks.sh",
@@ -3126,6 +3130,18 @@ def validate_aosp_overlay(root: Path) -> None:
                      "CMakeLists.txt").read_text(encoding="utf-8")
     whisper_build = (whisper_root / "app" / "build.gradle.kts").read_text(
         encoding="utf-8")
+    runtime_catalog = load_json(root / "config" / "runtime_catalog.json")
+    whisper_providers = [provider for provider in runtime_catalog["providers"]
+                         if provider.get("runtime") == "whisper_cpp"]
+    whisper_version = (whisper_providers[0]["implementation_version"]
+                       if len(whisper_providers) == 1 else "")
+    require(len(whisper_providers) == 1
+            and f'const val IMPLEMENTATION_VERSION = "{whisper_version}"'
+            in whisper_source
+            and f'versionName = "{whisper_version}"' in whisper_build
+            and f'"implementation_version" to "{whisper_version}"'
+            in whisper_build,
+            "Whisper implementation identity must match its runtime catalog entry")
     require("CMAKE_CXX_STANDARD 17" in whisper_cmake
             and "armv8.2-a+fp16" in whisper_cmake
             and "WHISPER_BUILD_TESTS OFF" in whisper_cmake
@@ -4203,6 +4219,26 @@ def validate_aosp_overlay(root: Path) -> None:
         "java" / "com" / "aios" / "runtime" / "whispercpp" /
         "WhisperRuntimeService.kt"
     ).read_text(encoding="utf-8")
+    pcm_vad = (
+        root / "runtime" / "whisperprovider" / "app" / "src" / "main" /
+        "java" / "com" / "aios" / "runtime" / "whispercpp" /
+        "Pcm16EnergyVad.java"
+    ).read_text(encoding="utf-8")
+    pcm_vad_test = (
+        root / "runtime" / "whisperprovider" / "app" / "src" / "test" /
+        "java" / "com" / "aios" / "runtime" / "whispercpp" /
+        "Pcm16EnergyVadTest.java"
+    ).read_text(encoding="utf-8")
+    vad_state = (
+        root / "runtime" / "whisperprovider" / "app" / "src" / "main" /
+        "java" / "com" / "aios" / "runtime" / "whispercpp" /
+        "StreamingVadState.java"
+    ).read_text(encoding="utf-8")
+    vad_state_test = (
+        root / "runtime" / "whisperprovider" / "app" / "src" / "test" /
+        "java" / "com" / "aios" / "runtime" / "whispercpp" /
+        "StreamingVadStateTest.java"
+    ).read_text(encoding="utf-8")
     require("ENDPOINT_SILENCE_MILLIS = 600" in whisper_source
             and "CALL_WINDOW_MILLIS = 2_000" in whisper_source
             and "MEDIA_WINDOW_MILLIS = 4_000" in whisper_source
@@ -4213,6 +4249,20 @@ def validate_aosp_overlay(root: Path) -> None:
             and "session.turn.acceptDecoded(" in whisper_source
             and "session.turnText" not in whisper_source,
             "call ASR must expose two-second partials and silence-final turns")
+    require("Pcm16EnergyVad.hasSpeech(" in whisper_source
+            and "hasSpeech(pcm16ToFloat(frame" not in whisper_source
+            and "long sumSquares = 0L" in pcm_vad
+            and "threshold * threshold * sampleCount" in pcm_vad
+            and "silenceAndSubthresholdFramesAreRejected" in pcm_vad_test
+            and "thresholdAndAlternatingSpeechFramesAreAccepted" in pcm_vad_test,
+            "live ASR VAD must scan PCM16 without allocating per-frame float arrays")
+    require("StreamingVadState(ENDPOINT_SILENCE_FRAMES)" in whisper_source
+            and "vad.accept(speechFrame)" in whisper_source
+            and "silenceFrames >= endpointSilenceFrames" in vad_state
+            and "exactlySixHundredMillisecondsOfSilenceEndsTheTurn"
+            in vad_state_test
+            and "resumedSpeechResetsTheSilenceRun" in vad_state_test,
+            "live ASR endpoint cadence must use the host-tested streaming VAD state")
     turn_accumulator = (
         root / "runtime" / "whisperprovider" / "app" / "src" / "main" /
         "java" / "com" / "aios" / "runtime" / "whispercpp" /

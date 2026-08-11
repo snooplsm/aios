@@ -27,14 +27,13 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.concurrent.thread
-import kotlin.math.sqrt
 
 /** CPU whisper.cpp provider with incoming-call decode priority. */
 class WhisperRuntimeService : Service() {
     private companion object {
         const val BROKER_PACKAGE = "com.aios.modelbroker"
         const val RUNTIME_ID = "whisper_cpp"
-        const val IMPLEMENTATION_VERSION = "1.9.3"
+        const val IMPLEMENTATION_VERSION = "1.9.4"
         const val PROVIDER_API_VERSION = 2
         const val ERROR_INVALID_REQUEST = 2
         const val ERROR_BUSY = 3
@@ -287,10 +286,9 @@ class WhisperRuntimeService : Service() {
         var windowFilled = 0
         var sampleOffset = 0L
         var windowStartSamples = 0L
-        var turnActive = false
         var windowHasSpeech = false
         var turnHasQueuedWindow = false
-        var silenceFrames = 0
+        val vad = StreamingVadState(ENDPOINT_SILENCE_FRAMES)
         try {
             ParcelFileDescriptor.AutoCloseInputStream(descriptor).use { input ->
                 while (!session.cancelled.get() && !session.completed.get()) {
@@ -299,17 +297,16 @@ class WhisperRuntimeService : Service() {
                     if (read == 0) continue
                     frameFilled += read
                     if (frameFilled == frame.size) {
-                        val speechFrame = hasSpeech(pcm16ToFloat(frame, frameFilled))
-                        if (speechFrame && !turnActive) {
-                            turnActive = true
+                        val speechFrame = Pcm16EnergyVad.hasSpeech(
+                            frame, frameFilled, MIN_RMS
+                        )
+                        val vadEvent = vad.accept(speechFrame)
+                        if (vadEvent == StreamingVadState.Event.STARTED) {
                             windowStartSamples = sampleOffset
                         }
-                        if (turnActive) {
+                        if (vadEvent != StreamingVadState.Event.IGNORED) {
                             if (speechFrame) {
-                                silenceFrames = 0
                                 windowHasSpeech = true
-                            } else {
-                                silenceFrames++
                             }
                             System.arraycopy(frame, 0, window, windowFilled, frameFilled)
                             windowFilled += frameFilled
@@ -329,7 +326,7 @@ class WhisperRuntimeService : Service() {
                                 windowHasSpeech = false
                                 windowStartSamples = sampleOffset + VAD_FRAME_SAMPLES
                             }
-                            if (silenceFrames >= ENDPOINT_SILENCE_FRAMES) {
+                            if (vadEvent == StreamingVadState.Event.ENDED) {
                                 finishTurn(
                                     session,
                                     window,
@@ -339,11 +336,9 @@ class WhisperRuntimeService : Service() {
                                     turnHasQueuedWindow,
                                     sampleOffset + VAD_FRAME_SAMPLES,
                                 )
-                                turnActive = false
                                 windowFilled = 0
                                 windowHasSpeech = false
                                 turnHasQueuedWindow = false
-                                silenceFrames = 0
                             }
                         }
                         sampleOffset += VAD_FRAME_SAMPLES
@@ -352,19 +347,21 @@ class WhisperRuntimeService : Service() {
                 }
                 if (!session.cancelled.get() && !session.completed.get() && frameFilled >= 2) {
                     val evenBytes = frameFilled - (frameFilled % 2)
-                    val speechFrame = hasSpeech(pcm16ToFloat(frame, evenBytes))
-                    if (speechFrame && !turnActive) {
-                        turnActive = true
-                        windowStartSamples = sampleOffset
+                    val speechFrame = Pcm16EnergyVad.hasSpeech(frame, evenBytes, MIN_RMS)
+                    if (speechFrame) {
+                        val vadEvent = vad.accept(true)
+                        if (vadEvent == StreamingVadState.Event.STARTED) {
+                            windowStartSamples = sampleOffset
+                        }
                     }
-                    if (turnActive) {
+                    if (vad.isActive) {
                         if (speechFrame) windowHasSpeech = true
                         System.arraycopy(frame, 0, window, windowFilled, evenBytes)
                         windowFilled += evenBytes
                         sampleOffset += evenBytes / 2
                     }
                 }
-                if (!session.cancelled.get() && !session.completed.get() && turnActive) {
+                if (!session.cancelled.get() && !session.completed.get() && vad.isActive) {
                     finishTurn(
                         session,
                         window,
@@ -718,13 +715,6 @@ class WhisperRuntimeService : Service() {
             val high = bytes[index * 2 + 1].toInt()
             ((high shl 8) or low).toShort() / 32768.0f
         }
-    }
-
-    private fun hasSpeech(samples: FloatArray): Boolean {
-        if (samples.isEmpty()) return false
-        var sum = 0.0
-        for (sample in samples) sum += sample * sample
-        return sqrt(sum / samples.size) >= MIN_RMS
     }
 
     private fun notifyError(callback: IModelCallback?, code: Int, message: String) {

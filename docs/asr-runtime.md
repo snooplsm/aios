@@ -32,6 +32,15 @@ falling behind closes that AI stream rather than blocking authoritative local
 capture or telephony. English and Spanish are auto-detected per window; other
 detected languages fail the prototype's declared language policy.
 
+The 100 ms VAD hot path scans little-endian PCM16 energy directly and allocates
+no float array; float conversion happens only when a speech-bearing decode
+window is admitted. A separate production endpoint state machine ignores
+leading silence, resets its silence run when speech resumes, and ends a turn on
+the sixth consecutive 100 ms silent frame. Host tests pin the PCM threshold
+boundary and the exact 600 ms transition so continuous two-direction capture
+cannot regain per-frame allocation churn or drift to a different endpoint
+cadence unnoticed.
+
 Broker cancellation also reaches an already-running native decode. Every
 `whisper_full` call owns an opaque cancellation token, and the pinned
 whisper.cpp `abort_callback` polls its atomic state before ggml computation.
