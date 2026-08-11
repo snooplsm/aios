@@ -57,6 +57,10 @@ chunk from the replacement stream therefore resumes at a collision-free newer
 revision without discarding finalized transcript history. Stream loss also
 retracts interrupted provisional heuristic/model evidence immediately while
 leaving every finalized risk signal intact.
+Replacement timestamp zero is also stream-local. Each inference sink records the
+exact byte offset of the uninterrupted authoritative 16 kHz PCM capture when it
+is attached; transcript start/end values are shifted by that offset before they
+reach the artifact or Phone UI, so recovery cannot jump backward in the call.
 
 Downlink transcript segments first pass through an explainable English/Spanish
 heuristic scorer with deduplicated high-risk signals. A debounced Gemma

@@ -2,6 +2,7 @@ package com.aios.callintelligence;
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
 import java.io.ByteArrayOutputStream;
@@ -44,6 +45,21 @@ public final class ResilientFanoutOutputStreamTest {
     }
 
     @Test
+    public void replacementReportsAtomicAuthoritativePcmOffset() throws Exception {
+        ByteArrayOutputStream primary = new ByteArrayOutputStream();
+        TrackingStream replacement = new TrackingStream();
+        ResilientFanoutOutputStream fanout = new ResilientFanoutOutputStream(primary, null);
+        fanout.write(new byte[3_200]);
+
+        long offset = fanout.replaceSecondaryAtCurrentByteOffset(replacement);
+        fanout.write(new byte[]{1, 2});
+
+        assertEquals(3_200L, offset);
+        assertEquals(3_202L, primary.size());
+        assertArrayEquals(new byte[]{1, 2}, replacement.toByteArray());
+    }
+
+    @Test
     public void replacementAfterCloseIsRejectedAndClosed() throws Exception {
         ResilientFanoutOutputStream fanout = new ResilientFanoutOutputStream(
                 new ByteArrayOutputStream(), null);
@@ -51,6 +67,7 @@ public final class ResilientFanoutOutputStreamTest {
         TrackingStream replacement = new TrackingStream();
 
         assertFalse(fanout.replaceSecondary(replacement));
+        assertEquals(-1L, fanout.replaceSecondaryAtCurrentByteOffset(new TrackingStream()));
         assertTrue(replacement.closed);
     }
 

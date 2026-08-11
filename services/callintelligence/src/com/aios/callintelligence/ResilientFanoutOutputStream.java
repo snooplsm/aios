@@ -8,6 +8,7 @@ final class ResilientFanoutOutputStream extends OutputStream {
     private final OutputStream primary;
     private OutputStream secondary;
     private boolean closed;
+    private long primaryBytesWritten;
 
     ResilientFanoutOutputStream(OutputStream primary, OutputStream secondary) {
         if (primary == null) {
@@ -19,13 +20,21 @@ final class ResilientFanoutOutputStream extends OutputStream {
 
     @Override
     public synchronized void write(int value) throws IOException {
+        if (primaryBytesWritten == Long.MAX_VALUE) {
+            throw new IOException("primary PCM byte counter exhausted");
+        }
         primary.write(value);
+        primaryBytesWritten++;
         writeSecondary(new byte[]{(byte) value}, 0, 1);
     }
 
     @Override
     public synchronized void write(byte[] buffer, int offset, int length) throws IOException {
+        if (length > Long.MAX_VALUE - primaryBytesWritten) {
+            throw new IOException("primary PCM byte counter exhausted");
+        }
         primary.write(buffer, offset, length);
+        primaryBytesWritten += length;
         writeSecondary(buffer, offset, length);
     }
 
@@ -59,14 +68,19 @@ final class ResilientFanoutOutputStream extends OutputStream {
 
     /** Atomically replaces the expendable inference sink while capture continues. */
     synchronized boolean replaceSecondary(OutputStream replacement) {
+        return replaceSecondaryAtCurrentByteOffset(replacement) >= 0L;
+    }
+
+    /** Replaces the inference sink and returns its exact start in authoritative PCM bytes. */
+    synchronized long replaceSecondaryAtCurrentByteOffset(OutputStream replacement) {
         if (closed) {
             closeQuietly(replacement);
-            return false;
+            return -1L;
         }
         OutputStream previous = secondary;
         secondary = replacement;
         if (previous != replacement) closeQuietly(previous);
-        return true;
+        return primaryBytesWritten;
     }
 
     private void writeSecondary(byte[] buffer, int offset, int length) {

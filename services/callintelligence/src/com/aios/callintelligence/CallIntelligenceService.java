@@ -1110,16 +1110,16 @@ public final class CallIntelligenceService extends Service {
             session = sessions.get(callId);
         }
         if (!asr.acceptsCallback(streamIdentity)
-                || session == null
-                || !session.acceptsAsrCallback(direction, streamIdentity)) {
+                || session == null) {
             return;
         }
-        long transcriptRevision = TranscriptRevisionGate.UNBOUND;
-        if ("downlink".equals(direction)) {
-            transcriptRevision = session.acceptDownlinkTranscriptRevision(
-                    streamIdentity, chunk.sequence);
-            if (transcriptRevision == CallTranscriptRevisionClock.UNACCEPTED) return;
-        }
+        ActiveSession.AcceptedTranscript accepted = session.acceptAsrChunk(
+                direction,
+                streamIdentity,
+                chunk.sequence,
+                chunk.sourceStartMillis,
+                chunk.sourceEndMillis);
+        if (accepted == null) return;
         try {
             session.stored.appendTranscript(
                     direction,
@@ -1127,8 +1127,8 @@ public final class CallIntelligenceService extends Service {
                     chunk.text,
                     chunk.isFinal,
                     chunk.confidence,
-                    chunk.sourceStartMillis,
-                    chunk.sourceEndMillis);
+                    accepted.startMillis,
+                    accepted.endMillis);
         } catch (IOException error) {
             notifyStatus(callId, -2, "transcript_storage_failed");
         }
@@ -1141,8 +1141,8 @@ public final class CallIntelligenceService extends Service {
         segment.text = chunk.text;
         segment.isFinal = chunk.isFinal;
         segment.confidence = chunk.confidence;
-        segment.startMillis = chunk.sourceStartMillis;
-        segment.endMillis = chunk.sourceEndMillis;
+        segment.startMillis = accepted.startMillis;
+        segment.endMillis = accepted.endMillis;
         notifyTranscript(segment);
         if ("downlink".equals(direction)
                 && chunk.text != null && !chunk.text.isBlank()) {
@@ -1152,7 +1152,7 @@ public final class CallIntelligenceService extends Service {
             // only the final turn makes its signals durable.
             RiskAssessmentTracker.Update assessment =
                     session.observeHeuristicRevision(
-                            chunk.text, language, chunk.isFinal, transcriptRevision);
+                            chunk.text, language, chunk.isFinal, accepted.revision);
             publishAssessment(callId, session, assessment);
             if (!session.isAiHandling()) {
                 classifier.observeRevision(
@@ -1160,7 +1160,7 @@ public final class CallIntelligenceService extends Service {
                         language,
                         chunk.text,
                         chunk.isFinal,
-                        transcriptRevision);
+                        accepted.revision);
             }
             if (chunk.isFinal) {
                 if (session.isAiHandling()) {
@@ -1423,6 +1423,18 @@ public final class CallIntelligenceService extends Service {
     }
 
     private static final class ActiveSession implements AutoCloseable {
+        static final class AcceptedTranscript {
+            final long revision;
+            final long startMillis;
+            final long endMillis;
+
+            AcceptedTranscript(long revision, long startMillis, long endMillis) {
+                this.revision = revision;
+                this.startMillis = startMillis;
+                this.endMillis = endMillis;
+            }
+        }
+
         private static final class ContextRecord {
             final CallCommunicationContextClient.PreparedContext prepared;
             final String sourceId;
@@ -1507,6 +1519,10 @@ public final class CallIntelligenceService extends Service {
                 new TranscriptRevisionGate();
         private final CallTranscriptRevisionClock downlinkTranscriptRevisions =
                 new CallTranscriptRevisionClock();
+        private final PcmTranscriptTimeline downlinkTranscriptTimeline =
+                new PcmTranscriptTimeline();
+        private final PcmTranscriptTimeline uplinkTranscriptTimeline =
+                new PcmTranscriptTimeline();
 
         ActiveSession(
                 CallArtifactStore.Session stored,
@@ -1533,6 +1549,10 @@ public final class CallIntelligenceService extends Service {
             this.communicationContext = communicationContext;
             if (downlinkAsr != null) {
                 downlinkTranscriptRevisions.activate(downlinkAsr.identity);
+                downlinkTranscriptTimeline.activate(downlinkAsr.identity, 0L);
+            }
+            if (uplinkAsr != null) {
+                uplinkTranscriptTimeline.activate(uplinkAsr.identity, 0L);
             }
         }
 
@@ -1613,13 +1633,38 @@ public final class CallIntelligenceService extends Service {
             return expected != null && expected.identity == streamIdentity;
         }
 
-        synchronized long acceptDownlinkTranscriptRevision(
-                Object streamIdentity, long sourceRevision) {
-            if (closed || downlinkAsr == null
-                    || downlinkAsr.identity != streamIdentity) {
-                return CallTranscriptRevisionClock.UNACCEPTED;
+        synchronized AcceptedTranscript acceptAsrChunk(
+                String direction,
+                Object streamIdentity,
+                long sourceRevision,
+                long sourceStartMillis,
+                long sourceEndMillis) {
+            if (closed || streamIdentity == null || sourceRevision < 0L) return null;
+            AsrBrokerClient.Stream expected;
+            PcmTranscriptTimeline timeline;
+            boolean incoming;
+            if ("downlink".equals(direction)) {
+                expected = downlinkAsr;
+                timeline = downlinkTranscriptTimeline;
+                incoming = true;
+            } else if ("uplink".equals(direction)) {
+                expected = uplinkAsr;
+                timeline = uplinkTranscriptTimeline;
+                incoming = false;
+            } else {
+                return null;
             }
-            return downlinkTranscriptRevisions.advance(streamIdentity, sourceRevision);
+            if (expected == null || expected.identity != streamIdentity) return null;
+            PcmTranscriptTimeline.Span span = timeline.map(
+                    streamIdentity, sourceStartMillis, sourceEndMillis);
+            if (span == null) return null;
+            long revision = TranscriptRevisionGate.UNBOUND;
+            if (incoming) {
+                revision = downlinkTranscriptRevisions.advance(
+                        streamIdentity, sourceRevision);
+                if (revision == CallTranscriptRevisionClock.UNACCEPTED) return null;
+            }
+            return new AcceptedTranscript(revision, span.startMillis, span.endMillis);
         }
 
         synchronized boolean needsAsrRestore(Object brokerIdentity) {
@@ -1644,7 +1689,11 @@ public final class CallIntelligenceService extends Service {
             uplinkAsr = null;
             if (previousDownlink != null) {
                 downlinkTranscriptRevisions.deactivate(previousDownlink.identity);
+                downlinkTranscriptTimeline.deactivate(previousDownlink.identity);
                 classifierTranscriptRevisions.invalidate();
+            }
+            if (previousUplink != null) {
+                uplinkTranscriptTimeline.deactivate(previousUplink.identity);
             }
             downlinkFanout.replaceSecondary(null);
             uplinkFanout.replaceSecondary(null);
@@ -1664,11 +1713,26 @@ public final class CallIntelligenceService extends Service {
             }
             AsrBrokerClient.Stream previousDownlink = downlinkAsr;
             AsrBrokerClient.Stream previousUplink = uplinkAsr;
-            if (!downlinkFanout.replaceSecondary(downlink.sink)
-                    || !uplinkFanout.replaceSecondary(sink(uplink))) {
+            long downlinkOffset = downlinkFanout.replaceSecondaryAtCurrentByteOffset(
+                    downlink.sink);
+            if (downlinkOffset < 0L) return false;
+            long uplinkOffset = uplinkFanout.replaceSecondaryAtCurrentByteOffset(
+                    sink(uplink));
+            if (uplinkOffset < 0L) {
+                downlinkFanout.replaceSecondary(null);
                 return false;
             }
             if (!downlinkTranscriptRevisions.activate(downlink.identity)) return false;
+            if (!downlinkTranscriptTimeline.activate(downlink.identity, downlinkOffset)) {
+                return false;
+            }
+            if (uplink == null) {
+                if (previousUplink != null) {
+                    uplinkTranscriptTimeline.deactivate(previousUplink.identity);
+                }
+            } else if (!uplinkTranscriptTimeline.activate(uplink.identity, uplinkOffset)) {
+                return false;
+            }
             classifierTranscriptRevisions.invalidate();
             downlinkAsr = downlink;
             uplinkAsr = uplink;

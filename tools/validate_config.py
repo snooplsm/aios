@@ -1031,6 +1031,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/callintelligence/src/com/aios/callintelligence/IncrementalCallerTranscript.java",
         "services/callintelligence/src/com/aios/callintelligence/TranscriptRevisionGate.java",
         "services/callintelligence/src/com/aios/callintelligence/CallTranscriptRevisionClock.java",
+        "services/callintelligence/src/com/aios/callintelligence/PcmTranscriptTimeline.java",
         "services/callintelligence/src/com/aios/callintelligence/CallRequestIdentityTracker.java",
         "services/callintelligence/src/com/aios/callintelligence/CallArtifactRetention.java",
         "services/callintelligence/src/com/aios/callintelligence/CallArtifactStore.java",
@@ -1062,6 +1063,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/callintelligence/tests/src/com/aios/callintelligence/IncrementalCallerTranscriptTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/TranscriptRevisionGateTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/CallTranscriptRevisionClockTest.java",
+        "services/callintelligence/tests/src/com/aios/callintelligence/PcmTranscriptTimelineTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/CallRequestIdentityTrackerTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/Pcm16MonoToStereo48kTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/RequiredCaptureGateTest.java",
@@ -2976,6 +2978,13 @@ def validate_aosp_overlay(root: Path) -> None:
         root / "services" / "callintelligence" / "tests" / "src" / "com" /
         "aios" / "callintelligence" / "CallTranscriptRevisionClockTest.java"
     ).read_text(encoding="utf-8")
+    pcm_transcript_timeline_source = (
+        call_source_root / "PcmTranscriptTimeline.java"
+    ).read_text(encoding="utf-8")
+    pcm_transcript_timeline_test = (
+        root / "services" / "callintelligence" / "tests" / "src" / "com" /
+        "aios" / "callintelligence" / "PcmTranscriptTimelineTest.java"
+    ).read_text(encoding="utf-8")
     assistant_tracker_source = (call_source_root /
                                 "AssistantHandlingTracker.java").read_text(
                                     encoding="utf-8")
@@ -3283,13 +3292,13 @@ def validate_aosp_overlay(root: Path) -> None:
             in call_transcript_clock_test
             and "recoveredRevisionPreservesFinalizedClassifierContext"
             in call_transcript_clock_test
-            and "acceptDownlinkTranscriptRevision(" in call_service
+            and "acceptAsrChunk(" in call_service
             and "downlinkTranscriptRevisions.activate(downlink.identity)"
             in call_service
             and "downlinkTranscriptRevisions.deactivate(previousDownlink.identity)"
             in call_service
             and "classifierTranscriptRevisions.invalidate()" in call_service
-            and "chunk.text, language, chunk.isFinal, transcriptRevision"
+            and "chunk.text, language, chunk.isFinal, accepted.revision"
             in call_service
             and '"src/com/aios/callintelligence/CallTranscriptRevisionClock.java"'
             in call_host_test
@@ -3297,6 +3306,22 @@ def validate_aosp_overlay(root: Path) -> None:
             in call_service
             and "classifierTranscriptRevisions.accepts(" in call_service,
             "classifier results must use a call-global revision clock across recovered ASR streams")
+    require("capturedPcmBytes / PCM16_BYTES_PER_SAMPLE" in pcm_transcript_timeline_source
+            and "offsetMillis + sourceStartMillis" in pcm_transcript_timeline_source
+            and "activeStream != streamIdentity" in pcm_transcript_timeline_source
+            and "replacementStartsAtItsExactCapturedPcmOffset"
+            in pcm_transcript_timeline_test
+            and "cumulativePartialAndFinalMayReuseTheSameStartAndEnd"
+            in pcm_transcript_timeline_test
+            and "downlinkTranscriptTimeline.activate(downlink.identity, downlinkOffset)"
+            in call_service
+            and "uplinkTranscriptTimeline.activate(uplink.identity, uplinkOffset)"
+            in call_service
+            and "accepted.startMillis" in call_service
+            and "accepted.endMillis" in call_service
+            and '"src/com/aios/callintelligence/PcmTranscriptTimeline.java"'
+            in call_host_test,
+            "recovered ASR timestamps must remain anchored to authoritative call PCM")
     require("hasProvisionalModelAssessment = false" in risk_tracker_source
             and "observeModelRevision" in risk_tracker_source
             and "abandonProvisionalTranscript()" in risk_tracker_source
@@ -3556,6 +3581,8 @@ def validate_aosp_overlay(root: Path) -> None:
     require("dropSecondary()" in fanout
             and "primary.write" in fanout
             and "replaceSecondary" in fanout
+            and "primaryBytesWritten" in fanout
+            and "replaceSecondaryAtCurrentByteOffset" in fanout
             and "onAsrUnavailable" in asr_client
             and "acceptsCallback" in asr_client
             and "activeStreams.clear()" in asr_client
@@ -3565,6 +3592,7 @@ def validate_aosp_overlay(root: Path) -> None:
             and "replaceAsrStreams" in call_service
             and "replacementReceivesFutureAudioWithoutInterruptingPrimary"
             in fanout_test
+            and "replacementReportsAtomicAuthoritativePcmOffset" in fanout_test
             and "failedSecondaryCanBeRestored" in fanout_test,
             "ASR loss must preserve local PCM, reject stale streams, and attach recovered inference sinks")
 
