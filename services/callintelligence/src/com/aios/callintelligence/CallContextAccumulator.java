@@ -6,6 +6,7 @@ final class CallContextAccumulator {
     private static final int MAX_EVENT_CHARS = 1_024;
 
     private final StringBuilder value = new StringBuilder();
+    private String latestAssessment = "";
 
     synchronized void appendTranscript(
             String direction, String language, String text, boolean isFinal) {
@@ -27,12 +28,13 @@ final class CallContextAccumulator {
                 || !reasonCode.matches("[a-z0-9_]{1,64}")) {
             return;
         }
-        append("risk: ", score + " " + label + " " + reasonCode);
+        latestAssessment = "risk: " + score + " " + label + " " + reasonCode + "\n";
     }
 
     synchronized String finish(int disconnectCause) {
         String terminal = "call_end: disconnect_cause=" + disconnectCause;
         StringBuilder result = new StringBuilder(value);
+        if (!latestAssessment.isEmpty()) appendBounded(result, latestAssessment);
         appendBounded(result, terminal + "\n");
         return result.toString().trim();
     }

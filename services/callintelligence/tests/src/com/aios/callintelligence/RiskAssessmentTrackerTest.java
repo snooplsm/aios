@@ -69,6 +69,40 @@ public final class RiskAssessmentTrackerTest {
         assertEquals(risky.revision + 1L, corrected.revision);
     }
 
+    @Test
+    public void provisionalModelRiskRetractsOnTheNextTranscriptRevision() {
+        RiskAssessmentTracker tracker = tracker(false);
+        tracker.initial();
+        tracker.observeHeuristicRevision("I am calling today", "en", false);
+
+        RiskAssessmentTracker.Update risky = tracker.observeModelRevision(
+                88, SpamRiskEngine.HIGH_RISK, "possible_impersonation", false);
+        RiskAssessmentTracker.Update corrected = tracker.observeHeuristicRevision(
+                "I need a plumbing repair and an estimate", "en", false);
+
+        assertEquals(SpamRiskEngine.HIGH_RISK, risky.assessment.label);
+        assertEquals(RiskAssessmentTracker.SOURCE_MODEL, risky.source);
+        assertEquals(SpamRiskEngine.LIKELY_LEGITIMATE, corrected.assessment.label);
+        assertEquals(RiskAssessmentTracker.SOURCE_HEURISTIC, corrected.source);
+        assertEquals(risky.revision + 1L, corrected.revision);
+    }
+
+    @Test
+    public void finalizedModelRiskSurvivesLaterPartialWords() {
+        RiskAssessmentTracker tracker = tracker(false);
+        tracker.initial();
+        RiskAssessmentTracker.Update risky = tracker.observeModelRevision(
+                88, SpamRiskEngine.HIGH_RISK, "possible_impersonation", true);
+
+        RiskAssessmentTracker.Update next = tracker.observeHeuristicRevision(
+                "I am calling today", "en", false);
+
+        assertEquals(SpamRiskEngine.HIGH_RISK, tracker.current().assessment.label);
+        assertEquals(RiskAssessmentTracker.SOURCE_MODEL, tracker.current().source);
+        assertNull(next);
+        assertEquals(2L, risky.revision);
+    }
+
     private static RiskAssessmentTracker tracker(boolean knownContact) {
         AtomicLong now = new AtomicLong(1_000L);
         return new RiskAssessmentTracker(

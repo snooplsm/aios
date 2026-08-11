@@ -74,9 +74,17 @@ Final caller turn -> Gemma reply+risk -> bounded TTS -> telephony TX -> caller
 Spam classification is an ensemble of low-cost deterministic signals, number and
 contact context, acoustic/transcript classifiers, and optional LLM review. An LLM
 label alone can never block, terminate, or report a number. Human-answered calls
-use the debounced classifier. AI-answered calls use one strict receptionist JSON
-result for both its reply and advisory risk, then release that third broker slot
-before opening TTS; the two live ASR streams remain uninterrupted.
+use a revision-bound classifier over a rolling transcript snapshot: each
+replaceable ASR partial updates the snapshot immediately, and Gemma receives at
+most one request every four seconds with only one request in flight. Results for
+superseded transcript revisions are discarded, corrected hypotheses retract
+provisional model risk, and final-turn model evidence remains durable within the
+call. AI-answered calls instead use one strict receptionist JSON result for both
+its reply and advisory risk, then release that third broker slot before opening
+TTS; the two live ASR streams remain uninterrupted.
+Assessment revisions remain in the expiring private call artifact for audit, but
+only the newest assessment is included in the final communication-context
+document used by local retrieval.
 
 Each visible assessment is a structured Binder value containing the opaque call
 ID, score, label, reason code, source, observation time, and a per-call monotonic

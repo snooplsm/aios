@@ -15,6 +15,7 @@ public final class CallContextAccumulatorTest {
         value.appendTranscript("downlink", "en", "Need an estimate tomorrow", true);
         value.appendTranscript("uplink", "es", "Le devolveremos la llamada", true);
         value.appendAssistantReply("en", "What time works best?");
+        value.appendAssessment(80, "high_risk", "provisional_false_alarm");
         value.appendAssessment(20, "likely_legitimate", "known_contact");
         value.appendAssessment(101, "high_risk", "invalid_score");
 
@@ -24,6 +25,7 @@ public final class CallContextAccumulatorTest {
         assertFalse(result.contains("wrong direction"));
         assertFalse(result.contains("wrong language"));
         assertFalse(result.contains("invalid_score"));
+        assertFalse(result.contains("provisional_false_alarm"));
         assertTrue(result.contains("downlink[en]: Need an estimate tomorrow"));
         assertTrue(result.contains("uplink[es]: Le devolveremos la llamada"));
         assertTrue(result.contains("assistant[en]: What time works best?"));

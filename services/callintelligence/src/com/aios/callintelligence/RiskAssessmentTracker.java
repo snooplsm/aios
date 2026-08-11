@@ -32,6 +32,10 @@ final class RiskAssessmentTracker {
     private int modelRiskScore;
     private String modelLabel;
     private String modelReasonCode;
+    private boolean hasProvisionalModelAssessment;
+    private int provisionalModelRiskScore;
+    private String provisionalModelLabel;
+    private String provisionalModelReasonCode;
     private long revision;
 
     RiskAssessmentTracker(SpamRiskEngine heuristic) {
@@ -57,18 +61,31 @@ final class RiskAssessmentTracker {
 
     synchronized Update observeHeuristicRevision(
             String text, String language, boolean isFinal) {
+        hasProvisionalModelAssessment = false;
         heuristic.observeRevision(text, language, isFinal);
         return changedCombined();
     }
 
     synchronized Update observeModel(int riskScore, String label, String reasonCode) {
-        if (!hasModelAssessment || riskScore > modelRiskScore
-                || (modelRiskScore <= 15
-                && SpamRiskEngine.LIKELY_LEGITIMATE.equals(label))) {
-            hasModelAssessment = true;
-            modelRiskScore = riskScore;
-            modelLabel = label;
-            modelReasonCode = reasonCode;
+        return observeModelRevision(riskScore, label, reasonCode, true);
+    }
+
+    synchronized Update observeModelRevision(
+            int riskScore, String label, String reasonCode, boolean isFinal) {
+        if (isFinal) {
+            if (!hasModelAssessment || riskScore > modelRiskScore
+                    || (modelRiskScore <= 15
+                    && SpamRiskEngine.LIKELY_LEGITIMATE.equals(label))) {
+                hasModelAssessment = true;
+                modelRiskScore = riskScore;
+                modelLabel = label;
+                modelReasonCode = reasonCode;
+            }
+        } else {
+            hasProvisionalModelAssessment = true;
+            provisionalModelRiskScore = riskScore;
+            provisionalModelLabel = label;
+            provisionalModelReasonCode = reasonCode;
         }
         return changedCombined();
     }
@@ -77,13 +94,29 @@ final class RiskAssessmentTracker {
         SpamRiskEngine.Assessment currentHeuristic = heuristic.current();
         SpamRiskEngine.Assessment combined = currentHeuristic;
         String source = SOURCE_HEURISTIC;
-        if (hasModelAssessment
-                && (modelRiskScore > currentHeuristic.score
+        int selectedModelRiskScore = modelRiskScore;
+        String selectedModelLabel = modelLabel;
+        String selectedModelReasonCode = modelReasonCode;
+        boolean hasSelectedModel = hasModelAssessment;
+        if (hasProvisionalModelAssessment
+                && (!hasSelectedModel
+                || provisionalModelRiskScore > selectedModelRiskScore
+                || (selectedModelRiskScore <= 15
+                && SpamRiskEngine.LIKELY_LEGITIMATE.equals(provisionalModelLabel)))) {
+            hasSelectedModel = true;
+            selectedModelRiskScore = provisionalModelRiskScore;
+            selectedModelLabel = provisionalModelLabel;
+            selectedModelReasonCode = provisionalModelReasonCode;
+        }
+        if (hasSelectedModel
+                && (selectedModelRiskScore > currentHeuristic.score
                 || (SpamRiskEngine.UNKNOWN.equals(currentHeuristic.label)
-                && SpamRiskEngine.LIKELY_LEGITIMATE.equals(modelLabel)
+                && SpamRiskEngine.LIKELY_LEGITIMATE.equals(selectedModelLabel)
                 && currentHeuristic.score <= 15))) {
             combined = new SpamRiskEngine.Assessment(
-                    modelRiskScore, modelLabel, "model_" + modelReasonCode);
+                    selectedModelRiskScore,
+                    selectedModelLabel,
+                    "model_" + selectedModelReasonCode);
             source = SOURCE_MODEL;
         }
         SpamRiskEngine.Assessment previous = published == null

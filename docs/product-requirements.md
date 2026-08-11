@@ -42,6 +42,13 @@ It includes a short human explanation, numeric score, and whether the result cam
 from deterministic on-device signals or the on-device model. Known contacts get
 an initial legitimacy assessment as soon as capture starts; subsequent updates
 must be revisioned so stale classifier callbacks cannot replace newer evidence.
+For owner-handled calls, every non-final incoming ASR hypothesis must replace the
+current provisional classifier context rather than append to it. The on-device
+classifier may evaluate these bounded snapshots on a debounce, but its result is
+publishable only if the exact transcript revision is still current. Provisional
+model evidence must retract on the next hypothesis; final-turn evidence may
+remain part of the call assessment. AI-handled calls reserve the model slot for
+turn-final receptionist work instead of running a competing partial classifier.
 
 While AI is handling an active call, both the in-call surface and ongoing call
 notification must say so and expose **Take over**. Takeover is a one-way owner

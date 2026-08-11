@@ -1048,13 +1048,19 @@ public final class CallIntelligenceService extends Service {
             // only the final turn makes its signals durable.
             RiskAssessmentTracker.Update assessment =
                     session.observeHeuristicRevision(
-                            chunk.text, language, chunk.isFinal);
+                            chunk.text, language, chunk.isFinal, chunk.sequence);
             publishAssessment(callId, session, assessment);
+            if (!session.isAiHandling()) {
+                classifier.observeRevision(
+                        callId,
+                        language,
+                        chunk.text,
+                        chunk.isFinal,
+                        chunk.sequence);
+            }
             if (chunk.isFinal) {
                 if (session.isAiHandling()) {
                     requestReceptionistReply(callId, session, language, chunk.text);
-                } else {
-                    classifier.observe(callId, language, chunk.text);
                 }
             }
         }
@@ -1332,6 +1338,8 @@ public final class CallIntelligenceService extends Service {
         private boolean closed;
         private SpeechSynthesisBrokerClient.Speech activeSpeech;
         private CallerAudioUplink.Stream activeUplink;
+        private final TranscriptRevisionGate classifierTranscriptRevisions =
+                new TranscriptRevisionGate();
 
         ActiveSession(
                 CallArtifactStore.Session stored,
@@ -1466,16 +1474,25 @@ public final class CallIntelligenceService extends Service {
         }
 
         synchronized RiskAssessmentTracker.Update observeHeuristicRevision(
-                String text, String language, boolean isFinal) {
-            if (closed) return null;
+                String text, String language, boolean isFinal, long transcriptRevision) {
+            if (closed || !classifierTranscriptRevisions.advance(transcriptRevision)) {
+                return null;
+            }
             return risk.observeHeuristicRevision(text, language, isFinal);
         }
 
         synchronized RiskAssessmentTracker.Update observeModel(
                 CallClassifierClient.ModelAssessment candidate) {
-            if (closed || candidate == null) return null;
-            return risk.observeModel(
-                    candidate.riskScore, candidate.label, candidate.reasonCode);
+            if (closed || candidate == null
+                    || !classifierTranscriptRevisions.accepts(
+                            candidate.transcriptRevision)) {
+                return null;
+            }
+            return risk.observeModelRevision(
+                    candidate.riskScore,
+                    candidate.label,
+                    candidate.reasonCode,
+                    candidate.finalTranscript);
         }
 
         @Override

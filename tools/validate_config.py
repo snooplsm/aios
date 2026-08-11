@@ -944,6 +944,8 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/callintelligence/src/com/aios/callintelligence/CallProductProperties.java",
         "services/callintelligence/src/com/aios/callintelligence/CallCommunicationContextClient.java",
         "services/callintelligence/src/com/aios/callintelligence/CallContextAccumulator.java",
+        "services/callintelligence/src/com/aios/callintelligence/IncrementalCallerTranscript.java",
+        "services/callintelligence/src/com/aios/callintelligence/TranscriptRevisionGate.java",
         "services/callintelligence/src/com/aios/callintelligence/CallRequestIdentityTracker.java",
         "services/callintelligence/src/com/aios/callintelligence/CallArtifactRetention.java",
         "services/callintelligence/src/com/aios/callintelligence/CallArtifactStore.java",
@@ -968,6 +970,8 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/callintelligence/tests/src/com/aios/callintelligence/AnswerDelayPolicyTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/CallArtifactRetentionTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/CallContextAccumulatorTest.java",
+        "services/callintelligence/tests/src/com/aios/callintelligence/IncrementalCallerTranscriptTest.java",
+        "services/callintelligence/tests/src/com/aios/callintelligence/TranscriptRevisionGateTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/CallRequestIdentityTrackerTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/Pcm16MonoToStereo48kTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/RequiredCaptureGateTest.java",
@@ -2453,6 +2457,20 @@ def validate_aosp_overlay(root: Path) -> None:
     risk_tracker_test = (root / "services" / "callintelligence" / "tests" / "src" /
                          "com" / "aios" / "callintelligence" /
                          "RiskAssessmentTrackerTest.java").read_text(encoding="utf-8")
+    incremental_transcript_source = (
+        call_source_root / "IncrementalCallerTranscript.java"
+    ).read_text(encoding="utf-8")
+    incremental_transcript_test = (
+        root / "services" / "callintelligence" / "tests" / "src" / "com" /
+        "aios" / "callintelligence" / "IncrementalCallerTranscriptTest.java"
+    ).read_text(encoding="utf-8")
+    transcript_revision_gate_source = (
+        call_source_root / "TranscriptRevisionGate.java"
+    ).read_text(encoding="utf-8")
+    transcript_revision_gate_test = (
+        root / "services" / "callintelligence" / "tests" / "src" / "com" /
+        "aios" / "callintelligence" / "TranscriptRevisionGateTest.java"
+    ).read_text(encoding="utf-8")
     assistant_tracker_source = (call_source_root /
                                 "AssistantHandlingTracker.java").read_text(
                                     encoding="utf-8")
@@ -2581,6 +2599,8 @@ def validate_aosp_overlay(root: Path) -> None:
             "call RAG must resolve opaque identity, retrieve bounded context, and publish only expiring summaries")
     require("if (!isFinal" in call_context_accumulator
             and "MAX_DOCUMENT_CHARS = 4_096" in call_context_accumulator
+            and "latestAssessment" in call_context_accumulator
+            and "provisional_false_alarm" in call_context_accumulator_test
             and "appendContextTranscript" in call_service
             and "appendContextAssistantReply" in call_service
             and "appendContextAssessment" in call_service
@@ -2662,11 +2682,39 @@ def validate_aosp_overlay(root: Path) -> None:
     classifier_source = (call_source_root / "CallClassifierClient.java").read_text(
         encoding="utf-8")
     require("untrusted data" in classifier_source
-            and "MIN_REQUEST_INTERVAL_MILLIS" in classifier_source
+            and "MIN_REQUEST_INTERVAL_MILLIS = 4_000L" in classifier_source
             and "MAX_TRANSCRIPT_CHARS" in classifier_source
+            and "IncrementalCallerTranscript" in classifier_source
+            and "pending.transcriptRevision" in classifier_source
+            and "retryLatest" in classifier_source
+            and "Lines marked partial are replaceable" in classifier_source
             and 'request.workload = "call_agent"' in classifier_source
             and "classifier_timeout" in classifier_source,
-            "Gemma call classification must be prompt-safe, bounded, debounced, and timed out")
+            "Gemma call classification must be prompt-safe, incremental, revision-bound, debounced, and timed out")
+    require('isFinal ? "final" : "partial"' in incremental_transcript_source
+            and "sourceRevision <= revision" in incremental_transcript_source
+            and "partial = line" in incremental_transcript_source
+            and "partial = \"\"" in incremental_transcript_source
+            and "partialRevisionReplacesWordsInsteadOfDuplicatingThem"
+            in incremental_transcript_test
+            and "finalizedTurnBecomesHistoryForTheNextPartial"
+            in incremental_transcript_test,
+            "live classifier context must replace partial hypotheses and retain final turns")
+    require("candidate <= latest" in transcript_revision_gate_source
+            and "candidate == latest" in transcript_revision_gate_source
+            and "onlyStrictlyNewerAsrSequencesAdvance" in transcript_revision_gate_test
+            and "classifierResultMustMatchTheExactCurrentSequence"
+            in transcript_revision_gate_test
+            and "classifierTranscriptRevisions.advance(transcriptRevision)"
+            in call_service
+            and "classifierTranscriptRevisions.accepts(" in call_service,
+            "classifier results must share the broker-validated ASR revision clock")
+    require("hasProvisionalModelAssessment = false" in risk_tracker_source
+            and "observeModelRevision" in risk_tracker_source
+            and "provisionalModelRiskRetractsOnTheNextTranscriptRevision"
+            in risk_tracker_test
+            and "finalizedModelRiskSurvivesLaterPartialWords" in risk_tracker_test,
+            "partial model risk must retract while finalized model evidence remains durable")
     receptionist_source = (
         call_source_root / "ReceptionistDialogueClient.java"
     ).read_text(encoding="utf-8")
@@ -2692,6 +2740,7 @@ def validate_aosp_overlay(root: Path) -> None:
             and "expected.identity == streamIdentity" in call_service
             and "state == pending.owner" in classifier_source
             and "pending.requestSerial" in classifier_source
+            and "pending.transcriptRevision" in classifier_source
             and "state == pending.owner" in receptionist_source
             and "pending.requestSerial" in receptionist_source
             and "activeRequests.isCurrent(callId, requestIdentity)" in call_context_client
@@ -2702,9 +2751,10 @@ def validate_aosp_overlay(root: Path) -> None:
             "restarted calls must reject stale ASR, model, context, TTS, and caller-audio generations")
     require("chunk.isFinal" in call_service
             and "observeHeuristicRevision" in call_service
+            and "chunk.sequence" in call_service
             and "session.isAiHandling()" in call_service
             and "receptionist.requestReply" in call_service
-            and "classifier.observe" in call_service
+            and "classifier.observeRevision" in call_service
             and "attachAssistantAudio" in call_service
             and "completeAssistantOperation" in call_service,
             "AI dialogue must start only at final caller turns and serialize reasoning and speech")

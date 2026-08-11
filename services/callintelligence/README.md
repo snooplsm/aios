@@ -36,11 +36,20 @@ tells the owner that the connected call has been handed back to them.
 Downlink transcript segments first pass through an explainable English/Spanish
 heuristic scorer with deduplicated high-risk signals. A debounced Gemma
 `call_classification` request can provide a second opinion from a bounded 4 KiB
-transcript. Caller words are explicitly treated as untrusted prompt data, model
-JSON is schema-checked, requests time out, and the merged assessment is advisory
-only. Neither scorer owns any Telecom action. Two whisper sessions and one call
-agent session are reserved so classification can run without delaying incoming
-audio.
+live snapshot. Each roughly two-second Whisper partial replaces the current
+provisional turn instead of appending duplicate words; finalized turns form the
+snapshot history. Requests are limited to one in flight and at most one every
+four seconds. A result is accepted only while its exact transcript revision is
+still current, and a newer revision is scheduled automatically after an older
+request finishes. Provisional model risk retracts when the ASR hypothesis
+changes, while final-turn model evidence remains durable for the call. Caller
+words are explicitly treated as untrusted prompt data, model JSON is
+schema-checked, requests time out, and the merged assessment is advisory only.
+Neither scorer owns any Telecom action. Two whisper sessions and one call-agent
+session are reserved so classification cannot delay incoming audio.
+The private 24-hour artifact keeps the revisioned assessment audit stream, but
+the communication-context/RAG summary retains only the latest assessment so a
+retracted provisional false alarm cannot survive as durable caller context.
 
 For an AI-answered call, `onCallAnswered` starts capture immediately. There is no
 mandatory spoken disclosure. English or Spanish receptionist responses are
