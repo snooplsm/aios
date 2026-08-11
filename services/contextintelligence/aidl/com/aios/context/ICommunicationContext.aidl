@@ -11,6 +11,7 @@ interface ICommunicationContext {
     void deleteSource(String sourceType, String sourceId, long revision);
     long deleteSourceType(String sourceType, long revision);
     List<ContextSnippet> query(
-            in ConversationIdentity identity, String query, int limit, long nowEpochMillis);
+            in ConversationIdentity identity, in String[] sourceTypes,
+            String query, int limit, long nowEpochMillis);
     void purgeExpired(long nowEpochMillis);
 }

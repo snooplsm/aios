@@ -203,7 +203,11 @@ presented address transiently to Call Intelligence for background retrieval.
 Turning it off invalidates pending lookups and clears prepared history from
 future receptionist turns in live sessions; it does not turn off transcription
 or AI answering. Retrieval remains fail-open for Telecom and never delays answer
-or capture.
+or capture. When enabled, three persistent switches independently admit
+messages, previous-call/contact context, and carrier-confirmed sent-photo
+descriptions. Disabled categories are excluded by the context-service query
+before its eight-result limit. Narrowing a category also clears any already-
+prepared prompt context immediately.
 
 Emergency protection is direction-independent. AIOS Phone latches the network
 emergency property, emergency callback mode, and the platform emergency-number

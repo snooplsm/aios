@@ -498,7 +498,19 @@ object PhoneRuntime {
                 it.copy(processingEnabled = action.enabled, error = null)
             }
             is PhoneAction.ChangeCallerHistoryEnabled -> updatePolicyDraft {
-                it.copy(callerHistoryEnabled = action.enabled, error = null)
+                it.withCallerHistoryEnabled(action.enabled).copy(error = null)
+            }
+            is PhoneAction.ChangeMessageHistoryEnabled -> updatePolicyDraft {
+                it.copy(messageHistoryEnabled = action.enabled, error = null)
+                    .withoutEmptyCallerHistory()
+            }
+            is PhoneAction.ChangeCallHistoryEnabled -> updatePolicyDraft {
+                it.copy(callHistoryEnabled = action.enabled, error = null)
+                    .withoutEmptyCallerHistory()
+            }
+            is PhoneAction.ChangePhotoHistoryEnabled -> updatePolicyDraft {
+                it.copy(photoHistoryEnabled = action.enabled, error = null)
+                    .withoutEmptyCallerHistory()
             }
             is PhoneAction.ChangeAutoAnswerEnabled -> updatePolicyDraft {
                 it.copy(

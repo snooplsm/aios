@@ -29,6 +29,8 @@ final class ContextPolicy {
             "com.aios.messaging", "com.aios.phone", "com.aios.callintelligence");
     private static final Set<String> BULK_DELETE_SOURCES = Set.of(
             SMS, MMS, CALL_EVENT, MEDIA_METADATA);
+    private static final Set<String> QUERY_SOURCES = Set.of(
+            SMS, MMS, CALL_EVENT, CALL_ARTIFACT, CONTACT_NOTE, MEDIA_METADATA);
     private static final Pattern IDENTITY = Pattern.compile(
             "(?:number|contact):[0-9a-f]{64}");
 
@@ -120,6 +122,7 @@ final class ContextPolicy {
             String conversationKey,
             String contactKey,
             String[] relatedConversationKeys,
+            String[] sourceTypes,
             String query,
             int limit,
             long nowEpochMillis) {
@@ -127,6 +130,16 @@ final class ContextPolicy {
             throw new SecurityException("caller cannot query communication context");
         }
         validateIdentity(conversationKey, contactKey, relatedConversationKeys);
+        if (sourceTypes == null || sourceTypes.length < 1
+                || sourceTypes.length > QUERY_SOURCES.size()) {
+            throw new IllegalArgumentException("invalid communication context source scope");
+        }
+        Set<String> requestedSources = new HashSet<>();
+        for (String sourceType : sourceTypes) {
+            if (!QUERY_SOURCES.contains(sourceType) || !requestedSources.add(sourceType)) {
+                throw new IllegalArgumentException("invalid communication context source scope");
+            }
+        }
         if (query == null || query.length() > MAX_QUERY_CHARS
                 || limit < 1 || limit > MAX_QUERY_RESULTS || nowEpochMillis <= 0L) {
             throw new IllegalArgumentException("invalid communication context query");

@@ -47,6 +47,9 @@ data class AssistantPolicyUiState(
     val saving: Boolean = false,
     val processingEnabled: Boolean = false,
     val callerHistoryEnabled: Boolean = false,
+    val messageHistoryEnabled: Boolean = true,
+    val callHistoryEnabled: Boolean = true,
+    val photoHistoryEnabled: Boolean = true,
     val answerMode: String = "off",
     val answerDelayMode: String = "fixed_2000_ms",
     val missedDelayMillis: Long = 15_000L,
@@ -55,6 +58,27 @@ data class AssistantPolicyUiState(
     val error: String? = null,
 ) {
     val autoAnswerEnabled: Boolean get() = answerMode != "off"
+    val hasEnabledCallerHistorySource: Boolean
+        get() = messageHistoryEnabled || callHistoryEnabled || photoHistoryEnabled
+
+    fun withCallerHistoryEnabled(enabled: Boolean): AssistantPolicyUiState =
+        if (enabled && !hasEnabledCallerHistorySource) {
+            copy(
+                callerHistoryEnabled = true,
+                messageHistoryEnabled = true,
+                callHistoryEnabled = true,
+                photoHistoryEnabled = true,
+            )
+        } else {
+            copy(callerHistoryEnabled = enabled)
+        }
+
+    fun withoutEmptyCallerHistory(): AssistantPolicyUiState =
+        if (callerHistoryEnabled && !hasEnabledCallerHistorySource) {
+            copy(callerHistoryEnabled = false)
+        } else {
+            this
+        }
 }
 
 enum class ThemePreference {
@@ -222,6 +246,9 @@ sealed interface PhoneAction {
     data class ChangeDialerRolePromptVisible(val visible: Boolean) : PhoneAction
     data class ChangeProcessingEnabled(val enabled: Boolean) : PhoneAction
     data class ChangeCallerHistoryEnabled(val enabled: Boolean) : PhoneAction
+    data class ChangeMessageHistoryEnabled(val enabled: Boolean) : PhoneAction
+    data class ChangeCallHistoryEnabled(val enabled: Boolean) : PhoneAction
+    data class ChangePhotoHistoryEnabled(val enabled: Boolean) : PhoneAction
     data class ChangeAutoAnswerEnabled(val enabled: Boolean) : PhoneAction
     data class ChangeAnswerMode(val mode: String) : PhoneAction
     data class ChangeAnswerDelayMode(val mode: String) : PhoneAction

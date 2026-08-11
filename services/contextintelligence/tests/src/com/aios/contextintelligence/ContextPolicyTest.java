@@ -63,7 +63,8 @@ public final class ContextPolicyTest {
         assertIllegal(() -> ContextPolicy.validateIdentity(
                 "number:+15551212", "", new String[]{NUMBER}));
         assertIllegal(() -> ContextPolicy.validateQuery(
-                "com.aios.messaging", NUMBER, "", new String[]{NUMBER}, "x", 9, 1L));
+                "com.aios.messaging", NUMBER, "", new String[]{NUMBER},
+                new String[]{ContextPolicy.SMS}, "x", 9, 1L));
         assertIllegal(() -> ContextPolicy.validateWrite(
                 "com.aios.messaging", ContextPolicy.SMS, "42", 1L,
                 NUMBER, "", new String[]{NUMBER}, 1L, 0L, "", 0L, 0L,
@@ -72,6 +73,22 @@ public final class ContextPolicyTest {
                 "com.aios.messaging", ContextPolicy.SMS, 0L));
         assertSecurity(() -> ContextPolicy.validateDeleteType(
                 "com.aios.messaging", ContextPolicy.MEDIA_METADATA, 1L));
+    }
+
+    @Test
+    public void querySourceScopeIsRequiredKnownAndUnique() {
+        ContextPolicy.validateQuery(
+                "com.aios.callintelligence", NUMBER, "", new String[]{NUMBER},
+                new String[]{ContextPolicy.SMS, ContextPolicy.CALL_ARTIFACT}, "", 8, 1L);
+        assertIllegal(() -> ContextPolicy.validateQuery(
+                "com.aios.callintelligence", NUMBER, "", new String[]{NUMBER},
+                new String[0], "", 8, 1L));
+        assertIllegal(() -> ContextPolicy.validateQuery(
+                "com.aios.callintelligence", NUMBER, "", new String[]{NUMBER},
+                new String[]{ContextPolicy.SMS, ContextPolicy.SMS}, "", 8, 1L));
+        assertIllegal(() -> ContextPolicy.validateQuery(
+                "com.aios.callintelligence", NUMBER, "", new String[]{NUMBER},
+                new String[]{"unknown"}, "", 8, 1L));
     }
 
     private static void assertIllegal(Runnable operation) {

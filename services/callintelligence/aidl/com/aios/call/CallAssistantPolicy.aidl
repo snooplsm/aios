@@ -6,6 +6,9 @@ parcelable CallAssistantPolicy {
     long missedDelayMillis;
     boolean processingEnabled;
     boolean callerHistoryEnabled;
+    boolean messageHistoryEnabled;
+    boolean callHistoryEnabled;
+    boolean photoHistoryEnabled;
 
     // Read-only service capability fields; ignored on update.
     boolean automaticAnswerAvailable;

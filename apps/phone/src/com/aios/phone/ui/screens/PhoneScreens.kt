@@ -941,10 +941,31 @@ fun SettingsScreen(
 
                         SettingSwitch(
                             title = "Use caller history",
-                            detail = "Privately use recent calls, messages, and sent-photo descriptions. Changes apply to new calls.",
+                            detail = "Privately use only the history categories you select below.",
                             checked = policy.callerHistoryEnabled,
                             enabled = policy.available && !policy.saving,
                         ) { dispatch(PhoneAction.ChangeCallerHistoryEnabled(it)) }
+                        if (policy.callerHistoryEnabled) {
+                            Text("History sources", fontWeight = FontWeight.SemiBold)
+                            SettingSwitch(
+                                title = "Messages",
+                                detail = "Recent SMS and MMS with this caller.",
+                                checked = policy.messageHistoryEnabled,
+                                enabled = policy.available && !policy.saving,
+                            ) { dispatch(PhoneAction.ChangeMessageHistoryEnabled(it)) }
+                            SettingSwitch(
+                                title = "Previous calls",
+                                detail = "Call events and recent 24-hour AI summaries.",
+                                checked = policy.callHistoryEnabled,
+                                enabled = policy.available && !policy.saving,
+                            ) { dispatch(PhoneAction.ChangeCallHistoryEnabled(it)) }
+                            SettingSwitch(
+                                title = "Sent photo descriptions",
+                                detail = "Descriptions linked after a carrier-confirmed sent photo.",
+                                checked = policy.photoHistoryEnabled,
+                                enabled = policy.available && !policy.saving,
+                            ) { dispatch(PhoneAction.ChangePhotoHistoryEnabled(it)) }
+                        }
 
                         SettingSwitch(
                             title = "Auto AI answer",

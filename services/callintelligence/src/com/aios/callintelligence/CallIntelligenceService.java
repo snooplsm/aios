@@ -90,22 +90,41 @@ public final class CallIntelligenceService extends Service {
             if (requested == null || !CallPolicyEngine.isKnownMode(requested.answerMode)
                     || !AnswerDelayPolicy.isKnownMode(requested.answerDelayMode)
                     || requested.missedDelayMillis < 3_000L
-                    || requested.missedDelayMillis > 60_000L) {
+                    || requested.missedDelayMillis > 60_000L
+                    || (requested.callerHistoryEnabled
+                    && !CallerHistorySourcePolicy.anyEnabled(
+                            requested.messageHistoryEnabled,
+                            requested.callHistoryEnabled,
+                            requested.photoHistoryEnabled))) {
                 throw new IllegalArgumentException("invalid call-assistant policy");
             }
             SharedPreferences preferences = ownerPreferences();
             boolean callerHistoryWasEnabled = preferences.getBoolean(
                     "caller_history_enabled", false);
+            boolean messageHistoryWasEnabled = preferences.getBoolean(
+                    "message_history_enabled", true);
+            boolean callHistoryWasEnabled = preferences.getBoolean(
+                    "call_history_enabled", true);
+            boolean photoHistoryWasEnabled = preferences.getBoolean(
+                    "photo_history_enabled", true);
             SharedPreferences.Editor editor = preferences.edit()
                     .putString("answer_mode", requested.answerMode)
                     .putString("answer_delay_mode", requested.answerDelayMode)
                     .putLong("missed_delay_ms", requested.missedDelayMillis)
                     .putBoolean("processing_enabled", requested.processingEnabled)
-                    .putBoolean("caller_history_enabled", requested.callerHistoryEnabled);
+                    .putBoolean("caller_history_enabled", requested.callerHistoryEnabled)
+                    .putBoolean("message_history_enabled", requested.messageHistoryEnabled)
+                    .putBoolean("call_history_enabled", requested.callHistoryEnabled)
+                    .putBoolean("photo_history_enabled", requested.photoHistoryEnabled);
             if (!editor.commit()) {
                 throw new IllegalStateException("call-assistant policy could not be saved");
             }
-            if (callerHistoryWasEnabled && !requested.callerHistoryEnabled) {
+            boolean historyScopeChanged =
+                    messageHistoryWasEnabled != requested.messageHistoryEnabled
+                    || callHistoryWasEnabled != requested.callHistoryEnabled
+                    || photoHistoryWasEnabled != requested.photoHistoryEnabled;
+            if (callerHistoryWasEnabled
+                    && (!requested.callerHistoryEnabled || historyScopeChanged)) {
                 revokeCallerHistory();
             }
             return readPolicy();
@@ -136,8 +155,11 @@ public final class CallIntelligenceService extends Service {
                 decision = deniedAutomaticAnswerDecision(
                         decision.processingAllowed, automaticAnswerUnavailableReason());
             }
+            SharedPreferences preferences = ownerPreferences();
+            String[] callerHistorySources = callerHistorySources(preferences);
             boolean prepareContext = CallerHistoryPolicy.shouldPrepare(
-                    ownerPreferences().getBoolean("caller_history_enabled", false),
+                    preferences.getBoolean("caller_history_enabled", false)
+                            && callerHistorySources.length > 0,
                     context.emergency,
                     context.emergencyCallbackMode,
                     decision.processingAllowed,
@@ -163,9 +185,15 @@ public final class CallIntelligenceService extends Service {
                             context.callId,
                             new PendingIncomingCall(
                                     ownerUid, context.knownContact, decision.processingAllowed));
-                    if (prepareContext && !ownerPreferences().getBoolean(
-                            "caller_history_enabled", false)) {
-                        prepareContext = false;
+                    if (prepareContext) {
+                        SharedPreferences latestPreferences = ownerPreferences();
+                        String[] latestSources = callerHistorySources(latestPreferences);
+                        if (!latestPreferences.getBoolean("caller_history_enabled", false)
+                                || latestSources.length == 0) {
+                            prepareContext = false;
+                        } else {
+                            callerHistorySources = latestSources;
+                        }
                     }
                     if (prepareContext) {
                         if (!communicationContextRequests.tryStart(
@@ -184,11 +212,19 @@ public final class CallIntelligenceService extends Service {
                     contextRequestIdentity,
                     context.transientAddress,
                     context.countryIso,
+                    callerHistorySources,
                     System.currentTimeMillis())) {
                 synchronized (sessions) {
                     communicationContextRequests.finish(
                             context.callId, contextRequestIdentity);
                 }
+            } else if (prepareContext) {
+                boolean staleRequest;
+                synchronized (sessions) {
+                    staleRequest = !communicationContextRequests.isCurrent(
+                            context.callId, contextRequestIdentity);
+                }
+                if (staleRequest) communicationContext.discardCall(context.callId);
             }
             return decision;
         }
@@ -660,12 +696,29 @@ public final class CallIntelligenceService extends Service {
         value.missedDelayMillis = CallPolicyEngine.clampDelay(
                 preferences.getLong("missed_delay_ms", DEFAULT_MISSED_DELAY_MILLIS));
         value.processingEnabled = preferences.getBoolean("processing_enabled", false);
+        value.messageHistoryEnabled = preferences.getBoolean(
+                "message_history_enabled", true);
+        value.callHistoryEnabled = preferences.getBoolean(
+                "call_history_enabled", true);
+        value.photoHistoryEnabled = preferences.getBoolean(
+                "photo_history_enabled", true);
         value.callerHistoryEnabled = preferences.getBoolean(
-                "caller_history_enabled", false);
+                "caller_history_enabled", false)
+                && CallerHistorySourcePolicy.anyEnabled(
+                        value.messageHistoryEnabled,
+                        value.callHistoryEnabled,
+                        value.photoHistoryEnabled);
         value.automaticAnswerAvailable = callerInteractionTransportReady();
         value.automaticAnswerUnavailableReason = value.automaticAnswerAvailable
                 ? "" : automaticAnswerUnavailableReason();
         return value;
+    }
+
+    private static String[] callerHistorySources(SharedPreferences preferences) {
+        return CallerHistorySourcePolicy.selected(
+                preferences.getBoolean("message_history_enabled", true),
+                preferences.getBoolean("call_history_enabled", true),
+                preferences.getBoolean("photo_history_enabled", true));
     }
 
     private boolean callerInteractionTransportReady() {
@@ -1122,10 +1175,10 @@ public final class CallIntelligenceService extends Service {
                 pendingCommunicationContexts.put(callId, prepared);
             } else {
                 session.setCommunicationContext(prepared);
+                if (session.isAiHandling() && receptionist != null) {
+                    receptionist.updatePriorContext(callId, prepared.priorContextJson);
+                }
             }
-        }
-        if (session != null && session.isAiHandling()) {
-            receptionist.updatePriorContext(callId, prepared.priorContextJson);
         }
         notifyStatus(callId, 9, "communication_context_ready");
     }

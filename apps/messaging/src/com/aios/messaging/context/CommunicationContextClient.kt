@@ -225,6 +225,7 @@ class CommunicationContextClient(
             execute = { service ->
                 val result = service.query(
                     service.resolveIdentity(address, countryIso()),
+                    QUERY_SOURCE_TYPES,
                     "",
                     8,
                     System.currentTimeMillis(),
@@ -639,6 +640,14 @@ class CommunicationContextClient(
         const val PROVIDER_SETTLE_MILLIS = 1_500L
         const val RECONCILIATION_RETRY_MILLIS = 15_000L
         val SOURCE_TYPES = listOf(SOURCE_SMS, SOURCE_MMS)
+        val QUERY_SOURCE_TYPES = arrayOf(
+            SOURCE_SMS,
+            SOURCE_MMS,
+            "call_event",
+            "call_artifact",
+            "contact_note",
+            "media_metadata",
+        )
         val CONTEXT_STORE_INSTANCE_PATTERN = Regex("[0-9a-f]{32}")
     }
 }

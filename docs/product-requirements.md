@@ -244,6 +244,11 @@ Phone must expose an independent, default-off caller-history setting. Disabling
 it must stop new raw caller identities at the Phone process boundary, invalidate
 pending retrieval, and clear prepared history from subsequent receptionist
 turns without disabling call processing or transcription.
+While enabled, the owner must be able to independently exclude message history,
+previous call/contact history, and sent-photo descriptions. Source filtering
+must occur inside the context query before ranking and its result limit;
+unknown, duplicate, or empty source scopes must fail closed. Narrowing the
+scope must revoke context already prepared for an active receptionist.
 
 ## Model platform
 

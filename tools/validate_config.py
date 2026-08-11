@@ -947,9 +947,11 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/contextintelligence/src/com/aios/contextintelligence/ContextRetentionClock.java",
         "services/contextintelligence/src/com/aios/contextintelligence/ContextStore.java",
         "services/contextintelligence/src/com/aios/contextintelligence/ContextPolicy.java",
+        "services/contextintelligence/src/com/aios/contextintelligence/ContextSourceScope.java",
         "services/contextintelligence/src/com/aios/contextintelligence/RevisionGate.java",
         "services/contextintelligence/tests/src/com/aios/contextintelligence/ContextExpiryPolicyTest.java",
         "services/contextintelligence/tests/src/com/aios/contextintelligence/ContextPolicyTest.java",
+        "services/contextintelligence/tests/src/com/aios/contextintelligence/ContextSourceScopeTest.java",
         "services/contextintelligence/tests/src/com/aios/contextintelligence/RevisionGateTest.java",
         "docs/communications-context.md",
         "docs/compose-dialer-decision.md",
@@ -1089,6 +1091,8 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/callintelligence/src/com/aios/callintelligence/CallTranscriptRevisionClock.java",
         "services/callintelligence/src/com/aios/callintelligence/PcmTranscriptTimeline.java",
         "services/callintelligence/src/com/aios/callintelligence/CallRequestIdentityTracker.java",
+        "services/callintelligence/src/com/aios/callintelligence/CallerHistoryPolicy.java",
+        "services/callintelligence/src/com/aios/callintelligence/CallerHistorySourcePolicy.java",
         "services/callintelligence/src/com/aios/callintelligence/CallArtifactRetention.java",
         "services/callintelligence/src/com/aios/callintelligence/CallArtifactStore.java",
         "services/callintelligence/src/com/aios/callintelligence/RetentionClock.java",
@@ -1129,6 +1133,8 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/callintelligence/tests/src/com/aios/callintelligence/CallTranscriptRevisionClockTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/PcmTranscriptTimelineTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/CallRequestIdentityTrackerTest.java",
+        "services/callintelligence/tests/src/com/aios/callintelligence/CallerHistoryPolicyTest.java",
+        "services/callintelligence/tests/src/com/aios/callintelligence/CallerHistorySourcePolicyTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/Pcm16MonoToStereo48kTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/SpeechSynthesisStatusPolicyTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/SpeechTerminalGateTest.java",
@@ -1643,7 +1649,10 @@ def validate_aosp_overlay(root: Path) -> None:
             and "indexMms" in context_client
             and "deleteMms" in context_client
             and "deleteSource" in context_client
-            and "queryRecent" in context_client,
+            and "queryRecent" in context_client
+            and "QUERY_SOURCE_TYPES" in context_client
+            and '"call_artifact"' in context_client
+            and '"media_metadata"' in context_client,
             "messaging must index, retrieve, and tombstone SMS/MMS context")
     require("registerContentObserver" in context_client
             and "provider.page" in context_client
@@ -1692,6 +1701,13 @@ def validate_aosp_overlay(root: Path) -> None:
     context_policy = (context_root / "src" / "com" / "aios" /
                       "contextintelligence" / "ContextPolicy.java").read_text(
                           encoding="utf-8")
+    context_source_scope = (context_root / "src" / "com" / "aios" /
+                            "contextintelligence" /
+                            "ContextSourceScope.java").read_text(encoding="utf-8")
+    context_source_scope_test = (context_root / "tests" / "src" / "com" /
+                                 "aios" / "contextintelligence" /
+                                 "ContextSourceScopeTest.java").read_text(
+                                     encoding="utf-8")
     context_expiry = (context_root / "src" / "com" / "aios" /
                       "contextintelligence" / "ContextExpiryPolicy.java").read_text(
                           encoding="utf-8")
@@ -1737,11 +1753,23 @@ def validate_aosp_overlay(root: Path) -> None:
             and "getStoreInstanceId" in context_aidl
             and "RevisionGate.accepts" in context_store
             and "identity.relatedConversationKeys" in context_store
+            and "ContextSourceScope.selectionClause(sourceTypes, arguments)"
+            in context_store
+            and "in String[] sourceTypes" in context_aidl
+            and "String[] sourceTypes" in context_service
+            and "QUERY_SOURCES" in context_policy
+            and "!requestedSources.add(sourceType)" in context_policy
+            and 'new StringBuilder(" AND e.source_type IN (")'
+            in context_source_scope
+            and "sourceArgumentsPrecedeLaterQueryArguments"
+            in context_source_scope_test
+            and "emptyScopeCannotAccidentallyBecomeAnUnfilteredQuery"
+            in context_source_scope_test
             and "MAX_QUERY_RESULTS = 8" in context_policy
             and "MAX_SNIPPET_CHARS = 512" in context_policy
             and "CALL_ARTIFACT_TTL_MILLIS" in context_policy
             and "call artifacts must expire within 24 hours" in context_policy,
-            "communication retrieval must be bounded, revisioned, and retention-aware")
+            "communication retrieval must be source-scoped, bounded, revisioned, and retention-aware")
     require("expiry_boot_identity TEXT NOT NULL" in context_store
             and "created_at_elapsed_ms INTEGER NOT NULL" in context_store
             and "expires_at_elapsed_ms INTEGER NOT NULL" in context_store
@@ -2159,11 +2187,27 @@ def validate_aosp_overlay(root: Path) -> None:
             in phone_build,
             "Phone settings must expose every supported AI-answer scope with distinct delay semantics")
     require("callerHistoryEnabled: Boolean = false" in phone_contract
+            and "messageHistoryEnabled: Boolean = true" in phone_contract
+            and "callHistoryEnabled: Boolean = true" in phone_contract
+            and "photoHistoryEnabled: Boolean = true" in phone_contract
             and "ChangeCallerHistoryEnabled" in phone_contract
+            and "ChangeMessageHistoryEnabled" in phone_contract
+            and "ChangeCallHistoryEnabled" in phone_contract
+            and "ChangePhotoHistoryEnabled" in phone_contract
+            and "withCallerHistoryEnabled" in phone_contract
+            and "withoutEmptyCallerHistory" in phone_contract
+            and "callerHistoryScopeCannotRemainEnabledWithoutSources"
+            in assistant_policy_semantics_test
             and "ownerCallerHistoryEnabled == true" in assistant_client
             and "callerHistoryEnabled = value.callerHistoryEnabled" in assistant_client
-            and 'title = "Use caller history"' in phone_screens,
-            "Phone must expose an independent default-off caller-history control and withhold raw identity when disabled")
+            and "messageHistoryEnabled = value.messageHistoryEnabled" in assistant_client
+            and "callHistoryEnabled = value.callHistoryEnabled" in assistant_client
+            and "photoHistoryEnabled = value.photoHistoryEnabled" in assistant_client
+            and 'title = "Use caller history"' in phone_screens
+            and 'title = "Messages"' in phone_screens
+            and 'title = "Previous calls"' in phone_screens
+            and 'title = "Sent photo descriptions"' in phone_screens,
+            "Phone must expose default-off, non-empty source-scoped caller history and withhold raw identity when disabled")
     require("data class MessageNumber" in phone_contract
             and "Intent.ACTION_SENDTO" in phone_runtime
             and '"smsto"' in phone_runtime
@@ -3187,6 +3231,13 @@ def validate_aosp_overlay(root: Path) -> None:
     caller_history_test = (root / "services" / "callintelligence" / "tests" /
                            "src" / "com" / "aios" / "callintelligence" /
                            "CallerHistoryPolicyTest.java").read_text(encoding="utf-8")
+    caller_history_source_policy = (
+        call_source_root / "CallerHistorySourcePolicy.java"
+    ).read_text(encoding="utf-8")
+    caller_history_source_test = (
+        root / "services" / "callintelligence" / "tests" / "src" / "com" /
+        "aios" / "callintelligence" / "CallerHistorySourcePolicyTest.java"
+    ).read_text(encoding="utf-8")
     call_service_bp = (root / "services" / "callintelligence" / "Android.bp").read_text(
         encoding="utf-8")
     call_service_compile_build = (
@@ -3277,6 +3328,8 @@ def validate_aosp_overlay(root: Path) -> None:
             in call_host_test
             and '"src/com/aios/callintelligence/CallerHistoryPolicy.java"'
             in call_host_test
+            and '"src/com/aios/callintelligence/CallerHistorySourcePolicy.java"'
+            in call_host_test
             and '"src/com/aios/callintelligence/AssistantGreetingPolicy.java"'
             in call_host_test
             and '"src/com/aios/callintelligence/ServiceRebindPolicy.java"'
@@ -3286,15 +3339,34 @@ def validate_aosp_overlay(root: Path) -> None:
             and '"tests/src/**/*.java"' in call_host_test,
             "Soong Call Intelligence host tests must include the full Android-free source closure")
     require("boolean callerHistoryEnabled" in call_policy_api
+            and "boolean messageHistoryEnabled" in call_policy_api
+            and "boolean callHistoryEnabled" in call_policy_api
+            and "boolean photoHistoryEnabled" in call_policy_api
             and '"caller_history_enabled", false' in call_service
+            and '"message_history_enabled", true' in call_service
+            and '"call_history_enabled", true' in call_service
+            and '"photo_history_enabled", true' in call_service
+            and "&& CallerHistorySourcePolicy.anyEnabled(" in call_service
             and "CallerHistoryPolicy.shouldPrepare(" in call_service
-            and "if (prepareContext && !ownerPreferences().getBoolean(" in call_service
+            and "callerHistorySources(preferences)" in call_service
+            and "callerHistorySources(latestPreferences)" in call_service
+            and "historyScopeChanged" in call_service
+            and "staleRequest" in call_service
+            and "session.isAiHandling() && receptionist != null" in call_service
+            and "receptionist.updatePriorContext(callId, prepared.priorContextJson)"
+            in call_service
             and "revokeCallerHistory()" in call_service
             and 'updatePriorContext(callId, "[]")' in call_service
             and "enabled" in caller_history_policy
+            and "static String[] selected" in caller_history_source_policy
+            and "static boolean isValidScope" in caller_history_source_policy
+            and "allOwnerCategoriesExpandToTheExactBoundedScope"
+            in caller_history_source_test
+            and "emptyUnknownAndDuplicateScopesFailClosed"
+            in caller_history_source_test
             and "admitsOnlyExplicitlyEnabledEligibleCalls" in caller_history_test
             and "rejectsEmergencyAndMissingAddresses" in caller_history_test,
-            "caller-history retrieval must be default-off, emergency-safe, revocable, and host-tested")
+            "caller-history retrieval must be default-off, source-scoped, emergency-safe, revocable, and host-tested")
     require("resumedAfterServiceLoss && resumedKnownContact" in call_service
             and "AssistantGreetingPolicy.shouldGreet" in call_service
             and "answeredByAi && !resumedAfterServiceLoss"
@@ -3414,7 +3486,10 @@ def validate_aosp_overlay(root: Path) -> None:
             "raw caller identity must be transient and retrieved only for authorized non-emergency processing")
     require("candidate.resolveIdentity(" in call_context_client
             and "pending.address, pending.countryIso" in call_context_client
-            and 'identity, "", PriorContextFormatter.MAX_ITEMS' in call_context_client
+            and "pending.sourceTypes" in call_context_client
+            and "CallerHistorySourcePolicy.isValidScope(sourceTypes)"
+            in call_context_client
+            and "PriorContextFormatter.MAX_ITEMS" in call_context_client
             and '"call_artifact"' in call_context_client
             and "candidate.upsert(new ContextDocument(" in call_context_client
             and "isExpired(pending, observedNow)" in call_context_client
@@ -3457,7 +3532,9 @@ def validate_aosp_overlay(root: Path) -> None:
             and "formatsOnlyBoundedIdentifierFreeContext"
             in prior_context_formatter_test
             and "rejectsUnknownRowsAndEscapesJsonText"
-            in prior_context_formatter_test,
+            in prior_context_formatter_test
+            and "exclusionsRemoveSourcesBeforeContextQuery"
+            in caller_history_source_test,
             "call-context bounds and prompt serialization must remain host-tested")
     context_extraction_domains = {
         "root", "file", "database", "sharedpref", "external", "device_root",
@@ -3476,6 +3553,8 @@ def validate_aosp_overlay(root: Path) -> None:
             and '../../services/callintelligence' not in call_context_check_build
             and '../../services/modelbroker/aidl' not in call_context_check_build
             and 'resource_dirs: ["res"]' in context_bp
+            and '"src/com/aios/contextintelligence/ContextSourceScope.java"'
+            in context_bp
             and 'android:dataExtractionRules="@xml/data_extraction_rules"'
             in context_manifest
             and 'android:icon="@drawable/ic_context_intelligence"'

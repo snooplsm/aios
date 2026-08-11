@@ -150,7 +150,10 @@ See `docs/mms-transport.md`.
 Incoming calls now resolve their presented number transiently into the same
 opaque communication identity used by Messaging. The receptionist can consume
 at most eight identifier-free historical snippets without delaying Telecom, and
-normal teardown publishes a final-only bounded call summary with the existing
+the owner can independently admit messages, previous-call/contact context, and
+sent-photo descriptions; the context service applies that allowlist before
+ranking and the result limit, while scope narrowing clears prepared prompts.
+The normal teardown publishes a final-only bounded call summary with the existing
 artifact's 24-hour expiry. The client replaces failed, null, terminal, and
 stalled context-service bindings and replays bounded preparation or final-index
 work only while the call identity and artifact lifetime remain current. A

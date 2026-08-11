@@ -160,7 +160,22 @@ class PreviewActivity : ComponentActivity() {
                 assistantPolicy = state.assistantPolicy.copy(processingEnabled = action.enabled),
             )
             is PhoneAction.ChangeCallerHistoryEnabled -> state.copy(
-                assistantPolicy = state.assistantPolicy.copy(callerHistoryEnabled = action.enabled),
+                assistantPolicy = state.assistantPolicy.withCallerHistoryEnabled(action.enabled),
+            )
+            is PhoneAction.ChangeMessageHistoryEnabled -> state.copy(
+                assistantPolicy = state.assistantPolicy.copy(
+                    messageHistoryEnabled = action.enabled,
+                ).withoutEmptyCallerHistory(),
+            )
+            is PhoneAction.ChangeCallHistoryEnabled -> state.copy(
+                assistantPolicy = state.assistantPolicy.copy(
+                    callHistoryEnabled = action.enabled,
+                ).withoutEmptyCallerHistory(),
+            )
+            is PhoneAction.ChangePhotoHistoryEnabled -> state.copy(
+                assistantPolicy = state.assistantPolicy.copy(
+                    photoHistoryEnabled = action.enabled,
+                ).withoutEmptyCallerHistory(),
             )
             is PhoneAction.ChangeAutoAnswerEnabled -> state.copy(
                 assistantPolicy = state.assistantPolicy.copy(

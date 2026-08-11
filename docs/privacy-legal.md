@@ -66,6 +66,13 @@ message bodies, contact names, and reusable unkeyed content hashes are excluded.
 The ledger and communication index are cleared through monotonic source
 watermarks when the owner moves the SMS role to another application.
 
+Caller-history retrieval is default-off and source-scoped. The owner can admit
+messages, previous calls/contact notes, and sent-photo descriptions
+independently. Communication Context applies that exact allowlist before
+ranking/limiting results, and policy narrowing clears prepared receptionist
+context. These controls govern model use of retained local context; they do not
+silently delete the authoritative SMS, call-log, contact, or media records.
+
 ## Media metadata
 
 Portable metadata may leave the device when a photo is shared. Only deliberately

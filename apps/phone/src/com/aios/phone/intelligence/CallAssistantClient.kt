@@ -430,6 +430,9 @@ class CallAssistantClient(
                     missedDelayMillis = value.missedDelayMillis.coerceIn(3_000L, 60_000L)
                     processingEnabled = value.processingEnabled
                     callerHistoryEnabled = value.callerHistoryEnabled
+                    messageHistoryEnabled = value.messageHistoryEnabled
+                    callHistoryEnabled = value.callHistoryEnabled
+                    photoHistoryEnabled = value.photoHistoryEnabled
                 }
                 val saved = service.updatePolicy(requested)
                 main.post {
@@ -936,6 +939,9 @@ class CallAssistantClient(
             saving = false,
             processingEnabled = processingEnabled,
             callerHistoryEnabled = callerHistoryEnabled,
+            messageHistoryEnabled = messageHistoryEnabled,
+            callHistoryEnabled = callHistoryEnabled,
+            photoHistoryEnabled = photoHistoryEnabled,
             answerMode = answerMode,
             answerDelayMode = answerDelayMode,
             missedDelayMillis = missedDelayMillis,

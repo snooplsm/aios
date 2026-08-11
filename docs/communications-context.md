@@ -108,12 +108,24 @@ worker; it is not logged, added to a map, or written to the call-artifact
 directory. Retrieval never delays Telecom policy, pickup, or capture. If the
 context service is absent or slow, the call continues without history.
 
+When caller history is enabled, Phone exposes independent source switches for
+**Messages** (`sms`, `mms`), **Previous calls** (`call_event`, the expiring
+`call_artifact`, and future `contact_note` rows), and **Sent photo
+descriptions** (`media_metadata`). The selected source names cross Binder as a
+non-empty, duplicate-free allowlist. Communication Context validates every name
+and adds the allowlist as SQL parameters before ranking and the eight-result
+limit, so a disabled category cannot consume the result budget or reach the
+receptionist prompt. An empty or unknown scope fails closed rather than becoming
+an unfiltered query.
+
 Turning caller history off invalidates pending retrieval generations, discards
 prepared context, clears prior context from active receptionist state, and stops
 new raw caller addresses at the Phone boundary. Transcription and AI answering
 remain independently controlled. A call without prepared identity is not
 published into cross-app retrieval at teardown, although its encrypted local
 artifact remains subject to the same 24-hour deletion deadline.
+Narrowing any source switch performs the same immediate prepared-context
+revocation; new calls then query only the persisted scope.
 
 An AI-handled call may receive the retrieved context before or after capture
 starts. The receptionist prompt receives an identifier-free JSON array with at
@@ -214,7 +226,7 @@ lifecycle gates.
   hardware before passing `context.photo_metadata_lifecycle`;
 - exercise call-event reconciliation across deletion, reboot, role loss, and
   clock changes on Pixel hardware before passing `context.call_source_lifecycle`;
-- add per-conversation and per-source exclusions beyond Phone's global caller-
-  history control; and
+- add per-conversation exclusions beyond Phone's global and per-source caller-
+  history controls; and
 - run SMS/MMS, reboot, restore, deletion, lock-screen notification, and emergency
   interaction tests on the Pixel hardware lane.

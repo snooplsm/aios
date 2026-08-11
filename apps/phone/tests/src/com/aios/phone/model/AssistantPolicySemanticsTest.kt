@@ -56,4 +56,22 @@ class AssistantPolicySemanticsTest {
         assertEquals(60_000L, AssistantPolicySemantics.clampMissedDelay(Long.MAX_VALUE))
         assertEquals(20_000L, AssistantPolicySemantics.clampMissedDelay(20_000L))
     }
+
+    @Test
+    fun callerHistoryScopeCannotRemainEnabledWithoutSources() {
+        val empty = AssistantPolicyUiState(
+            callerHistoryEnabled = true,
+            messageHistoryEnabled = false,
+            callHistoryEnabled = false,
+            photoHistoryEnabled = false,
+        )
+
+        assertFalse(empty.hasEnabledCallerHistorySource)
+        assertFalse(empty.withoutEmptyCallerHistory().callerHistoryEnabled)
+        val restored = empty.withCallerHistoryEnabled(true)
+        assertTrue(restored.callerHistoryEnabled)
+        assertTrue(restored.messageHistoryEnabled)
+        assertTrue(restored.callHistoryEnabled)
+        assertTrue(restored.photoHistoryEnabled)
+    }
 }

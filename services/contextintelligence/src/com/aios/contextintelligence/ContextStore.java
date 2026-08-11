@@ -213,7 +213,11 @@ final class ContextStore extends SQLiteOpenHelper {
     }
 
     List<ContextSnippet> query(
-            ConversationIdentity identity, String query, int limit, long nowEpochMillis) {
+            ConversationIdentity identity,
+            String[] sourceTypes,
+            String query,
+            int limit,
+            long nowEpochMillis) {
         purgeExpired(nowEpochMillis);
         StringBuilder identityClause = new StringBuilder("e.conversation_key IN (");
         List<String> arguments = new ArrayList<>();
@@ -223,17 +227,20 @@ final class ContextStore extends SQLiteOpenHelper {
             arguments.add(key);
         }
         identityClause.append(')');
+        String sourceClause = ContextSourceScope.selectionClause(sourceTypes, arguments);
         String fts = ftsQuery(query);
         String sql;
         if (fts.isEmpty()) {
             sql = "SELECT e.source_type,e.source_id,e.revision,e.event_at_epoch_ms,e.body"
                     + " FROM entries e WHERE " + identityClause
+                    + sourceClause
                     + " AND (e.expires_at_epoch_ms=0 OR e.expires_at_epoch_ms>?)"
                     + " ORDER BY e.event_at_epoch_ms DESC LIMIT ?";
         } else {
             sql = "SELECT e.source_type,e.source_id,e.revision,e.event_at_epoch_ms,e.body"
                     + " FROM entries e JOIN entries_fts ON entries_fts.docid=e._id WHERE "
                     + identityClause
+                    + sourceClause
                     + " AND (e.expires_at_epoch_ms=0 OR e.expires_at_epoch_ms>?)"
                     + " AND entries_fts MATCH ? ORDER BY e.event_at_epoch_ms DESC LIMIT ?";
         }

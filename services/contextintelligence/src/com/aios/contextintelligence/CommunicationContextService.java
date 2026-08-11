@@ -125,6 +125,7 @@ public final class CommunicationContextService extends Service {
         @Override
         public List<ContextSnippet> query(
                 ConversationIdentity identity,
+                String[] sourceTypes,
                 String query,
                 int limit,
                 long nowEpochMillis) {
@@ -135,12 +136,13 @@ public final class CommunicationContextService extends Service {
                     identity.conversationKey,
                     identity.contactKey,
                     identity.relatedConversationKeys,
+                    sourceTypes,
                     query,
                     limit,
                     nowEpochMillis);
             long token = Binder.clearCallingIdentity();
             try {
-                return store.query(identity, query, limit, nowEpochMillis);
+                return store.query(identity, sourceTypes, query, limit, nowEpochMillis);
             } finally {
                 Binder.restoreCallingIdentity(token);
             }

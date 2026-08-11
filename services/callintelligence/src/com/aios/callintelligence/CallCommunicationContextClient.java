@@ -47,16 +47,19 @@ final class CallCommunicationContextClient implements AutoCloseable {
         final Object requestIdentity;
         final String address;
         final String countryIso;
+        final String[] sourceTypes;
         final long nowEpochMillis;
 
         PendingPrepare(
                 Object requestIdentity,
                 String address,
                 String countryIso,
+                String[] sourceTypes,
                 long nowEpochMillis) {
             this.requestIdentity = requestIdentity;
             this.address = address;
             this.countryIso = countryIso;
+            this.sourceTypes = sourceTypes.clone();
             this.nowEpochMillis = nowEpochMillis;
         }
     }
@@ -148,6 +151,7 @@ final class CallCommunicationContextClient implements AutoCloseable {
             Object requestIdentity,
             String transientAddress,
             String countryIso,
+            String[] sourceTypes,
             long nowEpochMillis) {
         ICommunicationContext candidate;
         synchronized (this) {
@@ -155,6 +159,7 @@ final class CallCommunicationContextClient implements AutoCloseable {
                     || transientAddress == null
                     || transientAddress.isBlank()
                     || transientAddress.length() > MAX_ADDRESS_CHARS
+                    || !CallerHistorySourcePolicy.isValidScope(sourceTypes)
                     || nowEpochMillis <= 0L
                     || !activeRequests.tryStart(
                             callId, requestIdentity, MAX_ACTIVE_CALLS)) {
@@ -164,6 +169,7 @@ final class CallCommunicationContextClient implements AutoCloseable {
                     requestIdentity,
                     transientAddress,
                     countryIso == null ? "" : countryIso,
+                    sourceTypes,
                     nowEpochMillis));
             candidate = service;
         }
@@ -314,7 +320,11 @@ final class CallCommunicationContextClient implements AutoCloseable {
             ConversationIdentity identity = candidate.resolveIdentity(
                     pending.address, pending.countryIso);
             List<ContextSnippet> snippets = candidate.query(
-                    identity, "", PriorContextFormatter.MAX_ITEMS, pending.nowEpochMillis);
+                    identity,
+                    pending.sourceTypes,
+                    "",
+                    PriorContextFormatter.MAX_ITEMS,
+                    pending.nowEpochMillis);
             ArrayList<PriorContextFormatter.Item> values = new ArrayList<>();
             if (snippets != null) {
                 for (ContextSnippet snippet : snippets) {

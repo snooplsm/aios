@@ -231,6 +231,13 @@ Run gates in this order:
    injection and with `cmd jobscheduler` stopping the job immediately before a
    delayed success callback; no result may commit after the stop fence.
 9. Thermal, battery, memory-pressure, repeated-call, reboot, and crash tests.
+   For `context.bounded_local_retrieval`, seed more than eight newer rows in an
+   excluded category plus older rows in each enabled category. Place calls while
+   independently toggling Messages, Previous calls, and Sent photo descriptions;
+   confirm only enabled sources appear and exclusions are applied before the
+   eight-result limit. Narrow a source during an active AI-handled call and
+   confirm already-prepared context is cleared before the next receptionist
+   turn. Empty, duplicate, and unknown test scopes must fail closed.
 
 Every item in `config/release_gates.json` needs evidence. A failure in ordinary
 telephony, emergency bypass, retention, artifact integrity, or offline operation
