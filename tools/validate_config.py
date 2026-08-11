@@ -775,6 +775,34 @@ def validate_patch_series(root: Path) -> None:
                     f"{patch['id']}: {field} must be an actionable review note")
 
 
+def validate_default_dialer_overlay(root: Path) -> None:
+    common_product = (root / "products" / "aios_common.mk").read_text(
+        encoding="utf-8"
+    )
+    defaults_root = root / "overlays" / "frameworkdefaults"
+    defaults_build = (defaults_root / "Android.bp").read_text(encoding="utf-8")
+    defaults_manifest = (defaults_root / "AndroidManifest.xml").read_text(
+        encoding="utf-8"
+    )
+    defaults_config = (defaults_root / "res" / "values" / "config.xml").read_text(
+        encoding="utf-8"
+    )
+    require("AiosFrameworkDefaultsOverlay" in common_product,
+            "the product must include the AIOS framework-defaults overlay")
+    require('runtime_resource_overlay {' in defaults_build
+            and 'name: "AiosFrameworkDefaultsOverlay"' in defaults_build
+            and 'certificate: "platform"' in defaults_build
+            and "product_specific: true" in defaults_build,
+            "the framework-defaults overlay must be a platform-signed product RRO")
+    require('android:targetPackage="android"' in defaults_manifest
+            and 'android:isStatic="true"' in defaults_manifest
+            and 'android:priority="1000"' in defaults_manifest,
+            "the framework-defaults overlay must statically target android")
+    require(defaults_config.count('name="config_defaultDialer"') == 1
+            and ">com.aios.phone</string>" in defaults_config,
+            "fresh AIOS users must receive AIOS Phone as the configured dialer")
+
+
 def validate_aosp_overlay(root: Path) -> None:
     required_files = [
         "Android.bp",
@@ -790,6 +818,9 @@ def validate_aosp_overlay(root: Path) -> None:
         "scripts/capture-aosp-lock.sh",
         "scripts/build-aosp-lane.sh",
         "permissions/privapp-permissions-aios.xml",
+        "overlays/frameworkdefaults/Android.bp",
+        "overlays/frameworkdefaults/AndroidManifest.xml",
+        "overlays/frameworkdefaults/res/values/config.xml",
         "apps/phone/Android.bp",
         "apps/phone/AndroidManifest.xml",
         "apps/phone/tests/src/com/aios/phone/intelligence/PendingAiAnswerGateTest.kt",
@@ -1224,6 +1255,7 @@ def validate_aosp_overlay(root: Path) -> None:
     )
     require("AiosPhone" in common_product and "AiosPhoneAssistant" not in common_product,
             "the product must include the full AIOS Phone module")
+    validate_default_dialer_overlay(root)
     require("AiosMessaging" in common_product
             and "AiosContextIntelligence" in common_product,
             "the product must include first-party messaging and communication context")
@@ -1270,17 +1302,6 @@ def validate_aosp_overlay(root: Path) -> None:
             in benchmark_capture
             and "$measurementDocument.suite_version -ne 1" not in benchmark_capture,
             "device benchmark capture must follow the checked-in suite version")
-    overlay_text = "\n".join(
-        path.read_text(encoding="utf-8", errors="ignore")
-        for directory in (root / "products", root / "overlays")
-        if directory.exists()
-        for path in directory.rglob("*")
-        if path.is_file()
-    )
-    require("config_defaultDialer" not in overlay_text
-            and "com.aios.phone" not in overlay_text,
-            "AIOS Phone must not replace the system/emergency dialer before gates pass")
-
     phone_manifest = (root / "apps" / "phone" / "AndroidManifest.xml").read_text(
         encoding="utf-8"
     )
@@ -4769,6 +4790,9 @@ def validate_release_configuration(root: Path) -> None:
     }
     require(required_aios_apks <= set(expected_artifacts),
             "build evidence must require every core installed AIOS application")
+    require("product/overlay/AiosFrameworkDefaultsOverlay.apk"
+            in expected_artifacts,
+            "build evidence must require the installed default-dialer overlay")
     lane_ids = [lane.get("id") for lane in lanes]
     require(lane_ids == ["android_latest_integration", "pixel9a_tegu_hardware"],
             "AIOS must declare exactly the latest-integration and Pixel 9a lanes")
@@ -4873,7 +4897,7 @@ def validate_release_configuration(root: Path) -> None:
         "telephony.call_log",
         "telephony.voicemail",
         "dialer.user_role_selection",
-        "dialer.system_emergency_fallback",
+        "dialer.preloaded_default_emergency_path",
         "dialer.multi_call_udf",
         "dialer.light_dark_theme",
         "dialer.emergency_never_ai",

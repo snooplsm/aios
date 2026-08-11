@@ -27,8 +27,11 @@ The owner-facing phone application is now an original Kotlin/Jetpack Compose
 `InCallService` using immutable UDF state, typed actions, and a multi-call
 Telecom registry; it includes system/light/dark themes, bounded recents and
 visual voicemail, RTT, negotiated video surfaces, multi-SIM selection, and
-post-dial/proximity behavior. The stock AOSP Dialer remains the system/emergency
-fallback until the replacement passes device gates.
+post-dial/proximity behavior. A platform-signed product resource overlay makes
+AIOS Phone the dialer for fresh users while preserving Android's standard,
+owner-changeable dialer role. The stock AOSP Dialer remains installed as a
+recovery alternative, but emergency routing and UI are not called validated
+until the physical-device gate passes.
 Call risk now crosses Binder as a typed, revisioned assessment: initial known-
 contact legitimacy is published immediately, late listeners receive the current
 state, stale concurrent updates are ignored, and Compose shows human-readable

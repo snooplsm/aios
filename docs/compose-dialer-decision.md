@@ -10,10 +10,11 @@ surfaces. It does not reduce the Telecom correctness obligations.
 The core is therefore UDF, not a UI-owned `Call` singleton. Framework callbacks
 enter a main-thread identity registry, immutable snapshots enter `StateFlow`,
 and typed actions are the sole path back to Telecom. Multi-call, conference,
-endpoint, RTT, video-surface lifecycle, visual voicemail, emergency fallback,
+endpoint, RTT, video-surface lifecycle, visual voicemail, emergency path,
 notification, accessibility, and process-lifecycle behavior remain release-gated.
 
-The AOSP Dialer stays installed as the system/emergency dialer during the
-transition. AIOS Phone is selected only via the standard user role flow. This
-keeps the new module additive and easy to carry across AOSP updates while
-preserving a mature escape path during hardware validation.
+The AOSP Dialer stays installed as an owner-selectable recovery alternative.
+AIOS Phone is preloaded through a static framework resource overlay and remains
+replaceable through the standard user role flow. This keeps the new module
+additive and easy to carry across AOSP updates while preserving a mature escape
+path during hardware validation. Emergency behavior remains release-gated.

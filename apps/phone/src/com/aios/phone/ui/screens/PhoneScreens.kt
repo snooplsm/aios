@@ -95,8 +95,8 @@ fun PhoneHomeScreen(
                                 },
                             ) { Text("Dismiss") }
                         }
-                        Text("Choose AIOS Phone when you are ready to test real incoming and outgoing calls. The preloaded AOSP dialer remains the emergency fallback.")
-                        Button(onClick = requestRole) { Text("Choose calling app") }
+                        Text("AIOS Phone is preloaded as the default on AIOS builds. Restore it here if you selected another calling app.")
+                        Button(onClick = requestRole) { Text("Restore AIOS Phone") }
                     }
                 }
             }

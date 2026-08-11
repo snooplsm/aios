@@ -83,10 +83,10 @@ vendor/aios/scripts/build-aosp-lane.sh \
 Start with a low parallelism chosen for available RAM. Preserve the complete
 Soong log, installed-file manifest, and build fingerprint. Evidence capture
 fails if Context Intelligence, Messaging, Phone, Call Intelligence, Media
-Intelligence, or Model Broker is missing, empty, or differs from the product
-image's installed-file record. The first compile is expected to reveal any
-Android 17 API/module drift in this scaffold; fix it in `vendor/aios`, not by
-making unrecorded edits throughout AOSP.
+Intelligence, Model Broker, or the framework-defaults overlay is missing, empty,
+or differs from the product image's installed-file record. The first compile is
+expected to reveal any Android 17 API/module drift in this scaffold; fix it in
+`vendor/aios`, not by making unrecorded edits throughout AOSP.
 
 Only after the Pixel compatibility set and its resolved manifest pass the
 `pixel9a_tegu_hardware` lane contract should the same wrapper target that
@@ -134,7 +134,14 @@ Run gates in this order:
 1. Boot, reboot, slot fallback, adb, encryption, lock screen, and factory restore.
 2. Basic cellular/data, incoming/outgoing call, eSIM, VoLTE, VoWiFi, Bluetooth,
    DTMF, and conference-call baselines with all AIOS features off.
-3. Dialer policy and emergency bypass.
+3. On a fresh user, verify `cmd role get-role-holders --user 0
+   android.app.role.DIALER` returns `com.aios.phone`. Confirm
+   `AiosFrameworkDefaultsOverlay` is enabled with `cmd overlay list android`,
+   then verify the resolved `android:string/config_defaultDialer` value with
+   `cmd overlay lookup android android:string/config_defaultDialer`. Change the
+   dialer role to AOSP Dialer and back to prove owner choice still works. Only
+   then run the dialer policy and controlled emergency-path gates; do not mark
+   `dialer.preloaded_default_emergency_path` passed from emulator evidence.
 4. SMS-role selection, two-way multipart SMS, then the controlled MMS matrix in
    `docs/mms-transport.md` using a dedicated second handset and non-sensitive
    photos. Reboot once after carrier submission but before callback observation,

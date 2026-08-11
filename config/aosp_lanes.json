@@ -45,6 +45,7 @@
     "product/priv-app/AiosCallIntelligence/AiosCallIntelligence.apk",
     "product/priv-app/AiosMediaIntelligence/AiosMediaIntelligence.apk",
     "product/priv-app/AiosModelBroker/AiosModelBroker.apk",
+    "product/overlay/AiosFrameworkDefaultsOverlay.apk",
     "product/etc/aios/authorized_clients.json",
     "product/etc/aios/model_catalog.json",
     "product/etc/aios/product_policy.json",

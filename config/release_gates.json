@@ -29,7 +29,7 @@
     {"id": "telephony.call_log", "category": "telephony", "required": true},
     {"id": "telephony.voicemail", "category": "telephony", "required": true},
     {"id": "dialer.user_role_selection", "category": "dialer", "required": true},
-    {"id": "dialer.system_emergency_fallback", "category": "dialer", "required": true},
+    {"id": "dialer.preloaded_default_emergency_path", "category": "dialer", "required": true},
     {"id": "dialer.multi_call_udf", "category": "dialer", "required": true},
     {"id": "dialer.light_dark_theme", "category": "dialer", "required": true},
     {"id": "dialer.owner_answer_cancels_ai", "category": "dialer", "required": true},

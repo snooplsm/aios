@@ -5,6 +5,7 @@ PRODUCT_PACKAGES += \
     AiosContextIntelligence \
     AiosMessaging \
     AiosPhone \
+    AiosFrameworkDefaultsOverlay \
     AiosCallIntelligence \
     AiosMediaIntelligence \
     AiosModelBroker \

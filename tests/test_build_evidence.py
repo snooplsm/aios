@@ -111,7 +111,7 @@ class BuildEvidenceTests(unittest.TestCase):
             self.assertEqual(2, value["schema_version"])
             self.assertEqual("aios/test/fingerprint", value["build_fingerprint"])
             self.assertEqual("f" * 40, value["manifest_repository_revision"])
-            self.assertEqual(14, len(value["artifacts"]))
+            self.assertEqual(15, len(value["artifacts"]))
             self.assertEqual(2, len(value["patch_queue"]))
             self.assertRegex(value["patch_queue_sha256"], r"^[0-9a-f]{64}$")
             self.assertFalse(value["proves_physical_runtime_gate"])
@@ -171,6 +171,17 @@ class BuildEvidenceTests(unittest.TestCase):
             (product_out / "product" / "priv-app" / "AiosPhone" /
              "AiosPhone.apk").unlink()
             with self.assertRaisesRegex(evidence.BuildEvidenceError, "AiosPhone"):
+                evidence.capture(
+                    aios, "android_latest_integration", manifest, lock, out, log
+                )
+
+    def test_rejects_missing_default_dialer_overlay(self):
+        with tempfile.TemporaryDirectory() as raw:
+            aios, manifest, lock, out, log, product_out = self.create_fixture(raw)
+            (product_out / "product" / "overlay" /
+             "AiosFrameworkDefaultsOverlay.apk").unlink()
+            with self.assertRaisesRegex(evidence.BuildEvidenceError,
+                                        "AiosFrameworkDefaultsOverlay"):
                 evidence.capture(
                     aios, "android_latest_integration", manifest, lock, out, log
                 )

@@ -21,9 +21,11 @@ crashed.
 
 The dialer does not run large models. It binds to Call Intelligence and displays
 state, transcript segments, risk, and suggested actions. The upstream AOSP
-Dialer remains the configured system/emergency fallback until AIOS Phone passes
-the physical telephony matrix; AIOS Phone becomes the normal role holder only
-through an explicit owner choice.
+Dialer remains installed as an owner-selectable recovery alternative. A small,
+platform-signed product resource overlay configures AIOS Phone as the dialer for
+fresh users without patching the framework or Permission Controller. The owner
+can still change the standard dialer role. Emergency routing and UI remain a
+physical-device release gate, and emergency calls always bypass AI processing.
 
 Whichever dialer owns Telecom publishes every ringing, dialing, active, waiting,
 held, and conferenced call to Call Intelligence with opaque call IDs and a

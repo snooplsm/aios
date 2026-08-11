@@ -66,7 +66,7 @@ timestamps and retain logs without call content.
 7. Hang up during synthesis and confirm no later PCM or TTS completion callback
    can affect the ended call.
 8. Repeat with handset, speaker, wired headset where supported, Bluetooth, call
-   waiting, VoLTE, and VoWiFi. Ordinary call audio and emergency fallback must
+   waiting, VoLTE, and VoWiFi. Ordinary call audio and the emergency path must
    remain functional when Call Intelligence is killed.
 9. Store the evidence under the release record and mark
    `call.caller_uplink_remote_audibility` and

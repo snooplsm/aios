@@ -11,9 +11,9 @@
         <permission name="com.aios.permission.CONTROL_CALL_INTELLIGENCE" />
     </privapp-permissions>
 
-    <!-- The stock AOSP package stays installed as the system/emergency dialer.
-         AIOS Phone receives the same narrow bridge permission and may become
-         the user-selected normal dialer only after the role prompt. -->
+    <!-- AIOS Phone is the product's preloaded dialer-role holder. The role
+         remains owner-changeable, while emergency handling stays in Telecom's
+         independently validated platform path. -->
     <privapp-permissions package="com.aios.phone">
         <permission name="com.aios.permission.CONTROL_CALL_INTELLIGENCE" />
         <permission name="com.android.voicemail.permission.READ_VOICEMAIL" />

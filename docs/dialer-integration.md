@@ -58,15 +58,22 @@ only after an explicit owner action, targeted to the recorded source package.
 
 ## Safe transition and emergency behavior
 
-The upstream AOSP Dialer remains installed and configured as the preloaded
-system dialer. AIOS Phone is not assigned through `config_defaultDialer` or a
-resource overlay. During research builds, the owner explicitly selects it using
-the standard `ROLE_DIALER` prompt. Android can therefore continue to route
-emergency calls through the preloaded system dialer.
+`AiosFrameworkDefaultsOverlay` is a platform-signed, product-specific static
+resource overlay targeting `android`. It sets `config_defaultDialer` to
+`com.aios.phone`, so a fresh AIOS user receives AIOS Phone through Android's
+ordinary dialer-role initialization. This is product configuration rather than
+a framework or Permission Controller patch. The owner can still replace AIOS
+Phone through the standard `ROLE_DIALER` flow.
+
+The upstream AOSP Dialer remains installed as an owner-selectable recovery
+alternative, but it is not described as an automatic emergency fallback once
+AIOS Phone is preloaded. AIOS Phone excludes emergency calls from every AI path;
+the end-to-end emergency UI and routing behavior must pass the controlled
+physical-device gate before release.
 
 The exact Android 17 AOSP Dialer topic in `patches/` remains a temporary bridge
 for Call Intelligence while AIOS Phone is under validation. It should be removed
-after AIOS Phone passes role selection, incoming/outgoing, emergency fallback,
+after AIOS Phone passes role selection, incoming/outgoing, emergency routing,
 call waiting, conference, Bluetooth/audio endpoint, DTMF, RTT, video, voicemail,
 VoLTE, VoWiFi, eSIM, and AI-service-crash gates. Until then, AOSP Dialer and AIOS Phone may both use
 the narrow `aios_call_api`; only the selected role holder receives live Telecom

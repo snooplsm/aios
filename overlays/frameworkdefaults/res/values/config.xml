@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- PermissionController's DIALER role reads this framework resource when
+         initializing a fresh user's default holder. The owner may change it. -->
+    <string name="config_defaultDialer" translatable="false">com.aios.phone</string>
+</resources>

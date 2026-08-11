@@ -99,6 +99,24 @@ class ProductPolicyTests(unittest.TestCase):
     def test_repository_configuration_is_valid(self):
         validator.validate(ROOT)
 
+    def test_default_dialer_overlay_is_fail_closed(self):
+        with tempfile.TemporaryDirectory() as raw:
+            temporary = Path(raw)
+            shutil.copytree(ROOT / "overlays", temporary / "overlays")
+            (temporary / "products").mkdir()
+            shutil.copy(ROOT / "products" / "aios_common.mk",
+                        temporary / "products" / "aios_common.mk")
+            config = (temporary / "overlays" / "frameworkdefaults" / "res" /
+                      "values" / "config.xml")
+            config.write_text(
+                config.read_text(encoding="utf-8").replace(
+                    "com.aios.phone", "com.android.dialer"),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(validator.ValidationError,
+                                        "fresh AIOS users"):
+                validator.validate_default_dialer_overlay(temporary)
+
     def test_emergency_bypass_is_required(self):
         policy = load("product_policy.json")
         policy["calls"]["bypass_emergency_calls"] = False
