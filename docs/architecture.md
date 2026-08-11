@@ -255,18 +255,24 @@ verified derived item rather than a source mutation.
 
 ### Retention service
 
-Every sensitive row and file has `created_at` and `expires_at`. Cleanup uses the
-stored absolute expiry rather than file modification time. Deletion is
+Every call session stores wall-clock and elapsed-realtime creation/expiry pairs
+plus the Android boot identity. Cleanup uses these authenticated-by-consistency
+deadlines rather than file modification time. Deletion is
 idempotent and runs at service start, after calls, and after boot. Call-session
 expiry is exactly 24 hours from creation; malformed metadata fails closed and
-the stored expiry must equal the overflow-safe `created_at + 24h` calculation.
+both stored expiries must equal their overflow-safe `created_at + 24h`
+calculations. During one boot, either the wall or monotonic deadline expires the
+tree, so rolling the wall clock backward cannot lengthen retention. Because
+elapsed realtime resets and offline duration cannot be proven after reboot,
+artifacts created under a previous boot identity are purged fail-closed at boot
+or the next service start rather than being granted a fresh window.
 The service and alarm receiver share one process-wide storage lock, and the
 cleanup path closes live PCM descriptors before unlinking the private session
 tree. Normal Telecom call audio is unaffected; only optional AI capture/storage
 stops at that boundary. The tree is retried on later sweeps if deletion is
 interrupted. The preinstalled service declares `USE_EXACT_ALARM`, and the next
-absolute expiry is converted to an exact, idle-capable elapsed-realtime wakeup
-so a wall-clock rollback after scheduling cannot extend the live timer. An
+persisted monotonic expiry is used directly as an exact, idle-capable
+elapsed-realtime wakeup. An
 inexact fallback preserves cleanup if a product build violates that permission
 contract, but such a build cannot pass the physical 24-hour release gate. The
 UI cannot extend retention past the configured prototype maximum.

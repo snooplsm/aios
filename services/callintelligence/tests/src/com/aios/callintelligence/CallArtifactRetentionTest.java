@@ -18,6 +18,10 @@ import java.util.Map;
 import java.util.Set;
 
 public final class CallArtifactRetentionTest {
+    private static final String BOOT = "android-boot:42";
+
+    @Rule public final TemporaryFolder temporary = new TemporaryFolder();
+
     @Test
     public void immediateDeletionRemovesNestedArtifactTree() throws Exception {
         File root = temporary.newFolder("aios-call-discard");
@@ -31,33 +35,66 @@ public final class CallArtifactRetentionTest {
         assertFalse(session.exists());
     }
 
-    @Rule public final TemporaryFolder temporary = new TemporaryFolder();
-
     @Test
-    public void expiryIsExactlyTwentyFourHoursAfterCreation() throws Exception {
-        long createdAt = 1_700_000_000_000L;
+    public void bothDeadlinesAreExactlyTwentyFourHoursAfterCreation() throws Exception {
+        CallArtifactRetention.Deadline deadline = deadline(1_700_000_000_000L, 12_000L);
 
-        assertEquals(createdAt + 86_400_000L,
-                CallArtifactRetention.expiresAt(createdAt));
+        assertEquals(1_700_086_400_000L, deadline.expiresAtEpochMillis);
+        assertEquals(86_412_000L, deadline.expiresAtElapsedRealtimeMillis);
+        assertTrue(CallArtifactRetention.isValid(deadline));
     }
 
     @Test
-    public void restartCanResumeOnlyAnUnexpiredExactWindow() throws Exception {
-        long createdAt = 1_700_000_000_000L;
-        long expiresAt = CallArtifactRetention.expiresAt(createdAt);
+    public void restartCanResumeOnlyAnUnexpiredSameBootExactWindow() throws Exception {
+        CallArtifactRetention.Deadline deadline = deadline(1_700_000_000_000L, 12_000L);
 
         assertTrue(CallArtifactRetention.canResume(
-                createdAt, expiresAt, expiresAt - 1L));
+                deadline, BOOT, deadline.expiresAtEpochMillis - 1L,
+                deadline.expiresAtElapsedRealtimeMillis - 1L));
         assertFalse(CallArtifactRetention.canResume(
-                createdAt, expiresAt, expiresAt));
+                deadline, BOOT, deadline.expiresAtEpochMillis,
+                deadline.expiresAtElapsedRealtimeMillis - 1L));
         assertFalse(CallArtifactRetention.canResume(
-                createdAt, expiresAt + 1L, createdAt + 1L));
+                deadline, "android-boot:43", deadline.createdAtEpochMillis + 1L, 1L));
+    }
+
+    @Test
+    public void wallClockRollbackCannotExtendMonotonicDeadline() throws Exception {
+        CallArtifactRetention.Deadline deadline = deadline(1_700_000_000_000L, 12_000L);
+
+        assertTrue(CallArtifactRetention.isExpired(
+                deadline,
+                BOOT,
+                deadline.createdAtEpochMillis - 6L * 60L * 60L * 1000L,
+                deadline.expiresAtElapsedRealtimeMillis));
+    }
+
+    @Test
+    public void rebootAndElapsedClockRegressionFailClosed() throws Exception {
+        CallArtifactRetention.Deadline deadline = deadline(1_700_000_000_000L, 12_000L);
+
+        assertTrue(CallArtifactRetention.isExpired(
+                deadline, "android-boot:43", deadline.createdAtEpochMillis + 1L, 1L));
+        assertTrue(CallArtifactRetention.isExpired(
+                deadline, BOOT, deadline.createdAtEpochMillis + 1L, 11_999L));
+    }
+
+    @Test
+    public void wallClockJumpForwardMayShortenButNeverLengthenRetention()
+            throws Exception {
+        CallArtifactRetention.Deadline deadline = deadline(1_700_000_000_000L, 12_000L);
+
+        assertTrue(CallArtifactRetention.isExpired(
+                deadline,
+                BOOT,
+                deadline.expiresAtEpochMillis,
+                deadline.createdAtElapsedRealtimeMillis + 1L));
     }
 
     @Test
     public void expiryOverflowFailsClosed() throws Exception {
         try {
-            CallArtifactRetention.expiresAt(Long.MAX_VALUE);
+            CallArtifactRetention.Deadline.create(BOOT, Long.MAX_VALUE, 1L);
             fail("overflow must not create an immortal artifact");
         } catch (IOException expected) {
             assertTrue(expected.getMessage().contains("overflows"));
@@ -65,83 +102,112 @@ public final class CallArtifactRetentionTest {
     }
 
     @Test
-    public void storedExpiryCannotExtendOrShortenTheImmutableTtl() throws Exception {
-        long createdAt = 1_700_000_000_000L;
-        long expected = CallArtifactRetention.expiresAt(createdAt);
+    public void eitherTamperedDeadlineInvalidatesTheArtifact() throws Exception {
+        CallArtifactRetention.Deadline valid = deadline(1_700_000_000_000L, 12_000L);
+        CallArtifactRetention.Deadline wallTampered = new CallArtifactRetention.Deadline(
+                BOOT,
+                valid.createdAtEpochMillis,
+                valid.expiresAtEpochMillis + 1L,
+                valid.createdAtElapsedRealtimeMillis,
+                valid.expiresAtElapsedRealtimeMillis);
+        CallArtifactRetention.Deadline elapsedTampered = new CallArtifactRetention.Deadline(
+                BOOT,
+                valid.createdAtEpochMillis,
+                valid.expiresAtEpochMillis,
+                valid.createdAtElapsedRealtimeMillis,
+                valid.expiresAtElapsedRealtimeMillis - 1L);
 
-        assertEquals(expected, CallArtifactRetention.validatedExpiry(
-                createdAt, expected));
-        assertEquals(CallArtifactRetention.UNREADABLE_EXPIRY,
-                CallArtifactRetention.validatedExpiry(createdAt, expected + 1L));
-        assertEquals(CallArtifactRetention.UNREADABLE_EXPIRY,
-                CallArtifactRetention.validatedExpiry(createdAt, expected - 1L));
-        assertEquals(CallArtifactRetention.UNREADABLE_EXPIRY,
-                CallArtifactRetention.validatedExpiry(
-                        Long.MAX_VALUE, Long.MAX_VALUE));
+        assertFalse(CallArtifactRetention.isValid(wallTampered));
+        assertFalse(CallArtifactRetention.isValid(elapsedTampered));
+        assertTrue(CallArtifactRetention.isExpired(wallTampered, BOOT, 0L, 0L));
+        assertTrue(CallArtifactRetention.isExpired(elapsedTampered, BOOT, 0L, 0L));
     }
 
     @Test
-    public void cleanupDeletesAtBoundaryButNotOneMillisecondEarly() throws Exception {
+    public void cleanupDeletesAtEitherBoundaryButNotOneMillisecondEarly()
+            throws Exception {
         File calls = temporary.newFolder("calls");
         File active = session(calls, "active", true);
-        File expired = session(calls, "expired", true);
-        Map<String, Long> expiries = new HashMap<>();
-        expiries.put(active.getName(), 10_001L);
-        expiries.put(expired.getName(), 10_000L);
+        File wallExpired = session(calls, "wall-expired", true);
+        File elapsedExpired = session(calls, "elapsed-expired", true);
+        Map<String, CallArtifactRetention.Deadline> deadlines = new HashMap<>();
+        deadlines.put(active.getName(), deadline(1_000L, 100L));
+        deadlines.put(wallExpired.getName(), deadline(0L, 101L));
+        deadlines.put(elapsedExpired.getName(), deadline(1_001L, 0L));
         Set<String> closedBeforeDelete = new HashSet<>();
 
-        CallArtifactRetention.cleanup(calls, 10_000L,
-                directory -> expiries.get(directory.getName()),
+        CallArtifactRetention.cleanup(
+                calls,
+                BOOT,
+                CallArtifactRetention.RETENTION_MILLIS,
+                CallArtifactRetention.RETENTION_MILLIS,
+                directory -> deadlines.get(directory.getName()),
                 directory -> {
                     assertTrue(directory.exists());
                     closedBeforeDelete.add(directory.getName());
                 });
 
         assertTrue(active.isDirectory());
-        assertFalse(expired.exists());
-        assertEquals(Set.of("expired"), closedBeforeDelete);
+        assertFalse(wallExpired.exists());
+        assertFalse(elapsedExpired.exists());
+        assertEquals(Set.of("wall-expired", "elapsed-expired"), closedBeforeDelete);
     }
 
     @Test
-    public void unreadableSessionIsDeletedAndNestedContentIsRemoved() throws Exception {
-        File calls = temporary.newFolder("calls");
+    public void unreadableAndPreviousBootSessionsAreDeleted() throws Exception {
+        File calls = temporary.newFolder("calls-unreadable");
         File unreadable = session(calls, "unreadable", true);
+        File previousBoot = session(calls, "previous-boot", true);
+        Map<String, CallArtifactRetention.Deadline> deadlines = new HashMap<>();
+        deadlines.put(unreadable.getName(), CallArtifactRetention.Deadline.unreadable());
+        deadlines.put(previousBoot.getName(),
+                CallArtifactRetention.Deadline.create("android-boot:41", 1_000L, 100L));
 
-        CallArtifactRetention.cleanup(calls, 0L,
-                directory -> CallArtifactRetention.UNREADABLE_EXPIRY);
+        CallArtifactRetention.cleanup(
+                calls, BOOT, 1_001L, 101L,
+                directory -> deadlines.get(directory.getName()));
 
         assertFalse(unreadable.exists());
+        assertFalse(previousBoot.exists());
     }
 
     @Test
-    public void nearestExpiryIgnoresLooseFilesAndEmptyStoreCancelsAlarm()
+    public void nearestAlarmUsesMonotonicDeadlineAndExpiredWorkRunsNow()
             throws Exception {
-        File calls = temporary.newFolder("calls");
+        File calls = temporary.newFolder("calls-alarm");
         File later = session(calls, "later", false);
         File sooner = session(calls, "sooner", false);
         File loose = new File(calls, "not-a-session");
         assertTrue(loose.createNewFile());
-        Map<String, Long> expiries = new HashMap<>();
-        expiries.put(later.getName(), 3_000L);
-        expiries.put(sooner.getName(), 2_000L);
+        Map<String, CallArtifactRetention.Deadline> deadlines = new HashMap<>();
+        deadlines.put(later.getName(), deadline(3_000L, 300L));
+        deadlines.put(sooner.getName(), deadline(2_000L, 200L));
 
-        assertEquals(2_000L, CallArtifactRetention.nextExpiry(
-                calls, directory -> expiries.get(directory.getName())));
+        assertEquals(200L + CallArtifactRetention.RETENTION_MILLIS,
+                CallArtifactRetention.nextElapsedAlarm(
+                        calls, BOOT, 3_001L, 301L,
+                        directory -> deadlines.get(directory.getName())));
 
-        CallArtifactRetention.cleanup(calls, Long.MAX_VALUE,
-                directory -> expiries.get(directory.getName()));
-        assertEquals(Long.MAX_VALUE, CallArtifactRetention.nextExpiry(
-                calls, directory -> CallArtifactRetention.UNREADABLE_EXPIRY));
+        deadlines.put(sooner.getName(), CallArtifactRetention.Deadline.unreadable());
+        assertEquals(301L, CallArtifactRetention.nextElapsedAlarm(
+                calls, BOOT, 3_001L, 301L,
+                directory -> deadlines.get(directory.getName())));
     }
 
     @Test
-    public void elapsedAlarmPreservesRemainingDurationAndSaturates() {
-        assertEquals(10_100L, CallArtifactRetention.elapsedAlarmTrigger(
-                1_000L, 100L, 11_000L));
-        assertEquals(100L, CallArtifactRetention.elapsedAlarmTrigger(
-                1_000L, 100L, 999L));
-        assertEquals(Long.MAX_VALUE, CallArtifactRetention.elapsedAlarmTrigger(
-                Long.MIN_VALUE, Long.MAX_VALUE, Long.MAX_VALUE - 1L));
+    public void emptyStoreCancelsAlarm() throws Exception {
+        File calls = temporary.newFolder("calls-empty");
+
+        assertEquals(Long.MAX_VALUE, CallArtifactRetention.nextElapsedAlarm(
+                calls, BOOT, 1L, 1L,
+                directory -> CallArtifactRetention.Deadline.unreadable()));
+    }
+
+    private static CallArtifactRetention.Deadline deadline(
+            long createdAtEpochMillis,
+            long createdAtElapsedRealtimeMillis) throws IOException {
+        return CallArtifactRetention.Deadline.create(
+                BOOT, createdAtEpochMillis, createdAtElapsedRealtimeMillis);
     }
 
     private static File session(File calls, String name, boolean nested)

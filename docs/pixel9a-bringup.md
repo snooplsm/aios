@@ -154,8 +154,12 @@ Run gates in this order:
    advertised. Confirm capability discovery and a new session select the
    fallback, then restore the preferred backend and confirm new work returns to
    it without interrupting an already-running fallback session.
-7. Retention using a test-only shortened clock/injected time, followed by the
-   real 24-hour soak.
+7. Retention using a test-only shortened clock/injected time: arm cleanup, roll
+   wall time backward, and confirm deletion still occurs at the persisted
+   elapsed-realtime deadline for `retention.expiry_24_hours`. Reboot before an
+   unexpired test artifact's deadline, unlock credential-encrypted storage, and
+   confirm previous-boot artifacts are purged for `retention.boot_cleanup`.
+   Follow both with the real 24-hour soak.
 8. Media queue constraints and original-preservation corpus.
 9. Thermal, battery, memory-pressure, repeated-call, reboot, and crash tests.
 

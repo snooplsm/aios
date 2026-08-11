@@ -4,7 +4,6 @@ import android.app.AlarmManager;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
-import android.os.SystemClock;
 
 /** Schedules the nearest artifact expiry; boot cleanup repairs missed alarms. */
 final class RetentionAlarm {
@@ -14,10 +13,10 @@ final class RetentionAlarm {
     private RetentionAlarm() {}
 
     static void scheduleNext(Context context, CallArtifactStore store) {
-        schedule(context, store.nextExpiryEpochMillis());
+        schedule(context, store.nextExpiryElapsedRealtimeMillis());
     }
 
-    static void schedule(Context context, long expiresAtEpochMillis) {
+    static void schedule(Context context, long triggerElapsedRealtimeMillis) {
         AlarmManager manager = context.getSystemService(AlarmManager.class);
         if (manager == null) {
             return;
@@ -27,21 +26,21 @@ final class RetentionAlarm {
                 REQUEST_CODE,
                 new Intent(context, CleanupBootReceiver.class).setAction(ACTION_CLEANUP),
                 PendingIntent.FLAG_CANCEL_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-        if (expiresAtEpochMillis == Long.MAX_VALUE) {
+        if (triggerElapsedRealtimeMillis == Long.MAX_VALUE) {
             manager.cancel(operation);
             return;
         }
-        long trigger = CallArtifactRetention.elapsedAlarmTrigger(
-                System.currentTimeMillis(),
-                SystemClock.elapsedRealtime(),
-                expiresAtEpochMillis);
         if (manager.canScheduleExactAlarms()) {
             manager.setExactAndAllowWhileIdle(
-                    AlarmManager.ELAPSED_REALTIME_WAKEUP, trigger, operation);
+                    AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                    triggerElapsedRealtimeMillis,
+                    operation);
         } else {
             // Policy-restricted builds still clean automatically, with OS batching.
             manager.setAndAllowWhileIdle(
-                    AlarmManager.ELAPSED_REALTIME_WAKEUP, trigger, operation);
+                    AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                    triggerElapsedRealtimeMillis,
+                    operation);
         }
     }
 }

@@ -999,6 +999,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/callintelligence/src/com/aios/callintelligence/CallRequestIdentityTracker.java",
         "services/callintelligence/src/com/aios/callintelligence/CallArtifactRetention.java",
         "services/callintelligence/src/com/aios/callintelligence/CallArtifactStore.java",
+        "services/callintelligence/src/com/aios/callintelligence/RetentionClock.java",
         "services/callintelligence/src/com/aios/callintelligence/TelephonyAudioCapture.java",
         "services/callintelligence/src/com/aios/callintelligence/RequiredCaptureGate.java",
         "services/callintelligence/src/com/aios/callintelligence/CallerAudioUplink.java",
@@ -2914,22 +2915,28 @@ def validate_aosp_overlay(root: Path) -> None:
     )
     require("24L * 60L * 60L * 1000L" in retention_source
             and "Math.addExact" in retention_source
-            and "expiresAtEpochMillis <= nowEpochMillis" in retention_source
+            and "deadline.expiresAtEpochMillis <= nowEpochMillis" in retention_source
+            and "deadline.expiresAtElapsedRealtimeMillis <= nowElapsedRealtimeMillis"
+            in retention_source
+            and "Objects.equals(deadline.bootIdentity, currentBootIdentity)"
+            in retention_source
             and "UNREADABLE_EXPIRY = Long.MIN_VALUE" in retention_source,
-            "call artifact policy must enforce an overflow-safe, fail-closed 24-hour TTL")
-    require("CallArtifactRetention.expiresAt" in artifact_source
+            "call artifact policy must enforce a dual-clock, reboot-fail-closed 24-hour TTL")
+    require("CallArtifactRetention.Deadline.create" in artifact_source
             and "STORAGE_LOCK" in artifact_source
             and "ACTIVE_SESSIONS" in artifact_source
             and "closeActiveSession" in artifact_source
-            and "CallArtifactRetention.validatedExpiry" in artifact_source
             and "CallArtifactRetention.cleanup" in artifact_source
-            and "CallArtifactRetention.nextExpiry" in artifact_source,
+            and "CallArtifactRetention.nextElapsedAlarm" in artifact_source
+            and 'json.put("schema_version", 2)' in artifact_source
+            and '"boot_identity"' in artifact_source
+            and '"expires_at_elapsed_realtime_ms"' in artifact_source,
             "call artifact storage must close live files, lock, and delegate to the tested TTL policy")
-    require("CallArtifactRetention.elapsedAlarmTrigger" in retention_alarm
+    require("nextExpiryElapsedRealtimeMillis" in retention_alarm
             and "AlarmManager.ELAPSED_REALTIME_WAKEUP" in retention_alarm
             and "setExactAndAllowWhileIdle" in retention_alarm
             and "canScheduleExactAlarms" in retention_alarm,
-            "retention alarm must resist wall-clock rollback after scheduling")
+            "retention alarm must schedule the persisted monotonic deadline directly")
     require("expires_at_epoch_ms" in artifact_source,
             "call artifacts need an absolute expiry")
     require("dialogue.jsonl" in artifact_source

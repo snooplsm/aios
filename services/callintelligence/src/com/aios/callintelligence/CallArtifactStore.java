@@ -20,16 +20,13 @@ import java.util.Map;
 /** Credential-encrypted call artifacts with a 24-hour maximum and emergency erasure. */
 final class CallArtifactStore {
     private static final class SessionMetadata {
-        final long createdAtEpochMillis;
-        final long expiresAtEpochMillis;
+        final CallArtifactRetention.Deadline deadline;
         final boolean answeredByAi;
 
         SessionMetadata(
-                long createdAtEpochMillis,
-                long expiresAtEpochMillis,
+                CallArtifactRetention.Deadline deadline,
                 boolean answeredByAi) {
-            this.createdAtEpochMillis = createdAtEpochMillis;
-            this.expiresAtEpochMillis = expiresAtEpochMillis;
+            this.deadline = deadline;
             this.answeredByAi = answeredByAi;
         }
     }
@@ -37,15 +34,18 @@ final class CallArtifactStore {
     private static final Object STORAGE_LOCK = new Object();
     private static final Map<File, Session> ACTIVE_SESSIONS = new HashMap<>();
 
+    private final Context context;
     private final File callsDirectory;
 
     CallArtifactStore(Context context) {
-        callsDirectory = new File(context.getFilesDir(), "calls");
+        this.context = context.getApplicationContext();
+        callsDirectory = new File(this.context.getFilesDir(), "calls");
     }
 
     Session create(String callId, boolean answeredByAi, long nowEpochMillis)
             throws IOException {
         synchronized (STORAGE_LOCK) {
+            RetentionClock.Snapshot now = RetentionClock.capture(context, nowEpochMillis);
             if (!callsDirectory.isDirectory() && !callsDirectory.mkdirs()) {
                 throw new IOException("cannot create private call directory");
             }
@@ -54,17 +54,17 @@ final class CallArtifactStore {
             if (!directory.isDirectory() && !directory.mkdirs()) {
                 throw new IOException("cannot create private call session");
             }
-            long createdAt = nowEpochMillis;
-            long expiresAt = CallArtifactRetention.expiresAt(nowEpochMillis);
+            CallArtifactRetention.Deadline deadline = CallArtifactRetention.Deadline.create(
+                    now.bootIdentity, now.epochMillis, now.elapsedRealtimeMillis);
             boolean storedAnsweredByAi = false;
             try {
                 SessionMetadata existing = readMetadata(directory);
                 if (CallArtifactRetention.canResume(
-                        existing.createdAtEpochMillis,
-                        existing.expiresAtEpochMillis,
-                        nowEpochMillis)) {
-                    createdAt = existing.createdAtEpochMillis;
-                    expiresAt = existing.expiresAtEpochMillis;
+                        existing.deadline,
+                        now.bootIdentity,
+                        now.epochMillis,
+                        now.elapsedRealtimeMillis)) {
+                    deadline = existing.deadline;
                     storedAnsweredByAi = existing.answeredByAi;
                 } else {
                     resetDirectory(directory);
@@ -72,10 +72,12 @@ final class CallArtifactStore {
             } catch (IOException | JSONException unreadable) {
                 resetDirectory(directory);
             }
-            writeMetadata(
-                    directory, createdAt, expiresAt, storedAnsweredByAi || answeredByAi);
+            writeMetadata(directory, deadline, storedAnsweredByAi || answeredByAi);
             Session session = new Session(
-                    directory, sourceId, createdAt, expiresAt);
+                    directory,
+                    sourceId,
+                    deadline.createdAtEpochMillis,
+                    deadline.expiresAtEpochMillis);
             ACTIVE_SESSIONS.put(directory.getAbsoluteFile(), session);
             return session;
         }
@@ -83,16 +85,27 @@ final class CallArtifactStore {
 
     void cleanup(long nowEpochMillis) {
         synchronized (STORAGE_LOCK) {
-            CallArtifactRetention.cleanup(callsDirectory, nowEpochMillis,
-                    CallArtifactStore::readExpiry,
+            RetentionClock.Snapshot now = RetentionClock.capture(context, nowEpochMillis);
+            CallArtifactRetention.cleanup(
+                    callsDirectory,
+                    now.bootIdentity,
+                    now.epochMillis,
+                    now.elapsedRealtimeMillis,
+                    CallArtifactStore::readDeadline,
                     CallArtifactStore::closeActiveSession);
         }
     }
 
-    long nextExpiryEpochMillis() {
+    long nextExpiryElapsedRealtimeMillis() {
         synchronized (STORAGE_LOCK) {
-            return CallArtifactRetention.nextExpiry(callsDirectory,
-                    CallArtifactStore::readExpiry);
+            RetentionClock.Snapshot now = RetentionClock.capture(
+                    context, System.currentTimeMillis());
+            return CallArtifactRetention.nextElapsedAlarm(
+                    callsDirectory,
+                    now.bootIdentity,
+                    now.epochMillis,
+                    now.elapsedRealtimeMillis,
+                    CallArtifactStore::readDeadline);
         }
     }
 
@@ -109,13 +122,22 @@ final class CallArtifactStore {
     }
 
     private static void writeMetadata(
-            File directory, long createdAt, long expiresAt, boolean answeredByAi)
+            File directory,
+            CallArtifactRetention.Deadline deadline,
+            boolean answeredByAi)
             throws IOException {
         JSONObject json = new JSONObject();
         try {
-            json.put("schema_version", 1);
-            json.put("created_at_epoch_ms", createdAt);
-            json.put("expires_at_epoch_ms", expiresAt);
+            json.put("schema_version", 2);
+            json.put("boot_identity", deadline.bootIdentity);
+            json.put("created_at_epoch_ms", deadline.createdAtEpochMillis);
+            json.put("expires_at_epoch_ms", deadline.expiresAtEpochMillis);
+            json.put(
+                    "created_at_elapsed_realtime_ms",
+                    deadline.createdAtElapsedRealtimeMillis);
+            json.put(
+                    "expires_at_elapsed_realtime_ms",
+                    deadline.expiresAtElapsedRealtimeMillis);
             json.put("answered_by_ai", answeredByAi);
         } catch (JSONException impossible) {
             throw new IOException("cannot encode session metadata", impossible);
@@ -135,14 +157,12 @@ final class CallArtifactStore {
         }
     }
 
-    private static long readExpiry(File directory) {
+    private static CallArtifactRetention.Deadline readDeadline(File directory) {
         try {
-            SessionMetadata metadata = readMetadata(directory);
-            return CallArtifactRetention.validatedExpiry(
-                    metadata.createdAtEpochMillis, metadata.expiresAtEpochMillis);
+            return readMetadata(directory).deadline;
         } catch (IOException | JSONException error) {
             // An unreadable session cannot be proven unexpired, so delete it.
-            return CallArtifactRetention.UNREADABLE_EXPIRY;
+            return CallArtifactRetention.Deadline.unreadable();
         }
     }
 
@@ -151,9 +171,16 @@ final class CallArtifactStore {
         AtomicFile file = new AtomicFile(new File(directory, "session.json"));
         String text = new String(file.readFully(), StandardCharsets.UTF_8);
         JSONObject metadata = new JSONObject(text);
+        if (metadata.getInt("schema_version") != 2) {
+            throw new JSONException("unsupported call artifact metadata schema");
+        }
         return new SessionMetadata(
-                metadata.getLong("created_at_epoch_ms"),
-                metadata.getLong("expires_at_epoch_ms"),
+                new CallArtifactRetention.Deadline(
+                        metadata.getString("boot_identity"),
+                        metadata.getLong("created_at_epoch_ms"),
+                        metadata.getLong("expires_at_epoch_ms"),
+                        metadata.getLong("created_at_elapsed_realtime_ms"),
+                        metadata.getLong("expires_at_elapsed_realtime_ms")),
                 metadata.getBoolean("answered_by_ai"));
     }
 
