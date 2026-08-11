@@ -166,7 +166,9 @@ camera application that created them.
   ASR in bounded windows and stored as private timestamped, full-text-searchable
   subtitles. Missing audio and no detected speech are recorded distinctly.
 - Every ringing, dialing, active, waiting, held, or conferenced call preempts all
-  media inference, whether or not AI processing is enabled.
+  media inference, whether or not AI processing is enabled. Cancellation must
+  reach an in-flight native video-audio decode rather than waiting for its
+  normal window completion; stale cancellation must not affect call ASR.
 - Originals remain viewable if inference fails or is interrupted.
 - Model Broker loss, JobScheduler cancellation, and late callbacks must return
   the claimed item to its durable queue immediately. Only the exact active

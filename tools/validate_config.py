@@ -1020,12 +1020,16 @@ def validate_aosp_overlay(root: Path) -> None:
         "runtime/whisperprovider/settings.gradle.kts",
         "runtime/whisperprovider/build.gradle.kts",
         "runtime/whisperprovider/app/build.gradle.kts",
+        "runtime/whisperprovider/app/gradle.lockfile",
+        "runtime/whisperprovider/gradle/verification-metadata.xml",
         "runtime/whisperprovider/app/src/main/AndroidManifest.xml",
         "runtime/whisperprovider/app/src/main/cpp/CMakeLists.txt",
         "runtime/whisperprovider/app/src/main/cpp/aios_whisper_jni.cpp",
         "runtime/whisperprovider/app/src/main/java/com/aios/runtime/whispercpp/NativeWhisper.kt",
         "runtime/whisperprovider/app/src/main/java/com/aios/runtime/whispercpp/WhisperRuntimeService.kt",
+        "runtime/whisperprovider/app/src/main/java/com/aios/runtime/whispercpp/DecodeCancellationFence.java",
         "runtime/whisperprovider/app/src/main/java/com/aios/runtime/whispercpp/StreamingAsrTurnAccumulator.java",
+        "runtime/whisperprovider/app/src/test/java/com/aios/runtime/whispercpp/DecodeCancellationFenceTest.java",
         "runtime/whisperprovider/app/src/test/java/com/aios/runtime/whispercpp/StreamingAsrTurnAccumulatorTest.java",
         "runtime/whisperprovider/bootstrap_source.sh",
         "runtime/whisperprovider/bootstrap_dependency_locks.sh",
@@ -2914,9 +2918,66 @@ def validate_aosp_overlay(root: Path) -> None:
     require("CMAKE_CXX_STANDARD 17" in whisper_cmake
             and "armv8.2-a+fp16" in whisper_cmake
             and "WHISPER_BUILD_TESTS OFF" in whisper_cmake
+            and 'testImplementation("junit:junit:4.13.2")' in whisper_build
             and 'sourceSets["main"].java.srcDir("../../common/src/main/java")'
             in whisper_build,
             "ASR native build must be pinned to the arm64 mobile profile")
+    whisper_bootstrap = (whisper_root / "bootstrap_dependency_locks.sh").read_text(
+        encoding="utf-8"
+    )
+    whisper_release_build = (whisper_root / "build_provider.sh").read_text(
+        encoding="utf-8"
+    )
+    require(":app:dependencies" in whisper_bootstrap
+            and "--dependency-verification=strict" in whisper_bootstrap
+            and "app/gradle.lockfile" in whisper_release_build,
+            "ASR lock bootstrap must precede strict offline provenance build")
+    whisper_lock = (whisper_root / "app" / "gradle.lockfile").read_text(
+        encoding="utf-8"
+    )
+    whisper_verification = (whisper_root / "gradle" /
+                            "verification-metadata.xml").read_text(encoding="utf-8")
+    require("junit:junit:4.13.2=" in whisper_lock
+            and "junit-4.13.2.jar" in whisper_verification
+            and "8e495b634469d64fb8acfa3495a065cbacc8a0fff55ce1e31007be4c16dc57d3"
+            in whisper_verification,
+            "ASR dependency lock and verification digest must match reviewed JUnit")
+    whisper_properties = (whisper_root / "gradle.properties").read_text(
+        encoding="utf-8"
+    )
+    require("org.gradle.configuration-cache=false" in whisper_properties,
+            "ASR provenance build must disable incompatible configuration caching")
+    whisper_jni = (whisper_root / "app" / "src" / "main" / "cpp" /
+                   "aios_whisper_jni.cpp").read_text(encoding="utf-8")
+    whisper_native_api = (whisper_root / "app" / "src" / "main" / "java" /
+                          "com" / "aios" / "runtime" / "whispercpp" /
+                          "NativeWhisper.kt").read_text(encoding="utf-8")
+    decode_fence = (whisper_root / "app" / "src" / "main" / "java" /
+                    "com" / "aios" / "runtime" / "whispercpp" /
+                    "DecodeCancellationFence.java").read_text(encoding="utf-8")
+    decode_fence_test = (whisper_root / "app" / "src" / "test" / "java" /
+                         "com" / "aios" / "runtime" / "whispercpp" /
+                         "DecodeCancellationFenceTest.java").read_text(encoding="utf-8")
+    require("params.abort_callback = abort_decode" in whisper_jni
+            and "params.abort_callback_user_data = cancellation" in whisper_jni
+            and "std::atomic<bool> cancelled" in whisper_jni
+            and "memory_order_acquire" in whisper_jni
+            and "memory_order_release" in whisper_jni
+            and "external fun createCancellation(): Long" in whisper_native_api
+            and "external fun destroyCancellation(cancellation: Long)"
+            in whisper_native_api
+            and "session.decodeCancellation.attach" in whisper_source
+            and "session.decodeCancellation.finish" in whisper_source
+            and whisper_source.count("session.decodeCancellation.cancel") == 2
+            and "synchronized void attach" in decode_fence
+            and "synchronized void cancel" in decode_fence
+            and "synchronized void finish" in decode_fence
+            and "activeToken != token" in decode_fence
+            and "activeTokenIsCancelledAndDestroyedExactlyOnce"
+            in decode_fence_test
+            and "cancellationBeforeAttachAbortsTheNextToken" in decode_fence_test
+            and "staleFinishCannotDestroyTheCurrentToken" in decode_fence_test,
+            "ASR cancellation must abort active native compute without token lifetime races")
 
     tts_root = root / "runtime" / "ttsprovider"
     tts_manifest = (tts_root / "app" / "src" / "main" /

@@ -1,7 +1,9 @@
 #include <jni.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cstring>
+#include <new>
 #include <string>
 
 #include "whisper.h"
@@ -21,6 +23,24 @@ whisper_context * checked_context(JNIEnv * env, jlong value) {
         throw_java(env, "java/lang/IllegalStateException", "native context is absent");
     }
     return context;
+}
+
+struct decode_cancellation {
+    std::atomic<bool> cancelled{false};
+};
+
+decode_cancellation * checked_cancellation(JNIEnv * env, jlong value) {
+    auto * cancellation = reinterpret_cast<decode_cancellation *>(value);
+    if (cancellation == nullptr) {
+        throw_java(env, "java/lang/IllegalStateException", "decode cancellation is absent");
+    }
+    return cancellation;
+}
+
+bool abort_decode(void * user_data) {
+    auto * cancellation = static_cast<decode_cancellation *>(user_data);
+    return cancellation != nullptr
+            && cancellation->cancelled.load(std::memory_order_acquire);
 }
 
 }  // namespace
@@ -48,6 +68,33 @@ Java_com_aios_runtime_whispercpp_NativeWhisper_create(
     return reinterpret_cast<jlong>(context);
 }
 
+extern "C" JNIEXPORT jlong JNICALL
+Java_com_aios_runtime_whispercpp_NativeWhisper_createCancellation(
+        JNIEnv * env, jobject) {
+    auto * cancellation = new (std::nothrow) decode_cancellation();
+    if (cancellation == nullptr) {
+        throw_java(env, "java/lang/OutOfMemoryError", "cannot allocate decode cancellation");
+        return 0;
+    }
+    return reinterpret_cast<jlong>(cancellation);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_aios_runtime_whispercpp_NativeWhisper_cancel(
+        JNIEnv * env, jobject, jlong cancellation_value) {
+    decode_cancellation * cancellation = checked_cancellation(env, cancellation_value);
+    if (cancellation != nullptr) {
+        cancellation->cancelled.store(true, std::memory_order_release);
+    }
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_aios_runtime_whispercpp_NativeWhisper_destroyCancellation(
+        JNIEnv * env, jobject, jlong cancellation_value) {
+    decode_cancellation * cancellation = checked_cancellation(env, cancellation_value);
+    if (cancellation != nullptr) delete cancellation;
+}
+
 extern "C" JNIEXPORT jobjectArray JNICALL
 Java_com_aios_runtime_whispercpp_NativeWhisper_transcribe(
         JNIEnv * env,
@@ -55,9 +102,13 @@ Java_com_aios_runtime_whispercpp_NativeWhisper_transcribe(
         jlong context_value,
         jfloatArray samples,
         jstring language,
-        jint thread_count) {
+        jint thread_count,
+        jlong cancellation_value) {
     whisper_context * context = checked_context(env, context_value);
-    if (context == nullptr || samples == nullptr || language == nullptr) {
+    decode_cancellation * cancellation =
+            checked_cancellation(env, cancellation_value);
+    if (context == nullptr || cancellation == nullptr
+            || samples == nullptr || language == nullptr) {
         if (!env->ExceptionCheck()) {
             throw_java(env, "java/lang/IllegalArgumentException", "transcription input is absent");
         }
@@ -90,11 +141,14 @@ Java_com_aios_runtime_whispercpp_NativeWhisper_transcribe(
     params.suppress_nst = true;
     params.language = language_chars;
     params.detect_language = std::strcmp(language_chars, "auto") == 0;
+    params.abort_callback = abort_decode;
+    params.abort_callback_user_data = cancellation;
 
     const int status = whisper_full(context, params, pcm, sample_count);
     env->ReleaseFloatArrayElements(samples, pcm, JNI_ABORT);
     env->ReleaseStringUTFChars(language, language_chars);
     if (status != 0) {
+        if (cancellation->cancelled.load(std::memory_order_acquire)) return nullptr;
         throw_java(env, "java/lang/IllegalStateException", "whisper decode failed");
         return nullptr;
     }

@@ -16,8 +16,8 @@ android {
         applicationId = "com.aios.runtime.whispercpp"
         minSdk = 35
         targetSdk = 36
-        versionCode = 10902
-        versionName = "1.9.2"
+        versionCode = 10903
+        versionName = "1.9.3"
         ndk { abiFilters += "arm64-v8a" }
         externalNativeBuild {
             cmake { cppFlags += listOf("-std=c++17") }
@@ -67,6 +67,10 @@ kotlin {
     }
 }
 
+dependencies {
+    testImplementation("junit:junit:4.13.2")
+}
+
 dependencyLocking { lockAllConfigurations() }
 
 fun sha256(path: File): String {
@@ -83,6 +87,7 @@ fun sha256(path: File): String {
 }
 
 tasks.register("writeRuntimeProvenance") {
+    notCompatibleWithConfigurationCache("resolves dependencies and hashes build inputs")
     dependsOn("assembleRelease")
     doLast {
         val verification = rootProject.file("gradle/verification-metadata.xml")
@@ -106,7 +111,7 @@ tasks.register("writeRuntimeProvenance") {
             "runtime" to "whisper_cpp",
             "provider_package" to "com.aios.runtime.whispercpp",
             "provider_service" to "com.aios.runtime.whispercpp.WhisperRuntimeService",
-            "implementation_version" to "1.9.2",
+            "implementation_version" to "1.9.3",
             "source_repository" to "https://github.com/ggml-org/whisper.cpp",
             "source_revision" to "306c88f4d1286aec1bf96e544632897886af5501",
             "reproducible_build_command" to

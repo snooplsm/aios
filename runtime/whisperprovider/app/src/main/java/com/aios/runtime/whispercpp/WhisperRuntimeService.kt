@@ -34,7 +34,7 @@ class WhisperRuntimeService : Service() {
     private companion object {
         const val BROKER_PACKAGE = "com.aios.modelbroker"
         const val RUNTIME_ID = "whisper_cpp"
-        const val IMPLEMENTATION_VERSION = "1.9.2"
+        const val IMPLEMENTATION_VERSION = "1.9.3"
         const val PROVIDER_API_VERSION = 2
         const val ERROR_INVALID_REQUEST = 2
         const val ERROR_BUSY = 3
@@ -77,6 +77,7 @@ class WhisperRuntimeService : Service() {
         val englishWindows = AtomicInteger(0)
         val spanishWindows = AtomicInteger(0)
         val turn = StreamingAsrTurnAccumulator()
+        val decodeCancellation = DecodeCancellationFence()
         lateinit var deathRecipient: IBinder.DeathRecipient
         @Volatile var input: ParcelFileDescriptor? = null
         @Volatile var reader: Thread? = null
@@ -115,6 +116,10 @@ class WhisperRuntimeService : Service() {
     @Volatile private var currentModel: ModelHolder? = null
     @Volatile private var stopping = false
     private lateinit var decodeThread: Thread
+    private val nativeDecodeSignal = object : DecodeCancellationFence.NativeSignal {
+        override fun cancel(token: Long) = NativeWhisper.cancel(token)
+        override fun destroy(token: Long) = NativeWhisper.destroyCancellation(token)
+    }
 
     private val binder = object : IAiosRuntimeProvider.Stub() {
         override fun getProviderApiVersion(): Int {
@@ -492,18 +497,27 @@ class WhisperRuntimeService : Service() {
             try {
                 val decoded = synchronized(modelLock) {
                     if (session.cancelled.get() || session.completed.get()) {
-                        emptyArray()
+                        emptyArray<String>()
                     } else {
                         val model = ensureModel(session.artifact)
-                        NativeWhisper.transcribe(
-                            model.nativeContext,
-                            window.samples!!,
-                            "auto",
-                            THREAD_COUNT,
-                        )
+                        val cancellation = NativeWhisper.createCancellation()
+                        check(cancellation != 0L) { "native cancellation token is absent" }
+                        session.decodeCancellation.attach(cancellation, nativeDecodeSignal)
+                        try {
+                            NativeWhisper.transcribe(
+                                model.nativeContext,
+                                window.samples!!,
+                                "auto",
+                                THREAD_COUNT,
+                                cancellation,
+                            )
+                        } finally {
+                            session.decodeCancellation.finish(cancellation, nativeDecodeSignal)
+                        }
                     }
                 }
                 if (session.cancelled.get() || session.completed.get()) continue
+                if (decoded == null) continue
                 val language = decoded.getOrElse(0) { "und" }
                 val text = decoded.getOrElse(1) { "" }.trim()
                 if (language !in setOf("en", "es")) {
@@ -607,6 +621,7 @@ class WhisperRuntimeService : Service() {
         if (!session.completed.compareAndSet(false, true)) return
         sessions.remove(session.id, session)
         session.cancelled.set(true)
+        session.decodeCancellation.cancel(nativeDecodeSignal)
         session.callback.asBinder().unlinkToDeath(session.deathRecipient, 0)
         closeDescriptor(session.input)
         removeQueuedWindows(session)
@@ -617,6 +632,7 @@ class WhisperRuntimeService : Service() {
         val session = sessions.remove(sessionId) ?: return
         session.cancelled.set(true)
         session.completed.set(true)
+        session.decodeCancellation.cancel(nativeDecodeSignal)
         session.callback.asBinder().unlinkToDeath(session.deathRecipient, 0)
         closeDescriptor(session.input)
         removeQueuedWindows(session)

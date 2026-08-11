@@ -54,8 +54,10 @@ output. User builds do not expose the dump endpoint.
    Spanish videos and wait for each deferred storyboard plus full-audio subtitle
    job to finish.
 5. Repeat video capture until the timing group has a useful sample size. Do not
-   place calls during the nominal run; separately verify that a call preempts the
-   media job and leaves it retryable.
+   place calls during the nominal run. Separately place a call while a native
+   four-second video-audio Whisper window is actively decoding; verify the
+   decode aborts, the media job remains retryable, and incoming call ASR is not
+   delayed until that window's ordinary completion.
 6. Capture model evidence with `scripts/capture-model-benchmark.ps1` and media
    timing with:
 

@@ -32,4 +32,5 @@ runtime/*/.gradle/
 runtime/*/.kotlin/
 runtime/*/build/
 runtime/*/app/build/
+runtime/*/app/.cxx/
 runtime/*/third_party/

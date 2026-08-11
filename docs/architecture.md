@@ -200,7 +200,9 @@ The Model Broker is a signature-protected Binder service. It:
 - isolates every native runtime behind a verified service binding, fails active
   sessions on provider loss, and explicitly replaces terminal/null bindings
   with bounded backoff and a connection watchdog;
-- cancels media work when a call begins or thermal pressure becomes severe; and
+- cancels media work when a call begins or thermal pressure becomes severe,
+  including aborting an in-flight native Whisper decode through its exact
+  session-owned cancellation token; and
 - records aggregate performance counters without recording prompts or media.
 
 Call Intelligence converts the dialer's complete Telecom-presence set into a

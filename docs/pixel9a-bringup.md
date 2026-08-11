@@ -181,6 +181,12 @@ Run gates in this order:
    greeting or a new 24-hour deadline. Repeat by replacing the exact Broker APK,
    with a null-binding test build, and with a capability query held beyond the
    15-second watchdog; retries must cap at one minute.
+   For `model.call_preempts_media`, start a speech-bearing deferred-video audio
+   window and place a call only after native Whisper decode begins. Confirm the
+   media session's active native compute aborts, its durable job returns to the
+   retryable queue, and the first downlink partial meets the call latency gate.
+   Repeat at the cancellation/next-window boundary and confirm no stale media
+   token cancels either call ASR stream.
    For
    `model.build_fingerprint_admission_enforced`, verify the admitted models load
    under the benchmarked build fingerprint, then boot an image with a different

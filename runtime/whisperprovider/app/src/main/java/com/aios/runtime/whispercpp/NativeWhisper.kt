@@ -8,13 +8,20 @@ internal object NativeWhisper {
 
     external fun create(modelPath: String): Long
 
+    external fun createCancellation(): Long
+
+    external fun cancel(cancellation: Long)
+
+    external fun destroyCancellation(cancellation: Long)
+
     /** Returns [detectedLanguage, transcript]. */
     external fun transcribe(
         context: Long,
         samples: FloatArray,
         language: String,
         threadCount: Int,
-    ): Array<String>
+        cancellation: Long,
+    ): Array<String>?
 
     external fun destroy(context: Long)
 }

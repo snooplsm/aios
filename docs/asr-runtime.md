@@ -32,6 +32,17 @@ falling behind closes that AI stream rather than blocking authoritative local
 capture or telephony. English and Spanish are auto-detected per window; other
 detected languages fail the prototype's declared language policy.
 
+Broker cancellation also reaches an already-running native decode. Every
+`whisper_full` call owns an opaque cancellation token, and the pinned
+whisper.cpp `abort_callback` polls its atomic state before ggml computation.
+The JVM fence serializes attach, cancellation, and destruction so a late Binder
+cancel cannot touch a freed token. Therefore a preempted video window does not
+hold the sole decode thread until its normal four-second-window completion; its
+queued windows and reader are cancelled by the existing session teardown, and
+the next priority item can be incoming call audio. Model loading itself remains
+a measured cold-start boundary because whisper.cpp does not expose the same
+abort hook for context construction.
+
 An idle Whisper context stays warm across `UI_HIDDEN` callbacks to avoid a cold
 start merely because the provider has no visible activity. Exact running-low,
 running-critical, and cached-process pressure callbacks release it; an active

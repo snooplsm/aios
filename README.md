@@ -83,7 +83,11 @@ JPEG storyboard; the original video is never rewritten, and the storyboard is
 erased after its bounded vision request. The complete primary audio track is separately
 decoded as streaming 16 kHz mono PCM and passed through the same bilingual
 Whisper runtime used for calls, producing private timestamped subtitles in a
-source-linked full-text index. Automatic indexing never rewrites a video. From
+source-linked full-text index. Automatic indexing never rewrites a video.
+Whenever a call becomes present, Broker cancellation reaches an active
+native video Whisper decode through a race-fenced abort token, freeing the sole
+decode lane for incoming speech without allowing stale cancellation to touch a
+call stream. From
 the system share sheet, the owner can explicitly choose **Create AI-enhanced
 copy** to publish a new MP4 in `Movies/AIOS`; it copies the encoded audio/video
 samples without recompression and embeds bounded AIOS description and timed
