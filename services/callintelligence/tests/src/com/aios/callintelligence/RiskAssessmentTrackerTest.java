@@ -103,6 +103,33 @@ public final class RiskAssessmentTrackerTest {
         assertEquals(2L, risky.revision);
     }
 
+    @Test
+    public void streamLossRetractsProvisionalHeuristicAndModelEvidence() {
+        RiskAssessmentTracker tracker = tracker(false);
+        tracker.initial();
+        tracker.observeHeuristicRevision("Send a gift card immediately", "en", false);
+        RiskAssessmentTracker.Update risky = tracker.observeModelRevision(
+                90, SpamRiskEngine.HIGH_RISK, "possible_impersonation", false);
+
+        RiskAssessmentTracker.Update retracted = tracker.abandonProvisionalTranscript();
+
+        assertEquals(SpamRiskEngine.HIGH_RISK, risky.assessment.label);
+        assertEquals(SpamRiskEngine.UNKNOWN, retracted.assessment.label);
+        assertEquals("insufficient_evidence", retracted.assessment.reasonCode);
+        assertEquals(risky.revision + 1L, retracted.revision);
+    }
+
+    @Test
+    public void streamLossPreservesFinalizedRiskEvidence() {
+        RiskAssessmentTracker tracker = tracker(false);
+        tracker.initial();
+        RiskAssessmentTracker.Update finalized = tracker.observeModelRevision(
+                90, SpamRiskEngine.HIGH_RISK, "confirmed_impersonation", true);
+
+        assertNull(tracker.abandonProvisionalTranscript());
+        assertSame(finalized, tracker.current());
+    }
+
     private static RiskAssessmentTracker tracker(boolean knownContact) {
         AtomicLong now = new AtomicLong(1_000L);
         return new RiskAssessmentTracker(

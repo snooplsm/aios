@@ -16,6 +16,10 @@ final class TranscriptRevisionGate {
         return candidate == UNBOUND || candidate == latest;
     }
 
+    synchronized void invalidate() {
+        latest = UNBOUND;
+    }
+
     synchronized long current() {
         return latest;
     }

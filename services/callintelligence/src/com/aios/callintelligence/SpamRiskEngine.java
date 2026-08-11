@@ -138,6 +138,13 @@ final class SpamRiskEngine {
         return current;
     }
 
+    synchronized Assessment abandonProvisionalRevision() {
+        provisionalRiskSignals.clear();
+        provisionalBusinessSignals.clear();
+        current = assessment();
+        return current;
+    }
+
     private Assessment assessment() {
         int score = knownContact ? 0 : 5;
         List<Signal> matched = new ArrayList<>();

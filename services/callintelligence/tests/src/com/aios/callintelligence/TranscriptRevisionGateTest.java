@@ -38,4 +38,16 @@ public final class TranscriptRevisionGateTest {
 
         assertTrue(gate.accepts(TranscriptRevisionGate.UNBOUND));
     }
+
+    @Test
+    public void streamReplacementInvalidatesEarlierClassifierRevision() {
+        TranscriptRevisionGate gate = new TranscriptRevisionGate();
+        gate.advance(7L);
+
+        gate.invalidate();
+
+        assertFalse(gate.accepts(7L));
+        assertEquals(TranscriptRevisionGate.UNBOUND, gate.current());
+        assertTrue(gate.advance(8L));
+    }
 }

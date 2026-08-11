@@ -1114,6 +1114,12 @@ public final class CallIntelligenceService extends Service {
                 || !session.acceptsAsrCallback(direction, streamIdentity)) {
             return;
         }
+        long transcriptRevision = TranscriptRevisionGate.UNBOUND;
+        if ("downlink".equals(direction)) {
+            transcriptRevision = session.acceptDownlinkTranscriptRevision(
+                    streamIdentity, chunk.sequence);
+            if (transcriptRevision == CallTranscriptRevisionClock.UNACCEPTED) return;
+        }
         try {
             session.stored.appendTranscript(
                     direction,
@@ -1146,7 +1152,7 @@ public final class CallIntelligenceService extends Service {
             // only the final turn makes its signals durable.
             RiskAssessmentTracker.Update assessment =
                     session.observeHeuristicRevision(
-                            chunk.text, language, chunk.isFinal, chunk.sequence);
+                            chunk.text, language, chunk.isFinal, transcriptRevision);
             publishAssessment(callId, session, assessment);
             if (!session.isAiHandling()) {
                 classifier.observeRevision(
@@ -1154,7 +1160,7 @@ public final class CallIntelligenceService extends Service {
                         language,
                         chunk.text,
                         chunk.isFinal,
-                        chunk.sequence);
+                        transcriptRevision);
             }
             if (chunk.isFinal) {
                 if (session.isAiHandling()) {
@@ -1186,6 +1192,8 @@ public final class CallIntelligenceService extends Service {
                 if (uplink != null) uplink.close();
                 continue;
             }
+            publishAssessment(
+                    callId, session, session.abandonProvisionalTranscript());
             notifyStatus(callId, 3, uplink == null
                     ? "incoming_asr_restored_uplink_unavailable"
                     : "asr_streams_restored");
@@ -1200,6 +1208,9 @@ public final class CallIntelligenceService extends Service {
         }
         for (Map.Entry<String, ActiveSession> item : snapshot) {
             if (item.getValue().detachAsrStreams(brokerIdentity)) {
+                publishAssessment(
+                        item.getKey(), item.getValue(),
+                        item.getValue().abandonProvisionalTranscript());
                 notifyStatus(item.getKey(), -3, "asr_broker_disconnected_recording_continues");
             }
         }
@@ -1494,6 +1505,8 @@ public final class CallIntelligenceService extends Service {
         private CallerAudioUplink.Stream activeUplink;
         private final TranscriptRevisionGate classifierTranscriptRevisions =
                 new TranscriptRevisionGate();
+        private final CallTranscriptRevisionClock downlinkTranscriptRevisions =
+                new CallTranscriptRevisionClock();
 
         ActiveSession(
                 CallArtifactStore.Session stored,
@@ -1518,6 +1531,9 @@ public final class CallIntelligenceService extends Service {
             assistantHandling = new AssistantHandlingTracker(answeredByAi);
             this.knownContact = knownContact;
             this.communicationContext = communicationContext;
+            if (downlinkAsr != null) {
+                downlinkTranscriptRevisions.activate(downlinkAsr.identity);
+            }
         }
 
         synchronized void setCommunicationContext(
@@ -1565,6 +1581,10 @@ public final class CallIntelligenceService extends Service {
             return risk.current();
         }
 
+        synchronized RiskAssessmentTracker.Update abandonProvisionalTranscript() {
+            return closed ? null : risk.abandonProvisionalTranscript();
+        }
+
         synchronized AssistantHandlingTracker.Update initialAssistantState() {
             return closed ? null : assistantHandling.initial();
         }
@@ -1593,6 +1613,15 @@ public final class CallIntelligenceService extends Service {
             return expected != null && expected.identity == streamIdentity;
         }
 
+        synchronized long acceptDownlinkTranscriptRevision(
+                Object streamIdentity, long sourceRevision) {
+            if (closed || downlinkAsr == null
+                    || downlinkAsr.identity != streamIdentity) {
+                return CallTranscriptRevisionClock.UNACCEPTED;
+            }
+            return downlinkTranscriptRevisions.advance(streamIdentity, sourceRevision);
+        }
+
         synchronized boolean needsAsrRestore(Object brokerIdentity) {
             return !closed && brokerIdentity != null
                     && (downlinkAsr == null
@@ -1613,6 +1642,10 @@ public final class CallIntelligenceService extends Service {
             AsrBrokerClient.Stream previousUplink = uplinkAsr;
             downlinkAsr = null;
             uplinkAsr = null;
+            if (previousDownlink != null) {
+                downlinkTranscriptRevisions.deactivate(previousDownlink.identity);
+                classifierTranscriptRevisions.invalidate();
+            }
             downlinkFanout.replaceSecondary(null);
             uplinkFanout.replaceSecondary(null);
             if (previousDownlink != null) previousDownlink.close();
@@ -1635,6 +1668,8 @@ public final class CallIntelligenceService extends Service {
                     || !uplinkFanout.replaceSecondary(sink(uplink))) {
                 return false;
             }
+            if (!downlinkTranscriptRevisions.activate(downlink.identity)) return false;
+            classifierTranscriptRevisions.invalidate();
             downlinkAsr = downlink;
             uplinkAsr = uplink;
             if (previousDownlink != null) previousDownlink.close();

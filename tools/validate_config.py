@@ -1030,6 +1030,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/callintelligence/src/com/aios/callintelligence/CallContextAccumulator.java",
         "services/callintelligence/src/com/aios/callintelligence/IncrementalCallerTranscript.java",
         "services/callintelligence/src/com/aios/callintelligence/TranscriptRevisionGate.java",
+        "services/callintelligence/src/com/aios/callintelligence/CallTranscriptRevisionClock.java",
         "services/callintelligence/src/com/aios/callintelligence/CallRequestIdentityTracker.java",
         "services/callintelligence/src/com/aios/callintelligence/CallArtifactRetention.java",
         "services/callintelligence/src/com/aios/callintelligence/CallArtifactStore.java",
@@ -1060,6 +1061,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/callintelligence/tests/src/com/aios/callintelligence/CallContextAccumulatorTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/IncrementalCallerTranscriptTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/TranscriptRevisionGateTest.java",
+        "services/callintelligence/tests/src/com/aios/callintelligence/CallTranscriptRevisionClockTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/CallRequestIdentityTrackerTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/Pcm16MonoToStereo48kTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/RequiredCaptureGateTest.java",
@@ -2967,6 +2969,13 @@ def validate_aosp_overlay(root: Path) -> None:
         root / "services" / "callintelligence" / "tests" / "src" / "com" /
         "aios" / "callintelligence" / "TranscriptRevisionGateTest.java"
     ).read_text(encoding="utf-8")
+    call_transcript_clock_source = (
+        call_source_root / "CallTranscriptRevisionClock.java"
+    ).read_text(encoding="utf-8")
+    call_transcript_clock_test = (
+        root / "services" / "callintelligence" / "tests" / "src" / "com" /
+        "aios" / "callintelligence" / "CallTranscriptRevisionClockTest.java"
+    ).read_text(encoding="utf-8")
     assistant_tracker_source = (call_source_root /
                                 "AssistantHandlingTracker.java").read_text(
                                     encoding="utf-8")
@@ -3260,17 +3269,44 @@ def validate_aosp_overlay(root: Path) -> None:
             "live classifier context must replace partial hypotheses and retain final turns")
     require("candidate <= latest" in transcript_revision_gate_source
             and "candidate == latest" in transcript_revision_gate_source
+            and "void invalidate()" in transcript_revision_gate_source
             and "onlyStrictlyNewerAsrSequencesAdvance" in transcript_revision_gate_test
             and "classifierResultMustMatchTheExactCurrentSequence"
             in transcript_revision_gate_test
+            and "streamReplacementInvalidatesEarlierClassifierRevision"
+            in transcript_revision_gate_test
+            and "activeStream != streamIdentity" in call_transcript_clock_source
+            and "nextCallRevision++" in call_transcript_clock_source
+            and "replacementStreamCanRestartAtZeroWithoutRevisionCollision"
+            in call_transcript_clock_test
+            and "detachmentRejectsLateCallbacksUntilReplacementActivates"
+            in call_transcript_clock_test
+            and "recoveredRevisionPreservesFinalizedClassifierContext"
+            in call_transcript_clock_test
+            and "acceptDownlinkTranscriptRevision(" in call_service
+            and "downlinkTranscriptRevisions.activate(downlink.identity)"
+            in call_service
+            and "downlinkTranscriptRevisions.deactivate(previousDownlink.identity)"
+            in call_service
+            and "classifierTranscriptRevisions.invalidate()" in call_service
+            and "chunk.text, language, chunk.isFinal, transcriptRevision"
+            in call_service
+            and '"src/com/aios/callintelligence/CallTranscriptRevisionClock.java"'
+            in call_host_test
             and "classifierTranscriptRevisions.advance(transcriptRevision)"
             in call_service
             and "classifierTranscriptRevisions.accepts(" in call_service,
-            "classifier results must share the broker-validated ASR revision clock")
+            "classifier results must use a call-global revision clock across recovered ASR streams")
     require("hasProvisionalModelAssessment = false" in risk_tracker_source
             and "observeModelRevision" in risk_tracker_source
+            and "abandonProvisionalTranscript()" in risk_tracker_source
+            and "heuristic.abandonProvisionalRevision()" in risk_tracker_source
+            and "session.abandonProvisionalTranscript()" in call_service
             and "provisionalModelRiskRetractsOnTheNextTranscriptRevision"
             in risk_tracker_test
+            and "streamLossRetractsProvisionalHeuristicAndModelEvidence"
+            in risk_tracker_test
+            and "streamLossPreservesFinalizedRiskEvidence" in risk_tracker_test
             and "finalizedModelRiskSurvivesLaterPartialWords" in risk_tracker_test,
             "partial model risk must retract while finalized model evidence remains durable")
     receptionist_source = (

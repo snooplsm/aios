@@ -49,6 +49,14 @@ identities and only the inference branches of the PCM fanouts. Local recording
 continues, and fresh English/Spanish downlink and uplink streams are attached to
 every still-live session after capability discovery succeeds. The existing call
 artifact and its original expiry are unchanged.
+Provider chunk sequences are scoped to one ASR session and restart at zero after
+that recovery. Call Intelligence maps them onto a call-global monotonic revision
+clock before risk or classifier consumers see them. Detaching a stream rejects
+late callbacks and invalidates its outstanding classifier revision; the first
+chunk from the replacement stream therefore resumes at a collision-free newer
+revision without discarding finalized transcript history. Stream loss also
+retracts interrupted provisional heuristic/model evidence immediately while
+leaving every finalized risk signal intact.
 
 Downlink transcript segments first pass through an explainable English/Spanish
 heuristic scorer with deduplicated high-risk signals. A debounced Gemma

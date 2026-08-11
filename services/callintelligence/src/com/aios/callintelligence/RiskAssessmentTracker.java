@@ -90,6 +90,12 @@ final class RiskAssessmentTracker {
         return changedCombined();
     }
 
+    synchronized Update abandonProvisionalTranscript() {
+        hasProvisionalModelAssessment = false;
+        heuristic.abandonProvisionalRevision();
+        return changedCombined();
+    }
+
     private Update changedCombined() {
         SpamRiskEngine.Assessment currentHeuristic = heuristic.current();
         SpamRiskEngine.Assessment combined = currentHeuristic;
