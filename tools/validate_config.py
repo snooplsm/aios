@@ -1019,6 +1019,10 @@ def validate_aosp_overlay(root: Path) -> None:
         "runtime/common/src/main/java/com/aios/runtime/common/RuntimeMemoryTrimPolicy.java",
         "runtime/common/tests/src/com/aios/runtime/common/RuntimeMemoryTrimPolicyTest.java",
         "preview/runtimecommoncheck/build.gradle.kts",
+        "preview/runtimeprovidercheck/build.gradle.kts",
+        "preview/runtimeprovidercheck/src/main/AndroidManifest.xml",
+        "preview/runtimeprovidercheck/src/main/java/com/aios/runtime/smoke/RuntimeProviderSmokeActivity.java",
+        "scripts/emulator-runtime-provider-smoke.ps1",
         "preview/whisperpolicycheck/build.gradle.kts",
         "tools/generate_model_pack.py",
         "tools/generate_model_admission.py",
@@ -2890,6 +2894,21 @@ def validate_aosp_overlay(root: Path) -> None:
             "broker must enforce host-tested global, shared-ASR, and call-agent capacities")
 
     provider_root = root / "runtime" / "litertlmprovider"
+    runtime_provider_preview = (
+        root / "preview" / "runtimeprovidercheck" / "build.gradle.kts"
+    ).read_text(encoding="utf-8")
+    runtime_provider_smoke_manifest = (
+        root / "preview" / "runtimeprovidercheck" / "src" / "main" /
+        "AndroidManifest.xml"
+    ).read_text(encoding="utf-8")
+    runtime_provider_smoke = (
+        root / "preview" / "runtimeprovidercheck" / "src" / "main" / "java" /
+        "com" / "aios" / "runtime" / "smoke" /
+        "RuntimeProviderSmokeActivity.java"
+    ).read_text(encoding="utf-8")
+    runtime_provider_smoke_runner = (
+        root / "scripts" / "emulator-runtime-provider-smoke.ps1"
+    ).read_text(encoding="utf-8")
     runtime_trim_policy = (
         root / "runtime" / "common" / "src" / "main" / "java" / "com" /
         "aios" / "runtime" / "common" / "RuntimeMemoryTrimPolicy.java"
@@ -2915,6 +2934,26 @@ def validate_aosp_overlay(root: Path) -> None:
             and 'java.srcDir("../../runtime/common/src/main/java")'
             in runtime_common_preview,
             "runtime providers must share host-tested non-monotonic trim semantics")
+    require('include(":runtimeprovidercheck")' in model_preview_settings
+            and 'applicationId = "com.aios.modelbroker"'
+            in runtime_provider_preview
+            and '../../services/modelbroker/aidl' in runtime_provider_preview
+            and '../../services/runtimeapi/aidl' in runtime_provider_preview
+            and "com.aios.permission.PROVIDE_MODEL_RUNTIME"
+            in runtime_provider_smoke_manifest
+            and "IAiosRuntimeProvider.Stub.asInterface" in runtime_provider_smoke
+            and "com.aios.runtime.litertlm.LiteRtLmRuntimeService"
+            in runtime_provider_smoke
+            and "outside the read-only model directory" in runtime_provider_smoke
+            and "AIOS_RUNTIME_PROVIDER_SMOKE_OK" in runtime_provider_smoke
+            and "Refusing to run runtime-provider smoke checks on non-emulator serial"
+            in runtime_provider_smoke_runner
+            and "real_inference_executed = $false" in runtime_provider_smoke_runner
+            and "provider_apk_x86_64_native_entry_verified = $true"
+            in runtime_provider_smoke_runner
+            and "arm64_provider_evidence = $false" in runtime_provider_smoke_runner
+            and "physical_gate_evidence = $false" in runtime_provider_smoke_runner,
+            "LiteRT-LM needs guarded cross-process Android provider evidence without fake inference")
     provider_manifest = (provider_root / "app" / "src" / "main" /
                          "AndroidManifest.xml").read_text(encoding="utf-8")
     require('android:process=":runtime"' in provider_manifest

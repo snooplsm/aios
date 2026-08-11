@@ -92,6 +92,18 @@ benchmark-client quota. The runner refuses to replace an existing package and
 removes every temporary byte and APK. It does not claim real inference, runtime-
 provider activation, AVB protection, or physical-Pixel admission evidence.
 
+`runtimeprovidercheck` is the separate broker-identity client for
+`scripts/emulator-runtime-provider-smoke.ps1`. The runner installs the actual
+LiteRT-LM provider APK beside that client on an x86_64 API-35+ emulator. Across a
+real secondary-process Binder boundary it verifies provider/version/backend
+identity, signature-permission rejection of the shell, invalid request typing,
+backend allowlisting, `/product/etc/aios/models` confinement, one bounded and
+path-redacted terminal callback, and provider survival. Its input is disposable
+plain text; real inference, weights, arm64, and physical hardware remain false.
+Build the provider first with its required Gradle 8.11.1 offline/strict command,
+then build `:runtimeprovidercheck:assembleDebug`; the runner hashes both exact
+APKs before installation and records those digests in ignored local evidence.
+
 `mediascancheck` stages every production Media Intelligence Java source, test,
 Binder contract, resource, and the real application manifest. Its debug overlay
 adds emulator fixtures for the production capture-grouping, 80%-while-charging,

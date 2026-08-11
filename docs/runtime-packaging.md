@@ -7,6 +7,15 @@ AVB-protected runtime catalog, requires a system app holding the signature-only
 provider permission, and checks provider API, runtime, implementation version,
 and backend identity before advertising a capability.
 
+The public-SDK `preview:runtimeprovidercheck` app can exercise the separately
+built production LiteRT-LM provider on an x86_64 emulator. It runs under the
+exact Model Broker package identity, defines the same signature permission for
+the temporary two-APK install, and binds the provider's secondary process. The
+fixture verifies transport identity, request/backend rejection, model-path
+confinement, bounded terminal callbacks, and provider survival using disposable
+plain-text bytes. It does not bypass `/product`, load weights, or claim inference,
+arm64, AVB, or physical-device evidence.
+
 The broker distinguishes an ordinary provider-process disconnect, for which
 Android retains and reconnects the existing binding, from terminal
 `onBindingDied` and `onNullBinding` callbacks. Terminal bindings are unbound and

@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <permission
+        android:name="com.aios.permission.PROVIDE_MODEL_RUNTIME"
+        android:protectionLevel="signature" />
+    <uses-permission android:name="com.aios.permission.PROVIDE_MODEL_RUNTIME" />
+
+    <queries>
+        <package android:name="com.aios.runtime.litertlm" />
+        <intent>
+            <action android:name="com.aios.model.RUNTIME_PROVIDER" />
+        </intent>
+    </queries>
+
+    <application
+        android:allowBackup="false"
+        android:hasCode="true"
+        android:label="AIOS Runtime Provider Smoke">
+        <activity
+            android:name=".RuntimeProviderSmokeActivity"
+            android:exported="true" />
+    </application>
+</manifest>
