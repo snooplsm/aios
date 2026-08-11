@@ -18,11 +18,12 @@ android {
         targetSdk = 36
         versionCode = 15
         versionName = "0.15.0"
+        buildConfigField("boolean", "ALLOW_EMULATOR_MODEL_FIXTURES", "false")
     }
 
     buildFeatures {
         aidl = true
-        buildConfig = false
+        buildConfig = true
     }
 
     compileOptions {
@@ -37,8 +38,12 @@ android {
     sourceSets["main"].java.srcDir("../../common/src/main/java")
 
     buildTypes {
+        debug {
+            buildConfigField("boolean", "ALLOW_EMULATOR_MODEL_FIXTURES", "true")
+        }
         release {
             isMinifyEnabled = true
+            buildConfigField("boolean", "ALLOW_EMULATOR_MODEL_FIXTURES", "false")
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"),
                           "proguard-rules.pro")
         }

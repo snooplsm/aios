@@ -27,14 +27,22 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import org.json.JSONObject;
+
 /** Cross-process smoke client for the production LiteRT-LM runtime provider APK. */
 public final class RuntimeProviderSmokeActivity extends Activity {
     private static final String TAG = "AiosRuntimeProviderSmoke";
     private static final ComponentName PROVIDER = new ComponentName(
             "com.aios.runtime.litertlm",
             "com.aios.runtime.litertlm.LiteRtLmRuntimeService");
+    private static final String EXTRA_MODEL_PATH = "inference_model_path";
+    private static final String EXTRA_MODEL_SIZE = "inference_model_size";
+    private static final String EXTRA_MODEL_SHA256 = "inference_model_sha256";
 
     private boolean bound;
+    private String inferenceModelPath;
+    private long inferenceModelSize;
+    private String inferenceModelSha256;
 
     private final ServiceConnection connection = new ServiceConnection() {
         @Override
@@ -66,6 +74,9 @@ public final class RuntimeProviderSmokeActivity extends Activity {
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
+        inferenceModelPath = getIntent().getStringExtra(EXTRA_MODEL_PATH);
+        inferenceModelSize = getIntent().getLongExtra(EXTRA_MODEL_SIZE, -1L);
+        inferenceModelSha256 = getIntent().getStringExtra(EXTRA_MODEL_SHA256);
         Intent intent = new Intent("com.aios.model.RUNTIME_PROVIDER").setComponent(PROVIDER);
         try {
             bound = bindService(intent, connection, Context.BIND_AUTO_CREATE);
@@ -125,6 +136,33 @@ public final class RuntimeProviderSmokeActivity extends Activity {
         require("litert_lm".equals(remote.getRuntimeId()),
                 "provider process did not survive rejected model preparation");
         require(outside.delete(), "temporary runtime fixture survived execution");
+
+        if (inferenceModelPath != null) {
+            verifyRealInference(remote);
+            Log.i(TAG, "AIOS_RUNTIME_REAL_INFERENCE_OK");
+        }
+    }
+
+    private void verifyRealInference(IAiosRuntimeProvider remote) throws Exception {
+        require(inferenceModelPath.startsWith(
+                        "/data/user/0/com.aios.runtime.litertlm/files/emulator-models/")
+                        && inferenceModelSize > 0L
+                        && inferenceModelSha256 != null
+                        && inferenceModelSha256.matches("[0-9a-f]{64}"),
+                "real-inference fixture identity is invalid");
+        RuntimeArtifact model = artifact(inferenceModelPath);
+        model.modelId = "litertlm-upstream-toy";
+        model.sizeBytes = inferenceModelSize;
+        model.modelDigest = inferenceModelSha256;
+        ModelRequest request = request();
+        request.requestId = "runtime-real-inference";
+        request.maxOutputTokens = 8;
+        request.deadlineElapsedRealtimeMillis = SystemClock.elapsedRealtime() + 90_000L;
+        InferenceCallback callback = new InferenceCallback();
+        long sessionId = remote.createSession(model, request, callback);
+        require(sessionId > 0L, "toy model did not create a provider session");
+        remote.submitText(sessionId, "Hello", true);
+        callback.await(model, request);
     }
 
     private static ModelRequest request() {
@@ -222,6 +260,66 @@ public final class RuntimeProviderSmokeActivity extends Activity {
                     "timed out waiting for runtime callback");
             SystemClock.sleep(100L);
             require(chunkCount.get() == 0, "rejected request emitted a model chunk");
+        }
+    }
+
+    private static final class InferenceCallback extends IModelCallback.Stub {
+        final AtomicInteger terminalCount = new AtomicInteger();
+        final AtomicInteger chunkCount = new AtomicInteger();
+        final AtomicInteger errorCode = new AtomicInteger(-1);
+        final CountDownLatch terminal = new CountDownLatch(1);
+        final StringBuilder streamedText = new StringBuilder();
+        volatile InferenceResult result;
+        volatile String invalidChunk;
+        long nextSequence;
+
+        @Override
+        public synchronized void onChunk(GenerationChunk chunk) {
+            if (chunk == null || chunk.sequence != nextSequence || chunk.text == null) {
+                invalidChunk = "runtime emitted an invalid or non-contiguous chunk";
+                return;
+            }
+            nextSequence++;
+            chunkCount.incrementAndGet();
+            streamedText.append(chunk.text);
+        }
+
+        @Override
+        public void onCompleted(InferenceResult value) {
+            result = value;
+            terminalCount.incrementAndGet();
+            terminal.countDown();
+        }
+
+        @Override
+        public void onError(int code, String message) {
+            errorCode.set(code);
+            terminalCount.incrementAndGet();
+            terminal.countDown();
+        }
+
+        void await(RuntimeArtifact model, ModelRequest request) throws Exception {
+            require(terminal.await(90L, TimeUnit.SECONDS),
+                    "timed out waiting for real LiteRT-LM inference");
+            SystemClock.sleep(100L);
+            require(invalidChunk == null, invalidChunk);
+            require(errorCode.get() == -1 && terminalCount.get() == 1,
+                    "real inference did not complete exactly once");
+            require(chunkCount.get() > 0 && streamedText.length() > 0,
+                    "real inference emitted no streamed text");
+            require(result != null
+                            && request.requestId.equals(result.requestId)
+                            && request.capability.equals(result.capability)
+                            && model.modelId.equals(result.modelId)
+                            && model.modelDigest.equals(result.modelDigest)
+                            && result.outputJson != null
+                            && result.outputJson.contains("\"schema_version\":1")
+                            && result.outputJson.contains("\"text\":"),
+                    "real inference result lost request or artifact identity");
+            require(streamedText.toString().trim().equals(
+                            new JSONObject(result.outputJson).getString("text"))
+                            && result.elapsedMillis > 0L,
+                    "streamed chunks and terminal inference output diverged");
         }
     }
 }

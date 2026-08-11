@@ -13,8 +13,27 @@ exact Model Broker package identity, defines the same signature permission for
 the temporary two-APK install, and binds the provider's secondary process. The
 fixture verifies transport identity, request/backend rejection, model-path
 confinement, bounded terminal callbacks, and provider survival using disposable
-plain-text bytes. It does not bypass `/product`, load weights, or claim inference,
-arm64, AVB, or physical-device evidence.
+plain-text bytes. An optional real-inference mode copies a host-provided
+`.litertlm` file into the debug provider's private directory, which is admitted
+only when both the debug build flag and a QEMU/Goldfish device check pass. It
+executes CPU generation, checks contiguous streamed chunks against the terminal
+JSON result, deletes the model before uninstall, and never records generated
+text. Release builds compile the private-directory flag to `false` and continue
+to admit only digest- and size-bound files below `/product/etc/aios/models`.
+
+For a reproducible native-execution check, use LiteRT-LM v0.15.0's upstream
+`runtime/testdata/test_lm.litertlm` fixture (48,696,498 bytes, SHA-256
+`36c6cc10f140e5e3526c0838ebb5ce74142b3c0ce8d1356c7d6d0ff50de6a288`):
+
+```powershell
+scripts/emulator-runtime-provider-smoke.ps1 `
+  -InferenceModel .cache/LiteRT-LM-v0.15.0/runtime/testdata/test_lm.litertlm
+```
+
+This proves real LiteRT-LM engine creation and streamed inference across the
+production provider's Binder boundary. The small upstream test model is not a
+Gemma quality test, a release known-answer artifact, or evidence for arm64,
+Tensor acceleration, AVB packaging, physical Pixel behavior, or model admission.
 
 The broker distinguishes an ordinary provider-process disconnect, for which
 Android retains and reconnects the existing binding, from terminal

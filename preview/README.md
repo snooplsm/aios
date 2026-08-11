@@ -98,8 +98,12 @@ LiteRT-LM provider APK beside that client on an x86_64 API-35+ emulator. Across 
 real secondary-process Binder boundary it verifies provider/version/backend
 identity, signature-permission rejection of the shell, invalid request typing,
 backend allowlisting, `/product/etc/aios/models` confinement, one bounded and
-path-redacted terminal callback, and provider survival. Its input is disposable
-plain text; real inference, weights, arm64, and physical hardware remain false.
+path-redacted terminal callback, and provider survival. With `-InferenceModel`,
+the debug provider additionally admits one digest-bound model from its private
+directory only on QEMU, executes real CPU inference, verifies streamed and
+terminal output consistency, and deletes the weights without recording output.
+The checked-in source remains weight-free. The upstream toy model proves native
+execution, not Gemma quality, arm64, Pixel performance, or a release known answer.
 Build the provider first with its required Gradle 8.11.1 offline/strict command,
 then build `:runtimeprovidercheck:assembleDebug`; the runner hashes both exact
 APKs before installation and records those digests in ignored local evidence.

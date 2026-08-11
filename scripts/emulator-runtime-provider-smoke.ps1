@@ -2,6 +2,7 @@ param(
     [string]$Serial = "emulator-5554",
     [string]$ClientApk = "$PSScriptRoot\..\preview\runtimeprovidercheck\build\outputs\apk\debug\runtimeprovidercheck-debug.apk",
     [string]$ProviderApk = "$PSScriptRoot\..\runtime\litertlmprovider\app\build\outputs\apk\debug\app-debug.apk",
+    [string]$InferenceModel = "",
     [string]$EvidenceDirectory = "$PSScriptRoot\..\preview\screenshots",
     [switch]$KeepInstalled
 )
@@ -74,12 +75,59 @@ foreach ($package in @($clientPackage, $providerPackage)) {
 $clientInstalled = $false
 $providerInstalled = $false
 $passed = $false
+$runRealInference = -not [string]::IsNullOrWhiteSpace($InferenceModel)
+$inferenceModelPath = $null
+$inferenceModelBytes = 0L
+$inferenceModelSha256 = $null
+$fixtureToken = [Guid]::NewGuid().ToString("N")
+$remoteInferenceModel = "/data/local/tmp/aios-litertlm-$fixtureToken.litertlm"
+$providerInferenceModel = $null
+if ($runRealInference) {
+    if (-not (Test-Path -LiteralPath $InferenceModel -PathType Leaf)) {
+        throw "Inference model not found: $InferenceModel"
+    }
+    $inferenceModelPath = [IO.Path]::GetFullPath($InferenceModel)
+    if ([IO.Path]::GetExtension($inferenceModelPath) -ne ".litertlm") {
+        throw "Real-inference smoke requires one .litertlm model"
+    }
+    $inferenceModelBytes = (Get-Item -LiteralPath $inferenceModelPath).Length
+    $inferenceModelSha256 = (
+        Get-FileHash -LiteralPath $inferenceModelPath -Algorithm SHA256
+    ).Hash.ToLowerInvariant()
+    if ($inferenceModelBytes -le 0 -or
+            $inferenceModelSha256 -notmatch '^[0-9a-f]{64}$') {
+        throw "Inference model identity is invalid"
+    }
+}
 
 try {
     Invoke-Adb install $clientPath | Out-Null
     $clientInstalled = $true
     Invoke-Adb install $providerPath | Out-Null
     $providerInstalled = $true
+
+    if ($runRealInference) {
+        Invoke-Adb push $inferenceModelPath $remoteInferenceModel | Out-Null
+        $providerHome = ((
+            Invoke-Adb shell run-as $providerPackage pwd
+        ) -join "`n").Trim()
+        if ($providerHome -notmatch '^/data/user/0/com\.aios\.runtime\.litertlm$') {
+            throw "Provider debug data directory is unexpected: $providerHome"
+        }
+        $providerInferenceModel = "$providerHome/files/emulator-models/runtime-smoke.litertlm"
+        Invoke-Adb shell run-as $providerPackage mkdir -p files/emulator-models | Out-Null
+        Invoke-Adb shell run-as $providerPackage cp `
+            $remoteInferenceModel files/emulator-models/runtime-smoke.litertlm | Out-Null
+        Invoke-Adb shell run-as $providerPackage chmod `
+            600 files/emulator-models/runtime-smoke.litertlm | Out-Null
+        $copiedBytes = [long](((
+            Invoke-Adb shell run-as $providerPackage stat -c '%s' `
+                files/emulator-models/runtime-smoke.litertlm
+        ) -join "`n").Trim())
+        if ($copiedBytes -ne $inferenceModelBytes) {
+            throw "Provider model copy size does not match the host artifact"
+        }
+    }
 
     $previousErrorAction = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
@@ -90,7 +138,14 @@ try {
     }
 
     Invoke-Adb logcat -c | Out-Null
-    Invoke-Adb shell am start -W -n $activity | Out-Null
+    if ($runRealInference) {
+        Invoke-Adb shell am start -W -n $activity `
+            --es inference_model_path $providerInferenceModel `
+            --el inference_model_size $inferenceModelBytes `
+            --es inference_model_sha256 $inferenceModelSha256 | Out-Null
+    } else {
+        Invoke-Adb shell am start -W -n $activity | Out-Null
+    }
     $deadline = [DateTime]::UtcNow.AddSeconds(30)
     do {
         $log = (Invoke-Adb logcat -d -v brief) -join "`n"
@@ -101,12 +156,29 @@ try {
             throw "Runtime-provider smoke fixture failed:`n$relevant"
         }
         if ($log -match 'AIOS_RUNTIME_PROVIDER_SMOKE_OK') {
+            if ($runRealInference -and
+                    $log -notmatch 'AIOS_RUNTIME_REAL_INFERENCE_OK') {
+                throw "Runtime smoke completed without the real-inference marker"
+            }
             $passed = $true
             break
         }
         Start-Sleep -Milliseconds 500
     } while ([DateTime]::UtcNow -lt $deadline)
     if (-not $passed) { throw "Timed out waiting for runtime-provider smoke completion" }
+
+    if ($runRealInference) {
+        Invoke-Adb shell run-as $providerPackage rm -f `
+            files/emulator-models/runtime-smoke.litertlm | Out-Null
+        Invoke-Adb shell rm -f $remoteInferenceModel | Out-Null
+        $remainingProviderModels = @(
+            Invoke-Adb shell run-as $providerPackage find `
+                files/emulator-models -type f | Where-Object { $_ }
+        )
+        if ($remainingProviderModels.Count -ne 0) {
+            throw "Runtime-provider smoke left temporary model weights behind"
+        }
+    }
 
     $privateFiles = (Invoke-Adb shell run-as $clientPackage find files -type f) -join "`n"
     if ($privateFiles -match 'not-model-weights') {
@@ -116,7 +188,7 @@ try {
     New-Item -ItemType Directory -Force -Path $EvidenceDirectory | Out-Null
     $evidencePath = Join-Path $EvidenceDirectory "aios-emulator-runtime-provider-smoke.json"
     $evidence = [ordered]@{
-        schema_version = 1
+        schema_version = 2
         serial = $Serial
         qemu = $true
         android_release = $androidRelease
@@ -139,8 +211,15 @@ try {
         single_terminal_callback_verified = $true
         bounded_path_redacted_error_verified = $true
         provider_survived_rejected_model = $true
-        temporary_fixture_bytes_are_model_weights = $false
-        real_inference_executed = $false
+        temporary_fixture_bytes_are_model_weights = $runRealInference
+        real_inference_executed = $runRealInference
+        real_inference_model_sha256 = if ($runRealInference) {
+            $inferenceModelSha256
+        } else { $null }
+        real_inference_model_bytes = if ($runRealInference) {
+            $inferenceModelBytes
+        } else { $null }
+        inference_output_recorded = $false
         arm64_provider_evidence = $false
         physical_gate_evidence = $false
         temporary_fixture_files_remaining = 0
@@ -153,6 +232,11 @@ try {
         $utf8WithoutBom)
     Write-Output "AIOS emulator runtime-provider smoke checks passed: $evidencePath"
 } finally {
+    if ($providerInstalled -and $runRealInference) {
+        & $adb -s $Serial shell run-as $providerPackage rm -f `
+            files/emulator-models/runtime-smoke.litertlm | Out-Null
+    }
+    & $adb -s $Serial shell rm -f $remoteInferenceModel | Out-Null
     if ($providerInstalled -and -not $KeepInstalled) {
         & $adb -s $Serial uninstall $providerPackage | Out-Null
     }

@@ -3085,14 +3085,23 @@ def validate_aosp_overlay(root: Path) -> None:
             in runtime_provider_smoke
             and "outside the read-only model directory" in runtime_provider_smoke
             and "AIOS_RUNTIME_PROVIDER_SMOKE_OK" in runtime_provider_smoke
+            and "AIOS_RUNTIME_REAL_INFERENCE_OK" in runtime_provider_smoke
+            and "streamed chunks and terminal inference output diverged"
+            in runtime_provider_smoke
             and "Refusing to run runtime-provider smoke checks on non-emulator serial"
             in runtime_provider_smoke_runner
-            and "real_inference_executed = $false" in runtime_provider_smoke_runner
+            and "AIOS_RUNTIME_REAL_INFERENCE_OK" in runtime_provider_smoke_runner
+            and "real_inference_executed = $runRealInference"
+            in runtime_provider_smoke_runner
+            and "temporary_fixture_bytes_are_model_weights = $runRealInference"
+            in runtime_provider_smoke_runner
+            and "inference_output_recorded = $false"
+            in runtime_provider_smoke_runner
             and "provider_apk_x86_64_native_entry_verified = $true"
             in runtime_provider_smoke_runner
             and "arm64_provider_evidence = $false" in runtime_provider_smoke_runner
             and "physical_gate_evidence = $false" in runtime_provider_smoke_runner,
-            "LiteRT-LM needs guarded cross-process Android provider evidence without fake inference")
+            "LiteRT-LM needs guarded optional real-inference emulator evidence")
     provider_manifest = (provider_root / "app" / "src" / "main" /
                          "AndroidManifest.xml").read_text(encoding="utf-8")
     require('android:process=":runtime"' in provider_manifest
@@ -3108,8 +3117,13 @@ def validate_aosp_overlay(root: Path) -> None:
             "runtime provider must admit only the exact broker UID")
     require("MODEL_DIRECTORY.canonicalFile" in provider_source
             and "MessageDigest.isEqual" in provider_source
-            and "model.length() == artifact.sizeBytes" in provider_source,
-            "runtime provider must reverify model confinement, size, and digest")
+            and "model.length() == artifact.sizeBytes" in provider_source
+            and "BuildConfig.ALLOW_EMULATOR_MODEL_FIXTURES" in provider_source
+            and 'Build.HARDWARE.equals("ranchu"' in provider_source
+            and 'Build.HARDWARE.equals("goldfish"' in provider_source
+            and 'Build.PRODUCT.contains("sdk"' in provider_source
+            and 'Build.FINGERPRINT.startsWith("generic")' in provider_source,
+            "runtime provider must reverify model confinement, size, and digest, with a QEMU-only debug fixture path")
     require("automaticToolCalling = false" in provider_source
             and "conversation?.cancelProcess()" in provider_source,
             "runtime provider must disable tools and support native cancellation")
@@ -3132,8 +3146,14 @@ def validate_aosp_overlay(root: Path) -> None:
             and "JavaVersion.VERSION_17" in provider_build
             and "JvmTarget.JVM_17" in provider_build
             and 'sourceSets["main"].java.srcDir("../../common/src/main/java")'
-            in provider_build,
-            "runtime build must pin LiteRT-LM, use JVM 17, and emit locked provenance")
+            in provider_build
+            and provider_build.count(
+                'buildConfigField("boolean", "ALLOW_EMULATOR_MODEL_FIXTURES", "false")'
+            ) == 2
+            and provider_build.count(
+                'buildConfigField("boolean", "ALLOW_EMULATOR_MODEL_FIXTURES", "true")'
+            ) == 1,
+            "runtime build must pin LiteRT-LM, use JVM 17, emit locked provenance, and disable fixture paths in release")
     provider_bootstrap = (provider_root / "bootstrap_dependency_locks.sh").read_text(
         encoding="utf-8"
     )
