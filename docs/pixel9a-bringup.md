@@ -173,6 +173,13 @@ Run gates in this order:
    its original expiry, and the carrier call plus ordinary controls stay live.
    Record this separately as `call.capture_loss_fail_open`.
 6. Airplane-mode ASR and model-broker failure injection. For
+   `model.runtime_dependency_lock_verified`, use a fresh isolated Gradle user
+   home on the Linux build host to bootstrap LiteRT-LM, Whisper, and TTS locks;
+   review the generated metadata, deny network access, and run each provider's
+   `build_provider.sh`. Confirm strict verification accepts the reviewed Linux
+   AAPT2 digest and each emitted provenance digest matches its committed
+   verification file before packaging any APK.
+   For
    `call.telephony_survives_ai_crash`, first keep a consented call active while
    killing Model Broker. Confirm the carrier call, local two-direction PCM, and
    ordinary call controls continue; stale ASR callbacks stop updating the UI.

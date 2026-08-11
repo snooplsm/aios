@@ -628,6 +628,25 @@ class RuntimeCatalogTests(unittest.TestCase):
 
 
 class IntegrationStructureTests(unittest.TestCase):
+    def test_generated_blueprints_are_not_treated_as_source_modules(self):
+        with tempfile.TemporaryDirectory() as raw:
+            temporary = Path(raw)
+            source = temporary / "services" / "demo"
+            cached = temporary / ".cache" / "runtime-pack"
+            generated = temporary / "generated" / "runtimepack"
+            source.mkdir(parents=True)
+            cached.mkdir(parents=True)
+            generated.mkdir(parents=True)
+            (source / "Android.bp").write_text(
+                'android_app { name: "aios_source" }', encoding="utf-8")
+            (cached / "Android.bp").write_text(
+                'android_app_import { name: "aios_cached" }', encoding="utf-8")
+            (generated / "Android.bp").write_text(
+                'android_app_import { name: "aios_generated" }', encoding="utf-8")
+
+            self.assertEqual(
+                {"aios_source"}, validator.discover_blueprint_modules(temporary))
+
     def test_review_complete_patch_series_is_valid(self):
         validator.validate_patch_series(ROOT)
 

@@ -37,6 +37,18 @@ def require(condition: bool, message: str) -> None:
         raise ValidationError(message)
 
 
+def discover_blueprint_modules(root: Path) -> set[str]:
+    """Return source-tree modules without inspecting ignored generated output."""
+    ignored_parts = {".git", ".cache", "generated"}
+    module_names: set[str] = set()
+    for blueprint in root.rglob("Android.bp"):
+        if ignored_parts.intersection(blueprint.relative_to(root).parts):
+            continue
+        text = blueprint.read_text(encoding="utf-8")
+        module_names.update(re.findall(r'\bname:\s*"([^"]+)"', text))
+    return module_names
+
+
 def select_tier(catalog: dict[str, Any], total_ram_mb: int) -> str | None:
     eligible = [
         tier
@@ -1038,6 +1050,8 @@ def validate_aosp_overlay(root: Path) -> None:
         "runtime/ttsprovider/settings.gradle.kts",
         "runtime/ttsprovider/build.gradle.kts",
         "runtime/ttsprovider/app/build.gradle.kts",
+        "runtime/ttsprovider/app/gradle.lockfile",
+        "runtime/ttsprovider/gradle/verification-metadata.xml",
         "runtime/ttsprovider/app/src/main/AndroidManifest.xml",
         "runtime/ttsprovider/app/src/main/java/com/aios/runtime/sherpatts/SherpaTtsRuntimeService.kt",
         "runtime/ttsprovider/bootstrap_artifacts.sh",
@@ -2862,6 +2876,7 @@ def validate_aosp_overlay(root: Path) -> None:
         encoding="utf-8"
     )
     require(":app:dependencies" in provider_bootstrap
+            and ":app:assembleRelease" in provider_bootstrap
             and "--dependency-verification=strict" in provider_bootstrap
             and "app/gradle.lockfile" in provider_release_build,
             "LiteRT-LM lock bootstrap must precede strict offline provenance build")
@@ -2873,6 +2888,9 @@ def validate_aosp_overlay(root: Path) -> None:
     require("com.google.ai.edge.litertlm:litertlm-android:0.15.0=" in provider_lock
             and "litertlm-android-0.15.0.aar" in provider_verification
             and "b398c4745934a6035d192ffce5fdaf4f72a0009830a97b73c017c21f2a92b5bd"
+            in provider_verification
+            and "aapt2-8.10.1-12782657-linux.jar" in provider_verification
+            and "52f864b7fd20a9ff09fc3db96162537a63c5b38ecc1c2549db4b491c6a517ff0"
             in provider_verification,
             "LiteRT-LM dependency lock and verification digest must match the reviewed AAR")
     provider_properties = (provider_root / "gradle.properties").read_text(
@@ -2929,6 +2947,7 @@ def validate_aosp_overlay(root: Path) -> None:
         encoding="utf-8"
     )
     require(":app:dependencies" in whisper_bootstrap
+            and ":app:assembleRelease" in whisper_bootstrap
             and "--dependency-verification=strict" in whisper_bootstrap
             and "app/gradle.lockfile" in whisper_release_build,
             "ASR lock bootstrap must precede strict offline provenance build")
@@ -2940,6 +2959,9 @@ def validate_aosp_overlay(root: Path) -> None:
     require("junit:junit:4.13.2=" in whisper_lock
             and "junit-4.13.2.jar" in whisper_verification
             and "8e495b634469d64fb8acfa3495a065cbacc8a0fff55ce1e31007be4c16dc57d3"
+            in whisper_verification
+            and "aapt2-8.10.1-12782657-linux.jar" in whisper_verification
+            and "52f864b7fd20a9ff09fc3db96162537a63c5b38ecc1c2549db4b491c6a517ff0"
             in whisper_verification,
             "ASR dependency lock and verification digest must match reviewed JUnit")
     whisper_properties = (whisper_root / "gradle.properties").read_text(
@@ -3069,6 +3091,33 @@ def validate_aosp_overlay(root: Path) -> None:
             and 'sourceSets["main"].java.srcDir("../../common/src/main/java")'
             in tts_build,
             "TTS APK must be arm64-only and emit verified provenance")
+    tts_lock_bootstrap = (tts_root / "bootstrap_dependency_locks.sh").read_text(
+        encoding="utf-8"
+    )
+    tts_release_build = (tts_root / "build_provider.sh").read_text(
+        encoding="utf-8"
+    )
+    require(":app:dependencies" in tts_lock_bootstrap
+            and ":app:assembleRelease" in tts_lock_bootstrap
+            and "--dependency-verification=strict" in tts_lock_bootstrap
+            and "app/gradle.lockfile" in tts_release_build,
+            "TTS lock bootstrap must cover build tools before strict offline provenance")
+    tts_lock = (tts_root / "app" / "gradle.lockfile").read_text(
+        encoding="utf-8"
+    )
+    tts_verification = (tts_root / "gradle" /
+                        "verification-metadata.xml").read_text(encoding="utf-8")
+    require("org.jetbrains.kotlin:kotlin-stdlib:2.2.21=" in tts_lock
+            and "kotlin-stdlib-2.2.21.jar" in tts_verification
+            and "6558a3d233da56a20934b32159f9db5f86ed5816ef098f78a2c223dc6abb79dd"
+            in tts_verification
+            and "aapt2-8.10.1-12782657-linux.jar" in tts_verification
+            and "52f864b7fd20a9ff09fc3db96162537a63c5b38ecc1c2549db4b491c6a517ff0"
+            in tts_verification,
+            "TTS dependency lock must include reviewed JVM and Linux build-tool inputs")
+    tts_properties = (tts_root / "gradle.properties").read_text(encoding="utf-8")
+    require("org.gradle.configuration-cache=false" in tts_properties,
+            "TTS provenance build must disable incompatible configuration caching")
     for notice in tts_provider["required_apk_entries"]:
         require(Path(notice["path"]).name in tts_build
                 and notice["sha256"] in tts_build,
@@ -4877,10 +4926,7 @@ def validate_security_surface(root: Path) -> None:
             f"model artifacts must not be committed: {committed_artifacts}")
 
     common_product = (root / "products" / "aios_common.mk").read_text(encoding="utf-8")
-    module_names: set[str] = set()
-    for blueprint in root.rglob("Android.bp"):
-        text = blueprint.read_text(encoding="utf-8")
-        module_names.update(re.findall(r'\bname:\s*"([^"]+)"', text))
+    module_names = discover_blueprint_modules(root)
     local_packages = [name for name in module_names if re.search(r"(?i)aios", name)]
     for module in local_packages:
         if module == "AIOS_Apache_2_0":

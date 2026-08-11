@@ -57,7 +57,11 @@ Kotlin 2.2.21, and requires Gradle 8.11.1 plus JDK 17. Its AIDL source sets poin
 at the same broker/runtime contracts compiled by Soong. The one-time bootstrap
 command is deliberately gated because it writes dependency locks; review those
 changes before treating them as release inputs. Normal builds are offline and
-strictly verified:
+strictly verified. Each provider bootstrap resolves both `dependencies` and
+`assembleRelease`, because AGP selects AAPT2 through a detached configuration
+that a dependency report alone does not cover. The checked-in verification
+metadata includes the exact Windows artifact used for local validation and the
+exact Linux artifact required on the AOSP host:
 
 ```text
 cd vendor/aios/runtime/litertlmprovider

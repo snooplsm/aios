@@ -17,6 +17,10 @@ fi
 gradle --no-daemon \
   --write-locks \
   --write-verification-metadata sha256 \
+  :app:dependencies \
+  :app:assembleRelease
+
+gradle --offline --no-daemon --dependency-verification=strict \
   :app:writeRuntimeProvenance
 
-echo "Review gradle.lockfile, gradle/verification-metadata.xml, and build/runtime-provenance.json."
+echo "Review app/gradle.lockfile, gradle/verification-metadata.xml, and build/runtime-provenance.json."

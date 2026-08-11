@@ -62,13 +62,16 @@ On the Linux AOSP build host, fetch and verify the catalogued runtime inputs:
 cd vendor/aios/runtime/ttsprovider
 ./bootstrap_artifacts.sh
 ALLOW_DEPENDENCY_LOCK_UPDATE=1 ./bootstrap_dependency_locks.sh
-# Review and commit gradle.lockfile and gradle/verification-metadata.xml.
+# Review and commit app/gradle.lockfile and gradle/verification-metadata.xml.
 ./build_provider.sh
 ```
 
 The reviewed provider build uses Gradle 8.11.1, AGP 8.10.1, Kotlin 2.2.21,
 Java bytecode target 17, and an arm64-only APK. `build_provider.sh` performs an
-offline strict-verification build after the lock bootstrap.
+offline strict-verification build after the lock bootstrap. Bootstrap resolves
+both the declared dependency graph and an actual release assembly so detached
+AGP tools are included. Verification metadata carries reviewed Windows and
+Linux AAPT2 digests; the latter is required by the documented AOSP build host.
 
 Generate the independently licensed model pack from the exact downloaded
 archive:

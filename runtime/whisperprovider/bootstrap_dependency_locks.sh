@@ -17,7 +17,8 @@ fi
 gradle --no-daemon \
   --write-locks \
   --write-verification-metadata sha256 \
-  :app:dependencies
+  :app:dependencies \
+  :app:assembleRelease
 
 gradle --offline --no-daemon --dependency-verification=strict \
   :app:writeRuntimeProvenance
