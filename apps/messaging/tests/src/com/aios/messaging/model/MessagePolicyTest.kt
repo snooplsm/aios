@@ -21,4 +21,18 @@ class MessagePolicyTest {
             MessagePolicy.normalizedBody("x".repeat(MessagePolicy.MAX_BODY_CHARS + 1)).length,
         )
     }
+
+    @Test
+    fun incomingTimestampPreservesDelayedMessages() {
+        assertEquals(900L, MessagePolicy.incomingTimestamp(900L, 1_000L))
+        assertEquals(1_000L, MessagePolicy.incomingTimestamp(1_000L, 1_000L))
+    }
+
+    @Test
+    fun incomingTimestampReplacesInvalidOrFutureNetworkTime() {
+        assertEquals(1_000L, MessagePolicy.incomingTimestamp(0L, 1_000L))
+        assertEquals(1_000L, MessagePolicy.incomingTimestamp(-1L, 1_000L))
+        assertEquals(1_000L, MessagePolicy.incomingTimestamp(1_001L, 1_000L))
+        assertEquals(1L, MessagePolicy.incomingTimestamp(5L, 0L))
+    }
 }

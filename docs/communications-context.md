@@ -18,6 +18,17 @@ subscription's carrier limit. Incoming notification indications are deduplicated
 by transaction ID before download, and a retrieved message is indexed only after
 provider persistence completes.
 
+The API-36 emulator lane now exercises the actual SMS role and production
+Compose app. A host helper uses the emulator's authenticated gRPC modem endpoint
+to inject a PDU; the test then proves the production `SMS_DELIVER` receiver wrote
+one inbox row before the conversation appeared. It opens the same conversation
+through `SENDTO`, drives **Send SMS**, verifies one sent row and the emulator's
+one expected inbox loopback on the same thread/subscription, and performs exact
+token cleanup plus role restoration. Future or invalid network PDU timestamps
+are clamped to local receipt time so a sender cannot reorder the conversation;
+legitimate older delayed timestamps are preserved. None of this is carrier,
+MMS, dual-SIM, or physical Pixel release evidence.
+
 The SMS-role prompt still warns that this is not ready to be a daily messaging
 app. `user` builds do not admit MMS until Soong compilation and real carrier,
 APN, roaming, multi-SIM, reboot, and provider round-trip tests pass. Delivery and

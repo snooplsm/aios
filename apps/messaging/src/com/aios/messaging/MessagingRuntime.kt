@@ -200,7 +200,9 @@ object MessagingRuntime {
             completion(false)
             return
         }
-        repository.storeIncoming(address, body, timestamp, subscriptionId) { result ->
+        val receivedAt = System.currentTimeMillis()
+        val storedTimestamp = MessagePolicy.incomingTimestamp(timestamp, receivedAt)
+        repository.storeIncoming(address, body, storedTimestamp, subscriptionId) { result ->
             result.onSuccess { message ->
                 contextIndex.indexSms(message.id, message.address, message.body, message.atEpochMillis)
                 notifications.notifyIncoming(message)

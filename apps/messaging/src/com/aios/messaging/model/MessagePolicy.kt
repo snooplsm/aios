@@ -5,6 +5,12 @@ object MessagePolicy {
 
     fun normalizedBody(value: String): String = value.trim().take(MAX_BODY_CHARS)
 
+    /** Preserve delayed messages, but never let an invalid/network-future PDU reorder the inbox. */
+    fun incomingTimestamp(claimedAtEpochMillis: Long, receivedAtEpochMillis: Long): Long {
+        val received = receivedAtEpochMillis.coerceAtLeast(1L)
+        return claimedAtEpochMillis.takeIf { it in 1L..received } ?: received
+    }
+
     fun canSendSms(body: String, hasPhoto: Boolean): Boolean =
         normalizedBody(body).isNotEmpty() && !hasPhoto
 

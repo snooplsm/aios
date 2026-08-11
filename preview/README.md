@@ -28,6 +28,18 @@ MMS PDU sources; a source-set-local factory always rejects MMS instead. The lane
 also verifies that provider-bound journals and context ledgers cannot migrate in
 backup or device transfer. It cannot replace the Soong or physical carrier gate.
 
+Its debug source set adds one QEMU-guarded provider audit/cleanup activity that
+is absent from the product. The host-only `emulatorcontrol` module is a minimal
+authenticated gRPC client for the Android Emulator's `sendSms` endpoint; it
+reads the emulator discovery file without printing its bearer token.
+`scripts/emulator-messaging-smoke.ps1` refuses physical serials, existing fixture
+installs, API levels below 35, and QEMU misreports. It temporarily owns the SMS
+role, verifies modem-to-`SMS_DELIVER`-to-provider-to-Compose behavior, drives the
+production Send button, recognizes the emulator radio's exact sent-plus-inbox
+loopback shape, and then removes the tokenized rows, private audit, APK, and
+remote artifacts while restoring the original role. Its ignored JSON explicitly
+sets carrier, MMS, multi-SIM, and physical evidence to false.
+
 `callcontextcheck` stages every Communication Context service/API source, AIDL
 contract, pure test, production resource, and the real application manifest. It
 compiles, tests, assembles, and lints the complete opaque-identity, contact-

@@ -808,6 +808,11 @@ def validate_aosp_overlay(root: Path) -> None:
         "docs/mms-transport.md",
         "preview/messagingcheck/build.gradle.kts",
         "preview/messagingcheck/src/main/java/com/aios/messaging/mms/platform/MmsTransportFactory.kt",
+        "preview/messagingcheck/src/debug/AndroidManifest.xml",
+        "preview/messagingcheck/src/debug/kotlin/com/aios/messaging/smoke/EmulatorMessagingFixtureActivity.kt",
+        "preview/emulatorcontrol/build.gradle.kts",
+        "preview/emulatorcontrol/src/main/java/com/aios/tools/emulatorcontrol/EmulatorControlMain.java",
+        "preview/emulatorcontrol/src/test/java/com/aios/tools/emulatorcontrol/EmulatorControlMainTest.java",
         "preview/callcontextcheck/build.gradle.kts",
         "preview/callservicecheck/build.gradle.kts",
         "preview/callservicecheck/src/main/java/com/aios/callintelligence/CallProductProperties.java",
@@ -840,6 +845,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "preview/telecomsmoke/src/debug/kotlin/com/aios/phone/smoke/EmulatorCallActivity.kt",
         "preview/telecomsmoke/src/debug/kotlin/com/aios/phone/smoke/EmulatorConnectionService.kt",
         "scripts/emulator-telecom-smoke.ps1",
+        "scripts/emulator-messaging-smoke.ps1",
         "scripts/emulator-media-smoke.ps1",
         "services/modelbroker/Android.bp",
         "services/modelbroker/AndroidManifest.xml",
@@ -1172,6 +1178,11 @@ def validate_aosp_overlay(root: Path) -> None:
                     "ui" / "MessagingScreens.kt").read_text(encoding="utf-8")
     messaging_contract = (messaging_root / "src" / "com" / "aios" / "messaging" /
                           "model" / "MessagingContract.kt").read_text(encoding="utf-8")
+    message_policy = (messaging_root / "src" / "com" / "aios" / "messaging" /
+                      "model" / "MessagePolicy.kt").read_text(encoding="utf-8")
+    message_policy_test = (messaging_root / "tests" / "src" / "com" / "aios" /
+                           "messaging" / "model" / "MessagePolicyTest.kt").read_text(
+                               encoding="utf-8")
     subscription_policy = (messaging_root / "src" / "com" / "aios" / "messaging" /
                            "model" / "SubscriptionSelectionPolicy.kt").read_text(
                                encoding="utf-8")
@@ -1203,6 +1214,34 @@ def validate_aosp_overlay(root: Path) -> None:
     messaging_check_factory = (
         root / "preview" / "messagingcheck" / "src" / "main" / "java" / "com" /
         "aios" / "messaging" / "mms" / "platform" / "MmsTransportFactory.kt"
+    ).read_text(encoding="utf-8")
+    messaging_smoke_manifest = (
+        root / "preview" / "messagingcheck" / "src" / "debug" /
+        "AndroidManifest.xml"
+    ).read_text(encoding="utf-8")
+    messaging_smoke_fixture = (
+        root / "preview" / "messagingcheck" / "src" / "debug" / "kotlin" /
+        "com" / "aios" / "messaging" / "smoke" /
+        "EmulatorMessagingFixtureActivity.kt"
+    ).read_text(encoding="utf-8")
+    messaging_smoke_script = (
+        root / "scripts" / "emulator-messaging-smoke.ps1"
+    ).read_text(encoding="utf-8")
+    emulator_control_build = (
+        root / "preview" / "emulatorcontrol" / "build.gradle.kts"
+    ).read_text(encoding="utf-8")
+    emulator_control_source = (
+        root / "preview" / "emulatorcontrol" / "src" / "main" / "java" /
+        "com" / "aios" / "tools" / "emulatorcontrol" /
+        "EmulatorControlMain.java"
+    ).read_text(encoding="utf-8")
+    emulator_control_test = (
+        root / "preview" / "emulatorcontrol" / "src" / "test" / "java" /
+        "com" / "aios" / "tools" / "emulatorcontrol" /
+        "EmulatorControlMainTest.java"
+    ).read_text(encoding="utf-8")
+    messaging_preview_settings = (
+        root / "preview" / "settings.gradle.kts"
     ).read_text(encoding="utf-8")
     messaging_extraction_rules = (
         messaging_root / "res" / "xml" / "data_extraction_rules.xml"
@@ -1237,6 +1276,15 @@ def validate_aosp_overlay(root: Path) -> None:
             and "sendMultipartTextMessage" in messaging_repository
             and "pending.finish()" in sms_receiver,
             "SMS delivery must be role-gated, provider-backed, multipart, and durable")
+    require("incomingTimestamp" in message_policy
+            and "claimedAtEpochMillis.takeIf { it in 1L..received }" in message_policy
+            and "MessagePolicy.incomingTimestamp(timestamp, receivedAt)"
+            in messaging_runtime
+            and "incomingTimestampPreservesDelayedMessages" in message_policy_test
+            and "incomingTimestampReplacesInvalidOrFutureNetworkTime"
+            in message_policy_test
+            and "Modifier.navigationBarsPadding()" in messaging_ui,
+            "Messaging must reject future PDU ordering and keep composer controls above system navigation")
     require('android.permission.READ_PHONE_STATE' in messaging_manifest
             and "activeSubscriptionInfoList" in messaging_repository
             and "createForSubscriptionId(subscriptionId)" in messaging_repository
@@ -1286,6 +1334,44 @@ def validate_aosp_overlay(root: Path) -> None:
                     for domain in messaging_extraction_domains)
             and "abortOnError" not in messaging_check_build,
             "Messaging compile-check must cover the full app and all public platform helpers while MMS transport fails closed")
+    require('include(":emulatorcontrol")' in messaging_preview_settings
+            and 'manifest.srcFile("src/debug/AndroidManifest.xml")'
+            in messaging_check_build
+            and 'kotlin.directories.add("src/debug/kotlin")'
+            in messaging_check_build
+            and "EmulatorMessagingFixtureActivity" in messaging_smoke_manifest
+            and "Build.HARDWARE" in messaging_smoke_fixture
+            and 'Regex("AIOS(?:IN|OUT)[A-F0-9]{12}")'
+            in messaging_smoke_fixture
+            and '"${Telephony.Sms.BODY}=?"' in messaging_smoke_fixture
+            and "contentResolver.delete" in messaging_smoke_fixture
+            and "emulator_loopback" in messaging_smoke_fixture
+            and 'implementation("io.grpc:grpc-okhttp:1.69.1")'
+            in emulator_control_build
+            and 'implementation("io.grpc:grpc-stub:1.69.1")'
+            in emulator_control_build
+            and "android.emulation.control.EmulatorController/sendSms"
+            in emulator_control_source
+            and 'headers.put(AUTHORIZATION, "Bearer " + token)'
+            in emulator_control_source
+            and 'System.out.println("SMS_DELIVERED")' in emulator_control_source
+            and "encodesCanonicalSmsMessage" in emulator_control_test
+            and "decodesFailurePhoneResponseWithUnknownField" in emulator_control_test
+            and "ro.kernel.qemu" in messaging_smoke_script
+            and "Find-DiscoveryFile" in messaging_smoke_script
+            and "Get-FileHash -LiteralPath $apkPath -Algorithm SHA256"
+            in messaging_smoke_script
+            and "production_sms_deliver_provider_path = $true"
+            in messaging_smoke_script
+            and "emulator_loopback_inbox_verified = $true"
+            in messaging_smoke_script
+            and "synthetic_rows_removed = $providerRowsRemoved"
+            in messaging_smoke_script
+            and "sms_role_restored = $roleRestored" in messaging_smoke_script
+            and "carrier_delivery_evidence = $false" in messaging_smoke_script
+            and "physical_gate_evidence = $false" in messaging_smoke_script
+            and "uninstall $package" in messaging_smoke_script,
+            "Messaging emulator smoke must use authenticated modem injection, exact cleanup, and non-physical evidence")
     require(":framework-mms-shared-srcs" in messaging_bp
             and "PduPersister" in mms_transport
             and "sendMultimediaMessage" in mms_transport

@@ -131,6 +131,10 @@ dark themes. The user explicitly selects the SMS role. The app must persist an
 incoming SMS before acknowledging delivery, persist accepted outbound SMS in the
 Telephony provider, support multipart text and respond-via-message, open AIOS
 Phone through a standard dial intent, and use the read-only system Photo Picker.
+Invalid or future PDU timestamps must be stored at local receipt time instead of
+reordering the inbox; valid older timestamps for delayed SMS must be preserved.
+Composer controls must remain actionable above gesture and three-button system
+navigation insets.
 The communication index must reconcile the complete authoritative provider in
 bounded restartable pages after process death, restore, external provider
 mutation, and deletion. It may store keyed change fingerprints but not raw

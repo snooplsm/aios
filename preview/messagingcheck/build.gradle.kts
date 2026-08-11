@@ -44,6 +44,10 @@ android {
         getByName("test") {
             kotlin.directories.add("../../apps/messaging/tests/src")
         }
+        getByName("debug") {
+            manifest.srcFile("src/debug/AndroidManifest.xml")
+            kotlin.directories.add("src/debug/kotlin")
+        }
     }
 
     buildFeatures {

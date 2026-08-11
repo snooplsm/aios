@@ -74,6 +74,11 @@ losing their index, while a MediaProvider database identity change purges unsafe
 URI-keyed results before baselining again.
 AIOS Messaging now compiles as an SMS-role candidate with real SMS provider
 paths, respond-via-message, call launching, and read-only Photo Picker drafts.
+An emulator-only runner assigns the SMS role temporarily, injects a PDU through
+the emulator's authenticated modem-control endpoint, verifies the production
+receiver/provider/Compose path, submits an SMS through the production composer,
+and restores the prior role and database exactly. This evidence never claims
+carrier delivery, MMS, physical-device, or multi-SIM release coverage.
 Its AOSP-only debug transport persists outbound and inbound MMS through the
 Telephony provider, uses `SmsManager` carrier send/download callbacks, transcodes
 photos to measured carrier limits, and journals each operation so process death
