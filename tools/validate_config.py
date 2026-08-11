@@ -934,6 +934,9 @@ def validate_aosp_overlay(root: Path) -> None:
         "preview/callservicecheck/src/debug/java/com/aios/callintelligence/CallRetentionSmokeActivity.java",
         "preview/modelservicecheck/build.gradle.kts",
         "preview/modelservicecheck/src/main/java/com/aios/modelbroker/BrokerProductProperties.java",
+        "preview/modelservicecheck/src/debug/AndroidManifest.xml",
+        "preview/modelservicecheck/src/debug/java/com/aios/modelbroker/ModelAdmissionSmokeActivity.java",
+        "scripts/emulator-model-admission-smoke.ps1",
         "preview/mediascancheck/build.gradle.kts",
         "services/contextintelligence/Android.bp",
         "services/contextintelligence/AndroidManifest.xml",
@@ -2575,6 +2578,17 @@ def validate_aosp_overlay(root: Path) -> None:
         root / "preview" / "modelservicecheck" / "src" / "main" / "java" /
         "com" / "aios" / "modelbroker" / "BrokerProductProperties.java"
     ).read_text(encoding="utf-8")
+    model_admission_smoke_manifest = (
+        root / "preview" / "modelservicecheck" / "src" / "debug" /
+        "AndroidManifest.xml"
+    ).read_text(encoding="utf-8")
+    model_admission_smoke = (
+        root / "preview" / "modelservicecheck" / "src" / "debug" / "java" /
+        "com" / "aios" / "modelbroker" / "ModelAdmissionSmokeActivity.java"
+    ).read_text(encoding="utf-8")
+    model_admission_smoke_runner = (
+        root / "scripts" / "emulator-model-admission-smoke.ps1"
+    ).read_text(encoding="utf-8")
     model_preview_settings = (root / "preview" / "settings.gradle.kts").read_text(
         encoding="utf-8")
     broker_host_test = broker_bp[broker_bp.index("java_test_host {"):]
@@ -2627,6 +2641,22 @@ def validate_aosp_overlay(root: Path) -> None:
             and "SystemProperties" not in broker_compile_properties
             and "abortOnError" not in model_service_compile_build,
             "the complete Model Broker compile lane must fail closed for research admission")
+    require('applicationId = "com.aios.modelbenchmark"'
+            in model_service_compile_build
+            and "ModelAdmissionSmokeActivity" in model_admission_smoke_manifest
+            and "IAiosModelService.Stub.asInterface" in model_admission_smoke
+            and "new ArtifactVerifier(fixtureRoot).verifyAll()" in model_admission_smoke
+            and "CatalogPolicy.load(catalogFile)" in model_admission_smoke
+            and "DeviceModelAdmission.load(admissionFile)" in model_admission_smoke
+            and "BuildFingerprintPolicy.sha256(Build.FINGERPRINT)"
+            in model_admission_smoke
+            and "temporary non-model bytes" in model_admission_smoke
+            and "AIOS_MODEL_ADMISSION_SMOKE_OK" in model_admission_smoke
+            and "Refusing to run model-admission smoke checks on non-emulator serial"
+            in model_admission_smoke_runner
+            and "real_inference_executed = $false" in model_admission_smoke_runner
+            and "physical_gate_evidence = $false" in model_admission_smoke_runner,
+            "Model Broker needs guarded Android artifact/admission evidence without fake inference")
     verifier_source = (broker_source_root / "ArtifactVerifier.java").read_text(
         encoding="utf-8"
     )

@@ -30,7 +30,9 @@ android {
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.aios.modelbroker.compilecheck"
+        // The emulator fixture exercises the production benchmark-client rule.
+        // Its runner refuses to replace an existing package before installation.
+        applicationId = "com.aios.modelbenchmark"
         minSdk = 35
         targetSdk = 36
         versionCode = 1

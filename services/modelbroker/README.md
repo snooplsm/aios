@@ -56,6 +56,14 @@ Soong app retains the platform adapter. This lane catches Android API drift but
 does not replace the locked Soong build, provider smoke tests, or Pixel model
 admission benchmarks.
 
+The debug APK also has an emulator-only admission fixture. It uses disposable
+plain-text bytes—not model weights—to execute the production artifact verifier,
+catalog, device/fingerprint admission, and client-policy code on Android. It then
+binds the production service on a stock emulator and requires the missing
+`/product/etc/aios` policy to deny capability access. This distinguishes a
+working fail-closed Binder boundary from real inference, which still requires a
+flashed product policy, a verified model pack, and an eligible runtime provider.
+
 Finite sessions are registered in an elapsed-realtime deadline queue. The broker
 expires queued or running work with `ERROR_DEADLINE_EXCEEDED` (6), closes the
 runtime lease and pending descriptors, and prevents a racing provider completion

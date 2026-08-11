@@ -82,6 +82,16 @@ always reports a non-debuggable build, so research-only admission cannot be
 enabled by the compile-check APK. Production continues to read the immutable
 `ro.debuggable` property through the platform adapter.
 
+Its debug-only fixture can be driven by
+`scripts/emulator-model-admission-smoke.ps1`. On API-35+ QEMU it binds the real
+Broker service and proves that a stock install without `/product/etc/aios`
+remains model-free. Separately, temporary non-model bytes exercise the production
+SHA-256 verifier, canonical model-directory confinement, RAM-tier catalog,
+release device/build-fingerprint admission, debug research gating, and exact
+benchmark-client quota. The runner refuses to replace an existing package and
+removes every temporary byte and APK. It does not claim real inference, runtime-
+provider activation, AVB protection, or physical-Pixel admission evidence.
+
 `mediascancheck` stages every production Media Intelligence Java source, test,
 Binder contract, resource, and the real application manifest. Its debug overlay
 adds emulator fixtures for the production capture-grouping, 80%-while-charging,
