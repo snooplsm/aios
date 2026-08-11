@@ -237,6 +237,7 @@ try {
         english_language_detected = $true
         spanish_language_detected = $true
         nonempty_final_transcripts_verified = $true
+        fixture_content_markers_verified = $true
         call_rx_pipeline_verified = $true
         source_audio_chunk_millis = 100
         wall_pace_per_chunk_millis = 250

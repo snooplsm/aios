@@ -3340,11 +3340,12 @@ def validate_aosp_overlay(root: Path) -> None:
             and 'artifact.modelId = "whisper-base-multilingual-quantized"'
             in whisper_smoke
             and 'request.workload = "call_rx"' in whisper_smoke
-            and 'transcribe(remote, model, english, "real-asr-english", "en")'
+            and 'transcribe(remote, model, english, "real-asr-english", "en", "country")'
             in whisper_smoke
-            and 'transcribe(remote, model, spanish, "real-asr-spanish", "es")'
+            and 'transcribe(remote, model, spanish, "real-asr-spanish", "es", "ayudar")'
             in whisper_smoke
             and "finalChunkCount > 0" in whisper_smoke
+            and "normalizedFinalText.contains(requiredContentMarker)" in whisper_smoke
             and "WALL_PACE_MILLIS = 250L" in whisper_smoke
             and "Log.i(TAG, normalizedFinalText)" not in whisper_smoke,
             "Whisper smoke must require private bilingual call-RX inference without logging text")
@@ -3363,6 +3364,7 @@ def validate_aosp_overlay(root: Path) -> None:
             in whisper_smoke_runner
             and "nonempty_final_transcripts_verified = $true"
             in whisper_smoke_runner
+            and "fixture_content_markers_verified = $true" in whisper_smoke_runner
             and "english_language_detected = $true" in whisper_smoke_runner
             and "spanish_language_detected = $true" in whisper_smoke_runner
             and "source_audio_chunk_millis = 100" in whisper_smoke_runner

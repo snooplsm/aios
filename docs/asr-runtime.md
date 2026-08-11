@@ -99,9 +99,11 @@ the provider APK's x86-64 native library, signature-permission rejection of the
 shell, request validation, canonical model-path confinement, and provider
 survival after rejection. It then streams both fixtures as 100 ms `call_rx`
 chunks through the real cross-process API and requires nonempty final transcript
-content plus `en` and `es` decisions. The text exists only in the smoke process
-for assertions: neither logs nor the ignored JSON evidence record it. All model,
-audio, staging, and APK fixtures are removed afterward.
+content, fixture-specific content markers, and `en` and `es` decisions. The
+expected markers distinguish transcription from an empty or unrelated model
+response without calculating WER. Actual text exists only in the smoke process
+for assertions: neither logs nor the ignored JSON evidence record it. All
+model, audio, staging, and APK fixtures are removed afterward.
 
 The debug provider admits private weights only when both the debug BuildConfig
 flag and QEMU/generic hardware checks pass. Release keeps that flag false and

@@ -146,8 +146,8 @@ public final class WhisperProviderSmokeActivity extends Activity {
         require("whisper_cpp".equals(remote.getRuntimeId()),
                 "provider did not survive rejected model preparation");
 
-        transcribe(remote, model, english, "real-asr-english", "en");
-        transcribe(remote, model, spanish, "real-asr-spanish", "es");
+        transcribe(remote, model, english, "real-asr-english", "en", "country");
+        transcribe(remote, model, spanish, "real-asr-spanish", "es", "ayudar");
     }
 
     private static void transcribe(
@@ -155,13 +155,14 @@ public final class WhisperProviderSmokeActivity extends Activity {
             RuntimeArtifact model,
             File wav,
             String requestId,
-            String expectedLanguage) throws Exception {
+            String expectedLanguage,
+            String requiredContentMarker) throws Exception {
         TranscriptCallback callback = new TranscriptCallback();
         ModelRequest request = request(requestId);
         long sessionId = remote.createSession(model, request, callback);
         require(sessionId > 0L, "real ASR session was not created");
         submitWav(remote, sessionId, wav, callback, Long.MAX_VALUE);
-        callback.await(model, request, expectedLanguage);
+        callback.await(model, request, expectedLanguage, requiredContentMarker);
     }
 
     private static void submitWav(
@@ -408,7 +409,8 @@ public final class WhisperProviderSmokeActivity extends Activity {
         void await(
                 RuntimeArtifact model,
                 ModelRequest request,
-                String expectedLanguage) throws Exception {
+                String expectedLanguage,
+                String requiredContentMarker) throws Exception {
             require(terminal.await(180L, TimeUnit.SECONDS),
                     "timed out waiting for real whisper.cpp transcription");
             SystemClock.sleep(100L);
@@ -421,6 +423,9 @@ public final class WhisperProviderSmokeActivity extends Activity {
                     "real ASR emitted no finalized transcript content: chunks="
                             + nextSequence + " finals=" + finalChunkCount
                             + " languages=" + languages + " result=" + result.outputJson);
+            require(requiredContentMarker != null && !requiredContentMarker.isEmpty()
+                            && normalizedFinalText.contains(requiredContentMarker),
+                    "real ASR transcript did not contain the fixture content marker");
             require(languages.contains(expectedLanguage)
                             && expectedLanguage.equals(result.language),
                     "real ASR language decision did not match the fixture");
