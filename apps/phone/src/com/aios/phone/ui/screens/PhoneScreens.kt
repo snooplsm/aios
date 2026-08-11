@@ -353,9 +353,15 @@ fun InCallScreen(
     close: () -> Unit,
 ) {
     val selected = state.selectedCall
+    val callScrollState = rememberScrollState()
+    LaunchedEffect(selected?.id, selected?.isRinging) {
+        // A waiting call must put its owner controls on screen immediately,
+        // even when the previous active-call surface was scrolled downward.
+        callScrollState.scrollTo(0)
+    }
     Scaffold { insets ->
         Column(
-            modifier = Modifier.fillMaxSize().padding(insets).verticalScroll(rememberScrollState())
+            modifier = Modifier.fillMaxSize().padding(insets).verticalScroll(callScrollState)
                 .padding(20.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(16.dp),

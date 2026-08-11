@@ -2127,8 +2127,18 @@ def validate_aosp_overlay(root: Path) -> None:
             and "newCallIsRinging -> newCallId" in call_selection_policy
             and "newRingingCallPreemptsTheSelectedActiveCall" in call_selection_test
             and "backgroundCallDoesNotStealOwnerSelection" in call_selection_test
-            and "delayedRingingTransitionPreemptsTheSelectedCall" in call_selection_test,
+            and "delayedRingingTransitionPreemptsTheSelectedCall" in call_selection_test
+            and "LaunchedEffect(selected?.id, selected?.isRinging)" in phone_screens
+            and "verticalScroll(callScrollState)" in phone_screens,
             "a waiting call must preempt the selected surface without background-call theft")
+    require("ACTION_OWNER_ANSWER" in smoke_activity
+            and "ACTION_OWNER_DECLINE" in smoke_activity
+            and "ACTION_OWNER_IGNORE" in smoke_activity
+            and "PhoneRuntime.dispatch(action(ringing.id))" in smoke_activity
+            and "com.aios.phone.smoke.OWNER_ANSWER" in smoke_script
+            and "com.aios.phone.smoke.OWNER_DECLINE" in smoke_script
+            and "com.aios.phone.smoke.OWNER_IGNORE" in smoke_script,
+            "the emulator must inject timing-critical owner actions through production UDF")
     require("onAvailableCallEndpointsChanged" in in_call_service
             and "requestCallEndpointChange" in in_call_service,
             "AIOS Phone must use modern audio endpoint callbacks")

@@ -162,6 +162,10 @@ In its controlled companion phase, the same runner verifies fixed 1/2/3/4-second
 and inclusive-random 1.01–3.99-second decisions through the production Handler
 timer into exactly one managed `Connection.onAnswer`. Owner **Answer** and
 **Decline** must revoke the pending reservation, while **Ignore** preserves it.
+The baseline phase drives the visible Compose controls. For the timing-critical
+reservation cases, an emulator-only activity dispatches the equivalent typed
+production `PhoneAction` immediately after the decision, so a slow AVD hierarchy
+dump cannot consume the entire four-second policy window.
 Service replacement must invalidate the old deadline and give a reconnected
 decision a fresh complete delay. A synthetic emergency presentation must never
 reach policy evaluation. `-AutomaticAnswerOnly` runs this matrix separately and

@@ -9,6 +9,8 @@ import android.os.Bundle
 import android.telecom.PhoneAccount
 import android.telecom.PhoneAccountHandle
 import android.telecom.TelecomManager
+import com.aios.phone.PhoneRuntime
+import com.aios.phone.model.PhoneAction
 import com.aios.phone.ui.InCallActivity
 import java.io.File
 
@@ -76,6 +78,9 @@ class EmulatorCallActivity : Activity() {
                 Charsets.UTF_8,
             )
             ACTION_DISCONNECT -> EmulatorConnectionService.disconnectAll()
+            ACTION_OWNER_ANSWER -> dispatchToRingingCall { PhoneAction.Answer(it) }
+            ACTION_OWNER_DECLINE -> dispatchToRingingCall { PhoneAction.Reject(it) }
+            ACTION_OWNER_IGNORE -> dispatchToRingingCall { PhoneAction.Ignore(it) }
             ACTION_UNREGISTER -> {
                 telecom.unregisterPhoneAccount(phoneAccountHandle())
                 telecom.unregisterPhoneAccount(phoneAccountHandle(SECONDARY_ACCOUNT_ID))
@@ -87,6 +92,12 @@ class EmulatorCallActivity : Activity() {
             )
         }
         finish()
+    }
+
+    private fun dispatchToRingingCall(action: (String) -> PhoneAction) {
+        val ringing = PhoneRuntime.state.value.calls.singleOrNull { it.isRinging }
+            ?: error("The owner smoke action requires exactly one ringing call")
+        PhoneRuntime.dispatch(action(ringing.id))
     }
 
     private fun buildPhoneAccount(accountId: String, label: String, address: String): PhoneAccount =
@@ -117,6 +128,9 @@ class EmulatorCallActivity : Activity() {
         const val ACTION_RESET_AUDIT = "com.aios.phone.smoke.RESET_AUDIT"
         const val ACTION_EXPORT_AUDIT = "com.aios.phone.smoke.EXPORT_AUDIT"
         const val ACTION_DISCONNECT = "com.aios.phone.smoke.DISCONNECT"
+        const val ACTION_OWNER_ANSWER = "com.aios.phone.smoke.OWNER_ANSWER"
+        const val ACTION_OWNER_DECLINE = "com.aios.phone.smoke.OWNER_DECLINE"
+        const val ACTION_OWNER_IGNORE = "com.aios.phone.smoke.OWNER_IGNORE"
         const val ACTION_UNREGISTER = "com.aios.phone.smoke.UNREGISTER"
         const val ACTION_SHOW = "com.aios.phone.smoke.SHOW"
         const val EXTRA_NUMBER = "number"

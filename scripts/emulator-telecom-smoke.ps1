@@ -135,6 +135,7 @@ $privateAuditFile = "cache/aios-telecom-smoke-audit.txt"
 $screenshot = $null
 $outgoingScreenshot = $null
 $privateAuditRemoved = $false
+$smokePhase = "startup"
 
 function Get-UiHierarchy {
     $lastFailure = $null
@@ -173,7 +174,15 @@ function Get-UiControl {
         Start-Sleep -Milliseconds 200
     }
     if ($labels.Count -ne 1) {
-        throw "Expected exactly one '$Text' control after retries, found $($labels.Count)"
+        $visibleLabels = @(
+            $hierarchy.SelectNodes('//node') |
+                ForEach-Object { if ($_.text) { $_.text } elseif ($_.'content-desc') { $_.'content-desc' } } |
+                Where-Object { $_ } |
+                Select-Object -Unique -First 24
+        ) -join " | "
+        $focusedWindow = Get-FocusedWindow
+        $callState = (Get-CurrentTelecomCalls) -replace "`r?`n", " | "
+        throw "Expected exactly one '$Text' control after retries, found $($labels.Count); phase=$smokePhase; focus=$focusedWindow; visible=$visibleLabels; calls=$callState"
     }
     $control = $labels[0].ParentNode
     if ($null -eq $control -or $control.clickable -ne "true" -or
@@ -561,6 +570,7 @@ try {
         throw "Ignore did not preserve the ringing call on the silent notification channel"
     }
 
+    $smokePhase = "baseline_owner_answer"
     Invoke-Adb shell am start -a com.aios.phone.smoke.SHOW -n $fixtureActivity | Out-Null
     Start-Sleep -Milliseconds 500
     Invoke-UiControl "Answer"
@@ -778,6 +788,7 @@ try {
     }
     $privateAuditRemoved = $true
 
+    $smokePhase = "waiting_call_answer"
     Invoke-Adb shell am start -a com.aios.phone.smoke.INCOMING -n $fixtureActivity `
         --es number 15551230185 | Out-Null
     Invoke-Adb shell cmd telecom wait-on-handlers | Out-Null
@@ -989,14 +1000,13 @@ try {
     $randomAutomaticAnswer = Invoke-AutomaticAnswerTimingCase `
         -DelayMode "random_1010_3990_ms" -RandomDelay
 
+    $smokePhase = "owner_dispatch_cancels_pending_ai"
     Set-AssistantPolicy -AnswerMode "all" -DelayMode "fixed_4000_ms"
     Reset-AutomaticAnswerAudit
     Start-SmokeIncoming -Number "15551230210"
     Wait-ForAssistantAudit -Pattern '(?m)^\d+:decision:4000:1:' | Out-Null
-    Invoke-Adb shell am start -a com.aios.phone.smoke.SHOW `
+    Invoke-Adb shell am start -W -a com.aios.phone.smoke.OWNER_ANSWER `
         -n $fixtureActivity | Out-Null
-    Start-Sleep -Milliseconds 250
-    Invoke-UiControl "Answer"
     Wait-ForTelecomPattern -Pattern 'state=ACTIVE' -TimeoutMillis 2000 | Out-Null
     Start-Sleep -Milliseconds 4300
     $ownerAnswerAssistantAudit = Get-AssistantAudit
@@ -1014,10 +1024,8 @@ try {
     Reset-AutomaticAnswerAudit
     Start-SmokeIncoming -Number "15551230211"
     Wait-ForAssistantAudit -Pattern '(?m)^\d+:decision:4000:1:' | Out-Null
-    Invoke-Adb shell am start -a com.aios.phone.smoke.SHOW `
+    Invoke-Adb shell am start -W -a com.aios.phone.smoke.OWNER_DECLINE `
         -n $fixtureActivity | Out-Null
-    Start-Sleep -Milliseconds 250
-    Invoke-UiControl "Decline"
     Invoke-Adb shell cmd telecom wait-on-handlers | Out-Null
     Start-Sleep -Milliseconds 4300
     $declineAssistantAudit = Get-AssistantAudit
@@ -1036,10 +1044,8 @@ try {
     Reset-AutomaticAnswerAudit
     Start-SmokeIncoming -Number "15551230212"
     Wait-ForAssistantAudit -Pattern '(?m)^\d+:decision:4000:1:' | Out-Null
-    Invoke-Adb shell am start -a com.aios.phone.smoke.SHOW `
+    Invoke-Adb shell am start -W -a com.aios.phone.smoke.OWNER_IGNORE `
         -n $fixtureActivity | Out-Null
-    Start-Sleep -Milliseconds 250
-    Invoke-UiControl "Ignore"
     Start-Sleep -Milliseconds 300
     $notificationsAfterAutomaticIgnore = (
         Invoke-Adb shell dumpsys notification --noredact) -join "`n"
