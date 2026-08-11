@@ -153,12 +153,14 @@ final class ReceptionistDialogueClient implements AutoCloseable {
             String normalized = callerTurn == null ? "" : callerTurn.trim();
             if (closed || state == null || state.ended || state.inFlight
                     || !LANGUAGES.contains(language) || normalized.isEmpty()
-                    || normalized.length() > MAX_TURN_CHARS || service == null
+                    || normalized.length() > MAX_TURN_CHARS) {
+                return false;
+            }
+            appendBounded(state.history, "caller[" + language + "]: " + normalized + "\n");
+            if (nextRequestSerial == Long.MAX_VALUE || service == null
                     || !available || !languages.contains(language)) {
                 return false;
             }
-            if (nextRequestSerial == Long.MAX_VALUE) return false;
-            appendBounded(state.history, "caller[" + language + "]: " + normalized + "\n");
             state.inFlight = true;
             long generation = ++state.generation;
             pending = new PendingRequest(

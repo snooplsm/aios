@@ -75,6 +75,15 @@ in-call format, and routed to the explicit telephony-TX device. The playing
 `AudioTrack` must report the telephony route and drain all queued audio before a
 response is considered delivered.
 
+Receptionist reasoning begins on finalized caller segments, while partial ASR
+continues updating live transcript and risk. Reasoning and speech are serialized
+to prevent overlapping or stale replies. If more finalized segments arrive
+while the assistant is busy, their text is coalesced in order into one bounded
+pending turn; a language change uses the latest detected response language
+without discarding the earlier words. Failed model submission drains any speech
+that raced into the queue instead of silently dropping it, and the failed
+current turn remains in bounded conversation history for the next request.
+
 The AIDL also exposes a validated owner-policy read/update API for the Dialer
 settings screen. The caller-audio transport is implemented but explicitly
 unvalidated. The checked-in product property

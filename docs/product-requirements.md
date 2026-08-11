@@ -89,6 +89,10 @@ All asynchronous call results must be bound to an unforgeable in-process
 request/session identity in addition to the opaque call ID. A restarted session
 must reject delayed ASR, classifier, receptionist, context, TTS, and caller-audio
 events produced for its predecessor.
+Finalized caller segments that arrive during receptionist reasoning or speech
+must be preserved in order within a bounded coalesced turn. They must not create
+overlapping replies, and a failed model submission must not discard speech that
+was queued concurrently.
 If Model Broker dies or its package binding is replaced while Call Intelligence
 continues recording, the carrier call and app-private PCM capture remain active.
 All stale broker callbacks and inference sinks are detached immediately. Call

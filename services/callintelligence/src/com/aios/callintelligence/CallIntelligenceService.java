@@ -1311,14 +1311,16 @@ public final class CallIntelligenceService extends Service {
     private void continueAfterAssistantOperation(String callId, ActiveSession session) {
         ActiveSession.AssistantCompletion completion = session.completeAssistantOperation();
         completion.closeAudio();
-        if (completion.nextTurn != null) {
-            if (!receptionist.requestReply(
-                    callId, completion.nextTurn.language, completion.nextTurn.text)) {
-                notifyStatus(callId, -5, "receptionist_request_unavailable");
-                session.completeAssistantOperation().closeAudio();
-            } else {
+        AssistantTurnQueue.CallerTurn nextTurn = completion.nextTurn;
+        while (nextTurn != null && session.isAiHandling()) {
+            if (receptionist.requestReply(callId, nextTurn.language, nextTurn.text)) {
                 notifyStatus(callId, 6, "receptionist_thinking");
+                return;
             }
+            notifyStatus(callId, -5, "receptionist_request_unavailable");
+            completion = session.completeAssistantOperation();
+            completion.closeAudio();
+            nextTurn = completion.nextTurn;
         }
     }
 

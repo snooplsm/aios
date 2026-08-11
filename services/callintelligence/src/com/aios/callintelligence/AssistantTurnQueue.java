@@ -2,6 +2,8 @@ package com.aios.callintelligence;
 
 /** Small synchronized state machine that prevents overlapping receptionist output. */
 final class AssistantTurnQueue {
+    static final int MAX_PENDING_TEXT_CHARS = 2_048;
+
     static final class CallerTurn {
         final String language;
         final String text;
@@ -24,9 +26,9 @@ final class AssistantTurnQueue {
 
     synchronized CallerTurn offer(String language, String text) {
         if (closed) return null;
-        CallerTurn turn = new CallerTurn(language, text);
+        CallerTurn turn = new CallerTurn(language, bounded(text));
         if (busy) {
-            pending = turn;
+            pending = coalesce(pending, turn);
             return null;
         }
         busy = true;
@@ -49,5 +51,24 @@ final class AssistantTurnQueue {
         closed = true;
         busy = false;
         pending = null;
+    }
+
+    private static CallerTurn coalesce(CallerTurn current, CallerTurn latest) {
+        if (current == null || current.text.isEmpty()) return latest;
+        if (latest.text.isEmpty()) return current;
+        return new CallerTurn(
+                latest.language,
+                bounded(current.text + " " + latest.text));
+    }
+
+    private static String bounded(String value) {
+        String normalized = value == null ? "" : value.trim();
+        int excess = normalized.length() - MAX_PENDING_TEXT_CHARS;
+        if (excess <= 0) return normalized;
+        int boundary = normalized.indexOf(' ', excess);
+        int start = boundary >= 0 && boundary + 1 < normalized.length()
+                ? boundary + 1
+                : excess;
+        return normalized.substring(start);
     }
 }

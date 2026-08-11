@@ -3164,6 +3164,13 @@ def validate_aosp_overlay(root: Path) -> None:
     receptionist_source = (
         call_source_root / "ReceptionistDialogueClient.java"
     ).read_text(encoding="utf-8")
+    assistant_turn_queue = (
+        call_source_root / "AssistantTurnQueue.java"
+    ).read_text(encoding="utf-8")
+    assistant_turn_queue_test = (
+        root / "services" / "callintelligence" / "tests" / "src" / "com" /
+        "aios" / "callintelligence" / "AssistantTurnQueueTest.java"
+    ).read_text(encoding="utf-8")
     speech_broker_source = (
         call_source_root / "SpeechSynthesisBrokerClient.java"
     ).read_text(encoding="utf-8")
@@ -3179,6 +3186,8 @@ def validate_aosp_overlay(root: Path) -> None:
             and 'request.capability = "text_generation"' in receptionist_source
             and 'request.workload = "call_agent"' in receptionist_source
             and "request.allowFallback = true" in receptionist_source
+            and receptionist_source.index("appendBounded(state.history")
+            < receptionist_source.index("service == null")
             and "exactKeys(" in receptionist_source
             and "ReceptionistReplyPolicy.accepts" in receptionist_source
             and "MAX_REPLY_CHARS" in receptionist_reply_policy
@@ -3225,6 +3234,16 @@ def validate_aosp_overlay(root: Path) -> None:
             and "attachAssistantAudio" in call_service
             and "completeAssistantOperation" in call_service,
             "AI dialogue must start only at final caller turns and serialize reasoning and speech")
+    require("MAX_PENDING_TEXT_CHARS = 2_048" in assistant_turn_queue
+            and "pending = coalesce(pending, turn)" in assistant_turn_queue
+            and "finalizedSegmentsCoalesceWhileAssistantIsBusy"
+            in assistant_turn_queue_test
+            and "pendingSpeechKeepsTheNewestBoundedContext"
+            in assistant_turn_queue_test
+            and "while (nextTurn != null && session.isAiHandling())"
+            in call_service
+            and "nextTurn = completion.nextTurn" in call_service,
+            "busy receptionist work must preserve bounded finalized speech and drain submission races")
     require("CallProductProperties.callerUplinkValidated()" in call_service
             and "CALL_UPLINK_VALIDATION_PROPERTY" in call_product_properties
             and "callerInteractionTransportReady()" in call_service

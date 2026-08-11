@@ -24,7 +24,7 @@ public final class AssistantTurnQueueTest {
     }
 
     @Test
-    public void newestCompleteTurnReplacesStalePendingRevision() {
+    public void finalizedSegmentsCoalesceWhileAssistantIsBusy() {
         AssistantTurnQueue queue = new AssistantTurnQueue();
         assertTrue(queue.beginGreeting());
         assertNull(queue.offer("en", "first turn"));
@@ -33,7 +33,21 @@ public final class AssistantTurnQueueTest {
         AssistantTurnQueue.CallerTurn next = queue.complete();
 
         assertEquals("es", next.language);
-        assertEquals("turno final", next.text);
+        assertEquals("first turn turno final", next.text);
+    }
+
+    @Test
+    public void pendingSpeechKeepsTheNewestBoundedContext() {
+        AssistantTurnQueue queue = new AssistantTurnQueue();
+        assertTrue(queue.beginGreeting());
+        assertNull(queue.offer("en", "early " + "a".repeat(1_500)));
+        assertNull(queue.offer("en", "latest " + "b".repeat(1_000)));
+
+        AssistantTurnQueue.CallerTurn next = queue.complete();
+
+        assertTrue(next.text.length() <= AssistantTurnQueue.MAX_PENDING_TEXT_CHARS);
+        assertTrue(next.text.contains("latest"));
+        assertTrue(next.text.endsWith("b".repeat(1_000)));
     }
 
     @Test

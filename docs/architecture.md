@@ -134,7 +134,9 @@ reply/risk schema. It then
 requests English or Spanish speech through Model Broker, converts the mono
 provider output to the device's 48 kHz stereo in-call format, and routes it only
 to `TYPE_TELEPHONY`. Reasoning and speech never overlap, and a caller turn that
-arrives while the assistant is busy is queued. The route is verified during
+arrives while the assistant is busy is queued. Multiple finalized ASR segments
+are coalesced in order into one bounded pending turn, preserving their words
+without producing a backlog of stale replies. The route is verified during
 playback. A per-device read-only property remains false until a physical
 carrier-call test proves remote audibility; static audio-policy inspection and
 emulator playback cannot unlock automatic answering.
