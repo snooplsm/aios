@@ -151,7 +151,10 @@ The Model Broker is a signature-protected Binder service. It:
 - selects a compatible model/backend from the capability tier and the
   device-specific, evidence-backed artifact admission;
 - owns model mappings so apps cannot copy raw weights;
-- enforces one foreground real-time lease and bounded background leases;
+- loads session limits from the verified product policy and enforces three
+  global active slots, a shared two-stream RX/TX ASR pool, one serialized
+  call-agent lane for reasoning or speech, and per-client active-plus-queued
+  quotas;
 - samples current Android low-memory and thermal state before each new session,
   preferring a smaller admitted fallback for calls and returning retryable busy
   for background media when constrained or unmeasurable;

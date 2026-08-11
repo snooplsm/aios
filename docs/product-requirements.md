@@ -225,6 +225,13 @@ receives a retryable busy result. Missing pressure telemetry fails closed;
 existing call sessions are not migrated, and resident-memory estimates do not
 create a fixed product RAM limit.
 
+The initial product policy allows three active broker sessions: two shared by
+incoming and outgoing call ASR, and one shared by call reasoning and TTS.
+Capacity is parsed from the installed product policy at broker startup and any
+missing, malformed, or unsupported value denies client inference. Queued work
+counts against its caller's quota but not active class capacity, and a saturated
+class may not prevent another eligible class from being promoted.
+
 ## Prototype release posture
 
 The initial posture is a research prototype for personally owned, bootloader-

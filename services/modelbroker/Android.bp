@@ -39,6 +39,7 @@ java_test_host {
         "src/com/aios/modelbroker/RuntimeCandidatePolicy.java",
         "src/com/aios/modelbroker/RuntimePressurePolicy.java",
         "src/com/aios/modelbroker/RuntimeRebindPolicy.java",
+        "src/com/aios/modelbroker/SessionCapacityPolicy.java",
         "src/com/aios/modelbroker/SessionArbiter.java",
         "src/com/aios/modelbroker/SessionChunkPolicy.java",
         "src/com/aios/modelbroker/SessionDeadlinePolicy.java",

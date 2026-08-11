@@ -46,7 +46,7 @@ final class SessionArbiter {
         }
     }
 
-    private final int capacity;
+    private final SessionCapacityPolicy capacityPolicy;
     private final Map<Long, Lease> leases = new HashMap<>();
     private final PriorityQueue<Lease> queue = new PriorityQueue<>(
             Comparator.<Lease>comparingInt(lease -> lease.workClass.priority)
@@ -55,11 +55,11 @@ final class SessionArbiter {
     private long sequence;
     private boolean callActive;
 
-    SessionArbiter(int capacity) {
-        if (capacity <= 0) {
-            throw new IllegalArgumentException("capacity must be positive");
+    SessionArbiter(SessionCapacityPolicy capacityPolicy) {
+        if (capacityPolicy == null) {
+            throw new IllegalArgumentException("capacity policy is required");
         }
-        this.capacity = capacity;
+        this.capacityPolicy = capacityPolicy;
     }
 
     synchronized Change submit(
@@ -82,13 +82,14 @@ final class SessionArbiter {
             queue.add(lease);
             return new Change(Status.QUEUED, cancelled, List.of());
         }
-        if (activeCount() < capacity) {
+        if (canActivate(workClass)) {
             lease.active = true;
             return new Change(Status.ACTIVE, cancelled, List.of(sessionId));
         }
 
-        Lease victim = lowestPriorityActive();
-        if (victim != null && victim.workClass.priority < workClass.priority) {
+        Lease victim = lowestPriorityActiveForAdmission(workClass);
+        if (victim != null
+                && victim.workClass.priority < workClass.priority) {
             leases.remove(victim.sessionId);
             victim.active = false;
             cancelled.add(victim.sessionId);
@@ -150,10 +151,38 @@ final class SessionArbiter {
         return count;
     }
 
-    private Lease lowestPriorityActive() {
+    private int activeCount(WorkClass workClass) {
+        int count = 0;
+        for (Lease lease : leases.values()) {
+            if (lease.active
+                    && capacityPolicy.sharesActivePool(workClass, lease.workClass)) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    private boolean hasClassHeadroom(WorkClass workClass) {
+        return activeCount(workClass) < capacityPolicy.activeLimit(workClass);
+    }
+
+    private boolean canActivate(WorkClass workClass) {
+        return activeCount() < capacityPolicy.globalSessionCapacity
+                && hasClassHeadroom(workClass);
+    }
+
+    private Lease lowestPriorityActiveForAdmission(WorkClass incoming) {
+        boolean classFull = !hasClassHeadroom(incoming);
+        boolean globalFull = activeCount() >= capacityPolicy.globalSessionCapacity;
+        if (!classFull && !globalFull) {
+            return null;
+        }
         Lease result = null;
         for (Lease lease : leases.values()) {
-            if (lease.active && (result == null
+            if (lease.active
+                    && (!classFull
+                    || capacityPolicy.sharesActivePool(incoming, lease.workClass))
+                    && (result == null
                     || lease.workClass.priority < result.workClass.priority
                     || (lease.workClass.priority == result.workClass.priority
                     && lease.sequence > result.sequence))) {
@@ -178,18 +207,21 @@ final class SessionArbiter {
 
     private List<Long> promote() {
         List<Long> result = new ArrayList<>();
-        while (activeCount() < capacity && !queue.isEmpty()) {
+        List<Lease> deferred = new ArrayList<>();
+        while (activeCount() < capacityPolicy.globalSessionCapacity && !queue.isEmpty()) {
             Lease next = queue.poll();
             if (!leases.containsKey(next.sessionId)) {
                 continue;
             }
-            if (mediaBlocked() && next.workClass == WorkClass.MEDIA_BACKGROUND) {
-                queue.add(next);
-                break;
+            if ((mediaBlocked() && next.workClass == WorkClass.MEDIA_BACKGROUND)
+                    || !hasClassHeadroom(next.workClass)) {
+                deferred.add(next);
+                continue;
             }
             next.active = true;
             result.add(next.sessionId);
         }
+        queue.addAll(deferred);
         return result;
     }
 

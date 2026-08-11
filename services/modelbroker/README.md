@@ -22,6 +22,14 @@ package/capability/workload quotas. Runtime providers are discovered only from
 the exact system-package/version/backend allowlist; verified weights alone never
 make a capability active.
 
+Active-session capacity is loaded fail closed from the AVB-protected product
+policy rather than duplicated in service code. RX and TX transcription share a
+two-stream ASR pool, while reasoning and speech synthesis share one call-agent
+lane; all work also consumes one of three global slots. Per-client quotas count
+both active and queued sessions. A class-saturated queued request cannot block
+promotion of another class that still has capacity, and background media uses
+only idle capacity outside a live call.
+
 Selection remains primary-first within that chain and de-duplicates shared
 models. A fallback is usable only when its exact artifact digest was separately
 admitted for the device profile; merely declaring `fallback_tier` never admits

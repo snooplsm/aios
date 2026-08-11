@@ -917,6 +917,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/modelbroker/src/com/aios/modelbroker/CatalogTierPlanner.java",
         "services/modelbroker/src/com/aios/modelbroker/DeviceModelAdmission.java",
         "services/modelbroker/src/com/aios/modelbroker/BrokerProductProperties.java",
+        "services/modelbroker/src/com/aios/modelbroker/BrokerCapacityPolicy.java",
         "services/modelbroker/src/com/aios/modelbroker/BrokerState.java",
         "services/modelbroker/src/com/aios/modelbroker/PolicyFileReader.java",
         "services/modelbroker/src/com/aios/modelbroker/RuntimeCandidatePolicy.java",
@@ -926,6 +927,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/modelbroker/src/com/aios/modelbroker/RuntimeRebindPolicy.java",
         "services/modelbroker/src/com/aios/modelbroker/RuntimeRegistry.java",
         "services/modelbroker/src/com/aios/modelbroker/SessionController.java",
+        "services/modelbroker/src/com/aios/modelbroker/SessionCapacityPolicy.java",
         "services/modelbroker/src/com/aios/modelbroker/SessionArbiter.java",
         "services/modelbroker/src/com/aios/modelbroker/SessionChunkPolicy.java",
         "services/modelbroker/src/com/aios/modelbroker/SessionDeadlinePolicy.java",
@@ -933,6 +935,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/modelbroker/src/com/aios/modelbroker/CallActivityLeaseTracker.java",
         "services/modelbroker/src/com/aios/modelbroker/VerifiedArtifact.java",
         "services/modelbroker/tests/src/com/aios/modelbroker/SessionArbiterTest.java",
+        "services/modelbroker/tests/src/com/aios/modelbroker/SessionCapacityPolicyTest.java",
         "services/modelbroker/tests/src/com/aios/modelbroker/SessionChunkPolicyTest.java",
         "services/modelbroker/tests/src/com/aios/modelbroker/SessionDeadlinePolicyTest.java",
         "services/modelbroker/tests/src/com/aios/modelbroker/SessionDeadlineQueueTest.java",
@@ -2550,9 +2553,42 @@ def validate_aosp_overlay(root: Path) -> None:
     arbiter_source = (broker_source_root / "SessionArbiter.java").read_text(
         encoding="utf-8"
     )
+    capacity_source = (broker_source_root / "SessionCapacityPolicy.java").read_text(
+        encoding="utf-8"
+    )
+    capacity_loader = (broker_source_root / "BrokerCapacityPolicy.java").read_text(
+        encoding="utf-8"
+    )
+    capacity_test = (
+        root / "services" / "modelbroker" / "tests" / "src" / "com" / "aios" /
+        "modelbroker" / "SessionCapacityPolicyTest.java"
+    ).read_text(encoding="utf-8")
+    arbiter_test = (
+        root / "services" / "modelbroker" / "tests" / "src" / "com" / "aios" /
+        "modelbroker" / "SessionArbiterTest.java"
+    ).read_text(encoding="utf-8")
     require("mediaBlocked()" in arbiter_source
             and "callActive = true" not in arbiter_source,
             "foreground sessions must not leave a sticky media gate after completion")
+    require('"product_policy.json"' in broker_state
+            and "BrokerCapacityPolicy.load" in broker_state
+            and "state.sessionCapacityPolicy()" in service
+            and "new SessionController(state.runtimes(), 3)" not in service
+            and "PolicyFileReader.readUtf8" in capacity_loader
+            and "value instanceof Integer" in capacity_loader
+            and "value instanceof Boolean" in capacity_loader,
+            "broker session capacities must load fail closed from product policy")
+    require("callAsrStreamCapacity" in capacity_source
+            and "callAgentCapacity" in capacity_source
+            and "sharesActivePool" in capacity_source
+            and "canActivate(workClass)" in arbiter_source
+            and "hasClassHeadroom(next.workClass)" in arbiter_source
+            and "rxAndTxShareTwoStreamCapacity" in arbiter_test
+            and "rxPreemptsTxWhenSharedPoolIsFull" in arbiter_test
+            and "promotionSkipsSaturatedClassWithoutBreakingPriorityOrder"
+            in arbiter_test
+            and "mapsRxAndTxToOneSharedAsrPool" in capacity_test,
+            "broker must enforce host-tested global, shared-ASR, and call-agent capacities")
 
     provider_root = root / "runtime" / "litertlmprovider"
     runtime_trim_policy = (

@@ -211,9 +211,10 @@ final class SessionController implements AutoCloseable {
     private long deadlineGeneration;
     private boolean closed;
 
-    SessionController(RuntimeRegistry runtimes, int capacity) {
+    SessionController(
+            RuntimeRegistry runtimes, SessionCapacityPolicy capacityPolicy) {
         this.runtimes = runtimes;
-        arbiter = new SessionArbiter(capacity);
+        arbiter = new SessionArbiter(capacityPolicy);
         deadlineExecutor = new ScheduledThreadPoolExecutor(1, task -> {
             Thread thread = new Thread(task, "aios-model-deadlines");
             thread.setDaemon(true);

@@ -25,6 +25,7 @@ final class BrokerState {
     private final AuthorizedClientPolicy clients;
     private final Map<String, VerifiedArtifact> selectedArtifacts;
     private final RuntimeRegistry runtimes;
+    private final SessionCapacityPolicy sessionCapacityPolicy;
     private final ActivityManager activityManager;
     private final PowerManager powerManager;
     private volatile boolean callActive;
@@ -39,11 +40,13 @@ final class BrokerState {
             AuthorizedClientPolicy clients,
             Map<String, VerifiedArtifact> selectedArtifacts,
             RuntimeRegistry runtimes,
+            SessionCapacityPolicy sessionCapacityPolicy,
             ActivityManager activityManager,
             PowerManager powerManager) {
         this.clients = clients;
         this.selectedArtifacts = selectedArtifacts;
         this.runtimes = runtimes;
+        this.sessionCapacityPolicy = sessionCapacityPolicy;
         this.activityManager = activityManager;
         this.powerManager = powerManager;
     }
@@ -52,6 +55,8 @@ final class BrokerState {
         AuthorizedClientPolicy clients = AuthorizedClientPolicy.denyAll(context);
         Map<String, VerifiedArtifact> selected = Map.of();
         RuntimeRegistry runtimes = RuntimeRegistry.modelFree();
+        SessionCapacityPolicy sessionCapacityPolicy =
+                new SessionCapacityPolicy(1, 1, 1);
         try {
             runtimes = RuntimeRegistry.load(
                     context, new File(CONFIGURATION, "runtime_catalog.json"));
@@ -59,6 +64,8 @@ final class BrokerState {
             Log.e(TAG, "runtime policy failed; runtime activation denied", error);
         }
         try {
+            sessionCapacityPolicy = BrokerCapacityPolicy.load(
+                    new File(CONFIGURATION, "product_policy.json"));
             clients = AuthorizedClientPolicy.load(
                     context, new File(CONFIGURATION, "authorized_clients.json"));
             Map<String, VerifiedArtifact> verified =
@@ -89,6 +96,7 @@ final class BrokerState {
                 clients,
                 selected,
                 runtimes,
+                sessionCapacityPolicy,
                 context.getSystemService(ActivityManager.class),
                 context.getSystemService(PowerManager.class));
     }
@@ -165,6 +173,10 @@ final class BrokerState {
 
     RuntimeRegistry runtimes() {
         return runtimes;
+    }
+
+    SessionCapacityPolicy sessionCapacityPolicy() {
+        return sessionCapacityPolicy;
     }
 
     void close() {

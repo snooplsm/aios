@@ -148,8 +148,8 @@ public final class ModelBrokerService extends Service {
         super.onCreate();
         mainHandler = new Handler(Looper.getMainLooper());
         state = BrokerState.load(this);
-        // Two whisper streams (RX/TX) plus one LiteRT call-agent request.
-        sessions = new SessionController(state.runtimes(), 3);
+        sessions = new SessionController(
+                state.runtimes(), state.sessionCapacityPolicy());
     }
 
     @Override
