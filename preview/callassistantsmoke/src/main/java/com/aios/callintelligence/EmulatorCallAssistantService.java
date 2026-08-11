@@ -57,6 +57,8 @@ public final class EmulatorCallAssistantService extends Service {
                     .putBoolean(KEY_PROCESSING_ENABLED, requested.processingEnabled)
                     .commit();
             if (!committed) throw new IllegalStateException("fixture policy could not be saved");
+            audit("policy_update:" + requested.answerMode + ":"
+                    + requested.answerDelayMode + ":" + requested.processingEnabled);
             return readPolicy();
         }
 

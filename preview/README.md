@@ -165,6 +165,16 @@ reach policy evaluation. `-AutomaticAnswerOnly` runs this matrix separately and
 records unexecuted baseline fields as null; neither mode is physical/carrier or
 real caller-audio evidence.
 
+The focused matrix first drives the production Compose Settings screen rather
+than configuring the service fixture directly: it enables processing and
+automatic answer, chooses every non-emergency call with a three-second delay,
+and saves. The companion must audit the exact Binder policy update. After the
+companion is force-stopped, the next Telecom call must reload that persisted
+policy and answer once after the full selected delay. UI hierarchy dumps are
+bounded and retried, and repeated SHOW intents rely on control discovery rather
+than `am start -W`, so a constrained AVD cannot silently strand cleanup behind
+an Android activity-manager wait.
+
 For the outgoing path, the runner temporarily selects the fixture account,
 opens AIOS Phone through a standard `ACTION_DIAL` intent, activates **Call**,
 verifies `DIALING` then `ACTIVE` in Telecom and the automatic in-call surface,

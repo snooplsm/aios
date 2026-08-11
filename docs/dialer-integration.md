@@ -304,6 +304,16 @@ the production **AI** action fails closed. The controlled phase then enables the
 emulator AIDL peer and leaves scheduling plus `Call.answer()` entirely inside
 the production Phone code.
 
+Before the timer matrix, the runner opens the production Compose Settings
+screen from `MainActivity`, toggles **Process and transcribe calls** and **Auto
+AI answer**, selects **Every non-emergency call** plus **3s**, and activates
+**Save assistant settings**. The companion audit must observe the resulting
+`updatePolicy` Binder transaction. The runner then force-stops that companion
+and requires the next Telecom call to reload the persisted policy and reach its
+managed `Connection.onAnswer` no earlier than the selected three-second delay.
+This proves the Settings/UDF/Binder/persistence/Telecom chain; it does not prove
+caller-audio capture or physical-device behavior.
+
 That phase measures one automatic Telecom answer for each exact fixed delay and
 for one newly sampled inclusive 1,010–3,990 ms random delay. It waits beyond the
 four-second deadline after owner **Answer** and **Decline** to reject stale
@@ -322,6 +332,11 @@ cannot remain stable for the combined baseline-plus-timer run; omitted baseline
 fields are written as JSON `null`, never as successful observations. Both debug
 APKs, both private audits, the synthetic accounts/calls, and the temporary role
 are still removed and verified.
+
+UI hierarchy collection is device-side time-bounded and retried, and fixture
+SHOW intents do not use `am start -W`; readiness comes from finding the actual
+Compose control. This prevents a low-memory AVD or an already-running activity
+from stranding a live synthetic call behind an unbounded ADB wait.
 
 The same run locates the labeled Compose controls through UI Automator rather
 than fixed coordinates. It verifies that **Ignore** leaves the call ringing on

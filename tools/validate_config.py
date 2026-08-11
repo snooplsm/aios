@@ -2310,6 +2310,7 @@ def validate_aosp_overlay(root: Path) -> None:
             and "!EmulatorGuard.isEmulator()" in assistant_smoke_service
             and "return null;" in assistant_smoke_service
             and "new CallPolicyEngine(" in assistant_smoke_service
+            and 'audit("policy_update:"' in assistant_smoke_service
             and "It intentionally supplies no capture, ASR, model, or caller-audio"
             in assistant_smoke_service,
             "the automatic-answer AIDL peer must reuse production policy and remain emulator-only")
@@ -2396,6 +2397,15 @@ def validate_aosp_overlay(root: Path) -> None:
             and "service_loss_revoked_old_pending_ai" in smoke_script
             and "service_reconnect_restarted_full_delay_ms" in smoke_script
             and "synthetic_emergency_never_evaluated_for_ai" in smoke_script
+            and "settings_policy_update_reached_binder" in smoke_script
+            and "settings_policy_survived_service_restart" in smoke_script
+            and "settings_to_telecom_answer" in smoke_script
+            and 'Invoke-UiSwitch "Process and transcribe calls"' in smoke_script
+            and 'Invoke-UiSwitch "Auto AI answer"' in smoke_script
+            and 'Invoke-ScrolledUiControl "Save assistant settings"' in smoke_script
+            and "policy_update:all:fixed_3000_ms:true" in smoke_script
+            and "shell timeout 10 uiautomator dump" in smoke_script
+            and "am start -W -a com.aios.phone.smoke.SHOW" not in smoke_script
             and "AutomaticAnswerOnly" in smoke_script
             and "assistant_package_removed" in smoke_script
             and "private_automatic_answer_audits_removed" in smoke_script

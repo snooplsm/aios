@@ -94,6 +94,7 @@ $role = "android.app.role.DIALER"
 $package = "com.aios.phone"
 $fixtureActivity = "$package/com.aios.phone.smoke.EmulatorCallActivity"
 $fixtureService = "$package/com.aios.phone.smoke.EmulatorConnectionService"
+$mainActivity = "$package/com.aios.phone.ui.MainActivity"
 $fixtureAccount = "aios-emulator-smoke"
 $fixtureSecondaryAccount = "aios-emulator-smoke-secondary"
 $assistantPackage = "com.aios.callintelligence"
@@ -135,13 +136,33 @@ $screenshot = $null
 $outgoingScreenshot = $null
 $privateAuditRemoved = $false
 
+function Get-UiHierarchy {
+    $lastFailure = $null
+    for ($attempt = 1; $attempt -le 3; $attempt++) {
+        try {
+            # Android's uiautomator occasionally wedges on memory-constrained
+            # AVDs. Bound the device-side process so one dump cannot strand an
+            # active Telecom call or prevent the finally block from restoring
+            # the emulator.
+            Invoke-Adb shell timeout 10 uiautomator dump $remoteUiDump | Out-Null
+            [xml]$hierarchy = (Invoke-Adb shell cat $remoteUiDump) -join "`n"
+            return $hierarchy
+        } catch {
+            $lastFailure = $_
+            if ($attempt -lt 3) {
+                Start-Sleep -Milliseconds 500
+            }
+        }
+    }
+    throw "Could not obtain the emulator UI hierarchy after 3 bounded attempts: $lastFailure"
+}
+
 function Get-UiControl {
     param([Parameter(Mandatory)][string]$Text)
 
     $labels = @()
     for ($attempt = 0; $attempt -lt 5; $attempt++) {
-        Invoke-Adb shell uiautomator dump $remoteUiDump | Out-Null
-        [xml]$hierarchy = (Invoke-Adb shell cat $remoteUiDump) -join "`n"
+        $hierarchy = Get-UiHierarchy
         $labels = @(
             $hierarchy.SelectNodes('//node') |
                 Where-Object { $_.text -eq $Text -or $_.'content-desc' -eq $Text }
@@ -174,6 +195,106 @@ function Invoke-UiControl {
         throw "The '$Text' Compose control is disabled"
     }
     Invoke-Adb shell input tap $control.center_x $control.center_y | Out-Null
+}
+
+function Get-UiSwitch {
+    param([Parameter(Mandatory)][string]$Title)
+
+    $hierarchy = Get-UiHierarchy
+    $labels = @($hierarchy.SelectNodes('//node') | Where-Object { $_.text -eq $Title })
+    if ($labels.Count -ne 1) {
+        throw "Expected one visible '$Title' setting label, found $($labels.Count)"
+    }
+    # Compose exposes Switch as the next flattened semantics sibling: a
+    # checkable/clickable android.view.View rather than android.widget.Switch.
+    $switch = $labels[0].NextSibling
+    while ($null -ne $switch -and
+        ($switch.checkable -ne 'true' -or $switch.clickable -ne 'true')) {
+        $switch = $switch.NextSibling
+    }
+    if ($null -eq $switch -or
+        $switch.bounds -notmatch '^\[(\d+),(\d+)\]\[(\d+),(\d+)\]$') {
+        throw "The '$Title' setting does not expose one actionable switch"
+    }
+    return [pscustomobject]@{
+        enabled = $switch.enabled -eq "true"
+        checked = $switch.checked -eq "true"
+        center_x = [int](([int]$Matches[1] + [int]$Matches[3]) / 2)
+        center_y = [int](([int]$Matches[2] + [int]$Matches[4]) / 2)
+    }
+}
+
+function Scroll-UntilUiText {
+    param(
+        [Parameter(Mandatory)][string]$Text,
+        [int]$MaximumSwipes = 8
+    )
+
+    $sizeLine = (Invoke-Adb shell wm size | Select-Object -First 1) -join ""
+    if ($sizeLine -notmatch '(?<width>\d+)x(?<height>\d+)') {
+        throw "Could not read emulator display size"
+    }
+    $displayWidth = [int]$Matches['width']
+    $displayHeight = [int]$Matches['height']
+    # Keep the gesture inside the Compose scroll container while avoiding the
+    # full-width setting controls that occupy the middle of the page.
+    $swipeX = [Math]::Max(8, [int]($displayWidth * 0.07))
+    $bottomY = [int]($displayHeight * 0.88)
+    $topY = [int]($displayHeight * 0.18)
+    for ($attempt = 0; $attempt -le $MaximumSwipes; $attempt++) {
+        $hierarchy = Get-UiHierarchy
+        $focus = Get-FocusedWindow
+        if ($focus -notmatch 'com\.aios\.phone/.+SettingsActivity') {
+            throw "Left Phone Settings while looking for '$Text': $focus"
+        }
+        $visibleMatches = @()
+        foreach ($node in @($hierarchy.SelectNodes('//node'))) {
+            if ($node.text -ne $Text -and $node.'content-desc' -ne $Text) {
+                continue
+            }
+            $bounds = [regex]::Match(
+                $node.bounds,
+                '^\[(?<left>\d+),(?<top>\d+)\]\[(?<right>\d+),(?<bottom>\d+)\]$')
+            if ($bounds.Success -and
+                [int]$bounds.Groups['bottom'].Value -gt 0 -and
+                [int]$bounds.Groups['top'].Value -lt $displayHeight) {
+                $visibleMatches += $node
+            }
+        }
+        if ($visibleMatches.Count -gt 0) {
+            return
+        }
+        if ($attempt -lt $MaximumSwipes) {
+            Invoke-Adb shell input swipe $swipeX $bottomY $swipeX $topY 300 | Out-Null
+            Start-Sleep -Milliseconds 300
+        }
+    }
+    $visibleText = @(
+        $hierarchy.SelectNodes('//node') |
+            Where-Object { $_.text } |
+            Select-Object -ExpandProperty text -First 16
+    ) -join " | "
+    throw "Could not reveal '$Text' after $MaximumSwipes settings-page swipes; visible=$visibleText"
+}
+
+function Invoke-UiSwitch {
+    param([Parameter(Mandatory)][string]$Title)
+
+    Scroll-UntilUiText $Title
+    $control = Get-UiSwitch $Title
+    if (-not $control.enabled) {
+        throw "The '$Title' setting switch is disabled"
+    }
+    Invoke-Adb shell input tap $control.center_x $control.center_y | Out-Null
+    Start-Sleep -Milliseconds 250
+}
+
+function Invoke-ScrolledUiControl {
+    param([Parameter(Mandatory)][string]$Text)
+
+    Scroll-UntilUiText $Text
+    Invoke-UiControl $Text
+    Start-Sleep -Milliseconds 250
 }
 
 function Get-CurrentTelecomCalls {
@@ -310,10 +431,13 @@ function Invoke-AutomaticAnswerTimingCase {
     param(
         [Parameter(Mandatory)][string]$DelayMode,
         [int]$ExpectedDelayMillis = -1,
-        [switch]$RandomDelay
+        [switch]$RandomDelay,
+        [switch]$UsePersistedPolicy
     )
 
-    Set-AssistantPolicy -AnswerMode "all" -DelayMode $DelayMode
+    if (-not $UsePersistedPolicy) {
+        Set-AssistantPolicy -AnswerMode "all" -DelayMode $DelayMode
+    }
     Reset-AutomaticAnswerAudit
     Start-SmokeIncoming -Number "15551230200"
     $assistantAudit = Wait-ForAssistantAudit -Pattern '(?m)^\d+:decision:\d+:1:'
@@ -496,8 +620,7 @@ try {
     Invoke-Adb shell am start -W -a android.intent.action.DIAL `
         -d "tel:$outgoingNumber" -n $mainActivity | Out-Null
     Start-Sleep -Seconds 1
-    Invoke-Adb shell uiautomator dump $remoteUiDump | Out-Null
-    $dialUi = (Invoke-Adb shell cat $remoteUiDump) -join "`n"
+    $dialUi = (Get-UiHierarchy).OuterXml
     if ($dialUi -notmatch [regex]::Escape($outgoingNumber)) {
         throw "The standard DIAL intent did not populate the production Compose dialer"
     }
@@ -617,8 +740,7 @@ try {
     Start-Sleep -Milliseconds 300
     $continuePostDial = Get-UiControl "Continue"
     $cancelPostDial = Get-UiControl "Cancel"
-    Invoke-Adb shell uiautomator dump $remoteUiDump | Out-Null
-    $postDialUi = (Invoke-Adb shell cat $remoteUiDump) -join "`n"
+    $postDialUi = (Get-UiHierarchy).OuterXml
     if (-not $continuePostDial.enabled -or -not $cancelPostDial.enabled -or
         $postDialUi -match '739164') {
         throw "Post-dial wait controls were unavailable or exposed the remaining digits"
@@ -798,6 +920,62 @@ try {
     # phase enables a controlled AIDL peer. Decisions come from the production
     # CallPolicyEngine/AnswerDelayPolicy; the production Phone owns the Handler
     # timer and the real Telecom Call.answer() mutation.
+    Set-AssistantPolicy -AnswerMode "off" -DelayMode "fixed_2000_ms" `
+        -Available $true -ProcessingEnabled $false
+    Reset-AutomaticAnswerAudit
+    Invoke-Adb shell am start -W -a android.intent.action.MAIN `
+        -n $mainActivity | Out-Null
+    Start-Sleep -Milliseconds 750
+    Invoke-UiControl "Settings"
+    Start-Sleep -Milliseconds 750
+    Scroll-UntilUiText "Process and transcribe calls"
+    $initialProcessingSwitch = Get-UiSwitch "Process and transcribe calls"
+    if ($initialProcessingSwitch.checked) {
+        throw "The production Settings screen did not load processing disabled"
+    }
+    Invoke-UiSwitch "Process and transcribe calls"
+    Scroll-UntilUiText "Auto AI answer"
+    $initialAutoAnswerSwitch = Get-UiSwitch "Auto AI answer"
+    if ($initialAutoAnswerSwitch.checked) {
+        throw "The production Settings screen did not load automatic answer disabled"
+    }
+    Invoke-UiSwitch "Auto AI answer"
+    Invoke-ScrolledUiControl "Every non-emergency call"
+    Invoke-ScrolledUiControl "3s"
+    Invoke-ScrolledUiControl "Save assistant settings"
+    $settingsPolicyAudit = Wait-ForAssistantAudit `
+        -Pattern '(?m)^\d+:policy_update:all:fixed_3000_ms:true$'
+    Invoke-Adb shell input keyevent KEYCODE_BACK | Out-Null
+    Start-Sleep -Milliseconds 300
+    # The fixture persists the same service-owned policy fields as production.
+    # Kill it before the call so the next decision proves a reloaded value, not
+    # merely the Phone process's current Compose draft.
+    $assistantPidBeforeRestart = (Invoke-Adb shell pidof $assistantPackage |
+        Select-Object -First 1).Trim()
+    if ($assistantPidBeforeRestart -notmatch '^[0-9]+$') {
+        throw "Call-assistant companion had no process before persistence restart"
+    }
+    Invoke-Adb shell am force-stop $assistantPackage | Out-Null
+    Start-Sleep -Milliseconds 500
+    $assistantPidAfterForceStop = @(
+        Invoke-Adb shell pidof $assistantPackage | Where-Object { $_ }
+    ) -join ""
+    if ($assistantPidAfterForceStop -and
+        ($assistantPidAfterForceStop -notmatch '^[0-9]+$' -or
+            $assistantPidAfterForceStop -eq $assistantPidBeforeRestart)) {
+        throw "Call-assistant companion process was not replaced after force-stop"
+    }
+    $settingsToTelecomAnswer = Invoke-AutomaticAnswerTimingCase `
+        -DelayMode "fixed_3000_ms" -ExpectedDelayMillis 3000 -UsePersistedPolicy
+    $assistantPidAfterRestart = (Invoke-Adb shell pidof $assistantPackage |
+        Select-Object -First 1).Trim()
+    $settingsPolicySurvivedServiceRestart =
+        $assistantPidAfterRestart -match '^[0-9]+$' -and
+        $assistantPidAfterRestart -ne $assistantPidBeforeRestart
+    if (-not $settingsPolicySurvivedServiceRestart) {
+        throw "Persisted policy was not served by a replacement companion process"
+    }
+
     $fixedAutomaticAnswer = @(
         Invoke-AutomaticAnswerTimingCase `
             -DelayMode "fixed_1000_ms" -ExpectedDelayMillis 1000
@@ -815,7 +993,7 @@ try {
     Reset-AutomaticAnswerAudit
     Start-SmokeIncoming -Number "15551230210"
     Wait-ForAssistantAudit -Pattern '(?m)^\d+:decision:4000:1:' | Out-Null
-    Invoke-Adb shell am start -W -a com.aios.phone.smoke.SHOW `
+    Invoke-Adb shell am start -a com.aios.phone.smoke.SHOW `
         -n $fixtureActivity | Out-Null
     Start-Sleep -Milliseconds 250
     Invoke-UiControl "Answer"
@@ -836,7 +1014,7 @@ try {
     Reset-AutomaticAnswerAudit
     Start-SmokeIncoming -Number "15551230211"
     Wait-ForAssistantAudit -Pattern '(?m)^\d+:decision:4000:1:' | Out-Null
-    Invoke-Adb shell am start -W -a com.aios.phone.smoke.SHOW `
+    Invoke-Adb shell am start -a com.aios.phone.smoke.SHOW `
         -n $fixtureActivity | Out-Null
     Start-Sleep -Milliseconds 250
     Invoke-UiControl "Decline"
@@ -858,7 +1036,7 @@ try {
     Reset-AutomaticAnswerAudit
     Start-SmokeIncoming -Number "15551230212"
     Wait-ForAssistantAudit -Pattern '(?m)^\d+:decision:4000:1:' | Out-Null
-    Invoke-Adb shell am start -W -a com.aios.phone.smoke.SHOW `
+    Invoke-Adb shell am start -a com.aios.phone.smoke.SHOW `
         -n $fixtureActivity | Out-Null
     Start-Sleep -Milliseconds 250
     Invoke-UiControl "Ignore"
@@ -995,6 +1173,10 @@ try {
         ai_action_fail_closed = $baselineEvidence
         automatic_answer_fixed_delays = $fixedAutomaticAnswer
         automatic_answer_random_delay = $randomAutomaticAnswer
+        settings_policy_update_reached_binder = `
+            $settingsPolicyAudit -match '(?m)^\d+:policy_update:all:fixed_3000_ms:true$'
+        settings_policy_survived_service_restart = $settingsPolicySurvivedServiceRestart
+        settings_to_telecom_answer = $settingsToTelecomAnswer
         owner_answer_cancelled_pending_ai = $true
         decline_cancelled_pending_ai = $true
         ignore_preserved_automatic_ai = `
