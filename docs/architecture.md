@@ -223,6 +223,15 @@ or a drop below 80% cancels the background Broker session and leaves the durable
 job pending for retry. Immediate photos ignore charging state but remain
 preemptible by calls and thermal pressure.
 
+Each visual or video-audio request has an in-process attempt identity that owns
+exactly one Broker session and exactly one terminal outcome. Broker disconnect,
+terminal/null binding, timeout, constraint loss, and worker interruption wake
+the wait immediately and return the claimed database row to pending state; a
+late or duplicate callback cannot replace that outcome or be adopted by the
+next pass. `onStopJob()` and the final encrypted-index transaction share a commit
+fence, preventing a cancelled worker from publishing after JobScheduler has
+revoked it.
+
 A video has separate bounded visual and audio passes. Media Intelligence seeks
 the nearest sync frame at the midpoint of each of twenty equal-duration
 segments, scales each frame to a maximum 224-pixel edge, lays the frames

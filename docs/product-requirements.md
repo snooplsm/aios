@@ -118,6 +118,10 @@ camera application that created them.
 - Every ringing, dialing, active, waiting, held, or conferenced call preempts all
   media inference, whether or not AI processing is enabled.
 - Originals remain viewable if inference fails or is interrupted.
+- Model Broker loss, JobScheduler cancellation, and late callbacks must return
+  the claimed item to its durable queue immediately. Only the exact active
+  attempt may own a Broker session or final result, and `onStopJob()` must fence
+  the encrypted-index commit so a cancelled worker cannot publish afterward.
 - Automatic processing never modifies or duplicates a source video. After a
   completed MP4 is indexed, an explicit share-sheet action may create a new
   `Movies/AIOS` MP4 containing the AIOS description and timed subtitle tracks.

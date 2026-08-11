@@ -1057,6 +1057,8 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/mediaintelligence/src/com/aios/mediaintelligence/MediaWorkPolicy.java",
         "services/mediaintelligence/src/com/aios/mediaintelligence/MediaConstraintProbe.java",
         "services/mediaintelligence/src/com/aios/mediaintelligence/MediaInputPolicy.java",
+        "services/mediaintelligence/src/com/aios/mediaintelligence/MediaInferenceAttempt.java",
+        "services/mediaintelligence/src/com/aios/mediaintelligence/MediaJobCommitFence.java",
         "services/mediaintelligence/src/com/aios/mediaintelligence/VideoStoryboardPlan.java",
         "services/mediaintelligence/src/com/aios/mediaintelligence/VideoStoryboard.java",
         "services/mediaintelligence/src/com/aios/mediaintelligence/VideoAudioExtractor.java",
@@ -1081,6 +1083,8 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/mediaintelligence/tests/src/com/aios/mediaintelligence/PngXmpInjectorTest.java",
         "services/mediaintelligence/tests/src/com/aios/mediaintelligence/MediaWorkPolicyTest.java",
         "services/mediaintelligence/tests/src/com/aios/mediaintelligence/MediaInputPolicyTest.java",
+        "services/mediaintelligence/tests/src/com/aios/mediaintelligence/MediaInferenceAttemptTest.java",
+        "services/mediaintelligence/tests/src/com/aios/mediaintelligence/MediaJobCommitFenceTest.java",
         "services/mediaintelligence/tests/src/com/aios/mediaintelligence/VideoStoryboardPlanTest.java",
         "services/mediaintelligence/tests/src/com/aios/mediaintelligence/VideoTranscriptTest.java",
         "services/mediaintelligence/tests/src/com/aios/mediaintelligence/VideoEmbeddedMetadataTest.java",
@@ -3218,6 +3222,10 @@ def validate_aosp_overlay(root: Path) -> None:
             and 'res.directories.add("../../services/mediaintelligence/res")'
             in media_preview_build
             and 'resource_dirs: ["res"]' in media_bp
+            and '"src/com/aios/mediaintelligence/MediaInferenceAttempt.java"'
+            in media_bp
+            and '"src/com/aios/mediaintelligence/MediaJobCommitFence.java"'
+            in media_bp
             and 'android:dataExtractionRules="@xml/data_extraction_rules"'
             in media_manifest
             and 'android:icon="@drawable/ic_media_intelligence"' in media_manifest
@@ -3274,10 +3282,47 @@ def validate_aosp_overlay(root: Path) -> None:
     media_broker_source = (media_source_root / "MediaBrokerClient.java").read_text(
         encoding="utf-8"
     )
+    media_attempt_source = (
+        media_source_root / "MediaInferenceAttempt.java"
+    ).read_text(encoding="utf-8")
+    media_attempt_test = (
+        root / "services" / "mediaintelligence" / "tests" / "src" / "com" /
+        "aios" / "mediaintelligence" / "MediaInferenceAttemptTest.java"
+    ).read_text(encoding="utf-8")
     require("CONSTRAINT_RECHECK_MILLIS = 1_000L" in media_broker_source
             and "constraints.blockedReason()" in media_broker_source
-            and "cancelActiveSession()" in media_broker_source,
+            and "cancelAttempt(" in media_broker_source,
             "media Broker client must periodically cancel work that loses constraints")
+    require("MediaInferenceAttempt<InferenceResult>" in media_broker_source
+            and "onBindingDied" in media_broker_source
+            and "onNullBinding" in media_broker_source
+            and "disconnectBroker(" in media_broker_source
+            and "attempt.fail(ERROR_BROKER_UNAVAILABLE, reason)"
+            in media_broker_source
+            and "finishAttempt(attempt)" in media_broker_source
+            and "activeAttempt == attempt" in media_broker_source
+            and "firstTerminalCallbackOwnsResult" in media_attempt_test
+            and "disconnectWakesWaiterAndRejectsLateSuccess" in media_attempt_test
+            and "cancellationReturnsOnlyItsOwnSession" in media_attempt_test
+            and "resultBeforeInputSubmissionFailsClosed" in media_attempt_test
+            and "sessionId = NO_SESSION" in media_attempt_source
+            and "terminal.countDown()" in media_attempt_source,
+            "media Broker loss and cancellation must wake one generation-owned attempt and reject stale callbacks")
+    media_commit_fence = (
+        media_source_root / "MediaJobCommitFence.java"
+    ).read_text(encoding="utf-8")
+    media_commit_fence_test = (
+        root / "services" / "mediaintelligence" / "tests" / "src" / "com" /
+        "aios" / "mediaintelligence" / "MediaJobCommitFenceTest.java"
+    ).read_text(encoding="utf-8")
+    require("commitFence.stop()" in job_source
+            and "commitFence.runIfActive" in job_source
+            and job_source.index("commitFence.runIfActive")
+            < job_source.index("store.commitResult(")
+            and "synchronized boolean runIfActive" in media_commit_fence
+            and "stoppedJobCannotPublish" in media_commit_fence_test
+            and "stopWaitsForInProgressPublication" in media_commit_fence_test,
+            "JobScheduler stop must fence media result publication")
     require("PreparedMedia.open" in media_broker_source
             and "prepared.capability" in media_broker_source
             and "prepared.submittedMimeType" in media_broker_source

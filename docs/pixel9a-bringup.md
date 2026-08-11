@@ -190,7 +190,13 @@ Run gates in this order:
    unexpired test artifact's deadline, unlock credential-encrypted storage, and
    confirm previous-boot artifacts are purged for `retention.boot_cleanup`.
    Follow both with the real 24-hour soak.
-8. Media queue constraints and original-preservation corpus.
+8. Media queue constraints and original-preservation corpus. During both a
+   single-photo vision request and the full-audio pass of a video, kill Model
+   Broker and verify the worker wakes promptly rather than waiting two minutes,
+   the claimed row returns to pending, the original remains unchanged, and the
+   next eligible run completes it once. Repeat with binding-death/null-binding
+   injection and with `cmd jobscheduler` stopping the job immediately before a
+   delayed success callback; no result may commit after the stop fence.
 9. Thermal, battery, memory-pressure, repeated-call, reboot, and crash tests.
 
 Every item in `config/release_gates.json` needs evidence. A failure in ordinary

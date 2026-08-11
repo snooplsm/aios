@@ -44,6 +44,14 @@ strict result schema, and commits the encrypted result/index state in one SQLite
 transaction. Broker absence is retryable; changed/deleted media becomes stale;
 invalid model output fails closed.
 
+A visual or full-audio Broker request is owned by a single terminal attempt.
+Broker disconnect, binding death/null binding, timeout, lost execution
+constraints, and `onStopJob()` signal that attempt immediately instead of
+waiting for the two-minute inference ceiling. The exact owned session is
+cancelled when its Binder remains reachable; duplicate or late callbacks are
+ignored. Failed/cancelled work returns to the durable queue, and a commit fence
+prevents a stopped JobService worker from publishing a result after cancellation.
+
 The same result transaction stores privacy-minimized timing for the latest 100
 photos and 100 videos. A debug-only dump exposes fixed p50/p95 counters for
 queueing, preparation, Broker inference, end-to-end indexing, complete source-

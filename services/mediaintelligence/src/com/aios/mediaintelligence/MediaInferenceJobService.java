@@ -32,9 +32,9 @@ public final class MediaInferenceJobService extends JobService {
     private static final int JOB_DEFERRED = 0xA106;
     private static final Pattern DIGEST = Pattern.compile("[0-9a-f]{64}");
     private final AtomicBoolean running = new AtomicBoolean();
+    private final MediaJobCommitFence commitFence = new MediaJobCommitFence();
     private volatile MediaBrokerClient activeClient;
     private volatile Thread activeThread;
-    private volatile boolean stopped;
 
     static void schedule(Context context, int workClass) {
         boolean deferred = workClass == MediaWorkPolicy.CLASS_DEFERRED;
@@ -62,7 +62,7 @@ public final class MediaInferenceJobService extends JobService {
             schedule(this, workClass);
             return false;
         }
-        stopped = false;
+        commitFence.start();
         activeThread = new Thread(
                 () -> checkAndProcess(parameters, workClass), "aios-media-job");
         activeThread.start();
@@ -71,7 +71,7 @@ public final class MediaInferenceJobService extends JobService {
 
     @Override
     public boolean onStopJob(JobParameters parameters) {
-        stopped = true;
+        commitFence.stop();
         MediaBrokerClient client = activeClient;
         if (client != null) {
             client.close();
@@ -101,7 +101,13 @@ public final class MediaInferenceJobService extends JobService {
             }
             portableJob = store.nextPortableMetadata(workClass);
             if (portableJob != null) {
-                new MediaMetadataCommitter(this).commit(portableJob, store);
+                MediaJobStore.PortableJob committingPortableJob = portableJob;
+                if (!commitFence.runIfActive(() ->
+                        new MediaMetadataCommitter(this).commit(
+                                committingPortableJob, store))) {
+                    reschedule = true;
+                    return;
+                }
                 MediaContextAssociationService.requestReconcile(this);
                 portableJob = null;
                 return;
@@ -193,16 +199,24 @@ public final class MediaInferenceJobService extends JobService {
                     brokerResult.inference.modelDigest,
                     completedAtEpochMillis,
                     result.confidence);
-            store.commitResult(
-                    job,
-                    before.digest,
-                    result.rawJson,
-                    brokerResult.inference.modelId,
-                    brokerResult.inference.modelDigest,
-                    completedAtEpochMillis,
-                    portableXmp,
-                    timing,
-                    transcript);
+            MediaJobStore.PendingJob committingJob = job;
+            VideoTranscript committingTranscript = transcript;
+            if (!commitFence.runIfActive(() ->
+                store.commitResult(
+                        committingJob,
+                        before.digest,
+                        result.rawJson,
+                        brokerResult.inference.modelId,
+                        brokerResult.inference.modelDigest,
+                        completedAtEpochMillis,
+                        portableXmp,
+                        timing,
+                        committingTranscript))) {
+                store.markPending(job.id);
+                job = null;
+                reschedule = true;
+                return;
+            }
             MediaContextAssociationService.requestReconcile(this);
             Log.i(TAG, "indexed " + timing.mediaKind
                     + " observed_to_index_ms=" + timing.observedToIndexMillis
@@ -261,7 +275,7 @@ public final class MediaInferenceJobService extends JobService {
             if (moreDeferred) {
                 schedule(this, MediaWorkPolicy.CLASS_DEFERRED);
             }
-            if (!stopped) {
+            if (!commitFence.isStopped()) {
                 jobFinished(parameters, reschedule);
             }
         }

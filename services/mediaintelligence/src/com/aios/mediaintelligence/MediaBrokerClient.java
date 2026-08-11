@@ -88,19 +88,32 @@ final class MediaBrokerClient implements AutoCloseable {
     private final Context context;
     private final CountDownLatch connected = new CountDownLatch(1);
     private volatile IAiosModelService service;
-    private boolean bound;
-    private volatile long sessionId = -1L;
+    private volatile boolean bound;
+    private volatile boolean closed;
+    private volatile MediaInferenceAttempt<InferenceResult> activeAttempt;
 
     private final ServiceConnection connection = new ServiceConnection() {
         @Override
         public void onServiceConnected(ComponentName name, IBinder binder) {
-            service = IAiosModelService.Stub.asInterface(binder);
+            synchronized (MediaBrokerClient.this) {
+                if (!closed) service = IAiosModelService.Stub.asInterface(binder);
+            }
             connected.countDown();
         }
 
         @Override
         public void onServiceDisconnected(ComponentName name) {
-            service = null;
+            disconnectBroker("model_broker_disconnected");
+        }
+
+        @Override
+        public void onBindingDied(ComponentName name) {
+            disconnectBroker("model_broker_binding_died");
+        }
+
+        @Override
+        public void onNullBinding(ComponentName name) {
+            disconnectBroker("model_broker_null_binding");
         }
     };
 
@@ -137,8 +150,7 @@ final class MediaBrokerClient implements AutoCloseable {
                 return new Result(null, ERROR_CONSTRAINT_BLOCKED, blocked);
             }
 
-            CountDownLatch completed = new CountDownLatch(1);
-            Holder holder = new Holder();
+            MediaInferenceAttempt<InferenceResult> attempt = beginAttempt();
             IModelCallback callback = new IModelCallback.Stub() {
                 @Override
                 public void onChunk(GenerationChunk chunk) {
@@ -147,14 +159,12 @@ final class MediaBrokerClient implements AutoCloseable {
 
                 @Override
                 public void onCompleted(InferenceResult value) {
-                    holder.result = value;
-                    completed.countDown();
+                    attempt.complete(value);
                 }
 
                 @Override
                 public void onError(int code, String message) {
-                    holder.errorCode = code;
-                    completed.countDown();
+                    attempt.fail(code, "model_runtime_error");
                 }
             };
 
@@ -170,49 +180,58 @@ final class MediaBrokerClient implements AutoCloseable {
                             + TimeUnit.MINUTES.toMillis(INFERENCE_TIMEOUT_MINUTES);
             request.allowFallback = true;
 
-            try {
-                long modelRequestStarted = SystemClock.elapsedRealtime();
-                sessionId = service.createSession(request, callback);
-                if (sessionId <= 0L) {
-                    return new Result(
-                            null,
-                            holder.errorCode == 0
-                                    ? ERROR_BROKER_UNAVAILABLE : holder.errorCode,
-                            "model_session_rejected");
-                }
-                service.submitMedia(
-                        sessionId,
-                        prepared.descriptor,
-                        prepared.submittedMimeType,
-                        true);
-                long timeoutAt = SystemClock.elapsedRealtime()
-                        + TimeUnit.MINUTES.toMillis(INFERENCE_TIMEOUT_MINUTES);
-                while (completed.getCount() != 0L) {
-                    blocked = constraints.blockedReason();
-                    if (blocked != null) {
-                        cancelActiveSession();
-                        return new Result(null, ERROR_CONSTRAINT_BLOCKED, blocked);
-                    }
-                    long remaining = timeoutAt - SystemClock.elapsedRealtime();
-                    if (remaining <= 0L) {
-                        cancelActiveSession();
-                        return new Result(
-                                null, ERROR_INFERENCE_TIMEOUT, "media_inference_timeout");
-                    }
-                    completed.await(
-                            Math.min(CONSTRAINT_RECHECK_MILLIS, remaining),
-                            TimeUnit.MILLISECONDS);
-                }
-                sessionId = -1L;
+            IAiosModelService broker = service;
+            if (broker == null) {
+                finishAttempt(attempt);
                 return new Result(
-                        holder.result,
-                        holder.errorCode,
-                        holder.result == null ? "model_runtime_error" : null,
+                        null, ERROR_BROKER_UNAVAILABLE, "model_broker_disconnected");
+            }
+            long modelRequestStarted = SystemClock.elapsedRealtime();
+            try {
+                long brokerSessionId = broker.createSession(request, callback);
+                if (brokerSessionId <= 0L) {
+                    attempt.fail(ERROR_BROKER_UNAVAILABLE, "model_session_rejected");
+                } else if (!attempt.attachSession(brokerSessionId)) {
+                    cancelSession(broker, brokerSessionId);
+                } else if (!attempt.markSubmitted()) {
+                    cancelSession(broker, brokerSessionId);
+                } else {
+                    broker.submitMedia(
+                            brokerSessionId,
+                            prepared.descriptor,
+                            prepared.submittedMimeType,
+                            true);
+                }
+                MediaInferenceAttempt.Snapshot<InferenceResult> terminal = awaitTerminal(
+                        attempt,
+                        broker,
+                        constraints,
+                        SystemClock.elapsedRealtime()
+                                + TimeUnit.MINUTES.toMillis(INFERENCE_TIMEOUT_MINUTES),
+                        "media_inference_timeout");
+                return new Result(
+                        terminal.result,
+                        terminal.errorCode,
+                        terminal.result == null ? terminal.reason : null,
                         inputPreparationMillis,
                         MediaTiming.elapsedDuration(
                                 modelRequestStarted, SystemClock.elapsedRealtime()));
             } catch (RemoteException error) {
+                cancelAttempt(
+                        attempt,
+                        broker,
+                        ERROR_BROKER_UNAVAILABLE,
+                        "model_broker_disconnected");
                 throw new IOException("Model Broker binder failed", error);
+            } catch (RuntimeException error) {
+                cancelAttempt(
+                        attempt,
+                        broker,
+                        ERROR_BROKER_UNAVAILABLE,
+                        "media_inference_failed");
+                throw error;
+            } finally {
+                finishAttempt(attempt);
             }
         }
     }
@@ -239,12 +258,12 @@ final class MediaBrokerClient implements AutoCloseable {
                     MediaTiming.UNKNOWN_MILLIS);
         }
 
-        CountDownLatch completed = new CountDownLatch(1);
+        MediaInferenceAttempt<InferenceResult> attempt = beginAttempt();
         Holder holder = new Holder();
         IModelCallback callback = new IModelCallback.Stub() {
             @Override
             public void onChunk(GenerationChunk chunk) {
-                if (chunk == null || !chunk.isFinal) return;
+                if (chunk == null || !chunk.isFinal || !attempt.isActive()) return;
                 synchronized (holder.chunks) {
                     int length = chunk.text == null ? 0 : chunk.text.length();
                     if (holder.chunks.size() >= VideoTranscript.MAX_SEGMENTS
@@ -260,14 +279,12 @@ final class MediaBrokerClient implements AutoCloseable {
 
             @Override
             public void onCompleted(InferenceResult value) {
-                holder.result = value;
-                completed.countDown();
+                attempt.complete(value);
             }
 
             @Override
             public void onError(int code, String message) {
-                holder.errorCode = code;
-                completed.countDown();
+                attempt.fail(code, "video_asr_runtime_error");
             }
         };
 
@@ -285,15 +302,41 @@ final class MediaBrokerClient implements AutoCloseable {
         ParcelFileDescriptor[] pipe = null;
         long started = SystemClock.elapsedRealtime();
         VideoAudioExtractor.Result extraction;
+        IAiosModelService broker = service;
+        if (broker == null) {
+            finishAttempt(attempt);
+            return new AudioResult(
+                    null,
+                    ERROR_BROKER_UNAVAILABLE,
+                    "model_broker_disconnected",
+                    0L,
+                    MediaTiming.UNKNOWN_MILLIS);
+        }
         try {
             pipe = ParcelFileDescriptor.createPipe();
-            sessionId = service.createSession(request, callback);
-            if (sessionId <= 0L) {
+            long brokerSessionId = broker.createSession(request, callback);
+            if (brokerSessionId <= 0L) {
+                attempt.fail(ERROR_BROKER_UNAVAILABLE, "video_asr_session_rejected");
                 closePipe(pipe);
+                MediaInferenceAttempt.Snapshot<InferenceResult> terminal = attempt.snapshot();
+                finishAttempt(attempt);
                 return new AudioResult(
                         null,
-                        holder.errorCode == 0 ? ERROR_BROKER_UNAVAILABLE : holder.errorCode,
-                        "video_asr_session_rejected",
+                        terminal.errorCode,
+                        terminal.reason,
+                        0L,
+                        MediaTiming.UNKNOWN_MILLIS);
+            }
+            if (!attempt.attachSession(brokerSessionId)) {
+                cancelSession(broker, brokerSessionId);
+                closePipe(pipe);
+                MediaInferenceAttempt.Snapshot<InferenceResult> terminal = attempt.snapshot();
+                finishAttempt(attempt);
+                return new AudioResult(
+                        null,
+                        terminal.errorCode,
+                        terminal.reason == null
+                                ? "video_asr_completed_before_input" : terminal.reason,
                         0L,
                         MediaTiming.UNKNOWN_MILLIS);
             }
@@ -302,7 +345,23 @@ final class MediaBrokerClient implements AutoCloseable {
             format.channelCount = 1;
             format.pcmEncoding = AudioFormat.ENCODING_PCM_16BIT;
             format.direction = "media";
-            service.submitAudio(sessionId, pipe[0], format, false);
+            if (attempt.markSubmitted()) {
+                broker.submitAudio(brokerSessionId, pipe[0], format, false);
+            } else {
+                cancelSession(broker, brokerSessionId);
+            }
+            if (!attempt.isActive()) {
+                closePipe(pipe);
+                MediaInferenceAttempt.Snapshot<InferenceResult> terminal = attempt.snapshot();
+                finishAttempt(attempt);
+                return new AudioResult(
+                        null,
+                        terminal.errorCode,
+                        terminal.reason == null
+                                ? "video_asr_ended_before_audio" : terminal.reason,
+                        0L,
+                        MediaTiming.UNKNOWN_MILLIS);
+            }
             pipe[0].close();
             pipe[0] = null;
             try (OutputStream sink =
@@ -312,8 +371,9 @@ final class MediaBrokerClient implements AutoCloseable {
                         context, Uri.parse(job.uri), sink, constraints);
             }
         } catch (VideoStoryboard.BlockedException error) {
-            cancelActiveSession();
+            cancelAttempt(attempt, broker, ERROR_CONSTRAINT_BLOCKED, error.reason);
             closePipe(pipe);
+            finishAttempt(attempt);
             return new AudioResult(
                     null,
                     ERROR_CONSTRAINT_BLOCKED,
@@ -321,47 +381,39 @@ final class MediaBrokerClient implements AutoCloseable {
                     0L,
                     MediaTiming.UNKNOWN_MILLIS);
         } catch (RemoteException error) {
-            cancelActiveSession();
+            cancelAttempt(
+                    attempt,
+                    broker,
+                    ERROR_BROKER_UNAVAILABLE,
+                    "model_broker_disconnected");
             closePipe(pipe);
+            finishAttempt(attempt);
             throw new IOException("Model Broker video ASR binder failed", error);
         } catch (IOException | InterruptedException | RuntimeException error) {
-            cancelActiveSession();
+            cancelAttempt(attempt, broker, ERROR_BROKER_UNAVAILABLE,
+                    "video_asr_input_failed");
             closePipe(pipe);
+            finishAttempt(attempt);
             throw error;
         }
 
-        long timeoutAt = SystemClock.elapsedRealtime()
-                + TimeUnit.MINUTES.toMillis(INFERENCE_TIMEOUT_MINUTES);
-        while (completed.getCount() != 0L) {
-            blocked = constraints.blockedReason();
-            if (blocked != null) {
-                cancelActiveSession();
-                return new AudioResult(
-                        null,
-                        ERROR_CONSTRAINT_BLOCKED,
-                        blocked,
-                        0L,
-                        MediaTiming.UNKNOWN_MILLIS);
-            }
-            long remaining = timeoutAt - SystemClock.elapsedRealtime();
-            if (remaining <= 0L) {
-                cancelActiveSession();
-                return new AudioResult(
-                        null,
-                        ERROR_INFERENCE_TIMEOUT,
-                        "video_asr_timeout",
-                        0L,
-                        MediaTiming.UNKNOWN_MILLIS);
-            }
-            completed.await(
-                    Math.min(CONSTRAINT_RECHECK_MILLIS, remaining), TimeUnit.MILLISECONDS);
+        MediaInferenceAttempt.Snapshot<InferenceResult> terminal;
+        try {
+            terminal = awaitTerminal(
+                    attempt,
+                    broker,
+                    constraints,
+                    SystemClock.elapsedRealtime()
+                            + TimeUnit.MINUTES.toMillis(INFERENCE_TIMEOUT_MINUTES),
+                    "video_asr_timeout");
+        } finally {
+            finishAttempt(attempt);
         }
-        sessionId = -1L;
-        if (holder.result == null) {
+        if (terminal.result == null) {
             return new AudioResult(
                     null,
-                    holder.errorCode,
-                    "video_asr_runtime_error",
+                    terminal.errorCode,
+                    terminal.reason,
                     MediaTiming.elapsedDuration(started, SystemClock.elapsedRealtime()),
                     extraction.decodedDurationMillis);
         }
@@ -384,7 +436,7 @@ final class MediaBrokerClient implements AutoCloseable {
         try {
             return new AudioResult(
                     VideoTranscript.fromInference(
-                            holder.result, chunks, extraction.timelineOffsetMillis),
+                            terminal.result, chunks, extraction.timelineOffsetMillis),
                     0,
                     null,
                     MediaTiming.elapsedDuration(started, SystemClock.elapsedRealtime()),
@@ -396,14 +448,108 @@ final class MediaBrokerClient implements AutoCloseable {
     }
 
     private boolean ensureConnected() throws InterruptedException {
-        if (service != null) return true;
-        if (!bound) {
+        boolean shouldBind;
+        synchronized (this) {
+            if (closed) return false;
+            if (service != null) return true;
+            shouldBind = !bound;
+            if (shouldBind) bound = true;
+        }
+        if (shouldBind) {
             Intent intent = new Intent("com.aios.model.MODEL_SERVICE")
                     .setPackage("com.aios.modelbroker");
-            bound = context.bindService(intent, connection, Context.BIND_AUTO_CREATE);
+            boolean didBind = false;
+            try {
+                didBind = context.bindService(
+                        intent, connection, Context.BIND_AUTO_CREATE);
+            } catch (RuntimeException error) {
+                Log.w(TAG, "cannot bind Model Broker", error);
+            }
+            boolean release;
+            synchronized (this) {
+                release = closed && didBind;
+                if (!didBind || closed) bound = false;
+            }
+            if (release) unbindQuietly();
+            if (!didBind) connected.countDown();
         }
-        return bound && connected.await(BIND_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+        return !closed && bound && connected.await(BIND_TIMEOUT_SECONDS, TimeUnit.SECONDS)
                 && service != null;
+    }
+
+    private synchronized MediaInferenceAttempt<InferenceResult> beginAttempt() {
+        if (closed) throw new IllegalStateException("media Broker client is closed");
+        if (activeAttempt != null) throw new IllegalStateException("media attempt overlaps");
+        MediaInferenceAttempt<InferenceResult> attempt = new MediaInferenceAttempt<>();
+        activeAttempt = attempt;
+        return attempt;
+    }
+
+    private synchronized void finishAttempt(
+            MediaInferenceAttempt<InferenceResult> attempt) {
+        if (activeAttempt == attempt) activeAttempt = null;
+    }
+
+    private MediaInferenceAttempt.Snapshot<InferenceResult> awaitTerminal(
+            MediaInferenceAttempt<InferenceResult> attempt,
+            IAiosModelService broker,
+            MediaConstraintProbe constraints,
+            long timeoutAt,
+            String timeoutReason) throws InterruptedException {
+        while (attempt.isActive()) {
+            String blocked = constraints.blockedReason();
+            if (blocked != null) {
+                cancelAttempt(attempt, broker, ERROR_CONSTRAINT_BLOCKED, blocked);
+                break;
+            }
+            long remaining = timeoutAt - SystemClock.elapsedRealtime();
+            if (remaining <= 0L) {
+                cancelAttempt(
+                        attempt, broker, ERROR_INFERENCE_TIMEOUT, timeoutReason);
+                break;
+            }
+            try {
+                attempt.await(
+                        Math.min(CONSTRAINT_RECHECK_MILLIS, remaining),
+                        TimeUnit.MILLISECONDS);
+            } catch (InterruptedException error) {
+                cancelAttempt(
+                        attempt,
+                        broker,
+                        ERROR_CONSTRAINT_BLOCKED,
+                        "media_worker_interrupted");
+                throw error;
+            }
+        }
+        return attempt.snapshot();
+    }
+
+    private void disconnectBroker(String reason) {
+        MediaInferenceAttempt<InferenceResult> attempt;
+        synchronized (this) {
+            service = null;
+            attempt = activeAttempt;
+        }
+        connected.countDown();
+        if (attempt != null) attempt.fail(ERROR_BROKER_UNAVAILABLE, reason);
+    }
+
+    private static void cancelAttempt(
+            MediaInferenceAttempt<InferenceResult> attempt,
+            IAiosModelService broker,
+            int errorCode,
+            String reason) {
+        long ownedSession = attempt.cancel(errorCode, reason);
+        cancelSession(broker, ownedSession);
+    }
+
+    private static void cancelSession(IAiosModelService broker, long session) {
+        if (broker == null || session <= 0L) return;
+        try {
+            broker.cancel(session);
+        } catch (RemoteException | RuntimeException ignored) {
+            // Broker death already releases its runtime session.
+        }
     }
 
     private static final class PreparedMedia implements AutoCloseable {
@@ -470,32 +616,41 @@ final class MediaBrokerClient implements AutoCloseable {
         }
     }
 
-    private void cancelActiveSession() {
-        IAiosModelService current = service;
-        long activeSession = sessionId;
-        sessionId = -1L;
-        if (current != null && activeSession > 0L) {
-            try {
-                current.cancel(activeSession);
-            } catch (RemoteException ignored) {
-                // Binder death already cancels the server session.
-            }
-        }
-    }
-
     @Override
     public void close() {
-        cancelActiveSession();
-        service = null;
-        if (bound) {
-            context.unbindService(connection);
+        IAiosModelService current;
+        MediaInferenceAttempt<InferenceResult> attempt;
+        boolean unbind;
+        synchronized (this) {
+            if (closed) return;
+            closed = true;
+            current = service;
+            service = null;
+            attempt = activeAttempt;
+            activeAttempt = null;
+            unbind = bound;
             bound = false;
+        }
+        connected.countDown();
+        if (attempt != null) {
+            cancelAttempt(
+                    attempt,
+                    current,
+                    ERROR_CONSTRAINT_BLOCKED,
+                    "media_client_closed");
+        }
+        if (unbind) unbindQuietly();
+    }
+
+    private void unbindQuietly() {
+        try {
+            context.unbindService(connection);
+        } catch (IllegalArgumentException ignored) {
+            // onStopJob can race bindService completion.
         }
     }
 
     private static final class Holder {
-        volatile InferenceResult result;
-        volatile int errorCode;
         final List<GenerationChunk> chunks = new ArrayList<>();
         int chunkChars;
         boolean invalidChunks;
