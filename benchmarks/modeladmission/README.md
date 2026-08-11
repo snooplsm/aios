@@ -17,13 +17,23 @@ selected capability:
 - a deterministic red JPEG through both the image and explicit sampled-video
   storyboard capabilities of multimodal LiteRT-LM;
 - a fixed receptionist phrase through Supertonic TTS; and
-- the resampled TTS output through the selected Whisper ASR model.
+- the resampled TTS output through the selected Whisper ASR model, once paced
+  at real time to measure source-relative partial/final lag and endpoint delay,
+  and once fast-fed to measure decode real-time factor independently.
 
 It publishes one base64-encoded raw JSON document in the instrumentation result
 bundle under `aios_measurements_base64`. Raw output has model/artifact identity
 and numeric measurements but contains no gate list or decision. PSS and thermal
 status are sampled throughout each invocation, rather than only after it. The
 host-side evaluator owns gate fields and decisions.
+
+The paced ASR pass submits 100 ms PCM frames at their source time, uses the same
+lifecycle-bound deadline mode as a call, and requires at least one non-final
+revision whose source span is no more than 2.1 seconds. Partial and final latency
+are processing lag after the chunk's source audio became available—not listening
+time. Endpoint delay is measured from the end of speech and therefore includes
+the 600 ms silence endpoint plus decode lag. The fast pass keeps throughput
+measurement separate so pacing cannot manufacture a real-time factor near one.
 
 Media output reports `p95_image_latency_ms` separately from
 `p95_video_storyboard_inference_ms`; the former is the current photo ETA metric.

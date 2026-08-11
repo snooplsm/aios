@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "suite_version": 2,
+  "suite_version": 3,
   "required_observations": [
     "peak_rss_mb",
     "thermal_status_max"
@@ -45,8 +45,11 @@
       {"id": "measured_runs", "metric": "measured_runs", "operator": "gte", "threshold": 5},
       {"id": "crash_free", "metric": "crash_count", "operator": "eq", "threshold": 0},
       {"id": "invocation_success", "metric": "invocation_success_rate", "operator": "eq", "threshold": 1.0},
+      {"id": "live_partial_revision", "metric": "live_non_final_partial_rate", "operator": "eq", "threshold": 1.0},
       {"id": "partial_latency", "metric": "p95_partial_latency_ms", "operator": "lte", "threshold": 1000},
       {"id": "final_latency", "metric": "p95_final_latency_ms", "operator": "lte", "threshold": 2000},
+      {"id": "endpoint_delay", "metric": "p95_endpoint_delay_ms", "operator": "lte", "threshold": 2600},
+      {"id": "few_words_cadence", "metric": "p95_first_partial_source_span_ms", "operator": "lte", "threshold": 2100},
       {"id": "realtime_transcription", "metric": "p95_realtime_factor", "operator": "lte", "threshold": 1.0},
       {"id": "english_word_error_rate", "metric": "en_wer", "operator": "lte", "threshold": 0.2},
       {"id": "spanish_word_error_rate", "metric": "es_wer", "operator": "lte", "threshold": 0.25}

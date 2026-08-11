@@ -70,6 +70,41 @@ public final class BenchmarkMath {
         return words(value).containsAll(words(expected));
     }
 
+    public static long sourceRelativeLagOrTimeout(
+            long callbackAtMillis,
+            long inputStartedAtMillis,
+            long sourceEndMillis,
+            long timeoutMillis) {
+        if (callbackAtMillis <= 0L || inputStartedAtMillis <= 0L
+                || sourceEndMillis < 0L || timeoutMillis <= 0L) {
+            return timeoutMillis;
+        }
+        return Math.max(
+                0L, callbackAtMillis - inputStartedAtMillis - sourceEndMillis);
+    }
+
+    public static long endpointDelayOrTimeout(
+            long finalCallbackAtMillis,
+            long inputStartedAtMillis,
+            long speechDurationMillis,
+            long timeoutMillis) {
+        if (finalCallbackAtMillis <= 0L || inputStartedAtMillis <= 0L
+                || speechDurationMillis < 0L || timeoutMillis <= 0L) {
+            return timeoutMillis;
+        }
+        return Math.max(
+                0L, finalCallbackAtMillis - inputStartedAtMillis - speechDurationMillis);
+    }
+
+    public static long sourceSpanOrTimeout(
+            long sourceStartMillis, long sourceEndMillis, long timeoutMillis) {
+        if (sourceStartMillis < 0L || sourceEndMillis < sourceStartMillis
+                || timeoutMillis <= 0L) {
+            return timeoutMillis;
+        }
+        return sourceEndMillis - sourceStartMillis;
+    }
+
     private static List<String> words(String value) {
         String normalized = Normalizer.normalize(
                 value == null ? "" : value, Normalizer.Form.NFD)

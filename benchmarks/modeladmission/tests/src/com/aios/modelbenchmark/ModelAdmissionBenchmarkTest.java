@@ -72,6 +72,10 @@ public final class ModelAdmissionBenchmarkTest {
     private static final int PCM_16_BIT = AudioFormat.ENCODING_PCM_16BIT;
     private static final int TTS_SAMPLE_RATE = 24_000;
     private static final int ASR_SAMPLE_RATE = 16_000;
+    private static final int ASR_PACING_FRAME_MILLIS = 100;
+    private static final int ASR_PACING_FRAME_BYTES =
+            ASR_SAMPLE_RATE * ASR_PACING_FRAME_MILLIS / 1_000 * 2;
+    private static final int ASR_ENDPOINT_SILENCE_MILLIS = 800;
     private static final long BIND_TIMEOUT_MILLIS = 15_000L;
     private static final long INFERENCE_TIMEOUT_MILLIS = 120_000L;
     private static final String ARTIFACT_MANIFEST =
@@ -121,7 +125,7 @@ public final class ModelAdmissionBenchmarkTest {
 
             JSONObject measurements = new JSONObject()
                     .put("schema_version", 1)
-                    .put("suite_version", 2)
+                    .put("suite_version", 3)
                     .put("results", results);
             Bundle output = new Bundle();
             output.putString(
@@ -306,37 +310,62 @@ public final class ModelAdmissionBenchmarkTest {
         Aggregate aggregate = new Aggregate();
         List<Long> partialLatency = new ArrayList<>();
         List<Long> finalLatency = new ArrayList<>();
+        List<Long> endpointDelay = new ArrayList<>();
+        List<Long> firstPartialSourceSpan = new ArrayList<>();
         List<Double> realtimeFactors = new ArrayList<>();
+        int livePartialSuccesses = 0;
+        int liveAttempts = 0;
         double englishWer = 0.0;
         double spanishWer = 0.0;
         for (String language : List.of("en", "es")) {
             byte[] speech = language.equals("es") ? spanishPcm : englishPcm;
-            byte[] withEndpointSilence = appendSilence(speech, 800);
+            byte[] withEndpointSilence = appendSilence(
+                    speech, ASR_ENDPOINT_SILENCE_MILLIS);
             String reference = language.equals("es") ? ES_PHRASE : EN_PHRASE;
             for (int run = 0; run < RUNS_PER_LANGUAGE; run++) {
-                Invocation invocation;
+                Invocation live;
                 try (ResourceSampler sampler = new ResourceSampler(context)) {
-                    invocation = invokeAsr(broker, language, withEndpointSilence);
-                    aggregate.record(invocation, artifact, sampler.finish());
+                    live = invokeAsr(
+                            broker, language, withEndpointSilence, true);
+                    aggregate.record(live, artifact, sampler.finish());
                 }
-                partialLatency.add(invocation.firstLatencyOrTimeout());
-                finalLatency.add(invocation.elapsedOrTimeout());
+                liveAttempts++;
+                if (live.sawNonFinalPartial()) livePartialSuccesses++;
+                partialLatency.add(live.firstPartialProcessingLagOrTimeout());
+                finalLatency.add(live.finalProcessingLagOrTimeout());
+                endpointDelay.add(live.finalEndpointDelayOrTimeout(
+                        durationMillis(speech)));
+                firstPartialSourceSpan.add(
+                        live.firstPartialSourceSpanOrTimeout());
+                double wer = live.latestChunk.isBlank()
+                        ? 1.0
+                        : BenchmarkMath.wordErrorRate(reference, live.latestChunk);
+                if (language.equals("es")) spanishWer += wer;
+                else englishWer += wer;
+
+                Invocation throughput;
+                try (ResourceSampler sampler = new ResourceSampler(context)) {
+                    throughput = invokeAsr(
+                            broker, language, withEndpointSilence, false);
+                    aggregate.record(throughput, artifact, sampler.finish());
+                }
                 double sourceSeconds = Math.max(
                         0.001, withEndpointSilence.length / 2.0 / ASR_SAMPLE_RATE);
                 realtimeFactors.add(
-                        invocation.elapsedOrTimeout() / 1000.0 / sourceSeconds);
-                double wer = invocation.latestChunk.isBlank()
-                        ? 1.0
-                        : BenchmarkMath.wordErrorRate(reference, invocation.latestChunk);
-                if (language.equals("es")) spanishWer += wer;
-                else englishWer += wer;
+                        throughput.elapsedOrTimeout() / 1000.0 / sourceSeconds);
             }
         }
         JSONObject metrics = aggregate.commonMetrics()
+                .put("live_non_final_partial_rate",
+                        BenchmarkMath.rate(livePartialSuccesses, liveAttempts))
                 .put("p95_partial_latency_ms",
                         BenchmarkMath.percentileLong(partialLatency, 0.95))
                 .put("p95_final_latency_ms",
                         BenchmarkMath.percentileLong(finalLatency, 0.95))
+                .put("p95_endpoint_delay_ms",
+                        BenchmarkMath.percentileLong(endpointDelay, 0.95))
+                .put("p95_first_partial_source_span_ms",
+                        BenchmarkMath.percentileLong(firstPartialSourceSpan, 0.95))
                 .put("p95_realtime_factor",
                         BenchmarkMath.percentileDouble(realtimeFactors, 0.95))
                 .put("en_wer", englishWer / RUNS_PER_LANGUAGE)
@@ -432,14 +461,21 @@ public final class ModelAdmissionBenchmarkTest {
     }
 
     private static Invocation invokeAsr(
-            IAiosModelService broker, String language, byte[] pcm) throws Exception {
+            IAiosModelService broker,
+            String language,
+            byte[] pcm,
+            boolean paceAtRealtime) throws Exception {
         Invocation invocation = new Invocation();
         ExecutorService writer = null;
         Future<?> write = null;
         ParcelFileDescriptor[] pipe = null;
         try {
-            long session = broker.createSession(request(
-                    "streaming_asr", "call_rx", language, 0), invocation.callback);
+            ModelRequest request = request(
+                    "streaming_asr", "call_rx", language, 0);
+            if (paceAtRealtime) {
+                request.deadlineElapsedRealtimeMillis = Long.MAX_VALUE;
+            }
+            long session = broker.createSession(request, invocation.callback);
             invocation.sessionId = session;
             if (session > 0L) {
                 pipe = ParcelFileDescriptor.createPipe();
@@ -448,12 +484,15 @@ public final class ModelAdmissionBenchmarkTest {
                 write = writer.submit(() -> {
                     try (ParcelFileDescriptor.AutoCloseOutputStream output =
                                  new ParcelFileDescriptor.AutoCloseOutputStream(writeEnd)) {
-                        output.write(pcm);
+                        writeAsrPcm(invocation, output, pcm, paceAtRealtime);
+                    } catch (Exception error) {
+                        invocation.failLocal(error);
+                        throw error;
                     }
                     return null;
                 });
                 broker.submitAudio(
-                        session, pipe[0], audioFormat(ASR_SAMPLE_RATE, "downlink"), true);
+                        session, pipe[0], audioFormat(ASR_SAMPLE_RATE, "downlink"), false);
                 pipe[0].close();
             }
         } catch (Exception error) {
@@ -469,6 +508,39 @@ public final class ModelAdmissionBenchmarkTest {
             if (writer != null) writer.shutdownNow();
         }
         return invocation;
+    }
+
+    private static void writeAsrPcm(
+            Invocation invocation,
+            ParcelFileDescriptor.AutoCloseOutputStream output,
+            byte[] pcm,
+            boolean paceAtRealtime) throws IOException, InterruptedException {
+        if ((pcm.length & 1) != 0) {
+            throw new IOException("ASR fixture must contain complete PCM16 samples");
+        }
+        long startedAt = SystemClock.elapsedRealtime();
+        invocation.inputStartedAt.compareAndSet(0L, startedAt);
+        if (!paceAtRealtime) {
+            output.write(pcm);
+            return;
+        }
+        int offset = 0;
+        while (offset < pcm.length) {
+            int count = Math.min(ASR_PACING_FRAME_BYTES, pcm.length - offset);
+            long frameEndMillis = (offset + count) / 2L * 1_000L / ASR_SAMPLE_RATE;
+            sleepUntil(startedAt + frameEndMillis);
+            output.write(pcm, offset, count);
+            offset += count;
+        }
+    }
+
+    private static void sleepUntil(long targetElapsedRealtimeMillis)
+            throws InterruptedException {
+        while (true) {
+            long remaining = targetElapsedRealtimeMillis - SystemClock.elapsedRealtime();
+            if (remaining <= 0L) return;
+            Thread.sleep(remaining);
+        }
     }
 
     private static ModelRequest request(
@@ -639,6 +711,10 @@ public final class ModelAdmissionBenchmarkTest {
         return output;
     }
 
+    private static long durationMillis(byte[] pcm) {
+        return pcm.length / 2L * 1_000L / ASR_SAMPLE_RATE;
+    }
+
     private static final class Aggregate {
         int attempts;
         int successes;
@@ -772,6 +848,12 @@ public final class ModelAdmissionBenchmarkTest {
         final long startedAt = SystemClock.elapsedRealtime();
         final CountDownLatch completed = new CountDownLatch(1);
         final AtomicLong firstChunkAt = new AtomicLong(0L);
+        final AtomicLong inputStartedAt = new AtomicLong(0L);
+        final AtomicLong firstNonFinalChunkAt = new AtomicLong(0L);
+        final AtomicLong firstNonFinalSourceStartMillis = new AtomicLong(-1L);
+        final AtomicLong firstNonFinalSourceEndMillis = new AtomicLong(-1L);
+        final AtomicLong finalChunkAt = new AtomicLong(0L);
+        final AtomicLong finalSourceEndMillis = new AtomicLong(-1L);
         volatile long completedAt = startedAt;
         volatile long sessionId = -1L;
         volatile InferenceResult result;
@@ -781,7 +863,17 @@ public final class ModelAdmissionBenchmarkTest {
         final IModelCallback callback = new IModelCallback.Stub() {
             @Override
             public void onChunk(GenerationChunk chunk) {
-                firstChunkAt.compareAndSet(0L, SystemClock.elapsedRealtime());
+                long observedAt = SystemClock.elapsedRealtime();
+                firstChunkAt.compareAndSet(0L, observedAt);
+                if (chunk != null && !chunk.isFinal
+                        && firstNonFinalChunkAt.compareAndSet(0L, observedAt)) {
+                    firstNonFinalSourceStartMillis.set(chunk.sourceStartMillis);
+                    firstNonFinalSourceEndMillis.set(chunk.sourceEndMillis);
+                }
+                if (chunk != null && chunk.isFinal
+                        && finalChunkAt.compareAndSet(0L, observedAt)) {
+                    finalSourceEndMillis.set(chunk.sourceEndMillis);
+                }
                 if (chunk != null && chunk.text != null && !chunk.text.isBlank()) {
                     latestChunk = chunk.text;
                 }
@@ -831,6 +923,43 @@ public final class ModelAdmissionBenchmarkTest {
             return succeeded()
                     ? Math.max(0L, completedAt - startedAt)
                     : INFERENCE_TIMEOUT_MILLIS;
+        }
+
+        boolean sawNonFinalPartial() {
+            return firstNonFinalChunkAt.get() > 0L;
+        }
+
+        long firstPartialProcessingLagOrTimeout() {
+            return sourceRelativeLagOrTimeout(
+                    firstNonFinalChunkAt.get(), firstNonFinalSourceEndMillis.get());
+        }
+
+        long finalProcessingLagOrTimeout() {
+            return sourceRelativeLagOrTimeout(
+                    finalChunkAt.get(), finalSourceEndMillis.get());
+        }
+
+        long finalEndpointDelayOrTimeout(long speechDurationMillis) {
+            return BenchmarkMath.endpointDelayOrTimeout(
+                    finalChunkAt.get(),
+                    inputStartedAt.get(),
+                    speechDurationMillis,
+                    INFERENCE_TIMEOUT_MILLIS);
+        }
+
+        long firstPartialSourceSpanOrTimeout() {
+            return BenchmarkMath.sourceSpanOrTimeout(
+                    firstNonFinalSourceStartMillis.get(),
+                    firstNonFinalSourceEndMillis.get(),
+                    INFERENCE_TIMEOUT_MILLIS);
+        }
+
+        private long sourceRelativeLagOrTimeout(long callbackAt, long sourceEndMillis) {
+            return BenchmarkMath.sourceRelativeLagOrTimeout(
+                    callbackAt,
+                    inputStartedAt.get(),
+                    sourceEndMillis,
+                    INFERENCE_TIMEOUT_MILLIS);
         }
     }
 

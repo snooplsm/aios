@@ -35,7 +35,10 @@ The on-device collection path uses the userdebug-only
 `AiosModelBenchmarkTests` instrumentation. It invokes the production Model
 Broker sequentially for text, a generated red JPEG, bilingual Supertonic TTS,
 and the selected Whisper ASR candidate. TTS output is resampled and looped into
-ASR as a deterministic bilingual integration/performance fixture. The runner
+ASR as a deterministic bilingual integration/performance fixture. ASR runs once
+with source-timed 100 ms writes to measure a real non-final revision, chunk-
+relative processing lag, and silence endpoint delay, then once without pacing
+to measure decode real-time factor. The runner
 refuses to start during a live call, samples runtime-process PSS and Android
 thermal status throughout each invocation, and emits measurements without
 pass/fail fields.

@@ -28,4 +28,26 @@ public final class BenchmarkMathTest {
         assertTrue(BenchmarkMath.containsNormalizedWord("The answer is cinco.", "cinco"));
         assertEquals(3, BenchmarkMath.approximateTokens("one, two three"));
     }
+
+    @Test
+    public void liveAsrLagIsRelativeToAvailableSourceAudio() {
+        assertEquals(500L, BenchmarkMath.sourceRelativeLagOrTimeout(
+                2_600L, 100L, 2_000L, 120_000L));
+        assertEquals(0L, BenchmarkMath.sourceRelativeLagOrTimeout(
+                2_000L, 100L, 2_000L, 120_000L));
+        assertEquals(1_200L, BenchmarkMath.endpointDelayOrTimeout(
+                3_300L, 100L, 2_000L, 120_000L));
+        assertEquals(2_000L, BenchmarkMath.sourceSpanOrTimeout(
+                500L, 2_500L, 120_000L));
+    }
+
+    @Test
+    public void missingAsrTimingUsesTheFailureSentinel() {
+        assertEquals(120_000L, BenchmarkMath.sourceRelativeLagOrTimeout(
+                0L, 100L, 2_000L, 120_000L));
+        assertEquals(120_000L, BenchmarkMath.endpointDelayOrTimeout(
+                3_000L, 0L, 2_000L, 120_000L));
+        assertEquals(120_000L, BenchmarkMath.sourceSpanOrTimeout(
+                -1L, 2_000L, 120_000L));
+    }
 }

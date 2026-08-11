@@ -352,7 +352,7 @@ def validate_model_benchmark_suite(root: Path) -> None:
         "schema_version", "suite_version", "required_observations",
         "required_role_coverage", "gate_profiles",
     } and suite["schema_version"] == 1
-            and suite["suite_version"] == 2,
+            and suite["suite_version"] == 3,
             "unsupported model benchmark suite")
     observations = suite["required_observations"]
     require(isinstance(observations, list) and observations
@@ -394,9 +394,13 @@ def validate_model_benchmark_suite(root: Path) -> None:
             "device admission may observe RAM but cannot impose a fixed model cap")
     require({"en_known_answer_rate", "es_known_answer_rate"}
             <= {gate["metric"] for gate in profiles["text_model"]}
-            and {"en_wer", "es_wer"}
+            and {
+                "en_wer", "es_wer", "live_non_final_partial_rate",
+                "p95_partial_latency_ms", "p95_final_latency_ms",
+                "p95_endpoint_delay_ms", "p95_first_partial_source_span_ms",
+            }
             <= {gate["metric"] for gate in profiles["asr_candidate"]},
-            "benchmark suite must gate English and Spanish quality")
+            "benchmark suite must gate bilingual ASR quality and live cadence")
     require({
                 "p95_image_latency_ms",
                 "p95_video_storyboard_inference_ms",
@@ -1158,8 +1162,17 @@ def validate_aosp_overlay(root: Path) -> None:
             and '"first_image_latency_ms"' in benchmark_source
             and '"p50_warm_image_latency_ms"' in benchmark_source
             and '"p95_video_storyboard_inference_ms"' in benchmark_source
+            and "ASR_PACING_FRAME_MILLIS = 100" in benchmark_source
+            and "request.deadlineElapsedRealtimeMillis = Long.MAX_VALUE"
+            in benchmark_source
+            and "writeAsrPcm" in benchmark_source
+            and 'audioFormat(ASR_SAMPLE_RATE, "downlink"), false'
+            in benchmark_source
+            and '"live_non_final_partial_rate"' in benchmark_source
+            and '"p95_endpoint_delay_ms"' in benchmark_source
+            and '"p95_first_partial_source_span_ms"' in benchmark_source
             and "aios_measurements_base64" in benchmark_source,
-            "model benchmark must be test-only, call-safe, and measure image/video Broker paths")
+            "model benchmark must cover image/video and source-paced live ASR Broker paths")
     benchmark_capture = (root / "scripts" /
                          "capture-model-benchmark.ps1").read_text(encoding="utf-8")
     require('"config\\model_benchmark_suite.json"' in benchmark_capture
