@@ -525,6 +525,16 @@ public final class CallIntelligenceService extends Service {
                     String detail) {
                 handleAsrStatus(callId, direction, streamIdentity, detail);
             }
+
+            @Override
+            public void onAsrReady(Object brokerIdentity) {
+                restoreLiveAsrStreams(brokerIdentity);
+            }
+
+            @Override
+            public void onAsrUnavailable(Object brokerIdentity) {
+                detachLostAsrStreams(brokerIdentity);
+            }
         });
         asr.start();
         classifier = new CallClassifierClient(this, new CallClassifierClient.Listener() {
@@ -728,6 +738,8 @@ public final class CallIntelligenceService extends Service {
         CallArtifactStore.Session stored = null;
         AsrBrokerClient.Stream downlinkAsr = null;
         AsrBrokerClient.Stream uplinkAsr = null;
+        ResilientFanoutOutputStream downlinkFanout = null;
+        ResilientFanoutOutputStream uplinkFanout = null;
         TelephonyAudioCapture capture = null;
         try {
             CallCommunicationContextClient.PreparedContext preparedContext =
@@ -738,14 +750,14 @@ public final class CallIntelligenceService extends Service {
             if (answeredByAi && downlinkAsr == null) {
                 throw new IOException("incoming ASR is required for AI answering");
             }
-            capture = new TelephonyAudioCapture(
-                    this,
-                    new ResilientFanoutOutputStream(
-                            stored.openDownlink(), sink(downlinkAsr)),
-                    new ResilientFanoutOutputStream(
-                            stored.openUplink(), sink(uplinkAsr)));
+            downlinkFanout = new ResilientFanoutOutputStream(
+                    stored.openDownlink(), sink(downlinkAsr));
+            uplinkFanout = new ResilientFanoutOutputStream(
+                    stored.openUplink(), sink(uplinkAsr));
+            capture = new TelephonyAudioCapture(this, downlinkFanout, uplinkFanout);
             ActiveSession active = new ActiveSession(
-                    stored, capture, downlinkAsr, uplinkAsr,
+                    stored, capture, downlinkFanout, uplinkFanout,
+                    downlinkAsr, uplinkAsr,
                     new SpamRiskEngine(knownContact), ownerUid, answeredByAi, knownContact,
                     preparedContext);
             sessions.put(callId, active);
@@ -769,6 +781,10 @@ public final class CallIntelligenceService extends Service {
                 classifier.endCall(callId);
             }
             if (capture != null) capture.close();
+            if (capture == null) {
+                closeQuietly(downlinkFanout);
+                closeQuietly(uplinkFanout);
+            }
             if (downlinkAsr != null) downlinkAsr.close();
             if (uplinkAsr != null) uplinkAsr.close();
             if (stored != null) stored.close();
@@ -1052,7 +1068,9 @@ public final class CallIntelligenceService extends Service {
         synchronized (sessions) {
             session = sessions.get(callId);
         }
-        if (session == null || !session.acceptsAsrCallback(direction, streamIdentity)) {
+        if (!asr.acceptsCallback(streamIdentity)
+                || session == null
+                || !session.acceptsAsrCallback(direction, streamIdentity)) {
             return;
         }
         try {
@@ -1105,13 +1123,56 @@ public final class CallIntelligenceService extends Service {
         }
     }
 
+    private void restoreLiveAsrStreams(Object brokerIdentity) {
+        if (brokerIdentity == null) return;
+        List<Map.Entry<String, ActiveSession>> snapshot;
+        synchronized (sessions) {
+            snapshot = new ArrayList<>(sessions.entrySet());
+        }
+        for (Map.Entry<String, ActiveSession> item : snapshot) {
+            String callId = item.getKey();
+            ActiveSession session = item.getValue();
+            if (!session.needsAsrRestore(brokerIdentity)) continue;
+            AsrBrokerClient.Stream downlink = asr.openStream(callId, "downlink");
+            AsrBrokerClient.Stream uplink = asr.openStream(callId, "uplink");
+            if (downlink == null) {
+                if (uplink != null) uplink.close();
+                notifyStatus(callId, -3, "incoming_asr_restore_unavailable");
+                continue;
+            }
+            if (!session.replaceAsrStreams(brokerIdentity, downlink, uplink)) {
+                downlink.close();
+                if (uplink != null) uplink.close();
+                continue;
+            }
+            notifyStatus(callId, 3, uplink == null
+                    ? "incoming_asr_restored_uplink_unavailable"
+                    : "asr_streams_restored");
+        }
+    }
+
+    private void detachLostAsrStreams(Object brokerIdentity) {
+        if (brokerIdentity == null) return;
+        List<Map.Entry<String, ActiveSession>> snapshot;
+        synchronized (sessions) {
+            snapshot = new ArrayList<>(sessions.entrySet());
+        }
+        for (Map.Entry<String, ActiveSession> item : snapshot) {
+            if (item.getValue().detachAsrStreams(brokerIdentity)) {
+                notifyStatus(item.getKey(), -3, "asr_broker_disconnected_recording_continues");
+            }
+        }
+    }
+
     private void handleAsrStatus(
             String callId, String direction, Object streamIdentity, String detail) {
         ActiveSession session;
         synchronized (sessions) {
             session = sessions.get(callId);
         }
-        if (session != null && session.acceptsAsrCallback(direction, streamIdentity)) {
+        if (asr.acceptsCallback(streamIdentity)
+                && session != null
+                && session.acceptsAsrCallback(direction, streamIdentity)) {
             notifyStatus(callId, 3, direction + ":" + detail);
         }
     }
@@ -1298,6 +1359,15 @@ public final class CallIntelligenceService extends Service {
         return stream == null ? null : stream.sink;
     }
 
+    private static void closeQuietly(java.io.OutputStream stream) {
+        if (stream == null) return;
+        try {
+            stream.close();
+        } catch (IOException ignored) {
+            // Best effort after capture construction fails.
+        }
+    }
+
     private static final class ActiveSession implements AutoCloseable {
         private static final class ContextRecord {
             final CallCommunicationContextClient.PreparedContext prepared;
@@ -1364,8 +1434,10 @@ public final class CallIntelligenceService extends Service {
 
         private final CallArtifactStore.Session stored;
         private final TelephonyAudioCapture capture;
-        private final AsrBrokerClient.Stream downlinkAsr;
-        private final AsrBrokerClient.Stream uplinkAsr;
+        private final ResilientFanoutOutputStream downlinkFanout;
+        private final ResilientFanoutOutputStream uplinkFanout;
+        private AsrBrokerClient.Stream downlinkAsr;
+        private AsrBrokerClient.Stream uplinkAsr;
         private final RiskAssessmentTracker risk;
         private final AssistantHandlingTracker assistantHandling;
         private final int ownerUid;
@@ -1383,6 +1455,8 @@ public final class CallIntelligenceService extends Service {
         ActiveSession(
                 CallArtifactStore.Session stored,
                 TelephonyAudioCapture capture,
+                ResilientFanoutOutputStream downlinkFanout,
+                ResilientFanoutOutputStream uplinkFanout,
                 AsrBrokerClient.Stream downlinkAsr,
                 AsrBrokerClient.Stream uplinkAsr,
                 SpamRiskEngine risk,
@@ -1392,6 +1466,8 @@ public final class CallIntelligenceService extends Service {
                 CallCommunicationContextClient.PreparedContext communicationContext) {
             this.stored = stored;
             this.capture = capture;
+            this.downlinkFanout = downlinkFanout;
+            this.uplinkFanout = uplinkFanout;
             this.downlinkAsr = downlinkAsr;
             this.uplinkAsr = uplinkAsr;
             this.risk = new RiskAssessmentTracker(risk);
@@ -1466,6 +1542,55 @@ public final class CallIntelligenceService extends Service {
                     ? downlinkAsr
                     : "uplink".equals(direction) ? uplinkAsr : null;
             return expected != null && expected.identity == streamIdentity;
+        }
+
+        synchronized boolean needsAsrRestore(Object brokerIdentity) {
+            return !closed && brokerIdentity != null
+                    && (downlinkAsr == null
+                    || downlinkAsr.brokerIdentity != brokerIdentity
+                    || uplinkAsr == null
+                    || uplinkAsr.brokerIdentity != brokerIdentity);
+        }
+
+        synchronized boolean detachAsrStreams(Object brokerIdentity) {
+            if (closed || brokerIdentity == null
+                    || ((downlinkAsr == null
+                    || downlinkAsr.brokerIdentity != brokerIdentity)
+                    && (uplinkAsr == null
+                    || uplinkAsr.brokerIdentity != brokerIdentity))) {
+                return false;
+            }
+            AsrBrokerClient.Stream previousDownlink = downlinkAsr;
+            AsrBrokerClient.Stream previousUplink = uplinkAsr;
+            downlinkAsr = null;
+            uplinkAsr = null;
+            downlinkFanout.replaceSecondary(null);
+            uplinkFanout.replaceSecondary(null);
+            if (previousDownlink != null) previousDownlink.close();
+            if (previousUplink != null) previousUplink.close();
+            return true;
+        }
+
+        synchronized boolean replaceAsrStreams(
+                Object brokerIdentity,
+                AsrBrokerClient.Stream downlink,
+                AsrBrokerClient.Stream uplink) {
+            if (closed || brokerIdentity == null || downlink == null
+                    || downlink.brokerIdentity != brokerIdentity
+                    || (uplink != null && uplink.brokerIdentity != brokerIdentity)) {
+                return false;
+            }
+            AsrBrokerClient.Stream previousDownlink = downlinkAsr;
+            AsrBrokerClient.Stream previousUplink = uplinkAsr;
+            if (!downlinkFanout.replaceSecondary(downlink.sink)
+                    || !uplinkFanout.replaceSecondary(sink(uplink))) {
+                return false;
+            }
+            downlinkAsr = downlink;
+            uplinkAsr = uplink;
+            if (previousDownlink != null) previousDownlink.close();
+            if (previousUplink != null) previousUplink.close();
+            return true;
         }
 
         synchronized TakeoverResult takeOver() {

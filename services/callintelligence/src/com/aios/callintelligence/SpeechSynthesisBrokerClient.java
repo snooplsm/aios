@@ -1,10 +1,6 @@
 package com.aios.callintelligence;
 
-import android.content.ComponentName;
 import android.content.Context;
-import android.content.Intent;
-import android.content.ServiceConnection;
-import android.os.IBinder;
 import android.os.ParcelFileDescriptor;
 import android.os.RemoteException;
 import android.os.SystemClock;
@@ -27,8 +23,6 @@ import java.util.concurrent.atomic.AtomicReference;
 
 /** Requests bounded, on-device synthesized PCM from Model Broker. */
 final class SpeechSynthesisBrokerClient implements AutoCloseable {
-    private static final String BROKER_ACTION = "com.aios.model.MODEL_SERVICE";
-    private static final String BROKER_PACKAGE = "com.aios.modelbroker";
     private static final int OUTPUT_SAMPLE_RATE_HZ = 24_000;
     private static final long REQUEST_DEADLINE_MILLIS = 30_000L;
     private static final int MAX_TEXT_CHARS = 2_048;
@@ -37,8 +31,8 @@ final class SpeechSynthesisBrokerClient implements AutoCloseable {
         void onStatus(String requestId, String detail);
     }
 
-    private final Context context;
     private final Listener listener;
+    private final ResilientModelBrokerBinding binding;
     private final ExecutorService worker = Executors.newSingleThreadExecutor(work -> {
         Thread thread = new Thread(work, "aios-speech-broker");
         thread.setPriority(Thread.NORM_PRIORITY);
@@ -47,42 +41,28 @@ final class SpeechSynthesisBrokerClient implements AutoCloseable {
     private final Set<Speech> active = new HashSet<>();
     private final Set<String> languages = new HashSet<>();
     private IAiosModelService service;
-    private boolean bound;
     private boolean available;
     private boolean closed;
 
-    private final ServiceConnection connection = new ServiceConnection() {
-        @Override
-        public void onServiceConnected(ComponentName name, IBinder binder) {
-            IAiosModelService candidate = IAiosModelService.Stub.asInterface(binder);
-            worker.execute(() -> loadCapabilities(candidate));
-        }
-
-        @Override
-        public void onServiceDisconnected(ComponentName name) {
-            clearService();
-        }
-
-        @Override
-        public void onBindingDied(ComponentName name) {
-            clearService();
-        }
-
-        @Override
-        public void onNullBinding(ComponentName name) {
-            clearService();
-        }
-    };
-
     SpeechSynthesisBrokerClient(Context context, Listener listener) {
-        this.context = context;
         this.listener = listener;
+        binding = new ResilientModelBrokerBinding(
+                context,
+                new ResilientModelBrokerBinding.Listener() {
+                    @Override
+                    public void onConnected(IAiosModelService candidate) {
+                        worker.execute(() -> loadCapabilities(candidate));
+                    }
+
+                    @Override
+                    public void onDisconnected() {
+                        clearService();
+                    }
+                });
     }
 
-    synchronized void start() {
-        if (closed || bound) return;
-        Intent intent = new Intent(BROKER_ACTION).setPackage(BROKER_PACKAGE);
-        bound = context.bindService(intent, connection, Context.BIND_AUTO_CREATE);
+    void start() {
+        binding.start();
     }
 
     synchronized boolean isAvailable(String language) {
@@ -143,6 +123,7 @@ final class SpeechSynthesisBrokerClient implements AutoCloseable {
             throw error;
         } catch (RemoteException | RuntimeException error) {
             if (speech != null) speech.close();
+            if (error instanceof RemoteException) binding.invalidate(broker);
             throw new IOException("speech synthesis setup failed", error);
         } finally {
             if (speech == null) closePipe(pipe);
@@ -160,12 +141,9 @@ final class SpeechSynthesisBrokerClient implements AutoCloseable {
             service = null;
             snapshot = new ArrayList<>(active);
             active.clear();
-            if (bound) {
-                context.unbindService(connection);
-                bound = false;
-            }
         }
         for (Speech speech : snapshot) speech.close();
+        binding.close();
         worker.shutdownNow();
     }
 
@@ -181,15 +159,17 @@ final class SpeechSynthesisBrokerClient implements AutoCloseable {
                 }
             }
         } catch (RemoteException | RuntimeException error) {
-            candidate = null;
+            binding.invalidate(candidate);
+            return;
         }
         synchronized (this) {
-            if (closed) return;
+            if (closed || !binding.isCurrent(candidate)) return;
             service = candidate;
-            available = candidate != null && found;
+            available = found;
             languages.clear();
             if (available) languages.addAll(supported);
         }
+        binding.markReady(candidate);
         notifyStatus("availability", available
                 ? "speech_synthesis_ready" : "speech_synthesis_unavailable");
     }

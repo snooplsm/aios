@@ -69,6 +69,16 @@ inference. A stalled or overloaded model drops old analysis frames rather than
 adding latency to telephony. The service never inserts itself into the modem
 media path; failure cannot mute or terminate the call.
 
+Call Intelligence uses one generation-safe binding controller per Model Broker
+client. Android may reconnect an ordinary process crash on the existing binding;
+terminal death, null bindings, failed binds, and a connection/capability probe
+that stalls for 15 seconds are explicitly unbound and retried with one-second to
+one-minute bounded backoff. ASR broker loss atomically removes the expendable
+inference sinks and their callback identities while the authoritative local PCM
+sinks continue. Once the replacement broker passes its capability probe, each
+live call receives new downlink and uplink pipes. Classifier, receptionist, and
+speech requests also reject callbacks from the disconnected generation.
+
 Pipeline:
 
 ```text

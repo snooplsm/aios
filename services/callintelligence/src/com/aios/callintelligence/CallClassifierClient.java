@@ -1,10 +1,6 @@
 package com.aios.callintelligence;
 
-import android.content.ComponentName;
 import android.content.Context;
-import android.content.Intent;
-import android.content.ServiceConnection;
-import android.os.IBinder;
 import android.os.RemoteException;
 import android.os.SystemClock;
 
@@ -68,8 +64,6 @@ final class CallClassifierClient implements AutoCloseable {
         }
     }
 
-    private static final String BROKER_ACTION = "com.aios.model.MODEL_SERVICE";
-    private static final String BROKER_PACKAGE = "com.aios.modelbroker";
     private static final int MIN_TRANSCRIPT_CHARS = 64;
     private static final int MAX_TRANSCRIPT_CHARS = 4_096;
     private static final long MIN_REQUEST_INTERVAL_MILLIS = 4_000L;
@@ -127,8 +121,8 @@ final class CallClassifierClient implements AutoCloseable {
         }
     }
 
-    private final Context context;
     private final Listener listener;
+    private final ResilientModelBrokerBinding binding;
     private final ScheduledExecutorService worker =
             Executors.newSingleThreadScheduledExecutor(work -> {
         Thread thread = new Thread(work, "aios-call-classifier");
@@ -137,45 +131,28 @@ final class CallClassifierClient implements AutoCloseable {
     });
     private final Map<String, CallState> calls = new HashMap<>();
     private IAiosModelService service;
-    private boolean bound;
     private boolean closed;
     private long nextRequestSerial;
 
-    private final ServiceConnection connection = new ServiceConnection() {
-        @Override
-        public void onServiceConnected(ComponentName name, IBinder binder) {
-            synchronized (CallClassifierClient.this) {
-                if (closed) return;
-                service = IAiosModelService.Stub.asInterface(binder);
-                for (Map.Entry<String, CallState> entry : calls.entrySet()) {
-                    scheduleRetryLocked(entry.getKey(), entry.getValue(), 0L);
-                }
-            }
-        }
-
-        @Override
-        public void onServiceDisconnected(ComponentName name) {
-            synchronized (CallClassifierClient.this) {
-                service = null;
-                for (CallState state : calls.values()) {
-                    state.inFlight = false;
-                    state.generation++;
-                    state.lastSubmittedRevision = -1L;
-                    cancelRetryLocked(state);
-                }
-            }
-        }
-    };
-
     CallClassifierClient(Context context, Listener listener) {
-        this.context = context;
         this.listener = listener;
+        binding = new ResilientModelBrokerBinding(
+                context,
+                new ResilientModelBrokerBinding.Listener() {
+                    @Override
+                    public void onConnected(IAiosModelService candidate) {
+                        brokerConnected(candidate);
+                    }
+
+                    @Override
+                    public void onDisconnected() {
+                        brokerDisconnected();
+                    }
+                });
     }
 
-    synchronized void start() {
-        if (closed || bound) return;
-        Intent intent = new Intent(BROKER_ACTION).setPackage(BROKER_PACKAGE);
-        bound = context.bindService(intent, connection, Context.BIND_AUTO_CREATE);
+    void start() {
+        binding.start();
     }
 
     synchronized void beginCall(String callId, boolean knownContact) {
@@ -212,17 +189,35 @@ final class CallClassifierClient implements AutoCloseable {
     }
 
     @Override
-    public synchronized void close() {
-        if (closed) return;
-        closed = true;
-        for (CallState state : calls.values()) cancelRetryLocked(state);
-        calls.clear();
-        service = null;
-        if (bound) {
-            context.unbindService(connection);
-            bound = false;
+    public void close() {
+        synchronized (this) {
+            if (closed) return;
+            closed = true;
+            for (CallState state : calls.values()) cancelRetryLocked(state);
+            calls.clear();
+            service = null;
         }
+        binding.close();
         worker.shutdownNow();
+    }
+
+    private synchronized void brokerConnected(IAiosModelService candidate) {
+        if (closed || !binding.isCurrent(candidate)) return;
+        service = candidate;
+        binding.markReady(candidate);
+        for (Map.Entry<String, CallState> entry : calls.entrySet()) {
+            scheduleRetryLocked(entry.getKey(), entry.getValue(), 0L);
+        }
+    }
+
+    private synchronized void brokerDisconnected() {
+        service = null;
+        for (CallState state : calls.values()) {
+            state.inFlight = false;
+            state.generation++;
+            state.lastSubmittedRevision = -1L;
+            cancelRetryLocked(state);
+        }
     }
 
     private PendingRequest maybeRequestLocked(
@@ -336,6 +331,7 @@ final class CallClassifierClient implements AutoCloseable {
                     // Broker death already releases its runtime session.
                 }
             }
+            if (error instanceof RemoteException) binding.invalidate(current);
             completeFailure(pending, "classifier_request_failed");
         }
     }

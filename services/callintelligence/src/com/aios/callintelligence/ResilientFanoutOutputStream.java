@@ -7,6 +7,7 @@ import java.io.OutputStream;
 final class ResilientFanoutOutputStream extends OutputStream {
     private final OutputStream primary;
     private OutputStream secondary;
+    private boolean closed;
 
     ResilientFanoutOutputStream(OutputStream primary, OutputStream secondary) {
         if (primary == null) {
@@ -42,6 +43,8 @@ final class ResilientFanoutOutputStream extends OutputStream {
 
     @Override
     public synchronized void close() throws IOException {
+        if (closed) return;
+        closed = true;
         IOException failure = null;
         try {
             primary.close();
@@ -52,6 +55,18 @@ final class ResilientFanoutOutputStream extends OutputStream {
         if (failure != null) {
             throw failure;
         }
+    }
+
+    /** Atomically replaces the expendable inference sink while capture continues. */
+    synchronized boolean replaceSecondary(OutputStream replacement) {
+        if (closed) {
+            closeQuietly(replacement);
+            return false;
+        }
+        OutputStream previous = secondary;
+        secondary = replacement;
+        if (previous != replacement) closeQuietly(previous);
+        return true;
     }
 
     private void writeSecondary(byte[] buffer, int offset, int length) {
@@ -68,12 +83,15 @@ final class ResilientFanoutOutputStream extends OutputStream {
     private void dropSecondary() {
         OutputStream value = secondary;
         secondary = null;
-        if (value != null) {
-            try {
-                value.close();
-            } catch (IOException ignored) {
-                // The local capture remains authoritative.
-            }
+        closeQuietly(value);
+    }
+
+    private static void closeQuietly(OutputStream value) {
+        if (value == null) return;
+        try {
+            value.close();
+        } catch (IOException ignored) {
+            // The local capture remains authoritative.
         }
     }
 }

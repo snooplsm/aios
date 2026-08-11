@@ -40,6 +40,16 @@ against the original 24-hour artifact deadline. A resumed AI receptionist does
 not repeat its greeting; it waits for the next finalized caller turn. Delayed
 callbacks from an older binding generation cannot affect the restored call.
 
+Call Intelligence independently recovers its Model Broker dependency. Its ASR,
+classifier, receptionist, and TTS clients share the same tested retry semantics:
+ordinary process disconnects retain Android's reconnectable binding, while
+terminal/null/failed/stalled bindings are replaced with bounded backoff and a
+15-second initialization watchdog. Broker loss detaches old ASR callback
+identities and only the inference branches of the PCM fanouts. Local recording
+continues, and fresh English/Spanish downlink and uplink streams are attached to
+every still-live session after capability discovery succeeds. The existing call
+artifact and its original expiry are unchanged.
+
 Downlink transcript segments first pass through an explainable English/Spanish
 heuristic scorer with deduplicated high-risk signals. A debounced Gemma
 `call_classification` request can provide a second opinion from a bounded 4 KiB

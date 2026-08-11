@@ -81,6 +81,12 @@ All asynchronous call results must be bound to an unforgeable in-process
 request/session identity in addition to the opaque call ID. A restarted session
 must reject delayed ASR, classifier, receptionist, context, TTS, and caller-audio
 events produced for its predecessor.
+If Model Broker dies or its package binding is replaced while Call Intelligence
+continues recording, the carrier call and app-private PCM capture remain active.
+All stale broker callbacks and inference sinks are detached immediately. Call
+Intelligence must recreate terminal/null/stalled bindings with bounded backoff,
+then attach fresh downlink and uplink ASR streams to each still-live call without
+restarting its artifact or extending its expiry.
 
 Raw call audio is never exposed through the shared-media filesystem. Other apps
 receive scoped model APIs, not access to call artifacts or model files.

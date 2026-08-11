@@ -1011,6 +1011,8 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/callintelligence/src/com/aios/callintelligence/PriorContextFormatter.java",
         "services/callintelligence/src/com/aios/callintelligence/SpeechSynthesisBrokerClient.java",
         "services/callintelligence/src/com/aios/callintelligence/AsrBrokerClient.java",
+        "services/callintelligence/src/com/aios/callintelligence/BrokerServiceRebindPolicy.java",
+        "services/callintelligence/src/com/aios/callintelligence/ResilientModelBrokerBinding.java",
         "services/callintelligence/src/com/aios/callintelligence/SpamRiskEngine.java",
         "services/callintelligence/src/com/aios/callintelligence/RiskAssessmentTracker.java",
         "services/callintelligence/src/com/aios/callintelligence/CallClassifierClient.java",
@@ -1033,7 +1035,9 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/callintelligence/tests/src/com/aios/callintelligence/RequiredCaptureGateTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/PriorContextFormatterTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/TelecomCallPresenceTrackerTest.java",
+        "services/callintelligence/tests/src/com/aios/callintelligence/BrokerServiceRebindPolicyTest.java",
         "services/callintelligence/src/com/aios/callintelligence/ResilientFanoutOutputStream.java",
+        "services/callintelligence/tests/src/com/aios/callintelligence/ResilientFanoutOutputStreamTest.java",
         "docs/dialer-integration.md",
         "docs/caller-audio-uplink.md",
         "services/mediaintelligence/Android.bp",
@@ -2650,6 +2654,10 @@ def validate_aosp_overlay(root: Path) -> None:
             in call_host_test
             and '"src/com/aios/callintelligence/AssistantGreetingPolicy.java"'
             in call_host_test
+            and '"src/com/aios/callintelligence/BrokerServiceRebindPolicy.java"'
+            in call_host_test
+            and '"src/com/aios/callintelligence/ResilientFanoutOutputStream.java"'
+            in call_host_test
             and '"tests/src/**/*.java"' in call_host_test,
             "Soong Call Intelligence host tests must include the full Android-free source closure")
     require("resumedAfterServiceLoss && resumedKnownContact" in call_service
@@ -2679,7 +2687,8 @@ def validate_aosp_overlay(root: Path) -> None:
     require("Manifest.permission.RECORD_AUDIO" in telephony_capture
             and "Manifest.permission.CAPTURE_AUDIO_OUTPUT" in telephony_capture
             and "context.checkSelfPermission" in telephony_capture
-            and "new TelephonyAudioCapture(\n                    this," in call_service
+            and "new TelephonyAudioCapture(this, downlinkFanout, uplinkFanout)"
+            in call_service
             and 'android:name="android.hardware.telephony"' in call_manifest
             and 'android:required="true"' in call_manifest,
             "telephony capture must fail closed without both grants and declare phone hardware")
@@ -2688,6 +2697,16 @@ def validate_aosp_overlay(root: Path) -> None:
     ).read_text(encoding="utf-8")
     asr_client = (call_source_root / "AsrBrokerClient.java").read_text(
         encoding="utf-8")
+    broker_binding = (call_source_root /
+                      "ResilientModelBrokerBinding.java").read_text(
+                          encoding="utf-8")
+    broker_rebind_policy = (call_source_root /
+                            "BrokerServiceRebindPolicy.java").read_text(
+                                encoding="utf-8")
+    broker_rebind_test = (
+        root / "services" / "callintelligence" / "tests" / "src" / "com" /
+        "aios" / "callintelligence" / "BrokerServiceRebindPolicyTest.java"
+    ).read_text(encoding="utf-8")
     call_context_accumulator = (
         call_source_root / "CallContextAccumulator.java"
     ).read_text(encoding="utf-8")
@@ -2886,6 +2905,9 @@ def validate_aosp_overlay(root: Path) -> None:
     receptionist_source = (
         call_source_root / "ReceptionistDialogueClient.java"
     ).read_text(encoding="utf-8")
+    speech_broker_source = (
+        call_source_root / "SpeechSynthesisBrokerClient.java"
+    ).read_text(encoding="utf-8")
     receptionist_reply_policy = (
         call_source_root / "ReceptionistReplyPolicy.java"
     ).read_text(encoding="utf-8")
@@ -2904,6 +2926,21 @@ def validate_aosp_overlay(root: Path) -> None:
             and "hasControlCharacter" in receptionist_reply_policy
             and "receptionist_timeout" in receptionist_source,
             "AI receptionist must be tool-free, injection-resistant, schema-bound, and timed out")
+    require("onBindingDied" in broker_binding
+            and "onNullBinding" in broker_binding
+            and "CONNECT_TIMEOUT_MILLIS = 15_000L" in broker_binding
+            and "activeConnection != this" in broker_binding
+            and "binding.markReady" in asr_client
+            and "binding.markReady" in classifier_source
+            and "binding.markReady" in receptionist_source
+            and "binding.markReady" in speech_broker_source
+            and all("new ResilientModelBrokerBinding" in source for source in (
+                asr_client, classifier_source, receptionist_source,
+                speech_broker_source))
+            and "MAX_DELAY_MILLIS = 60_000L" in broker_rebind_policy
+            and "failuresBackOffAndCapAtOneMinute" in broker_rebind_test
+            and "closeSuppressesReservedAndFutureRetries" in broker_rebind_test,
+            "every call Model Broker client must replace terminal, null, failed, and stalled bindings with bounded retries")
     require("Object streamIdentity" in asr_client
             and "nextStreamGeneration" in asr_client
             and "expected.identity == streamIdentity" in call_service
@@ -3046,8 +3083,24 @@ def validate_aosp_overlay(root: Path) -> None:
     fanout = (call_source_root / "ResilientFanoutOutputStream.java").read_text(
         encoding="utf-8"
     )
-    require("dropSecondary()" in fanout and "primary.write" in fanout,
-            "ASR failure must not stop the authoritative local PCM sink")
+    fanout_test = (
+        root / "services" / "callintelligence" / "tests" / "src" / "com" /
+        "aios" / "callintelligence" / "ResilientFanoutOutputStreamTest.java"
+    ).read_text(encoding="utf-8")
+    require("dropSecondary()" in fanout
+            and "primary.write" in fanout
+            and "replaceSecondary" in fanout
+            and "onAsrUnavailable" in asr_client
+            and "acceptsCallback" in asr_client
+            and "activeStreams.clear()" in asr_client
+            and "detachLostAsrStreams" in call_service
+            and "restoreLiveAsrStreams" in call_service
+            and "needsAsrRestore" in call_service
+            and "replaceAsrStreams" in call_service
+            and "replacementReceivesFutureAudioWithoutInterruptingPrimary"
+            in fanout_test
+            and "failedSecondaryCanBeRestored" in fanout_test,
+            "ASR loss must preserve local PCM, reject stale streams, and attach recovered inference sinks")
 
     media_source_root = (
         root / "services" / "mediaintelligence" / "src" / "com" / "aios" /

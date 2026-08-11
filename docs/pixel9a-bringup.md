@@ -153,6 +153,15 @@ Run gates in this order:
    handled call and with terminal/null test bindings for
    `call.telephony_survives_ai_crash`.
 6. Airplane-mode ASR and model-broker failure injection. For
+   `call.telephony_survives_ai_crash`, first keep a consented call active while
+   killing Model Broker. Confirm the carrier call, local two-direction PCM, and
+   ordinary call controls continue; stale ASR callbacks stop updating the UI.
+   After Android reconnects, confirm new downlink and uplink stream identities
+   are attached to the same artifact and transcription resumes without another
+   greeting or a new 24-hour deadline. Repeat by replacing the exact Broker APK,
+   with a null-binding test build, and with a capability query held beyond the
+   15-second watchdog; retries must cap at one minute.
+   For
    `model.build_fingerprint_admission_enforced`, verify the admitted models load
    under the benchmarked build fingerprint, then boot an image with a different
    build fingerprint but the old admission policy. Confirm release inference

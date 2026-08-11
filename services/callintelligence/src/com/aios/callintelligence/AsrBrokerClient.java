@@ -1,9 +1,6 @@
 package com.aios.callintelligence;
 
-import android.content.ComponentName;
 import android.content.Context;
-import android.content.Intent;
-import android.content.ServiceConnection;
 import android.media.AudioFormat;
 import android.os.Binder;
 import android.os.IBinder;
@@ -20,6 +17,8 @@ import com.aios.model.ModelRequest;
 
 import java.io.IOException;
 import java.io.OutputStream;
+import java.util.IdentityHashMap;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -35,19 +34,35 @@ final class AsrBrokerClient implements AutoCloseable {
 
         void onAsrStatus(
                 String callId, String direction, Object streamIdentity, String detail);
+
+        void onAsrReady(Object brokerIdentity);
+
+        void onAsrUnavailable(Object brokerIdentity);
     }
 
     static final class Stream implements AutoCloseable {
+        private final AsrBrokerClient owner;
         final OutputStream sink;
         final Object identity;
+        final Object brokerIdentity;
+        private boolean closed;
 
-        Stream(OutputStream sink, Object identity) {
+        Stream(
+                AsrBrokerClient owner,
+                OutputStream sink,
+                Object identity,
+                Object brokerIdentity) {
+            this.owner = owner;
             this.sink = sink;
             this.identity = identity;
+            this.brokerIdentity = brokerIdentity;
         }
 
         @Override
-        public void close() {
+        public synchronized void close() {
+            if (closed) return;
+            closed = true;
+            owner.forget(this);
             try {
                 sink.close();
             } catch (IOException ignored) {
@@ -56,8 +71,8 @@ final class AsrBrokerClient implements AutoCloseable {
         }
     }
 
-    private final Context context;
     private final Listener listener;
+    private final ResilientModelBrokerBinding binding;
     private final IBinder callActivityToken = new Binder();
     private final ExecutorService worker = Executors.newSingleThreadExecutor(work -> {
         Thread thread = new Thread(work, "aios-asr-capabilities");
@@ -65,40 +80,32 @@ final class AsrBrokerClient implements AutoCloseable {
         return thread;
     });
     private IAiosModelService service;
+    private final Map<Object, Object> activeStreams = new IdentityHashMap<>();
     private boolean available;
-    private boolean bound;
     private boolean callActive;
     private boolean closed;
+    private Object brokerIdentity;
     private long nextStreamGeneration;
 
-    private final ServiceConnection connection = new ServiceConnection() {
-        @Override
-        public void onServiceConnected(ComponentName name, IBinder binder) {
-            IAiosModelService candidate = IAiosModelService.Stub.asInterface(binder);
-            worker.execute(() -> loadCapabilities(candidate));
-        }
-
-        @Override
-        public void onServiceDisconnected(ComponentName name) {
-            synchronized (AsrBrokerClient.this) {
-                service = null;
-                available = false;
-            }
-        }
-    };
-
     AsrBrokerClient(Context context, Listener listener) {
-        this.context = context;
         this.listener = listener;
+        binding = new ResilientModelBrokerBinding(
+                context,
+                new ResilientModelBrokerBinding.Listener() {
+                    @Override
+                    public void onConnected(IAiosModelService candidate) {
+                        worker.execute(() -> loadCapabilities(candidate));
+                    }
+
+                    @Override
+                    public void onDisconnected() {
+                        clearService();
+                    }
+                });
     }
 
-    synchronized void start() {
-        if (closed || bound) {
-            return;
-        }
-        Intent intent = new Intent("com.aios.model.MODEL_SERVICE")
-                .setPackage("com.aios.modelbroker");
-        bound = context.bindService(intent, connection, Context.BIND_AUTO_CREATE);
+    void start() {
+        binding.start();
     }
 
     synchronized void setCallActive(boolean active) {
@@ -110,6 +117,11 @@ final class AsrBrokerClient implements AutoCloseable {
         return service != null && available;
     }
 
+    synchronized boolean acceptsCallback(Object streamIdentity) {
+        return streamIdentity != null && brokerIdentity != null
+                && activeStreams.get(streamIdentity) == brokerIdentity;
+    }
+
     synchronized Stream openStream(String callId, String direction) {
         Object streamIdentity = new Object();
         if (nextStreamGeneration == Long.MAX_VALUE) {
@@ -119,6 +131,7 @@ final class AsrBrokerClient implements AutoCloseable {
         }
         long streamGeneration = ++nextStreamGeneration;
         IAiosModelService current = service;
+        Object currentBrokerIdentity = brokerIdentity;
         if (current == null || !available) {
             listener.onAsrStatus(
                     callId, direction, streamIdentity, "model_broker_unavailable");
@@ -150,8 +163,21 @@ final class AsrBrokerClient implements AutoCloseable {
             current.submitAudio(sessionId, pipe[0], format, false);
             pipe[0].close();
             OutputStream sink = new ParcelFileDescriptor.AutoCloseOutputStream(pipe[1]);
-            return new Stream(sink, streamIdentity);
-        } catch (IOException | RemoteException | RuntimeException error) {
+            Stream stream = new Stream(
+                    this, sink, streamIdentity, currentBrokerIdentity);
+            if (service != current || brokerIdentity != currentBrokerIdentity) {
+                stream.close();
+                return null;
+            }
+            activeStreams.put(streamIdentity, currentBrokerIdentity);
+            return stream;
+        } catch (RemoteException error) {
+            closePipe(pipe);
+            binding.invalidate(current);
+            listener.onAsrStatus(
+                    callId, direction, streamIdentity, "asr_stream_unavailable");
+            return null;
+        } catch (IOException | RuntimeException error) {
             closePipe(pipe);
             listener.onAsrStatus(
                     callId, direction, streamIdentity, "asr_stream_unavailable");
@@ -160,23 +186,28 @@ final class AsrBrokerClient implements AutoCloseable {
     }
 
     @Override
-    public synchronized void close() {
-        if (closed) return;
-        closed = true;
-        if (service != null && callActive) {
+    public void close() {
+        IAiosModelService current;
+        boolean wasCallActive;
+        synchronized (this) {
+            if (closed) return;
+            closed = true;
+            current = service;
+            wasCallActive = callActive;
+            service = null;
+            available = false;
+            brokerIdentity = null;
+            activeStreams.clear();
+            callActive = false;
+        }
+        if (current != null && wasCallActive) {
             try {
-                service.setCallActive(callActivityToken, false);
+                current.setCallActive(callActivityToken, false);
             } catch (RemoteException ignored) {
                 // Service death already clears process-local state.
             }
         }
-        service = null;
-        available = false;
-        callActive = false;
-        if (bound) {
-            context.unbindService(connection);
-            bound = false;
-        }
+        binding.close();
         worker.shutdownNow();
     }
 
@@ -192,14 +223,33 @@ final class AsrBrokerClient implements AutoCloseable {
                 }
             }
         } catch (RemoteException | RuntimeException error) {
-            candidate = null;
+            binding.invalidate(candidate);
+            return;
         }
+        Object readyIdentity = new Object();
+        boolean ready;
         synchronized (this) {
-            if (closed) return;
+            if (closed || !binding.isCurrent(candidate)) return;
             service = candidate;
-            available = candidate != null && found;
+            available = found;
+            brokerIdentity = found ? readyIdentity : null;
             applyCallStateLocked();
+            ready = service == candidate && available;
         }
+        binding.markReady(candidate);
+        if (ready) listener.onAsrReady(readyIdentity);
+    }
+
+    private void clearService() {
+        Object lostIdentity;
+        synchronized (this) {
+            lostIdentity = brokerIdentity;
+            service = null;
+            available = false;
+            brokerIdentity = null;
+            activeStreams.clear();
+        }
+        if (lostIdentity != null) listener.onAsrUnavailable(lostIdentity);
     }
 
     private IModelCallback callback(
@@ -233,8 +283,19 @@ final class AsrBrokerClient implements AutoCloseable {
         try {
             service.setCallActive(callActivityToken, callActive);
         } catch (RemoteException ignored) {
+            IAiosModelService failed = service;
+            Object lostIdentity = brokerIdentity;
             service = null;
+            available = false;
+            brokerIdentity = null;
+            activeStreams.clear();
+            binding.invalidate(failed);
+            if (lostIdentity != null) listener.onAsrUnavailable(lostIdentity);
         }
+    }
+
+    private synchronized void forget(Stream stream) {
+        activeStreams.remove(stream.identity);
     }
 
     private static void closePipe(ParcelFileDescriptor[] pipe) {
