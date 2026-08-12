@@ -72,35 +72,47 @@ class BuildEvidenceTests(unittest.TestCase):
 
         out = base / "out"
         product_out = out / "target" / "product" / target_device
-        (product_out / "product" / "etc").mkdir(parents=True)
-        (product_out / "system").mkdir(parents=True)
-        (product_out / "product" / "etc" / "build.prop").write_text(
+        lanes = json.loads((aios / "config" / "aosp_lanes.json")
+                           .read_text(encoding="utf-8"))
+        lane = next(item for item in lanes["lanes"] if item["id"] == lane_id)
+        expected_artifacts = [
+            evidence.installed_artifact_path(lane, relative)
+            for relative in lanes["expected_product_artifacts"]
+        ]
+        product_root = (product_out / "system" / "product"
+                        if lane["artifact_layout"] == "gsi_system_product"
+                        else product_out / "product")
+        (product_root / "etc").mkdir(parents=True)
+        (product_out / "system").mkdir(parents=True, exist_ok=True)
+        (product_root / "etc" / "build.prop").write_text(
             "ro.aios.version=0.1-dev\n", encoding="utf-8"
         )
         (product_out / "system" / "build.prop").write_text(
             "ro.build.fingerprint=aios/test/fingerprint\n"
-            "ro.build.version.release=17\n",
+            "ro.build.version.release=17\n"
+            "ro.build.version.security_patch=2026-06-05\n",
             encoding="utf-8",
         )
-        lanes = json.loads((aios / "config" / "aosp_lanes.json")
-                           .read_text(encoding="utf-8"))
-        for relative in lanes["expected_product_artifacts"]:
+        for relative in expected_artifacts:
             target = product_out / relative
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(f"fixture:{relative}".encode())
         installed = []
-        for relative in lanes["expected_product_artifacts"]:
+        for relative in expected_artifacts:
             target = product_out / relative
             installed.append({
                 "Name": "/" + relative,
                 "Size": target.stat().st_size,
                 "SHA256": hashlib.sha256(target.read_bytes()).hexdigest(),
             })
-        (product_out / "installed-files-product.json").write_text(
+        manifest_name = ("installed-files-system.json"
+                         if lane["artifact_layout"] == "gsi_system_product"
+                         else "installed-files-product.json")
+        (product_out / manifest_name).write_text(
             json.dumps(installed), encoding="utf-8"
         )
-        (product_out / "product.img").write_bytes(b"product-image")
-        (product_out / "system.img").write_bytes(b"system-image")
+        for image in lane["required_images"]:
+            (product_out / image).write_bytes(f"fixture:{image}".encode())
         log = base / "soong-build.log"
         log.write_text("build completed successfully\n", encoding="utf-8")
         return aios, manifest, manifest_lock, out, log, product_out
@@ -116,6 +128,7 @@ class BuildEvidenceTests(unittest.TestCase):
             self.assertEqual(2, value["schema_version"])
             self.assertEqual("aios/test/fingerprint", value["build_fingerprint"])
             self.assertEqual("f" * 40, value["manifest_repository_revision"])
+            self.assertEqual("2026-06-05", value["security_patch"])
             self.assertEqual(15, len(value["artifacts"]))
             self.assertEqual(2, len(value["patch_queue"]))
             self.assertRegex(value["patch_queue_sha256"], r"^[0-9a-f]{64}$")
@@ -169,6 +182,31 @@ class BuildEvidenceTests(unittest.TestCase):
             self.assertEqual("emu64x", value["target_device"])
             self.assertFalse(value["lane_eligible_for_physical_gates"])
             self.assertFalse(value["proves_physical_runtime_gate"])
+
+    def test_captures_arm64_gsi_layout_and_deployable_images(self):
+        with tempfile.TemporaryDirectory() as raw:
+            aios, manifest, lock, out, log, _, = self.create_fixture(
+                raw,
+                lane_id="android_gsi_arm64",
+                product="aios_gsi_arm64",
+                target_device="generic_arm64",
+            )
+            value = evidence.capture(
+                aios, "android_gsi_arm64", manifest, lock, out, log
+            )
+            self.assertEqual("generic_system_image", value["kind"])
+            self.assertEqual("gsi_system_product", value["artifact_layout"])
+            self.assertEqual(["system.img", "vbmeta.img"],
+                             value["deployable_images"])
+            self.assertEqual("installed-files-system.json",
+                             value["installed_files_manifest"])
+            self.assertTrue(value["lane_eligible_for_physical_gates"])
+            self.assertFalse(value["proves_physical_runtime_gate"])
+            paths = {item["path"] for item in value["artifacts"]}
+            self.assertIn(
+                "system/product/priv-app/AiosPhone/AiosPhone.apk", paths
+            )
+            self.assertNotIn("product.img", paths)
 
     def test_rejects_lock_without_manifest_repository_revision(self):
         with tempfile.TemporaryDirectory() as raw:

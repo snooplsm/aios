@@ -55,7 +55,7 @@ fi
 cd "$aosp_root"
 manifest_revision="$(git -C "$aosp_root/.repo/manifests" \
   rev-parse --verify 'HEAD^{commit}')"
-if [[ "$lane" == "android_latest_integration" || "$lane" == "android_avd_integration" ]]; then
+if [[ "$lane" == "android_latest_integration" || "$lane" == "android_avd_integration" || "$lane" == "android_gsi_arm64" ]]; then
   python3 "$aios_root/tools/refresh_aosp_tracking.py" \
     --root "$aios_root" \
     --manifest-repo "$aosp_root/.repo/manifests" \

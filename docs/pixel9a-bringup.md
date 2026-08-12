@@ -17,10 +17,11 @@ scripts/bootstrap-aosp.sh \
   /absolute/path/to/aosp-latest
 ```
 
-The same latest-release checkout can also build the full standard Android
-Emulator image through `android_avd_integration`; see
-`docs/emulator-bringup.md`. Neither virtual lane substitutes for the physical
-Pixel checks below.
+The same latest-release checkout can build the full standard Android Emulator
+through `android_avd_integration` and the deployable ARM64 Generic System Image
+through `android_gsi_arm64`; see `docs/emulator-bringup.md` and
+`docs/gsi-bringup.md`. Neither a virtual boot nor a GSI build substitutes for
+the physical Pixel checks below.
 
 Before syncing, place this repository at `vendor/aios` through a real local Repo
 manifest as described in `manifests/README.md`. After sync, create the immutable
@@ -47,10 +48,14 @@ scripts/bootstrap-aosp.sh \
 
 The resolved lock digest belongs in release evidence. Do not replace the moving
 tracking branch with a guessed tag or graft a device tree from another release.
+The full `tegu` checkout is optional when the GSI path passes the complete
+physical matrix; it remains useful for an exact compatible full-device release.
 
 ## 2. Pixel hardware inputs
 
-Confirm all of these describe one compatible release family:
+For the GSI path, keep the phone's current bootloader, radio, kernel, vendor, and
+ODM partitions. Capture their identities before changing system. For the full
+`tegu` path, confirm all of the following describe one compatible release family:
 
 - AOSP platform and `device/google/tegu` revision;
 - Pixel vendor image;
@@ -64,6 +69,15 @@ is a platform-selection gate, not something to paper over. Prefer an official
 matching driver package. A personally owned research build may use a locally
 accepted and extracted matching factory image only under its license; never
 commit or redistribute extracted files.
+
+The last complete public candidate is recorded machine-readably rather than
+guessed during bring-up: platform `android-15.0.0_r31`, build
+`BD4A.250505.003`, `device/google/tegu` commit
+`b0184eca7c2571669a0dd5708b5e555c475500be`, matching kernel-prebuilt commit
+`5380e4f672819d5c9936b740b0f8b7772d80dd56`, and Google's vendor archive SHA-256
+`0ad7cd61322c38ba01d142123de4e30c69e091c54c0901d18beae7e4b6da7be2`.
+This is a known complete candidate, not an authorization to downgrade. The
+factory inventory and rollback state decide whether it can be used at all.
 
 The documented factory-supported Pixel 9a kernel line currently maps to
 `android-gs-tegu-6.1-android16`. Record the exact kernel commit and artifacts used
@@ -93,6 +107,18 @@ or differs from the product image's installed-file record. The first compile is
 expected to reveal any Android 17 API/module drift in this scaffold; fix it in
 `vendor/aios`, not by making unrecorded edits throughout AOSP.
 
+Next build the single-system ARM64 candidate from the same checkout. Its evidence
+recorder verifies the redirected AIOS artifacts in `installed-files-system.json`
+and digests `system.img` plus `vbmeta.img`:
+
+```text
+vendor/aios/scripts/build-aosp-lane.sh \
+  /absolute/path/to/aosp-latest \
+  android_gsi_arm64 \
+  /safe/release-artifacts/android-gsi-build-id \
+  <safe-job-count>
+```
+
 Only after the Pixel compatibility set and its resolved manifest pass the
 `pixel9a_tegu_hardware` lane contract should the same wrapper target that
 checkout:
@@ -112,7 +138,15 @@ and known-answer runtime smoke test.
 ## 4. Device preflight
 
 With the phone still on its factory image, enable developer options and collect a
-read-only inventory using `scripts/device-inventory.ps1`. Record carrier, SIM/eSIM,
+read-only inventory using an explicit serial:
+
+```text
+powershell -File scripts/device-inventory.ps1 \
+  -Serial <adb-serial> \
+  -Output C:\safe\release-artifacts\pixel-9a-factory.json
+```
+
+Record carrier, SIM/eSIM,
 current build, bootloader/radio versions, both slot states, and factory behavior
 for VoLTE, VoWiFi, Bluetooth, incoming/outgoing calls, DTMF, and conference calls.
 

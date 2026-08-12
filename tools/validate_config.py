@@ -828,18 +828,22 @@ def validate_aosp_overlay(root: Path) -> None:
         "products/aios_tegu.mk",
         "products/aios_cf_x86_64_phone.mk",
         "products/aios_sdk_phone_x86_64.mk",
+        "products/aios_gsi_arm64.mk",
         "config/aosp_lanes.json",
         "tools/check_aosp_manifest.py",
         "tools/refresh_aosp_tracking.py",
         "tools/capture_build_evidence.py",
         "tools/capture_cuttlefish_boot_evidence.py",
         "tools/capture_avd_boot_evidence.py",
+        "tools/check_gsi_preflight.py",
         "scripts/refresh-aosp-integration.sh",
         "scripts/capture-aosp-lock.sh",
         "scripts/build-aosp-lane.sh",
         "scripts/install-cuttlefish-host.sh",
+        "scripts/device-inventory.ps1",
         "docs/cuttlefish-bringup.md",
         "docs/emulator-bringup.md",
+        "docs/gsi-bringup.md",
         "permissions/privapp-permissions-aios.xml",
         "overlays/frameworkdefaults/Android.bp",
         "overlays/frameworkdefaults/AndroidManifest.xml",
@@ -1299,17 +1303,63 @@ def validate_aosp_overlay(root: Path) -> None:
             and "PRODUCT_NAME := aios_sdk_phone_x86_64" in emulator_product
             and "PRODUCT_DEVICE := emu64x" in emulator_product,
             "Android Emulator must have an additive x86-64 AIOS product")
+    gsi_product = (root / "products" / "aios_gsi_arm64.mk").read_text(
+        encoding="utf-8"
+    )
+    require("device/generic/common/gsi_arm64.mk" in gsi_product
+            and "vendor/aios/products/aios_common.mk" in gsi_product
+            and "PRODUCT_ENFORCE_ARTIFACT_PATH_REQUIREMENTS := relaxed"
+            in gsi_product
+            and "PRODUCT_NAME := aios_gsi_arm64" in gsi_product
+            and "PRODUCT_DEVICE := generic_arm64" in gsi_product,
+            "AIOS must have an additive ARM64 Generic System Image product")
     android_products = (root / "AndroidProducts.mk").read_text(encoding="utf-8")
     require("aios_tegu-aosp_current-userdebug" in android_products
             and "aios_cf_x86_64_phone-aosp_current-userdebug" in android_products
-            and "aios_sdk_phone_x86_64-aosp_current-userdebug" in android_products,
-            "AIOS must expose Pixel, Cuttlefish, and Android Emulator targets")
+            and "aios_sdk_phone_x86_64-aosp_current-userdebug" in android_products
+            and "aios_gsi_arm64-aosp_current-userdebug" in android_products,
+            "AIOS must expose Pixel, Cuttlefish, Emulator, and ARM64 GSI targets")
     bootstrap_script = (root / "scripts" / "bootstrap-aosp.sh").read_text(
         encoding="utf-8"
     )
-    require("android_latest_integration|android_avd_integration"
+    require("android_latest_integration|android_avd_integration|android_gsi_arm64"
             in bootstrap_script,
-            "AOSP bootstrap must admit both moving virtual lanes")
+            "AOSP bootstrap must admit every moving latest-release lane")
+    inventory_script = (root / "scripts" / "device-inventory.ps1").read_text(
+        encoding="utf-8"
+    )
+    require("[string]$Serial" in inventory_script
+            and "[string]$Output" in inventory_script
+            and "adb -s $Serial" in inventory_script
+            and '"ro.product.cpu.abilist64"' in inventory_script
+            and '"ro.vendor.api_level"' in inventory_script
+            and '"ro.treble.enabled"' in inventory_script
+            and '"ro.boot.dynamic_partitions"' in inventory_script
+            and '"android.software.dynamic_system"' in inventory_script
+            and "read_only = $true" in inventory_script
+            and "unlock_attempted = $false" in inventory_script
+            and "flash_attempted = $false" in inventory_script
+            and "proves_gsi_compatibility = $false" in inventory_script
+            and "serial_sha256 = $serialDigest" in inventory_script
+            and "Refusing to overwrite existing device inventory"
+            in inventory_script,
+            "device inventory must be explicit, read-only, and GSI-aware")
+    gsi_preflight = (root / "tools" / "check_gsi_preflight.py").read_text(
+        encoding="utf-8"
+    )
+    require('build.get("lane") != "android_gsi_arm64"' in gsi_preflight
+            and 'build.get("artifact_layout") != "gsi_system_product"'
+            in gsi_preflight
+            and '"system.img", "vbmeta.img"' in gsi_preflight
+            and '"arm64_userspace"' in gsi_preflight
+            and '"treble_enabled"' in gsi_preflight
+            and '"dynamic_partitions"' in gsi_preflight
+            and '"system_patch_not_older"' in gsi_preflight
+            and '"safe_to_flash": False' in gsi_preflight
+            and '"proves_gsi_compatibility": False' in gsi_preflight
+            and '"proves_physical_runtime_gate": False' in gsi_preflight
+            and "refusing to overwrite GSI preflight" in gsi_preflight,
+            "GSI preflight must bind artifacts and remain non-authorizing")
     avd_evidence_source = (root / "tools" /
                            "capture_avd_boot_evidence.py").read_text(
         encoding="utf-8"
@@ -1396,6 +1446,7 @@ def validate_aosp_overlay(root: Path) -> None:
             and "check_aosp_manifest.py" in lock_script
             and "refresh_aosp_tracking.py" in lock_script
             and "android_avd_integration" in lock_script
+            and "android_gsi_arm64" in lock_script
             and "--manifest-revision" in lock_script
             and "status --porcelain --untracked-files=all" in lock_script
             and "Refusing to overwrite" in lock_script,
@@ -5702,6 +5753,31 @@ def validate_release_configuration(root: Path) -> None:
     require(tracking["first_device"].get("present_in_observed_release_manifest")
             is False,
             "Pixel 9a must not be represented as part of the Android 17 manifest")
+    target_policy = tracking.get("public_physical_target_policy", {})
+    require(target_policy.get("changed_with_android") == 16
+            and target_policy.get("google_guidance")
+            == "build_cuttlefish_and_gsi_targets_for_experimentation"
+            and target_policy.get("google_guidance_source")
+            == "https://groups.google.com/g/android-building/c/S1G1edze3Co"
+            and target_policy.get("android17_pixel_device_targets_present") is False
+            and target_policy.get("forward_physical_lane") == "android_gsi_arm64",
+            "post-Android-15 Pixel target policy must route through ARM64 GSI")
+    public_candidate = tracking["first_device"].get(
+        "last_complete_public_candidate", {}
+    )
+    require(public_candidate.get("platform_tag") == "android-15.0.0_r31"
+            and public_candidate.get("build_id") == "BD4A.250505.003"
+            and public_candidate.get("device_tree_commit")
+            == "b0184eca7c2571669a0dd5708b5e555c475500be"
+            and public_candidate.get("kernel_prebuilt_commit")
+            == "5380e4f672819d5c9936b740b0f8b7772d80dd56"
+            and public_candidate.get("vendor_archive")
+            == "google_devices-tegu-bd4a.250505.003-9ab41e05.tgz"
+            and public_candidate.get("vendor_archive_sha256")
+            == "0ad7cd61322c38ba01d142123de4e30c69e091c54c0901d18beae7e4b6da7be2"
+            and public_candidate.get("status")
+            == "inventory_and_rollback_preflight_required",
+            "Pixel 9a public fallback must be exact and blocked on rollback preflight")
 
     lanes_document = load_json(root / "config" / "aosp_lanes.json")
     require(lanes_document.get("schema_version") == 1,
@@ -5729,9 +5805,9 @@ def validate_release_configuration(root: Path) -> None:
     lane_ids = [lane.get("id") for lane in lanes]
     require(lane_ids == [
                 "android_latest_integration", "android_avd_integration",
-                "pixel9a_tegu_hardware",
+                "android_gsi_arm64", "pixel9a_tegu_hardware",
             ],
-            "AIOS must declare Cuttlefish, Android Emulator, and Pixel 9a lanes")
+            "AIOS must declare Cuttlefish, Emulator, ARM64 GSI, and Pixel lanes")
     catalog = load_json(root / "config" / "model_catalog.json")
     catalog_build_lanes = {
         device["build_lane"]
@@ -5741,7 +5817,16 @@ def validate_release_configuration(root: Path) -> None:
     require(catalog_build_lanes == {"pixel9a_tegu_hardware"}
             and catalog_build_lanes <= set(lane_ids),
             "enabled device catalog entries must reference declared hardware lanes")
-    integration, emulator, hardware = lanes
+    for lane in lanes:
+        require(lane.get("artifact_layout")
+                in {"product_partition", "gsi_system_product"}
+                and isinstance(lane.get("required_images"), list)
+                and bool(lane["required_images"])
+                and len(lane["required_images"]) == len(set(lane["required_images"]))
+                and all(re.fullmatch(r"[a-z0-9_]+\.img", image)
+                        for image in lane["required_images"]),
+                f"{lane.get('id')}: build artifact layout must be explicit")
+    integration, emulator, gsi, hardware = lanes
     require(integration.get("kind") == "virtual_integration"
             and integration.get("manifest_revision") == "android-latest-release"
             and integration.get("product") == "aios_cf_x86_64_phone"
@@ -5759,6 +5844,22 @@ def validate_release_configuration(root: Path) -> None:
             and "device/generic/goldfish"
             in emulator.get("required_projects", []),
             "standard Android Emulator lane must remain virtual-only")
+    require(gsi.get("kind") == "generic_system_image"
+            and gsi.get("manifest_revision") == "android-latest-release"
+            and gsi.get("product") == "aios_gsi_arm64"
+            and gsi.get("target_device") == "generic_arm64"
+            and gsi.get("upstream_product") == "gsi_arm64"
+            and gsi.get("artifact_layout") == "gsi_system_product"
+            and gsi.get("required_images") == ["system.img", "vbmeta.img"]
+            and gsi.get("compatibility_status")
+            == "candidate_requires_vintf_and_device_preflight"
+            and gsi.get("physical_gate_evidence") is True
+            and gsi.get("replaces_device_partitions") == ["system"]
+            and set(gsi.get("preserves_device_partitions", []))
+            == {"bootloader", "radio", "boot", "vendor", "odm"}
+            and "device/generic/common" in gsi.get("required_projects", [])
+            and "frameworks/base" in gsi.get("required_projects", []),
+            "ARM64 GSI must be a single-system physical candidate with preflight")
     require(hardware.get("kind") == "physical_hardware"
             and hardware.get("manifest_revision") is None
             and hardware.get("product") == "aios_tegu"
@@ -5835,6 +5936,7 @@ def validate_release_configuration(root: Path) -> None:
         "integration.android_latest_first_boot",
         "integration.android_avd_userdebug_succeeds",
         "integration.android_avd_first_boot",
+        "integration.android_gsi_arm64_userdebug_succeeds",
         "telephony.emergency_ui_bypass",
         "telephony.call_waiting",
         "telephony.audio_endpoint_switch",
@@ -5967,6 +6069,28 @@ def validate_release_configuration(root: Path) -> None:
                     and boot.get("lane_eligible_for_physical_gates") is False
                     and boot.get("proves_physical_runtime_gate") is False,
                     "Android-latest boot evidence is not bound to its build")
+
+    gsi_build_gate = statuses["integration.android_gsi_arm64_userdebug_succeeds"]
+    if gsi_build_gate["status"] == "passed":
+        require(len(gsi_build_gate["evidence"]) == 1
+                and not gsi_build_gate["evidence"][0].startswith("https://"),
+                "ARM64 GSI build evidence must be one local record")
+        gsi_build = load_json((root / gsi_build_gate["evidence"][0]).resolve())
+        require(gsi_build.get("schema_version") == 2
+                and gsi_build.get("status") == "passed"
+                and gsi_build.get("lane") == "android_gsi_arm64"
+                and gsi_build.get("kind") == "generic_system_image"
+                and gsi_build.get("product") == "aios_gsi_arm64"
+                and gsi_build.get("target_device") == "generic_arm64"
+                and gsi_build.get("android_release") == "17"
+                and gsi_build.get("artifact_layout") == "gsi_system_product"
+                and gsi_build.get("deployable_images")
+                == ["system.img", "vbmeta.img"]
+                and gsi_build.get("installed_files_manifest")
+                == "installed-files-system.json"
+                and gsi_build.get("lane_eligible_for_physical_gates") is True
+                and gsi_build.get("proves_physical_runtime_gate") is False,
+                "ARM64 GSI build evidence does not prove the deployable lane")
 
 
 def validate(root: Path = ROOT) -> None:

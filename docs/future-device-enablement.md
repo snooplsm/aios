@@ -23,7 +23,9 @@ Sources: [Google Pixel hardware specifications](https://support.google.com/pixel
 and [official Android device codenames](https://source.android.com/docs/setup/reference/build-numbers).
 
 These are catalog expectations, not release-device enablement. The Pixel
-10-family entries deliberately have no AIOS build lane or product wrapper. Four
+10-family entries deliberately have no device-specific AIOS build lane or
+product wrapper. They may use the generic `android_gsi_arm64` candidate, but a
+shared system image is not evidence of compatibility with any named device. Four
 official codenames are known, but a codename is identity—not proof that a
 compatible build input set exists. Pixel 10a remains without a published
 codename in the official codename table checked on 2026-08-11. The official
@@ -56,7 +58,8 @@ hardware facts and codename are official. Release activation will additionally
 require a reproducibly validated platform/device/vendor/kernel build lane. As of
 2026-08-11, the official sources above do not provide a Pixel 11 hardware or AOSP
 build target, so the catalog intentionally contains no speculative Pixel 11
-entry. It will not receive a model based on the name "Pixel 11."
+entry. A generic GSI may be evaluated without predeclaring its identity, but it
+will not receive a model based only on the name "Pixel 11."
 The runtime measures total memory, backend availability, model smoke tests,
 thermal behavior, and current workload. A newer NPU that the open runtime cannot
 address does not count as usable acceleration.

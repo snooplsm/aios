@@ -51,6 +51,11 @@ class AospManifestContractTests(unittest.TestCase):
             ("device/generic/goldfish", "device/generic/goldfish", COMMIT_A),
         ]
 
+    def gsi_projects(self):
+        return self.integration_projects() + [
+            ("device/generic/common", "device/generic/common", COMMIT_A),
+        ]
+
     def test_android_latest_integration_lane_accepts_resolved_manifest(self):
         with tempfile.TemporaryDirectory() as raw:
             path = self.write_manifest(raw, self.integration_projects())
@@ -78,6 +83,22 @@ class AospManifestContractTests(unittest.TestCase):
             with self.assertRaisesRegex(checker.ManifestContractError,
                                         "device/generic/goldfish"):
                 checker.check(path, ROOT, "android_avd_integration", COMMIT_E)
+
+    def test_android_gsi_lane_accepts_generic_common_manifest(self):
+        with tempfile.TemporaryDirectory() as raw:
+            path = self.write_manifest(raw, self.gsi_projects())
+            value = checker.check(path, ROOT, "android_gsi_arm64", COMMIT_E)
+            self.assertEqual("aios_gsi_arm64", value["product"])
+            self.assertEqual("generic_system_image", value["kind"])
+            self.assertTrue(value["lane_eligible_for_physical_gates"])
+            self.assertFalse(value["proves_physical_runtime_gate"])
+
+    def test_android_gsi_lane_rejects_manifest_without_generic_common(self):
+        with tempfile.TemporaryDirectory() as raw:
+            path = self.write_manifest(raw, self.integration_projects())
+            with self.assertRaisesRegex(checker.ManifestContractError,
+                                        "device/generic/common"):
+                checker.check(path, ROOT, "android_gsi_arm64", COMMIT_E)
 
     def test_pixel_lane_rejects_manifest_without_tegu(self):
         with tempfile.TemporaryDirectory() as raw:

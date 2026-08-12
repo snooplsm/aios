@@ -23,3 +23,8 @@ This emits the resolved XML plus a digest-bearing JSON contract and refuses
 symbolic project revisions, missing lane projects, dirty tracked AIOS sources,
 or evidence overwrite. The moving `android-latest-release` name is useful for
 integration, not reproducibility.
+
+The same latest-release checkout supports `android_avd_integration` and
+`android_gsi_arm64`; pass the exact lane used to the lock command. The Pixel
+9a full-device lane requires its separately selected immutable release. A GSI
+lock proves the generic ARM64 source set only, not compatibility with a phone.

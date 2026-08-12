@@ -8,7 +8,7 @@ record the exact manifest revision used for each reproducible build; moving the
 tracking branch never silently changes a released image.
 
 The latest-release manifest does not include `device/google/tegu`. AIOS therefore
-uses three non-interchangeable lanes recorded in `config/aosp_lanes.json`:
+uses four non-interchangeable lanes recorded in `config/aosp_lanes.json`:
 
 - `android_latest_integration` inherits the official Cuttlefish x86-64 phone and
   continuously compiles the full additive AIOS product against incoming AOSP.
@@ -17,6 +17,12 @@ uses three non-interchangeable lanes recorded in `config/aosp_lanes.json`:
   so the complete AIOS image can boot in the standard Android Emulator. An AVD
   hardware profile may resemble a Pixel 9a but does not emulate Tensor, modem,
   camera, accelerator, carrier, or thermal behavior.
+- `android_gsi_arm64` inherits AOSP's official `gsi_arm64` product. Android's
+  GSI board redirects the complete product customization into the single
+  `system.img`; a compatible physical phone retains its bootloader, radio,
+  kernel, vendor, and ODM. The build is a physical candidate, not physical
+  evidence, until the exact device passes VINTF, boot, telephony, camera, and
+  recovery gates.
 - `pixel9a_tegu_hardware` remains the product and release target. It cannot be
   initialized until a single immutable platform, device tree, vendor image,
   kernel, bootloader, and radio family has been selected. Cross-release grafting
@@ -46,9 +52,10 @@ replay and test run rather than a merge of a permanently modified AOSP tree.
 applies only digest-verified patches at their exact bases, records the Soong log
 and installed artifact digests, and reverses the staged patch transaction on
 exit. Evidence capture requires every core AIOS application to be non-empty and
-to match its size and SHA-256 entry in the current build's
-`installed-files-product.json`; a stale APK left in `out/` cannot satisfy a new
-build. The evidence also records the installed-file manifest digest. A rebase
+to match its size and SHA-256 entry in the current build's installed-file
+manifest (`installed-files-product.json` for full products or
+`installed-files-system.json` for GSI); a stale APK left in `out/` cannot satisfy
+a new build. The evidence also records the installed-file manifest digest. A rebase
 conflict therefore stops before a build instead of becoming an unreviewed merge.
 Build-evidence schema version 2 embeds the canonical review-complete queue and
 its SHA-256 after independently rehashing every payload. Together with the clean
@@ -72,11 +79,11 @@ host contract suite, release-status report, and explicit upstream tracking check
 locally before committing. No remote watcher marks a Soong, emulator, or
 physical-device gate passed; those require their own immutable evidence capture.
 
-The release matrix keeps Cuttlefish and Android Emulator integration gates
-separate from the Pixel `build.*` and runtime gates. A green virtual build or AVD
-boot demonstrates that the fork still follows upstream and forms a complete
-emulator image; it cannot be reused as evidence that a Pixel image built,
-booted, or preserved telephony behavior. See `docs/emulator-bringup.md`.
+The release matrix keeps Cuttlefish, Android Emulator, and ARM64 GSI build gates
+separate from the Pixel runtime gates. A green virtual build, AVD boot, or GSI
+build demonstrates that the fork still follows upstream and forms the intended
+artifact; it cannot be reused as evidence that a Pixel booted or preserved
+telephony behavior. See `docs/emulator-bringup.md` and `docs/gsi-bringup.md`.
 
 ## Branches
 
@@ -91,9 +98,12 @@ booted, or preserved telephony behavior. See `docs/emulator-bringup.md`.
 ## Pixel 9a reality
 
 Pixel 9a is codename `tegu`, has 8 GB RAM and Tensor G4. Google publishes a
-`tegu` device tree on older release branches, but it is absent from the official
-Android 17 manifest. Google's public driver-binary page currently lists Pixel 9a
-vendor images only for Android 15. The prototype therefore treats the entire
+`tegu` device tree on Android 15, but it is absent from Android 16 and Android 17
+release manifests. When asked about the Android 16 omission, Google directed
+public experimentation to Cuttlefish and GSI rather than promising later Pixel
+device targets. Google's public driver-binary page likewise lists Pixel 9a
+vendor images only for Android 15. AIOS therefore maintains the generic GSI path
+and treats any full
 hardware baseline—not only the vendor image—as a gated input:
 
 1. Prefer an officially published vendor image matching the platform build.

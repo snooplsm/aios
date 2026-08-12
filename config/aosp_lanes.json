@@ -9,6 +9,8 @@
       "target_device": "vsoc_x86_64",
       "lunch_target": "aios_cf_x86_64_phone-aosp_current-userdebug",
       "upstream_product": "aosp_cf_x86_64_phone",
+      "artifact_layout": "product_partition",
+      "required_images": ["product.img", "system.img"],
       "required_projects": [
         "build/make",
         "device/google/cuttlefish",
@@ -26,6 +28,8 @@
       "target_device": "emu64x",
       "lunch_target": "aios_sdk_phone_x86_64-aosp_current-userdebug",
       "upstream_product": "sdk_phone64_x86_64",
+      "artifact_layout": "product_partition",
+      "required_images": ["product.img", "system.img"],
       "required_projects": [
         "build/make",
         "device/generic/goldfish",
@@ -36,6 +40,28 @@
       "physical_gate_evidence": false
     },
     {
+      "id": "android_gsi_arm64",
+      "kind": "generic_system_image",
+      "manifest_revision": "android-latest-release",
+      "product": "aios_gsi_arm64",
+      "target_device": "generic_arm64",
+      "lunch_target": "aios_gsi_arm64-aosp_current-userdebug",
+      "upstream_product": "gsi_arm64",
+      "artifact_layout": "gsi_system_product",
+      "required_images": ["system.img", "vbmeta.img"],
+      "required_projects": [
+        "build/make",
+        "device/generic/common",
+        "frameworks/base",
+        "packages/apps/Dialer",
+        "vendor/aios"
+      ],
+      "compatibility_status": "candidate_requires_vintf_and_device_preflight",
+      "preserves_device_partitions": ["bootloader", "radio", "boot", "vendor", "odm"],
+      "replaces_device_partitions": ["system"],
+      "physical_gate_evidence": true
+    },
+    {
       "id": "pixel9a_tegu_hardware",
       "kind": "physical_hardware",
       "manifest_revision": null,
@@ -43,6 +69,8 @@
       "target_device": "tegu",
       "lunch_target": "aios_tegu-aosp_current-userdebug",
       "upstream_product": "aosp_tegu",
+      "artifact_layout": "product_partition",
+      "required_images": ["product.img", "system.img"],
       "required_projects": [
         "build/make",
         "device/google/tegu",

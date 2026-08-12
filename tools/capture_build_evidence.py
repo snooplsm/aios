@@ -68,12 +68,29 @@ def git_output(root: Path, *arguments: str) -> str:
     return completed.stdout.strip()
 
 
+def installed_artifact_path(lane: dict, relative: str) -> str:
+    layout = lane.get("artifact_layout")
+    if layout == "product_partition":
+        return relative
+    if layout == "gsi_system_product":
+        if not relative.startswith("product/"):
+            raise BuildEvidenceError(
+                f"GSI logical artifact is outside product namespace: {relative}"
+            )
+        return f"system/{relative}"
+    raise BuildEvidenceError(f"unsupported artifact layout: {layout}")
+
+
 def select_lane(root: Path, lane_id: str) -> tuple[dict, list[str]]:
     document = load(root / "config" / "aosp_lanes.json")
     matches = [lane for lane in document["lanes"] if lane["id"] == lane_id]
     if len(matches) != 1:
         raise BuildEvidenceError(f"unknown or duplicate lane: {lane_id}")
-    return matches[0], document["expected_product_artifacts"]
+    lane = matches[0]
+    return lane, [
+        installed_artifact_path(lane, relative)
+        for relative in document["expected_product_artifacts"]
+    ]
 
 
 def patch_queue_record(root: Path) -> tuple[list[dict], str]:
@@ -127,49 +144,62 @@ def artifact_record(product_out: Path, relative: str) -> dict:
     }
 
 
-def installed_product_records(product_out: Path) -> tuple[Path, dict[str, dict]]:
-    manifest = product_out / "installed-files-product.json"
+def installed_partition_records(
+    product_out: Path, lane: dict
+) -> tuple[Path, dict[str, dict]]:
+    manifests = {
+        "product_partition": "installed-files-product.json",
+        "gsi_system_product": "installed-files-system.json",
+    }
+    manifest_name = manifests.get(lane.get("artifact_layout"))
+    if manifest_name is None:
+        raise BuildEvidenceError(
+            f"unsupported artifact layout: {lane.get('artifact_layout')}"
+        )
+    manifest = product_out / manifest_name
     if not manifest.is_file():
-        raise BuildEvidenceError("missing installed-files-product.json")
+        raise BuildEvidenceError(f"missing {manifest_name}")
     document = load(manifest)
     if not isinstance(document, list) or not document:
-        raise BuildEvidenceError("installed product-file manifest must be a non-empty array")
+        raise BuildEvidenceError("installed-file manifest must be a non-empty array")
     records: dict[str, dict] = {}
     for record in document:
         if not isinstance(record, dict):
-            raise BuildEvidenceError("installed product-file manifest has a malformed row")
+            raise BuildEvidenceError("installed-file manifest has a malformed row")
         name = record.get("Name")
         size = record.get("Size")
         digest = record.get("SHA256")
         if (not isinstance(name, str) or not name
                 or not isinstance(size, int) or size < 0
                 or not isinstance(digest, str)):
-            raise BuildEvidenceError("installed product-file manifest has a malformed row")
+            raise BuildEvidenceError("installed-file manifest has a malformed row")
         normalized = name.replace("\\", "/").lstrip("/")
         if not normalized or ".." in Path(normalized).parts or normalized in records:
             raise BuildEvidenceError(
-                f"installed product-file manifest has an invalid path: {name}")
+                f"installed-file manifest has an invalid path: {name}")
         records[normalized] = record
     return manifest, records
 
 
 def require_manifest_membership(
-    records: dict[str, dict], relative: str, artifact: dict
+    records: dict[str, dict], lane: dict, relative: str, artifact: dict
 ) -> None:
-    prefix = "product/"
-    if not relative.startswith(prefix):
+    layout = lane.get("artifact_layout")
+    if layout == "product_partition" and relative.startswith("product/"):
+        candidates = (relative, relative.removeprefix("product/"))
+    elif layout == "gsi_system_product" and relative.startswith("system/product/"):
+        # Android's GSI BoardConfig redirects product-specific modules into
+        # /system/product in the single system image. The installed-system
+        # manifest has used both system-rooted and system-relative names.
+        candidates = (relative, relative.removeprefix("system/"))
+    else:
         raise BuildEvidenceError(
-            f"expected installed artifact is outside product partition: {relative}")
-    installed_name = relative[len(prefix):]
-    # Android 17 records installed product paths as /product/..., while older
-    # branches emitted paths relative to the product partition. Bind either
-    # representation to the same explicitly product-scoped expected artifact.
-    record = records.get(relative)
-    if record is None:
-        record = records.get(installed_name)
+            f"artifact path does not match {layout}: {relative}"
+        )
+    record = next((records.get(name) for name in candidates if records.get(name)), None)
     if record is None:
         raise BuildEvidenceError(
-            f"artifact is absent from installed-files-product.json: {relative}")
+            f"artifact is absent from installed-file manifest: {relative}")
     if record["Size"] != artifact["size_bytes"]:
         raise BuildEvidenceError(
             f"installed-file size does not match staged artifact: {relative}")
@@ -195,6 +225,9 @@ def find_product_build_prop(product_out: Path) -> Path:
         product_out / "product" / "build.prop",
         # Android 17 stages the product property file at its installed location.
         product_out / "product" / "etc" / "build.prop",
+        # GSI redirects product into the single system image.
+        product_out / "system" / "product" / "build.prop",
+        product_out / "system" / "product" / "etc" / "build.prop",
     ]
     for candidate in candidates:
         if candidate.is_file():
@@ -268,14 +301,21 @@ def capture(
     if not fingerprint:
         raise BuildEvidenceError("built product does not expose a build fingerprint")
 
-    installed_manifest, installed_records = installed_product_records(product_out)
+    installed_manifest, installed_records = installed_partition_records(
+        product_out, lane
+    )
     artifacts = [
         artifact_record(product_out, relative)
         for relative in expected_artifacts
     ]
     for relative, artifact in zip(expected_artifacts, artifacts, strict=True):
-        require_manifest_membership(installed_records, relative, artifact)
-    for image in ("product.img", "system.img"):
+        require_manifest_membership(installed_records, lane, relative, artifact)
+    required_images = lane.get("required_images")
+    if (not isinstance(required_images, list) or not required_images
+            or any(not isinstance(image, str) or not image
+                   for image in required_images)):
+        raise BuildEvidenceError("lane lacks required build images")
+    for image in required_images:
         artifacts.append(artifact_record(product_out, image))
 
     value = {
@@ -286,14 +326,18 @@ def capture(
         "product": lane["product"],
         "target_device": lane["target_device"],
         "lunch_target": lane["lunch_target"],
+        "artifact_layout": lane["artifact_layout"],
+        "deployable_images": required_images,
         "build_fingerprint": fingerprint,
         "android_release": system_properties.get("ro.build.version.release"),
+        "security_patch": system_properties.get("ro.build.version.security_patch"),
         "aios_revision": head,
         "manifest_sha256": actual_manifest_digest,
         "manifest_repository_revision": manifest_repository_revision,
         "manifest_lock_sha256": sha256(manifest_lock),
         "build_log_sha256": sha256(build_log),
-        "installed_files_product_sha256": sha256(installed_manifest),
+        "installed_files_manifest": installed_manifest.name,
+        "installed_files_sha256": sha256(installed_manifest),
         "patch_series_sha256": sha256(root / "patches" / "series.json"),
         "patch_queue_sha256": patch_queue_digest,
         "patch_queue": patch_queue,
@@ -307,6 +351,10 @@ def capture(
         "lane_eligible_for_physical_gates": bool(lane["physical_gate_evidence"]),
         "proves_physical_runtime_gate": False,
     }
+    if lane["artifact_layout"] == "product_partition":
+        # Preserve the schema-2 field consumed by existing checked-in build
+        # evidence while exposing a partition-neutral field for GSI records.
+        value["installed_files_product_sha256"] = sha256(installed_manifest)
     if output is not None:
         write_json_atomic(output, value)
     return value

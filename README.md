@@ -236,16 +236,19 @@ later search or trusting a rolled-back wall clock.
 It has been compiled by Soong and clean-booted on Cuttlefish with digest-bound
 evidence checked into `evidence/cuttlefish/`. It has not yet been flashed to the
 Pixel 9a. Android 17's official manifest does not contain the Pixel 9a
-`device/google/tegu` project, so the build strategy has three explicit lanes:
+`device/google/tegu` project, so the build strategy has four explicit lanes:
 continuously compile on Cuttlefish with
 `aios_cf_x86_64_phone`, boot a complete standard Android Emulator image with
-`aios_sdk_phone_x86_64`, and separately admit the `aios_tegu` hardware lane only
+`aios_sdk_phone_x86_64`, build the complete privileged product as the
+`aios_gsi_arm64` single-system image for Treble hardware, and separately admit
+the `aios_tegu` full-device lane only
 after pinning one compatible platform/device/vendor/kernel/firmware set. An
 exact-base Android 17 Dialer lifecycle patch exists and has built on the Linux
 integration lane; the generated dependency-locked runtime providers still need
 ARM Pixel packaging and physical-device performance evidence.
 Build evidence now rejects stale or empty outputs by matching every core AIOS APK
-to the size and digest in AOSP's current `installed-files-product.json`.
+to the size and digest in AOSP's current partition-specific installed-file
+manifest.
 See `docs/model-packaging.md` and
 `docs/runtime-packaging.md`; the dedicated call path is in
 `docs/asr-runtime.md`, speech output is in `docs/tts-runtime.md`, and the
@@ -340,6 +343,18 @@ python3 vendor/aios/tools/capture_avd_boot_evidence.py --serial emulator-5554 --
 This is a Goldfish x86-64 AVD, even if its screen profile resembles a Pixel 9a;
 it does not prove Pixel hardware, modem, camera, or accelerator behavior. See
 `docs/emulator-bringup.md`.
+
+The same latest-release checkout also builds the ARM64 GSI candidate:
+
+```text
+vendor/aios/scripts/build-aosp-lane.sh /absolute/path/to/aosp android_gsi_arm64 /safe/evidence/gsi-build-id 4
+```
+
+AOSP redirects AIOS's product-specific applications and policy into
+`/system/product` inside this lane's single `system.img`. The build preserves a
+Pixel's existing bootloader/radio/kernel/vendor stack when deployed, but it does
+not prove that a particular phone boots or retains telephony/camera behavior.
+See `docs/gsi-bringup.md`.
 
 When Google's moving manifest ref changes, refresh its reviewed observation
 before syncing projects:

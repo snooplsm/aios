@@ -6,6 +6,13 @@
   "observed_release_manifest_commit": "ad156f32caaa06dae91c02d443f6a8fe210eaa54",
   "observed_on": "2026-08-10",
   "release_manifest_lock": null,
+  "public_physical_target_policy": {
+    "changed_with_android": 16,
+    "google_guidance": "build_cuttlefish_and_gsi_targets_for_experimentation",
+    "google_guidance_source": "https://groups.google.com/g/android-building/c/S1G1edze3Co",
+    "android17_pixel_device_targets_present": false,
+    "forward_physical_lane": "android_gsi_arm64"
+  },
   "dialer_reference": {
     "tag": "android-17.0.0_r1",
     "commit": "768ed834ced557e2d42476757776a26c68fed656",
@@ -24,6 +31,17 @@
     "public_driver_binary_latest_observed_android": 15,
     "factory_kernel_branch": "android-gs-tegu-6.1-android16",
     "present_in_observed_release_manifest": false,
+    "last_complete_public_candidate": {
+      "platform_tag": "android-15.0.0_r31",
+      "build_id": "BD4A.250505.003",
+      "device_tree_commit": "b0184eca7c2571669a0dd5708b5e555c475500be",
+      "kernel_prebuilt_commit": "5380e4f672819d5c9936b740b0f8b7772d80dd56",
+      "vendor_archive": "google_devices-tegu-bd4a.250505.003-9ab41e05.tgz",
+      "vendor_archive_sha256": "0ad7cd61322c38ba01d142123de4e30c69e091c54c0901d18beae7e4b6da7be2",
+      "status": "inventory_and_rollback_preflight_required",
+      "source_build_mapping": "https://source.android.com/docs/setup/reference/build-numbers",
+      "source_vendor_binary": "https://developers.google.com/android/drivers"
+    },
     "vendor_input_status": "must_be_resolved_on_linux_build_host"
   }
 }
