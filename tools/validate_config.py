@@ -832,10 +832,12 @@ def validate_aosp_overlay(root: Path) -> None:
         "tools/check_aosp_manifest.py",
         "tools/refresh_aosp_tracking.py",
         "tools/capture_build_evidence.py",
+        "tools/capture_cuttlefish_boot_evidence.py",
         "tools/capture_avd_boot_evidence.py",
         "scripts/refresh-aosp-integration.sh",
         "scripts/capture-aosp-lock.sh",
         "scripts/build-aosp-lane.sh",
+        "docs/cuttlefish-bringup.md",
         "docs/emulator-bringup.md",
         "permissions/privapp-permissions-aios.xml",
         "overlays/frameworkdefaults/Android.bp",
@@ -1333,6 +1335,45 @@ def validate_aosp_overlay(root: Path) -> None:
             "com.aios.modelbroker", "com.aios.phone"):
         require(package_name in avd_evidence_source,
                 f"AVD boot evidence must require {package_name}")
+    cuttlefish_evidence_source = (root / "tools" /
+                                  "capture_cuttlefish_boot_evidence.py").read_text(
+        encoding="utf-8"
+    )
+    require('EXPECTED_LANE = "android_latest_integration"'
+            in cuttlefish_evidence_source
+            and 'EXPECTED_KIND = "virtual_integration"'
+            in cuttlefish_evidence_source
+            and 'EXPECTED_PRODUCT = "aios_cf_x86_64_phone"'
+            in cuttlefish_evidence_source
+            and 'EXPECTED_TARGET_DEVICE = "vsoc_x86_64"'
+            in cuttlefish_evidence_source
+            and '"ro.product.device", EXPECTED_TARGET_DEVICE'
+            in cuttlefish_evidence_source
+            and '"sys.boot_completed", "1"' in cuttlefish_evidence_source
+            and '"ro.build.type", "userdebug"' in cuttlefish_evidence_source
+            and '"ro.debuggable", "1"' in cuttlefish_evidence_source
+            and 'build_evidence_sha256' in cuttlefish_evidence_source
+            and 'path.startswith("/product/priv-app/")'
+            in cuttlefish_evidence_source
+            and '"resolved_services": resolved_services'
+            in cuttlefish_evidence_source
+            and '"proves_physical_runtime_gate": False'
+            in cuttlefish_evidence_source
+            and "os.replace(temporary, path)" in cuttlefish_evidence_source,
+            "Cuttlefish first-boot evidence must bind identity, packages, "
+            "services, and virtual-only scope")
+    for package_name in (
+            "com.aios.callintelligence", "com.aios.contextintelligence",
+            "com.aios.mediaintelligence", "com.aios.messaging",
+            "com.aios.modelbroker", "com.aios.phone"):
+        require(package_name in cuttlefish_evidence_source,
+                f"Cuttlefish boot evidence must require {package_name}")
+    for action in (
+            "com.aios.call.CALL_INTELLIGENCE_SERVICE",
+            "com.aios.context.COMMUNICATION_CONTEXT_SERVICE",
+            "com.aios.model.MODEL_SERVICE"):
+        require(action in cuttlefish_evidence_source,
+                f"Cuttlefish boot evidence must resolve {action}")
     lock_script = (root / "scripts" / "capture-aosp-lock.sh").read_text(
         encoding="utf-8"
     )
@@ -5759,6 +5800,7 @@ def validate_release_configuration(root: Path) -> None:
     critical = {
         "integration.android_latest_manifest_locked",
         "integration.android_latest_userdebug_succeeds",
+        "integration.android_latest_first_boot",
         "integration.android_avd_userdebug_succeeds",
         "integration.android_avd_first_boot",
         "telephony.emergency_ui_bypass",

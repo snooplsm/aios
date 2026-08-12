@@ -239,6 +239,16 @@ python vendor/aios/tools/verify_patch_series.py --aosp-root /absolute/path/to/ao
 vendor/aios/scripts/build-aosp-lane.sh /absolute/path/to/aosp android_latest_integration /safe/evidence/build-id 4
 ```
 
+After the Cuttlefish image boots, bind its identity, privileged AIOS packages,
+and exported core services to that exact build record:
+
+```text
+python3 vendor/aios/tools/capture_cuttlefish_boot_evidence.py --serial 0.0.0.0:6520 --build-evidence /safe/evidence/build-id/soong-build-evidence.json --output /safe/evidence/build-id/cuttlefish-first-boot.json
+```
+
+This satisfies only the virtual `integration.android_latest_first_boot` gate.
+See `docs/cuttlefish-bringup.md`.
+
 The same checkout can build the standard Android Emulator product and launch
 the resulting full AIOS image:
 

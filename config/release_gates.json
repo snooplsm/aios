@@ -4,6 +4,7 @@
   "gates": [
     {"id": "integration.android_latest_manifest_locked", "category": "integration", "required": true},
     {"id": "integration.android_latest_userdebug_succeeds", "category": "integration", "required": true},
+    {"id": "integration.android_latest_first_boot", "category": "integration", "required": true},
     {"id": "integration.android_avd_userdebug_succeeds", "category": "integration", "required": true},
     {"id": "integration.android_avd_first_boot", "category": "integration", "required": true},
     {"id": "build.manifest_locked", "category": "build", "required": true},
