@@ -3517,6 +3517,13 @@ def validate_aosp_overlay(root: Path) -> None:
             and "temporary_fixture_files_remaining = 0" in whisper_smoke_runner
             and "arm64_provider_evidence = $false" in whisper_smoke_runner
             and "physical_gate_evidence = $false" in whisper_smoke_runner
+            and 'gate = "integration.emulator_bilingual_asr_provider"'
+            in whisper_smoke_runner
+            and "aios_revision = $sourceRevision" in whisper_smoke_runner
+            and "tracked_source_clean = $true" in whisper_smoke_runner
+            and "git -C $repositoryRoot diff --quiet --" in whisper_smoke_runner
+            and "git -C $repositoryRoot diff --cached --quiet --"
+            in whisper_smoke_runner
             and "files/emulator-models/runtime-smoke.bin" in whisper_smoke_runner
             and "files/asr-fixtures/english.wav" in whisper_smoke_runner
             and "files/asr-fixtures/spanish.wav" in whisper_smoke_runner,
@@ -3724,7 +3731,14 @@ def validate_aosp_overlay(root: Path) -> None:
             and "rm -rf" in tts_smoke_runner
             and "files/emulator-config | Out-Null" in tts_smoke_runner
             and "arm64_provider_evidence = $false" in tts_smoke_runner
-            and "physical_gate_evidence = $false" in tts_smoke_runner,
+            and "physical_gate_evidence = $false" in tts_smoke_runner
+            and 'gate = "integration.emulator_bilingual_tts_provider"'
+            in tts_smoke_runner
+            and "aios_revision = $sourceRevision" in tts_smoke_runner
+            and "tracked_source_clean = $true" in tts_smoke_runner
+            and "git -C $repositoryRoot diff --quiet --" in tts_smoke_runner
+            and "git -C $repositoryRoot diff --cached --quiet --"
+            in tts_smoke_runner,
             "real TTS emulator evidence must be bilingual, self-cleaning, and non-physical")
     asr_client = (root / "services" / "callintelligence" / "src" / "com" /
                   "aios" / "callintelligence" / "AsrBrokerClient.java").read_text(
@@ -5728,6 +5742,50 @@ def validate_security_surface(root: Path) -> None:
                 f"local AIOS module is not reachable from the product: {module}")
 
 
+def validate_emulator_provider_evidence(record: dict, provider: str) -> None:
+    """Validate native provider evidence without upgrading it to physical proof."""
+    require(provider in {"asr", "tts"}, "unknown emulator provider evidence kind")
+    gate = ("integration.emulator_bilingual_asr_provider" if provider == "asr"
+            else "integration.emulator_bilingual_tts_provider")
+    runtime = "whisper_cpp" if provider == "asr" else "sherpa_onnx_tts"
+    require(record.get("schema_version") == 1
+            and record.get("gate") == gate
+            and re.fullmatch(r"[0-9a-f]{40}",
+                             str(record.get("aios_revision", ""))) is not None
+            and record.get("tracked_source_clean") is True
+            and record.get("qemu") is True
+            and isinstance(record.get("api_level"), int)
+            and record["api_level"] >= 35
+            and record.get("abi") == "x86_64"
+            and record.get("runtime_id") == runtime
+            and record.get("signature_permission_rejected_shell") is True
+            and record.get("invalid_request_error_verified") is True
+            and record.get("product_model_path_confinement_verified") is True
+            and record.get("provider_survived_rejected_model") is True
+            and record.get("temporary_fixture_files_remaining") == 0
+            and record.get("arm64_provider_evidence") is False
+            and record.get("physical_gate_evidence") is False,
+            f"emulator {provider.upper()} provider evidence is incomplete or overclaims")
+    if provider == "asr":
+        require(record.get("real_native_asr_executed") is True
+                and record.get("production_whisper_provider_bound_cross_process")
+                is True
+                and record.get("english_language_detected") is True
+                and record.get("spanish_language_detected") is True
+                and record.get("nonempty_final_transcripts_verified") is True
+                and record.get("fixture_content_markers_verified") is True
+                and record.get("call_rx_pipeline_verified") is True
+                and record.get("emulator_real_time_gate") is False,
+                "emulator ASR evidence must prove native bilingual content checks")
+    else:
+        require(record.get("real_native_tts_executed") is True
+                and record.get("production_tts_provider_bound_cross_process") is True
+                and record.get("english_pcm_verified") is True
+                and record.get("spanish_pcm_verified") is True
+                and record.get("pcm_metadata_matches_stream") is True,
+                "emulator TTS evidence must prove native bilingual PCM checks")
+
+
 def validate_release_configuration(root: Path) -> None:
     tracking = load_json(root / "config" / "aosp_tracking.json")
     require(tracking.get("schema_version") == 1, "unsupported AOSP tracking schema")
@@ -5937,6 +5995,8 @@ def validate_release_configuration(root: Path) -> None:
         "integration.android_avd_userdebug_succeeds",
         "integration.android_avd_first_boot",
         "integration.android_gsi_arm64_userdebug_succeeds",
+        "integration.emulator_bilingual_asr_provider",
+        "integration.emulator_bilingual_tts_provider",
         "telephony.emergency_ui_bypass",
         "telephony.call_waiting",
         "telephony.audio_endpoint_switch",
@@ -6091,6 +6151,21 @@ def validate_release_configuration(root: Path) -> None:
                 and gsi_build.get("lane_eligible_for_physical_gates") is True
                 and gsi_build.get("proves_physical_runtime_gate") is False,
                 "ARM64 GSI build evidence does not prove the deployable lane")
+
+    for gate_id, provider in (
+        ("integration.emulator_bilingual_asr_provider", "asr"),
+        ("integration.emulator_bilingual_tts_provider", "tts"),
+    ):
+        provider_gate = statuses[gate_id]
+        if provider_gate["status"] != "passed":
+            continue
+        require(len(provider_gate["evidence"]) == 1
+                and not provider_gate["evidence"][0].startswith("https://"),
+                f"emulator {provider.upper()} evidence must be one local record")
+        provider_record = load_json(
+            (root / provider_gate["evidence"][0]).resolve()
+        )
+        validate_emulator_provider_evidence(provider_record, provider)
 
 
 def validate(root: Path = ROOT) -> None:

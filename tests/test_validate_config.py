@@ -684,6 +684,53 @@ class IntegrationStructureTests(unittest.TestCase):
     def test_release_configuration_is_valid(self):
         validator.validate_release_configuration(ROOT)
 
+    def test_native_emulator_provider_evidence_is_bilingual_and_nonphysical(self):
+        common = {
+            "schema_version": 1,
+            "aios_revision": "a" * 40,
+            "tracked_source_clean": True,
+            "qemu": True,
+            "api_level": 36,
+            "abi": "x86_64",
+            "signature_permission_rejected_shell": True,
+            "invalid_request_error_verified": True,
+            "product_model_path_confinement_verified": True,
+            "provider_survived_rejected_model": True,
+            "temporary_fixture_files_remaining": 0,
+            "arm64_provider_evidence": False,
+            "physical_gate_evidence": False,
+        }
+        asr = dict(common,
+                   gate="integration.emulator_bilingual_asr_provider",
+                   runtime_id="whisper_cpp",
+                   real_native_asr_executed=True,
+                   production_whisper_provider_bound_cross_process=True,
+                   english_language_detected=True,
+                   spanish_language_detected=True,
+                   nonempty_final_transcripts_verified=True,
+                   fixture_content_markers_verified=True,
+                   call_rx_pipeline_verified=True,
+                   emulator_real_time_gate=False)
+        tts = dict(common,
+                   gate="integration.emulator_bilingual_tts_provider",
+                   runtime_id="sherpa_onnx_tts",
+                   real_native_tts_executed=True,
+                   production_tts_provider_bound_cross_process=True,
+                   english_pcm_verified=True,
+                   spanish_pcm_verified=True,
+                   pcm_metadata_matches_stream=True)
+
+        validator.validate_emulator_provider_evidence(asr, "asr")
+        validator.validate_emulator_provider_evidence(tts, "tts")
+
+        asr["physical_gate_evidence"] = True
+        with self.assertRaisesRegex(validator.ValidationError, "overclaims"):
+            validator.validate_emulator_provider_evidence(asr, "asr")
+
+        tts["spanish_pcm_verified"] = False
+        with self.assertRaisesRegex(validator.ValidationError, "bilingual PCM"):
+            validator.validate_emulator_provider_evidence(tts, "tts")
+
     def test_passed_release_gate_requires_evidence(self):
         with tempfile.TemporaryDirectory() as raw:
             temporary = Path(raw)

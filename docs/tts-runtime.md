@@ -74,6 +74,12 @@ powershell -ExecutionPolicy Bypass -File scripts/bootstrap-emulator-tts-fixtures
 powershell -ExecutionPolicy Bypass -File scripts/emulator-tts-provider-smoke.ps1 -Serial emulator-5554
 ```
 
+Evidence capture requires a clean tracked source tree and records the exact
+40-character AIOS revision. Generated model inputs and build outputs remain
+ignored, but staged or unstaged source changes make the smoke refuse to run.
+The resulting gate is emulator-only and cannot satisfy an ARM64 or physical
+Pixel gate.
+
 The bootstrap refuses to download until `-AcceptModelLicense` is explicit. It
 then verifies the 128,774,318-byte archive at
 `82fa96f91c4ef8abaae3a14a3f4153facf88bed821d1f7331cec2700f432c427`,

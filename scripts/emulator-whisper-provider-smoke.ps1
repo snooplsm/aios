@@ -16,6 +16,19 @@ if ($Serial -notmatch '^emulator-[0-9]+$') {
     throw "Refusing to run whisper-provider smoke checks on non-emulator serial: $Serial"
 }
 
+$repositoryRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
+$sourceRevision = ((& git -C $repositoryRoot rev-parse HEAD) -join "`n").Trim()
+if ($LASTEXITCODE -ne 0 -or $sourceRevision -notmatch '^[0-9a-f]{40}$') {
+    throw "Unable to bind Whisper smoke evidence to an exact AIOS revision"
+}
+& git -C $repositoryRoot diff --quiet --
+$unstagedChanges = $LASTEXITCODE
+& git -C $repositoryRoot diff --cached --quiet --
+$stagedChanges = $LASTEXITCODE
+if ($unstagedChanges -ne 0 -or $stagedChanges -ne 0) {
+    throw "Refusing to capture Whisper smoke evidence with tracked source changes"
+}
+
 $androidHome = if ($env:ANDROID_HOME) {
     $env:ANDROID_HOME
 } else {
@@ -210,6 +223,9 @@ try {
     $evidencePath = Join-Path $EvidenceDirectory "aios-emulator-whisper-provider-smoke.json"
     $evidence = [ordered]@{
         schema_version = 1
+        gate = "integration.emulator_bilingual_asr_provider"
+        aios_revision = $sourceRevision
+        tracked_source_clean = $true
         serial = $Serial
         qemu = $true
         android_release = $androidRelease

@@ -8,6 +8,8 @@
     "integration.android_avd_userdebug_succeeds": {"status": "not_run", "evidence": []},
     "integration.android_avd_first_boot": {"status": "not_run", "evidence": []},
     "integration.android_gsi_arm64_userdebug_succeeds": {"status": "not_run", "evidence": []},
+    "integration.emulator_bilingual_asr_provider": {"status": "not_run", "evidence": []},
+    "integration.emulator_bilingual_tts_provider": {"status": "not_run", "evidence": []},
     "build.manifest_locked": {"status": "not_run", "evidence": []},
     "build.userdebug_succeeds": {"status": "not_run", "evidence": []},
     "boot.first_boot": {"status": "not_run", "evidence": []},

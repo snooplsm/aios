@@ -84,6 +84,12 @@ powershell -ExecutionPolicy Bypass -File scripts/bootstrap-emulator-asr-fixtures
 powershell -ExecutionPolicy Bypass -File scripts/emulator-whisper-provider-smoke.ps1 -Serial emulator-5554
 ```
 
+Evidence capture requires a clean tracked source tree and records the exact
+40-character AIOS revision. Generated model/audio fixtures and build outputs
+remain ignored, but staged or unstaged source changes make the smoke refuse to
+run. The resulting gate is emulator-only and cannot satisfy an ARM64 or physical
+Pixel gate.
+
 The bootstrap script reads the Pixel 9a catalog candidate, then verifies the
 multilingual base Q5_1 model as
 `422f1ae452ade6f30a004d7e5c6a43195e4433bc370bf23fac9cc591f01a8898`.
