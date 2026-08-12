@@ -6181,6 +6181,7 @@ def validate_release_configuration(root: Path) -> None:
         "integration.android_avd_userdebug_succeeds",
         "integration.android_avd_first_boot",
         "integration.android_gsi_arm64_userdebug_succeeds",
+        "integration.reference_model_pack_verified",
         "integration.emulator_bilingual_asr_provider",
         "integration.emulator_bilingual_tts_provider",
         "integration.emulator_context_lifecycle",
@@ -6420,6 +6421,38 @@ def validate_release_configuration(root: Path) -> None:
                 and gsi_build.get("lane_eligible_for_physical_gates") is True
                 and gsi_build.get("proves_physical_runtime_gate") is False,
                 "ARM64 GSI build evidence does not prove the deployable lane")
+
+    model_pack_gate = statuses["integration.reference_model_pack_verified"]
+    if model_pack_gate["status"] == "passed":
+        require(len(model_pack_gate["evidence"]) == 1
+                and not model_pack_gate["evidence"][0].startswith("https://"),
+                "reference model-pack evidence must be one local record")
+        model_pack = load_json((root / model_pack_gate["evidence"][0]).resolve())
+        require(model_pack.get("schema_version") == 1
+                and model_pack.get("status") == "passed"
+                and re.fullmatch(r"[0-9a-f]{40}",
+                                 str(model_pack.get("aios_revision", ""))) is not None
+                and model_pack.get("model_catalog_sha256")
+                == hashlib.sha256(
+                    (root / "config" / "model_catalog.json").read_bytes()).hexdigest()
+                and model_pack.get("catalog_binding_verified") is True
+                and model_pack.get("generated_pack_verified") is True
+                and model_pack.get("contains_model_weights") is False
+                and model_pack.get("proves_model_inference") is False
+                and model_pack.get("proves_physical_device_runtime") is False
+                and isinstance(model_pack.get("logical_artifact_count"), int)
+                and model_pack["logical_artifact_count"] >= 2
+                and isinstance(model_pack.get("physical_model_payload_count"), int)
+                and 0 < model_pack["physical_model_payload_count"]
+                <= model_pack["logical_artifact_count"],
+                "reference model-pack evidence is not catalog-bound packaging proof")
+        packed_ids = {
+            item.get("model_id") for item in model_pack.get("artifacts", [])
+            if isinstance(item, dict)
+        }
+        require({"gemma4-e2b-mobile-text", "gemma4-e2b-mobile-multimodal"}
+                .issubset(packed_ids),
+                "reference model pack must contain both Pixel 9a Gemma E2B roles")
 
     for gate_id, provider in (
         ("integration.emulator_bilingual_asr_provider", "asr"),

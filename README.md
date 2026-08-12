@@ -80,7 +80,9 @@ thermal benchmark gates pass on the exact device/build/backend combination.
 > AIOS Phone as the default dialer and stable Phone → Call Intelligence → Model
 > Broker bindings. This is virtual integration evidence, not proof of Pixel
 > modem, camera, ARM inference, carrier, TPU/GPU, or near-real-time performance.
-> Pixel 9a flashing and physical model/call/media gates remain pending.
+> A real catalog-pinned Gemma 4 E2B pack has also passed host packaging and
+> deduplication verification without committing its weights. Pixel 9a flashing,
+> LiteRT inference, and physical model/call/media gates remain pending.
 
 ## Current state
 

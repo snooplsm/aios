@@ -8,6 +8,7 @@
     {"id": "integration.android_avd_userdebug_succeeds", "category": "integration", "required": true},
     {"id": "integration.android_avd_first_boot", "category": "integration", "required": true},
     {"id": "integration.android_gsi_arm64_userdebug_succeeds", "category": "integration", "required": true},
+    {"id": "integration.reference_model_pack_verified", "category": "integration", "required": true},
     {"id": "integration.emulator_bilingual_asr_provider", "category": "integration", "required": true},
     {"id": "integration.emulator_bilingual_tts_provider", "category": "integration", "required": true},
     {"id": "integration.emulator_context_lifecycle", "category": "integration", "required": true},
