@@ -154,7 +154,11 @@ public final class ModelBrokerService extends Service {
 
     @Override
     public IBinder onBind(Intent intent) {
-        enforceBrokerPermission();
+        // ActivityManager enforces the service's manifest permission before this
+        // lifecycle callback. onBind() runs in our process, so a Binder identity
+        // check here would inspect the broker's UID instead of the client UID.
+        // Every IAiosModelService entry point below enforces the permission again
+        // at the actual Binder boundary, where getCallingUid() is meaningful.
         return binder;
     }
 

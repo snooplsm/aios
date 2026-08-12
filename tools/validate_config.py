@@ -2729,6 +2729,13 @@ def validate_aosp_overlay(root: Path) -> None:
 
     service = (root / "services" / "modelbroker" / "src" / "com" / "aios" /
                "modelbroker" / "ModelBrokerService.java").read_text(encoding="utf-8")
+    model_on_bind_start = service.index("public IBinder onBind(Intent intent)")
+    model_on_bind_end = service.index("public void onTrimMemory", model_on_bind_start)
+    model_on_bind = service[model_on_bind_start:model_on_bind_end]
+    require('android:permission="com.aios.permission.USE_MODEL_BROKER"' in manifest
+            and "enforceBrokerPermission()" not in model_on_bind
+            and service.count("enforceBrokerPermission();") >= 8,
+            "Model Broker must enforce clients at the manifest and AIDL boundary, not Service.onBind")
     require("ERROR_NOT_READY" in service
             and "candidates.stream().noneMatch(state::runtimeAvailable)" in service,
             "unconfigured model broker must fail closed")
