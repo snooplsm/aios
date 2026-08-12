@@ -1253,6 +1253,27 @@ def validate_aosp_overlay(root: Path) -> None:
     for relative in required_files:
         require((root / relative).is_file(), f"missing AOSP overlay file: {relative}")
 
+    product_app_blueprints = (
+        "apps/phone/Android.bp",
+        "apps/messaging/Android.bp",
+        "services/callintelligence/Android.bp",
+        "services/contextintelligence/Android.bp",
+        "services/mediaintelligence/Android.bp",
+        "services/modelbroker/Android.bp",
+        "benchmarks/modeladmission/Android.bp",
+    )
+    for relative in product_app_blueprints:
+        blueprint = (root / relative).read_text(encoding="utf-8")
+        require('sdk_version: "system_current"' in blueprint
+                and 'min_sdk_version: "35"' in blueprint
+                and "platform_apis: true" not in blueprint,
+                f"product modules must use the stable system SDK: {relative}")
+    for blueprint_path in root.rglob("Android.bp"):
+        blueprint = blueprint_path.read_text(encoding="utf-8")
+        require("platform_apis: true" not in blueprint,
+                "AIOS source modules may not bypass the product-partition SDK "
+                f"contract: {blueprint_path.relative_to(root)}")
+
     tegu_product = (root / "products" / "aios_tegu.mk").read_text(encoding="utf-8")
     require("device/google/tegu/aosp_tegu.mk" in tegu_product,
             "Pixel 9a product must inherit upstream aosp_tegu")
