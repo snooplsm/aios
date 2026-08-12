@@ -6199,12 +6199,13 @@ def validate_release_configuration(root: Path) -> None:
         encoding="utf-8"
     )
     require("am start -W -a com.aios.phone.smoke.REGISTER" in telecom_smoke
-            and "Wait-ForPhoneAccountState -AccountId $fixtureAccount -Enabled $false"
+            and "Wait-ForPhoneAccountState -Enabled $false -MinimumCount 2"
             in telecom_smoke
-            and "Wait-ForPhoneAccountState -AccountId $fixtureAccount -Enabled $true"
+            and "Wait-ForPhoneAccountState -Enabled $true -MinimumCount 1"
             in telecom_smoke
-            and "Wait-ForPhoneAccountState -AccountId $fixtureSecondaryAccount -Enabled $true"
-            in telecom_smoke,
+            and "Wait-ForPhoneAccountState -Enabled $true -MinimumCount 2"
+            in telecom_smoke
+            and "Telecom deliberately redacts PhoneAccount IDs" in telecom_smoke,
             "Telecom smoke must wait for PhoneAccount registration and enablement")
 
     status_document = load_json(root / "config" / "release_status.json")

@@ -73,22 +73,24 @@ function Get-OutgoingAccountKey {
 
 function Wait-ForPhoneAccountState {
     param(
-        [Parameter(Mandatory)][string]$AccountId,
-        [Parameter(Mandatory)][bool]$Enabled
+        [Parameter(Mandatory)][bool]$Enabled,
+        [Parameter(Mandatory)][int]$MinimumCount
     )
 
     $marker = if ($Enabled) { '\[\[X\] PhoneAccount:' } else { '\[\[ \] PhoneAccount:' }
-    $pattern = $marker + ' ComponentInfo\{' + [regex]::Escape($fixtureService) +
-        '\},\s*' + [regex]::Escape($AccountId) + ','
+    # Telecom deliberately redacts PhoneAccount IDs in dumpsys output. Count
+    # exact ConnectionService records here; later audits verify the selected
+    # secondary ID reached the managed ConnectionService.
+    $pattern = $marker + ' ComponentInfo\{' + [regex]::Escape($fixtureService) + '\},'
     for ($attempt = 0; $attempt -lt 20; $attempt++) {
         $dump = (Invoke-Adb shell dumpsys telecom) -join "`n"
-        if ($dump -match $pattern) {
+        if ([regex]::Matches($dump, $pattern).Count -ge $MinimumCount) {
             return
         }
         Start-Sleep -Milliseconds 250
     }
     $state = if ($Enabled) { "enabled" } else { "registered but disabled" }
-    throw "PhoneAccount $AccountId did not become $state"
+    throw "$MinimumCount Telecom PhoneAccounts did not become $state for $fixtureService"
 }
 
 $qemu = (Invoke-Adb shell getprop ro.kernel.qemu | Select-Object -First 1).Trim()
@@ -530,11 +532,10 @@ try {
     Invoke-Adb shell am start -W -a com.aios.phone.smoke.REGISTER -n $fixtureActivity | Out-Null
     $registered = $true
     Invoke-Adb shell cmd telecom wait-on-handlers | Out-Null
-    Wait-ForPhoneAccountState -AccountId $fixtureAccount -Enabled $false
-    Wait-ForPhoneAccountState -AccountId $fixtureSecondaryAccount -Enabled $false
+    Wait-ForPhoneAccountState -Enabled $false -MinimumCount 2
     Invoke-Adb shell cmd telecom set-phone-account-enabled $fixtureService $fixtureAccount 0 | Out-Null
     Invoke-Adb shell cmd telecom wait-on-handlers | Out-Null
-    Wait-ForPhoneAccountState -AccountId $fixtureAccount -Enabled $true
+    Wait-ForPhoneAccountState -Enabled $true -MinimumCount 1
     if (-not $AutomaticAnswerOnly) {
     # Full-screen call intents are intentionally suppressed while an unlocked
     # app is foreground. Put the emulator to sleep so this also verifies the
@@ -896,7 +897,7 @@ try {
     Invoke-Adb shell cmd telecom set-phone-account-enabled `
         $fixtureService $fixtureSecondaryAccount 0 | Out-Null
     Invoke-Adb shell cmd telecom wait-on-handlers | Out-Null
-    Wait-ForPhoneAccountState -AccountId $fixtureSecondaryAccount -Enabled $true
+    Wait-ForPhoneAccountState -Enabled $true -MinimumCount 2
     Invoke-Adb shell cmd telecom set-user-selected-outgoing-phone-account | Out-Null
     Invoke-Adb shell cmd telecom wait-on-handlers | Out-Null
     Invoke-Adb shell am start -a com.aios.phone.smoke.RESET_AUDIT `
