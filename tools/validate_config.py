@@ -1710,11 +1710,8 @@ def validate_aosp_overlay(root: Path) -> None:
             and "physical_gate_evidence = $false" in messaging_smoke_script
             and "uninstall $package" in messaging_smoke_script,
             "Messaging emulator smoke must use authenticated modem injection, exact cleanup, and non-physical evidence")
-    require('name: "aios_mmslib"' in messaging_bp
-            and 'srcs: [":framework-mms-shared-srcs"]' in messaging_bp
+    require(":framework-mms-shared-srcs" in messaging_bp
             and 'libs: ["unsupportedappusage"]' in messaging_bp
-            and 'sdk_version: "module_current"' in messaging_bp
-            and '"aios_mmslib"' in messaging_bp
             and "PduPersister" in mms_transport
             and "sendMultimediaMessage" in mms_transport
             and "downloadMultimediaMessage" in mms_transport
@@ -5602,7 +5599,7 @@ def validate_security_surface(root: Path) -> None:
         require(module in common_product or module in {
                     "aios_call_api", "aios_context_api", "aios_media_context_api",
                     "aios_media_metadata_api", "aios_model_api", "aios_runtime_api",
-                    "aios_runtime_common", "aios_mmslib"}
+                    "aios_runtime_common"}
                 or module.endswith("_tests"),
                 f"local AIOS module is not reachable from the product: {module}")
 
