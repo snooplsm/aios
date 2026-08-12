@@ -625,7 +625,10 @@ public final class CallIntelligenceService extends Service {
 
     @Override
     public IBinder onBind(Intent intent) {
-        enforceControlPermission();
+        // ActivityManager enforces the service's manifest permission before
+        // dispatching this lifecycle callback. Binder.getCallingUid() is our
+        // own UID here, not the client UID, so caller checks belong on every
+        // AIDL entry point below (where the Binder calling identity is live).
         return binder;
     }
 

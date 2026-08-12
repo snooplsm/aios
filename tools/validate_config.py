@@ -3823,6 +3823,14 @@ def validate_aosp_overlay(root: Path) -> None:
             "call risk scoring must be advisory, explainable, and English/Spanish aware")
     call_service = (call_source_root / "CallIntelligenceService.java").read_text(
         encoding="utf-8")
+    on_bind_start = call_service.index("public IBinder onBind(Intent intent)")
+    on_bind_end = call_service.index("public void onDestroy()", on_bind_start)
+    on_bind = call_service[on_bind_start:on_bind_end]
+    require('android:permission="com.aios.permission.CONTROL_CALL_INTELLIGENCE"'
+            in call_manifest
+            and "enforceControlPermission()" not in on_bind
+            and call_service.count("enforceControlPermission();") >= 10,
+            "Call Intelligence must enforce clients at the manifest and AIDL boundary, not Service.onBind")
     call_host_test = call_service_bp[call_service_bp.index("java_test_host {"):]
     require('name: "aios_callintelligence_host_tests"' in call_host_test
             and '"src/com/aios/callintelligence/CallRequestIdentityTracker.java"'
