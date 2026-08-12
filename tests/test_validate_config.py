@@ -50,6 +50,11 @@ def load(name):
 def copy_patch_contract_fixture(destination):
     shutil.copytree(ROOT / "patches", destination / "patches")
     for relative in (
+            "scripts/emulator-context-lifecycle-smoke.ps1",
+            "scripts/emulator-call-retention-smoke.ps1",
+            "scripts/emulator-model-admission-smoke.ps1",
+            "scripts/emulator-media-smoke.ps1",
+            "scripts/emulator-messaging-smoke.ps1",
             "scripts/emulator-telecom-smoke.ps1",
             "tests/test_patch_series.py",
             "tests/test_validate_config.py"):
@@ -730,6 +735,29 @@ class IntegrationStructureTests(unittest.TestCase):
         tts["spanish_pcm_verified"] = False
         with self.assertRaisesRegex(validator.ValidationError, "bilingual PCM"):
             validator.validate_emulator_provider_evidence(tts, "tts")
+
+    def test_emulator_integration_evidence_cannot_claim_physical_runtime(self):
+        cases = {
+            "context": ("integration.emulator_context_lifecycle", 1),
+            "retention": ("integration.emulator_call_retention", 1),
+            "model": ("integration.emulator_model_admission", 1),
+            "media": ("integration.emulator_media_pipeline", 3),
+            "messaging": ("integration.emulator_messaging", 1),
+            "telecom": ("integration.emulator_telecom", 2),
+        }
+        for kind, (gate, schema) in cases.items():
+            with self.subTest(kind=kind):
+                record = {
+                    "schema_version": schema,
+                    "gate": gate,
+                    "aios_revision": "b" * 40,
+                    "tracked_source_clean": True,
+                    "qemu": True,
+                    "api_level": 36,
+                    "physical_gate_evidence": True,
+                }
+                with self.assertRaisesRegex(validator.ValidationError, "overclaims"):
+                    validator.validate_emulator_integration_evidence(record, kind)
 
     def test_passed_release_gate_requires_evidence(self):
         with tempfile.TemporaryDirectory() as raw:

@@ -5788,6 +5788,127 @@ def validate_emulator_provider_evidence(record: dict, provider: str) -> None:
                 "emulator TTS evidence must prove native bilingual PCM checks")
 
 
+def validate_emulator_integration_evidence(record: dict, kind: str) -> None:
+    gates = {
+        "context": ("integration.emulator_context_lifecycle", 1),
+        "retention": ("integration.emulator_call_retention", 1),
+        "model": ("integration.emulator_model_admission", 1),
+        "media": ("integration.emulator_media_pipeline", 3),
+        "messaging": ("integration.emulator_messaging", 1),
+        "telecom": ("integration.emulator_telecom", 2),
+    }
+    require(kind in gates, "unknown emulator integration evidence kind")
+    gate, schema = gates[kind]
+    require(record.get("schema_version") == schema
+            and record.get("gate") == gate
+            and re.fullmatch(r"[0-9a-f]{40}",
+                             str(record.get("aios_revision", ""))) is not None
+            and record.get("tracked_source_clean") is True
+            and record.get("qemu") is True
+            and isinstance(record.get("api_level"), int)
+            and record["api_level"] >= 35
+            and record.get("physical_gate_evidence") is False,
+            f"emulator {kind} evidence is incomplete or overclaims")
+    if kind == "context":
+        require(all(record.get(field) is True for field in (
+                    "production_aidl_service_bound", "opaque_identity_verified",
+                    "equivalent_number_convergence_verified", "sqlite_fts_verified",
+                    "source_scoped_retrieval_verified", "query_limit_verified",
+                    "sms_revision_and_tombstone_verified",
+                    "media_bulk_delete_watermark_verified",
+                    "call_artifact_binder_tombstone_verified",
+                    "call_artifact_24h_expiry_verified",
+                    "raw_address_absent_from_database"))
+                and record.get("private_context_state_remaining") == 0,
+                "emulator context evidence must prove retrieval and deletion lifecycle")
+    elif kind == "retention":
+        require(record.get("exact_retention_hours") == 24
+                and all(record.get(field) is True for field in (
+                    "active_writer_closed_before_expiry_delete",
+                    "wall_clock_expiry_deleted", "unreadable_metadata_deleted_fail_closed",
+                    "fresh_artifact_preserved", "resumed_artifact_deadline_unchanged",
+                    "explicit_delete_verified", "nearest_elapsed_alarm_verified",
+                    "empty_store_alarm_cancel_path_exercised"))
+                and record.get("private_artifacts_remaining") == 0,
+                "emulator retention evidence must prove exact fail-closed 24-hour cleanup")
+    elif kind == "model":
+        require(all(record.get(field) is True for field in (
+                    "production_broker_aidl_bound",
+                    "stock_install_without_product_policy_denied",
+                    "artifact_digest_match_accepted", "same_size_artifact_tamper_rejected",
+                    "canonical_path_escape_rejected", "ram_tier_catalog_selection_verified",
+                    "release_device_admission_verified",
+                    "build_fingerprint_mismatch_rejected",
+                    "debug_research_candidate_gating_verified",
+                    "authorized_client_quota_verified"))
+                and record.get("temporary_fixture_bytes_are_model_weights") is False
+                and record.get("real_inference_executed") is False
+                and record.get("temporary_fixture_files_remaining") == 0,
+                "emulator model evidence must prove admission without claiming inference")
+    elif kind == "media":
+        require(all(record.get(field) is True for field in (
+                    "isolated_photo_immediate", "photo_burst_deferred",
+                    "restart_burst_settlement_verified", "historical_library_not_imported",
+                    "video_deferred", "deferred_requires_charging",
+                    "deferred_requires_80_percent", "active_call_preempts_media",
+                    "android_job_constraints_verified",
+                    "mux_and_embedded_metadata_round_trip",
+                    "encoded_source_samples_verified", "timed_subtitle_metadata_read",
+                    "interrupted_export_recovery"))
+                and record.get("subtitle_renderer_exercised") is False
+                and record.get("original_opened_writable") is False,
+                "emulator media evidence must prove scheduling and portable metadata safety")
+    elif kind == "messaging":
+        require(all(record.get(field) is True for field in (
+                    "sms_role_assigned", "emulator_grpc_sms_injected",
+                    "production_sms_deliver_provider_path", "incoming_provider_row_verified",
+                    "incoming_compose_rendered", "sendto_composer_rendered",
+                    "outgoing_sms_submission_accepted", "outgoing_provider_row_verified",
+                    "emulator_loopback_inbox_verified", "outgoing_compose_rendered",
+                    "same_provider_thread_verified", "valid_subscription_ids_verified",
+                    "synthetic_rows_removed", "private_audit_removed",
+                    "sms_role_restored", "package_removed"))
+                and record.get("package_retained_for_debugging") is False
+                and record.get("carrier_delivery_evidence") is False
+                and record.get("multi_sim_selection_evidence") is False
+                and record.get("mms_transport_evidence") is False,
+                "emulator Messaging evidence must prove SMS while preserving carrier gates")
+    else:
+        fixed = record.get("automatic_answer_fixed_delays")
+        require(record.get("execution_mode") == "full"
+                and isinstance(fixed, list) and len(fixed) == 4
+                and [item.get("resolved_delay_ms") for item in fixed]
+                == [1000, 2000, 3000, 4000]
+                and all(item.get("ai_answer_callback") is True
+                        and item.get("connection_answer_count") == 1 for item in fixed)
+                and isinstance(record.get("automatic_answer_random_delay"), dict)
+                and 1010 <= record["automatic_answer_random_delay"].get(
+                    "resolved_delay_ms", 0) <= 3990
+                and all(record.get(field) is True for field in (
+                    "in_call_activity_visible", "full_screen_intent_launched_automatically",
+                    "in_call_service_bound", "incoming_notification_posted",
+                    "ignore_preserved_ringing_call", "answer_activated_call",
+                    "decline_disconnected_call", "ai_action_fail_closed",
+                    "settings_policy_update_reached_binder",
+                    "settings_policy_survived_service_restart",
+                    "owner_answer_cancelled_pending_ai", "decline_cancelled_pending_ai",
+                    "ignore_preserved_automatic_ai",
+                    "service_loss_revoked_old_pending_ai",
+                    "synthetic_emergency_never_evaluated_for_ai",
+                    "outgoing_compose_call_action", "outgoing_connection_active",
+                    "mute_unmute_round_trip", "hold_resume_round_trip",
+                    "dtmf_play_stop_callbacks", "post_dial_digits_redacted",
+                    "waiting_call_selected", "waiting_answer_held_existing_call",
+                    "conference_merge_separate_callbacks",
+                    "multi_account_selector_visible",
+                    "selected_account_reached_connection_service",
+                    "cleanup_verified", "original_role_holders_restored",
+                    "original_outgoing_account_restored", "fixture_phone_account_removed",
+                    "package_removed", "assistant_package_removed",
+                    "remote_screenshot_removed", "remote_ui_dump_removed")),
+                "emulator Telecom evidence must prove full call UDF and cleanup")
+
+
 def validate_release_configuration(root: Path) -> None:
     tracking = load_json(root / "config" / "aosp_tracking.json")
     require(tracking.get("schema_version") == 1, "unsupported AOSP tracking schema")
@@ -5999,6 +6120,12 @@ def validate_release_configuration(root: Path) -> None:
         "integration.android_gsi_arm64_userdebug_succeeds",
         "integration.emulator_bilingual_asr_provider",
         "integration.emulator_bilingual_tts_provider",
+        "integration.emulator_context_lifecycle",
+        "integration.emulator_call_retention",
+        "integration.emulator_model_admission",
+        "integration.emulator_media_pipeline",
+        "integration.emulator_messaging",
+        "integration.emulator_telecom",
         "telephony.emergency_ui_bypass",
         "telephony.call_waiting",
         "telephony.audio_endpoint_switch",
@@ -6048,6 +6175,26 @@ def validate_release_configuration(root: Path) -> None:
     }
     require(critical.issubset(ids),
             f"missing critical release gates: {sorted(critical - set(ids))}")
+
+    source_bound_smokes = {
+        "emulator-context-lifecycle-smoke.ps1":
+            "integration.emulator_context_lifecycle",
+        "emulator-call-retention-smoke.ps1":
+            "integration.emulator_call_retention",
+        "emulator-model-admission-smoke.ps1":
+            "integration.emulator_model_admission",
+        "emulator-media-smoke.ps1": "integration.emulator_media_pipeline",
+        "emulator-messaging-smoke.ps1": "integration.emulator_messaging",
+        "emulator-telecom-smoke.ps1": "integration.emulator_telecom",
+    }
+    for script_name, gate_id in source_bound_smokes.items():
+        script = (root / "scripts" / script_name).read_text(encoding="utf-8")
+        require(f'gate = "{gate_id}"' in script
+                and "aios_revision = $sourceRevision" in script
+                and "tracked_source_clean = $true" in script
+                and "git -C $repositoryRoot diff --quiet --" in script
+                and "git -C $repositoryRoot diff --cached --quiet --" in script,
+                f"{script_name}: evidence must bind a clean exact AIOS revision")
 
     status_document = load_json(root / "config" / "release_status.json")
     require(status_document.get("schema_version") == 1,
@@ -6168,6 +6315,25 @@ def validate_release_configuration(root: Path) -> None:
             (root / provider_gate["evidence"][0]).resolve()
         )
         validate_emulator_provider_evidence(provider_record, provider)
+
+    for gate_id, kind in (
+        ("integration.emulator_context_lifecycle", "context"),
+        ("integration.emulator_call_retention", "retention"),
+        ("integration.emulator_model_admission", "model"),
+        ("integration.emulator_media_pipeline", "media"),
+        ("integration.emulator_messaging", "messaging"),
+        ("integration.emulator_telecom", "telecom"),
+    ):
+        integration_gate = statuses[gate_id]
+        if integration_gate["status"] != "passed":
+            continue
+        require(len(integration_gate["evidence"]) == 1
+                and not integration_gate["evidence"][0].startswith("https://"),
+                f"emulator {kind} evidence must be one local record")
+        integration_record = load_json(
+            (root / integration_gate["evidence"][0]).resolve()
+        )
+        validate_emulator_integration_evidence(integration_record, kind)
 
 
 def validate(root: Path = ROOT) -> None:

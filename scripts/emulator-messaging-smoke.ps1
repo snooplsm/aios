@@ -15,6 +15,19 @@ if ($Serial -notmatch '^emulator-(?<port>[0-9]+)$') {
 }
 $consolePort = [int]$Matches['port']
 
+$repositoryRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
+$sourceRevision = ((& git -C $repositoryRoot rev-parse HEAD) -join "`n").Trim()
+if ($LASTEXITCODE -ne 0 -or $sourceRevision -notmatch '^[0-9a-f]{40}$') {
+    throw "Unable to bind Messaging evidence to an exact AIOS revision"
+}
+& git -C $repositoryRoot diff --quiet --
+$unstagedChanges = $LASTEXITCODE
+& git -C $repositoryRoot diff --cached --quiet --
+$stagedChanges = $LASTEXITCODE
+if ($unstagedChanges -ne 0 -or $stagedChanges -ne 0) {
+    throw "Refusing to capture Messaging evidence with tracked source changes"
+}
+
 $androidHome = if ($env:ANDROID_HOME) {
     $env:ANDROID_HOME
 } else {
@@ -349,7 +362,11 @@ if (-not $runSucceeded -or -not $providerRowsRemoved -or
 
 $evidence = [ordered]@{
     schema_version = 1
+    gate = "integration.emulator_messaging"
+    aios_revision = $sourceRevision
+    tracked_source_clean = $true
     serial = $Serial
+    qemu = $true
     android_release = $androidRelease
     api_level = $apiLevel
     apk_path = $apkPath
