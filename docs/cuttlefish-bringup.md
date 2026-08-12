@@ -34,6 +34,21 @@ launch_cvd --daemon --report_anonymous_usage_stats=n
 adb devices
 ```
 
+On WSL 2, crosvm's process sandbox can fail before the Android kernel starts
+with `mount_one failed with /dev`. Stop that failed instance, then use the
+launcher's documented sandbox override and its vetted software-rendering mode:
+
+```text
+stop_cvd
+launch_cvd --daemon --report_anonymous_usage_stats=n --noresume \
+  --noenable_sandbox \
+  --gpu_mode=gfxstream_guest_angle_host_swiftshader
+```
+
+This disables crosvm's inner process sandbox only; `/dev/kvm` still provides
+guest virtualization. The workaround is for local WSL integration evidence,
+not production device configuration.
+
 Wait for `sys.boot_completed=1`. Bind the running virtual device to the exact
 build record, using the local TCP serial reported by `adb devices`:
 

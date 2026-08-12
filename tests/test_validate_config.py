@@ -696,12 +696,35 @@ class IntegrationStructureTests(unittest.TestCase):
                     (ROOT / "config" / name).read_text(encoding="utf-8"),
                     encoding="utf-8",
                 )
+            shutil.copytree(ROOT / "evidence" / "cuttlefish",
+                            temporary / "evidence" / "cuttlefish")
             value = json.loads((temporary / "config" / "release_status.json")
                                .read_text(encoding="utf-8"))
             value["statuses"]["boot.first_boot"]["status"] = "passed"
             (temporary / "config" / "release_status.json").write_text(
                 json.dumps(value), encoding="utf-8")
             with self.assertRaisesRegex(validator.ValidationError, "requires evidence"):
+                validator.validate_release_configuration(temporary)
+
+    def test_first_boot_evidence_must_bind_checked_in_build_record(self):
+        with tempfile.TemporaryDirectory() as raw:
+            temporary = Path(raw)
+            (temporary / "config").mkdir()
+            copy_patch_contract_fixture(temporary)
+            for name in ("aosp_tracking.json", "aosp_lanes.json",
+                         "model_catalog.json", "release_gates.json",
+                         "release_status.json"):
+                shutil.copy(ROOT / "config" / name,
+                            temporary / "config" / name)
+            shutil.copytree(ROOT / "evidence" / "cuttlefish",
+                            temporary / "evidence" / "cuttlefish")
+            boot_path = next((temporary / "evidence" / "cuttlefish")
+                             .rglob("cuttlefish-first-boot.json"))
+            boot = json.loads(boot_path.read_text(encoding="utf-8"))
+            boot["build_evidence_sha256"] = "0" * 64
+            boot_path.write_text(json.dumps(boot), encoding="utf-8")
+            with self.assertRaisesRegex(validator.ValidationError,
+                                        "not bound to its build"):
                 validator.validate_release_configuration(temporary)
 
     def test_enabled_device_must_reference_declared_hardware_lane(self):
@@ -714,6 +737,8 @@ class IntegrationStructureTests(unittest.TestCase):
                          "release_status.json"):
                 shutil.copy(ROOT / "config" / name,
                             temporary / "config" / name)
+            shutil.copytree(ROOT / "evidence" / "cuttlefish",
+                            temporary / "evidence" / "cuttlefish")
             catalog_path = temporary / "config" / "model_catalog.json"
             catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
             pixel_9a = next(item for item in catalog["known_devices"]

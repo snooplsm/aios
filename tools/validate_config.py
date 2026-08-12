@@ -5891,6 +5891,65 @@ def validate_release_configuration(root: Path) -> None:
         if value["status"] == "blocked":
             require(isinstance(value.get("notes"), str) and value["notes"].strip(),
                     f"{gate_id}: blocked gate requires notes")
+        for reference in evidence:
+            if reference.startswith("https://"):
+                continue
+            evidence_path = (root / reference).resolve()
+            require(evidence_path == root.resolve()
+                    or root.resolve() in evidence_path.parents,
+                    f"{gate_id}: evidence path escapes the repository")
+            require(evidence_path.is_file(),
+                    f"{gate_id}: local evidence file does not exist: {reference}")
+
+    latest_build_gates = (
+        "integration.android_latest_manifest_locked",
+        "integration.android_latest_userdebug_succeeds",
+    )
+    passed_build_references = {
+        reference
+        for gate_id in latest_build_gates
+        if statuses[gate_id]["status"] == "passed"
+        for reference in statuses[gate_id]["evidence"]
+    }
+    if passed_build_references:
+        require(len(passed_build_references) == 1,
+                "Android-latest build gates must reference one build record")
+        build_reference = next(iter(passed_build_references))
+        require(not build_reference.startswith("https://"),
+                "Android-latest build evidence must be locally reviewable")
+        build_path = (root / build_reference).resolve()
+        build = load_json(build_path)
+        require(build.get("schema_version") == 2
+                and build.get("status") == "passed"
+                and build.get("lane") == "android_latest_integration"
+                and build.get("kind") == "virtual_integration"
+                and build.get("product") == "aios_cf_x86_64_phone"
+                and build.get("target_device") == "vsoc_x86_64"
+                and build.get("android_release") == "17"
+                and build.get("lane_eligible_for_physical_gates") is False
+                and build.get("proves_physical_runtime_gate") is False,
+                "Android-latest build evidence does not prove the virtual lane")
+
+        first_boot = statuses["integration.android_latest_first_boot"]
+        if first_boot["status"] == "passed":
+            require(len(first_boot["evidence"]) == 1
+                    and not first_boot["evidence"][0].startswith("https://"),
+                    "Android-latest first-boot evidence must be one local record")
+            boot = load_json((root / first_boot["evidence"][0]).resolve())
+            require(boot.get("schema_version") == 1
+                    and boot.get("status") == "passed"
+                    and boot.get("gate")
+                    == "integration.android_latest_first_boot"
+                    and boot.get("lane") == "android_latest_integration"
+                    and boot.get("kind") == "virtual_integration"
+                    and boot.get("aios_revision") == build.get("aios_revision")
+                    and boot.get("build_fingerprint")
+                    == build.get("build_fingerprint")
+                    and boot.get("build_evidence_sha256")
+                    == hashlib.sha256(build_path.read_bytes()).hexdigest()
+                    and boot.get("lane_eligible_for_physical_gates") is False
+                    and boot.get("proves_physical_runtime_gate") is False,
+                    "Android-latest boot evidence is not bound to its build")
 
 
 def validate(root: Path = ROOT) -> None:

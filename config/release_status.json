@@ -2,9 +2,9 @@
   "schema_version": 1,
   "target": "pixel_9a_tegu_research",
   "statuses": {
-    "integration.android_latest_manifest_locked": {"status": "not_run", "evidence": []},
-    "integration.android_latest_userdebug_succeeds": {"status": "not_run", "evidence": []},
-    "integration.android_latest_first_boot": {"status": "not_run", "evidence": []},
+    "integration.android_latest_manifest_locked": {"status": "passed", "evidence": ["evidence/cuttlefish/20260812-cf-build9-e3d6869-j12/soong-build-evidence.json"]},
+    "integration.android_latest_userdebug_succeeds": {"status": "passed", "evidence": ["evidence/cuttlefish/20260812-cf-build9-e3d6869-j12/soong-build-evidence.json"]},
+    "integration.android_latest_first_boot": {"status": "passed", "evidence": ["evidence/cuttlefish/20260812-cf-build9-e3d6869-j12/cuttlefish-first-boot.json"]},
     "integration.android_avd_userdebug_succeeds": {"status": "not_run", "evidence": []},
     "integration.android_avd_first_boot": {"status": "not_run", "evidence": []},
     "build.manifest_locked": {"status": "not_run", "evidence": []},
