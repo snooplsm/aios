@@ -20,6 +20,15 @@ Messaging remains the only consumer. Updating AOSP therefore keeps the codec
 and provider persister with their upstream owner, while the patch verifier makes
 any changed boundary explicit.
 
+The same upstream sources reference the compile-time-only
+`android.compat.annotation.UnsupportedAppUsage` annotation and module APIs.
+AIOS therefore mirrors AOSP Bluetooth's `mmslib` boundary with a small
+`aios_mmslib` Java library: it compiles the framework-owned source filegroup at
+`sdk_version: "module_current"` with `libs: ["unsupportedappusage"]`, then the
+Messaging app statically links that bytecode. The app itself remains on
+`sdk_version: "system_current"`; this is not a reason to grant the whole app
+unrestricted platform APIs or copy the MMS implementation into AIOS.
+
 Shared UDF, repository, receiver, and UI code remains under `apps/messaging/src`
 and compiles against the public SDK. AOSP-only code is isolated under
 `apps/messaging/platform/src`. This prevents an emulator fixture from silently
