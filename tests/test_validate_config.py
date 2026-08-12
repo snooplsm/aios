@@ -806,6 +806,90 @@ class IntegrationStructureTests(unittest.TestCase):
                                         "not bound to its build"):
                 validator.validate_release_configuration(temporary)
 
+    def test_avd_first_boot_cannot_pass_before_its_build(self):
+        with tempfile.TemporaryDirectory() as raw:
+            temporary = Path(raw)
+            (temporary / "config").mkdir()
+            copy_patch_contract_fixture(temporary)
+            for name in ("aosp_tracking.json", "aosp_lanes.json",
+                         "model_catalog.json", "release_gates.json",
+                         "release_status.json"):
+                shutil.copy(ROOT / "config" / name,
+                            temporary / "config" / name)
+            shutil.copytree(ROOT / "evidence", temporary / "evidence")
+            status_path = temporary / "config" / "release_status.json"
+            status = json.loads(status_path.read_text(encoding="utf-8"))
+            existing = next((temporary / "evidence" / "cuttlefish")
+                            .rglob("cuttlefish-first-boot.json"))
+            reference = existing.relative_to(temporary).as_posix()
+            status["statuses"]["integration.android_avd_first_boot"] = {
+                "status": "passed",
+                "evidence": [reference],
+            }
+            status_path.write_text(json.dumps(status), encoding="utf-8")
+            with self.assertRaisesRegex(validator.ValidationError,
+                                        "cannot pass before its build"):
+                validator.validate_release_configuration(temporary)
+
+    def test_avd_first_boot_must_bind_its_exact_build(self):
+        with tempfile.TemporaryDirectory() as raw:
+            temporary = Path(raw)
+            (temporary / "config").mkdir()
+            copy_patch_contract_fixture(temporary)
+            for name in ("aosp_tracking.json", "aosp_lanes.json",
+                         "model_catalog.json", "release_gates.json",
+                         "release_status.json"):
+                shutil.copy(ROOT / "config" / name,
+                            temporary / "config" / name)
+            shutil.copytree(ROOT / "evidence", temporary / "evidence")
+            fixture_dir = temporary / "evidence" / "avd-test"
+            fixture_dir.mkdir()
+            source_build = next((temporary / "evidence" / "cuttlefish")
+                                .rglob("soong-build-evidence.json"))
+            build = json.loads(source_build.read_text(encoding="utf-8"))
+            build.update({
+                "lane": "android_avd_integration",
+                "kind": "virtual_emulator",
+                "product": "aios_sdk_phone_x86_64",
+                "target_device": "emu64x",
+                "android_release": "17",
+                "lane_eligible_for_physical_gates": False,
+                "proves_physical_runtime_gate": False,
+            })
+            build_path = fixture_dir / "build.json"
+            build_path.write_text(json.dumps(build), encoding="utf-8")
+            source_boot = next((temporary / "evidence" / "cuttlefish")
+                               .rglob("cuttlefish-first-boot.json"))
+            boot = json.loads(source_boot.read_text(encoding="utf-8"))
+            boot.update({
+                "gate": "integration.android_avd_first_boot",
+                "lane": "android_avd_integration",
+                "kind": "virtual_emulator",
+                "product": "aios_sdk_phone_x86_64",
+                "target_device": "emu64x",
+                "aios_revision": build["aios_revision"],
+                "build_fingerprint": build["build_fingerprint"],
+                "build_evidence_sha256": "0" * 64,
+                "lane_eligible_for_physical_gates": False,
+                "proves_physical_runtime_gate": False,
+            })
+            boot_path = fixture_dir / "boot.json"
+            boot_path.write_text(json.dumps(boot), encoding="utf-8")
+            status_path = temporary / "config" / "release_status.json"
+            status = json.loads(status_path.read_text(encoding="utf-8"))
+            status["statuses"]["integration.android_avd_userdebug_succeeds"] = {
+                "status": "passed",
+                "evidence": [build_path.relative_to(temporary).as_posix()],
+            }
+            status["statuses"]["integration.android_avd_first_boot"] = {
+                "status": "passed",
+                "evidence": [boot_path.relative_to(temporary).as_posix()],
+            }
+            status_path.write_text(json.dumps(status), encoding="utf-8")
+            with self.assertRaisesRegex(validator.ValidationError,
+                                        "not bound to its build"):
+                validator.validate_release_configuration(temporary)
+
     def test_enabled_device_must_reference_declared_hardware_lane(self):
         with tempfile.TemporaryDirectory() as raw:
             temporary = Path(raw)

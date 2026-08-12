@@ -6291,6 +6291,51 @@ def validate_release_configuration(root: Path) -> None:
                     and boot.get("proves_physical_runtime_gate") is False,
                     "Android-latest boot evidence is not bound to its build")
 
+    avd_build_gate = statuses["integration.android_avd_userdebug_succeeds"]
+    if avd_build_gate["status"] == "passed":
+        require(len(avd_build_gate["evidence"]) == 1
+                and not avd_build_gate["evidence"][0].startswith("https://"),
+                "Android AVD build evidence must be one local record")
+        avd_build_path = (root / avd_build_gate["evidence"][0]).resolve()
+        avd_build = load_json(avd_build_path)
+        require(avd_build.get("schema_version") == 2
+                and avd_build.get("status") == "passed"
+                and avd_build.get("lane") == "android_avd_integration"
+                and avd_build.get("kind") == "virtual_emulator"
+                and avd_build.get("product") == "aios_sdk_phone_x86_64"
+                and avd_build.get("target_device") == "emu64x"
+                and avd_build.get("android_release") == "17"
+                and avd_build.get("lane_eligible_for_physical_gates") is False
+                and avd_build.get("proves_physical_runtime_gate") is False,
+                "Android AVD build evidence does not prove the Goldfish lane")
+
+        avd_boot_gate = statuses["integration.android_avd_first_boot"]
+        if avd_boot_gate["status"] == "passed":
+            require(len(avd_boot_gate["evidence"]) == 1
+                    and not avd_boot_gate["evidence"][0].startswith("https://"),
+                    "Android AVD first-boot evidence must be one local record")
+            avd_boot = load_json((root / avd_boot_gate["evidence"][0]).resolve())
+            require(avd_boot.get("schema_version") == 1
+                    and avd_boot.get("status") == "passed"
+                    and avd_boot.get("gate") == "integration.android_avd_first_boot"
+                    and avd_boot.get("lane") == "android_avd_integration"
+                    and avd_boot.get("kind") == "virtual_emulator"
+                    and avd_boot.get("product") == "aios_sdk_phone_x86_64"
+                    and avd_boot.get("target_device") == "emu64x"
+                    and avd_boot.get("aios_revision")
+                    == avd_build.get("aios_revision")
+                    and avd_boot.get("build_fingerprint")
+                    == avd_build.get("build_fingerprint")
+                    and avd_boot.get("build_evidence_sha256")
+                    == hashlib.sha256(avd_build_path.read_bytes()).hexdigest()
+                    and avd_boot.get("lane_eligible_for_physical_gates") is False
+                    and avd_boot.get("proves_physical_runtime_gate") is False,
+                    "Android AVD boot evidence is not bound to its build")
+    else:
+        require(statuses["integration.android_avd_first_boot"]["status"]
+                != "passed",
+                "Android AVD first boot cannot pass before its build gate")
+
     gsi_build_gate = statuses["integration.android_gsi_arm64_userdebug_succeeds"]
     if gsi_build_gate["status"] == "passed":
         require(len(gsi_build_gate["evidence"]) == 1
