@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <manifest>
-  <!-- Replace this deliberately invalid URL after AIOS has a canonical remote. -->
-  <remote name="aios" fetch="https://example.invalid/replace-with-aios-owner" />
+  <remote name="aios" fetch="https://github.com/snooplsm" />
   <project
       name="aios"
       path="vendor/aios"

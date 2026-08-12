@@ -1,10 +1,10 @@
 # Repo integration
 
 This Git repository is intended to appear at `vendor/aios` inside an AOSP
-checkout. Once the project has a real Git remote, copy
-`local_manifest.xml.example` to the AOSP checkout's
-`.repo/local_manifests/aios.xml`, replace the invalid placeholder remote, and
-sync.
+checkout. Copy `local_manifest.xml.example` to the AOSP checkout's
+`.repo/local_manifests/aios.xml` and sync. The example points at the canonical
+public AIOS repository; a private development mirror should override only that
+remote while retaining the same project path.
 
 Do not add model weights or Pixel vendor binaries to this manifest. Both are
 licensed local build inputs handled outside source control.
