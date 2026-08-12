@@ -38,6 +38,19 @@ and restores the upstream projects.
 
 ## Launch the built image
 
+On an Ubuntu or WSL build host, the prebuilt emulator needs the PulseAudio
+client runtime even for a headless launch. Verify KVM access and the binary
+before booting the image:
+
+```text
+sudo apt-get install -y libpulse0
+test -r /dev/kvm && test -w /dev/kvm
+prebuilts/android-emulator/linux-x86_64/emulator -version
+```
+
+The build user must belong to the group that owns `/dev/kvm`. Adding group
+membership requires a new login session; do not make `/dev/kvm` world-writable.
+
 After the build succeeds, launch its selected product from the same Linux shell:
 
 ```text
