@@ -280,6 +280,9 @@ def validate_catalog(catalog: dict[str, Any]) -> None:
         if reference is not None:
             require(isinstance(reference, dict)
                     and str(reference.get("url", "")).startswith("https://")
+                    and (reference.get("size_bytes") is None
+                         or (isinstance(reference.get("size_bytes"), int)
+                             and reference["size_bytes"] > 0))
                     and re.fullmatch(r"[0-9a-f]{64}",
                                      str(reference.get("sha256", ""))) is not None,
                     f"{model['id']}: reference artifact must have HTTPS URL and digest")
@@ -295,6 +298,10 @@ def validate_catalog(catalog: dict[str, Any]) -> None:
             require(reference == {
                         "url": (f"https://huggingface.co/{expected_repository}/resolve/main/"
                                 f"gemma-4-{variant}-it.litertlm"),
+                        "size_bytes": {
+                            "E2B": 2588147712,
+                            "E4B": 3659530240,
+                        }.get(variant),
                         "sha256": expected_digest,
                     },
                     f"{model['id']}: Gemma 4 must use the pinned LiteRT-LM artifact")

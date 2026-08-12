@@ -34,7 +34,7 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def load_reference(catalog_path: Path, model_id: str) -> tuple[str, str, str]:
+def load_reference(catalog_path: Path, model_id: str) -> tuple[str, int, str, str]:
     try:
         catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
@@ -50,14 +50,16 @@ def load_reference(catalog_path: Path, model_id: str) -> tuple[str, str, str]:
     if not isinstance(reference, dict):
         raise BootstrapError(f"{model_id}: catalog has no single-file reference artifact")
     url = reference.get("url")
+    expected_size = reference.get("size_bytes")
     expected = reference.get("sha256")
     if not isinstance(url, str) or not url.startswith("https://") \
+            or not isinstance(expected_size, int) or expected_size <= 0 \
             or not isinstance(expected, str) or DIGEST.fullmatch(expected) is None:
         raise BootstrapError(f"{model_id}: malformed reference artifact lock")
     filename = unquote(Path(urlparse(url).path).name)
     if SAFE_FILENAME.fullmatch(filename) is None:
         raise BootstrapError(f"{model_id}: unsafe reference filename")
-    return url, expected, filename
+    return url, expected_size, expected, filename
 
 
 def external_directory(output_directory: Path, source_root: Path = ROOT) -> Path:
@@ -73,10 +75,15 @@ def external_directory(output_directory: Path, source_root: Path = ROOT) -> Path
     return output
 
 
-def _copy_response(response: BinaryIO, partial: Path, append: bool) -> None:
+def _copy_response(
+        response: BinaryIO, partial: Path, append: bool, expected_size: int) -> None:
     mode = "ab" if append else "wb"
+    total = partial.stat().st_size if append else 0
     with partial.open(mode) as destination:
         while block := response.read(BUFFER_BYTES):
+            total += len(block)
+            if total > expected_size:
+                raise BootstrapError("model response exceeds the catalogued size")
             destination.write(block)
         destination.flush()
         os.fsync(destination.fileno())
@@ -89,7 +96,8 @@ def download_reference(
         opener: Callable[..., BinaryIO] = urlopen,
         source_root: Path = ROOT,
 ) -> dict[str, object]:
-    url, expected_digest, filename = load_reference(catalog_path, model_id)
+    url, expected_size, expected_digest, filename = load_reference(
+        catalog_path, model_id)
     output = external_directory(output_directory, source_root)
     destination = output / filename
     partial = output / f"{filename}.partial"
@@ -98,7 +106,9 @@ def download_reference(
         if path.is_symlink():
             raise BootstrapError(f"refusing symbolic-link download path: {path.name}")
     if destination.exists():
-        if not destination.is_file() or sha256(destination) != expected_digest:
+        if (not destination.is_file()
+                or destination.stat().st_size != expected_size
+                or sha256(destination) != expected_digest):
             raise BootstrapError(f"existing model artifact does not match catalog: {destination}")
         return {
             "model_id": model_id,
@@ -120,6 +130,8 @@ def download_reference(
             os.fsync(lock_stream.fileno())
 
         offset = partial.stat().st_size if partial.exists() else 0
+        if offset > expected_size:
+            raise BootstrapError("partial model artifact exceeds the catalogued size")
         headers = {"User-Agent": "AIOS-model-bootstrap/1"}
         if offset > 0:
             headers["Range"] = f"bytes={offset}-"
@@ -135,12 +147,15 @@ def download_reference(
                     content_range = response.headers.get("Content-Range", "")
                     if not content_range.startswith(f"bytes {offset}-"):
                         raise BootstrapError("model server returned an invalid resume range")
-                _copy_response(response, partial, append)
+                _copy_response(response, partial, append, expected_size)
         except BootstrapError:
             raise
         except OSError as error:
             raise BootstrapError(f"model download failed: {error}") from error
 
+        if partial.stat().st_size != expected_size:
+            raise BootstrapError(
+                "downloaded artifact size mismatch; partial file was preserved for inspection")
         actual_digest = sha256(partial)
         if actual_digest != expected_digest:
             raise BootstrapError(

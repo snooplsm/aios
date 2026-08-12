@@ -1090,6 +1090,7 @@ class ModelPackTests(unittest.TestCase):
                         "gemma4-e2b-mobile-text",
                         "gemma4-e2b-mobile-multimodal"}:
                     item["reference_artifact"]["sha256"] = fixture_digest
+                    item["reference_artifact"]["size_bytes"] = model.stat().st_size
             catalog_path = temporary / "catalog.json"
             catalog_path.write_text(json.dumps(catalog), encoding="utf-8")
             acceptance = temporary / "acceptance.json"
@@ -1171,6 +1172,7 @@ class ModelPackTests(unittest.TestCase):
                 if item["id"] == "gemma4-e2b-mobile-text")
             catalog_model["reference_artifact"]["sha256"] = hashlib.sha256(
                 model.read_bytes()).hexdigest()
+            catalog_model["reference_artifact"]["size_bytes"] = model.stat().st_size
             catalog_path = temporary / "catalog.json"
             catalog_path.write_text(json.dumps(catalog), encoding="utf-8")
             packager.generate(

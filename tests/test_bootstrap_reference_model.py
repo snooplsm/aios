@@ -36,6 +36,7 @@ def write_catalog(path, payload, model_id="fixture-model"):
             "id": model_id,
             "reference_artifact": {
                 "url": "https://example.invalid/fixture-model.litertlm",
+                "size_bytes": len(payload),
                 "sha256": hashlib.sha256(payload).hexdigest(),
             },
         }],
@@ -137,7 +138,7 @@ class ReferenceModelBootstrapTests(unittest.TestCase):
             with self.assertRaisesRegex(bootstrap.BootstrapError, "digest mismatch"):
                 bootstrap.download_reference(
                     catalog, "fixture-model", output,
-                    lambda request, timeout: FakeResponse(b"wrong-model"), source)
+                    lambda request, timeout: FakeResponse(b"tampered-model"), source)
 
             self.assertTrue((output / "fixture-model.litertlm.partial").is_file())
             self.assertFalse((output / "fixture-model.litertlm").exists())

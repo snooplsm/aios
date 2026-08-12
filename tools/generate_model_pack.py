@@ -229,9 +229,14 @@ def validate_inputs(
             if artifact_format not in model.get("artifact_formats", []):
                 raise PackError(f"catalog does not allow {suffix} for {source.model_id}")
             reference = model.get("reference_artifact")
-            if (reference is not None
-                    and source_digest(resolved) != reference.get("sha256")):
-                raise PackError(f"reference artifact digest mismatch for {source.model_id}")
+            if reference is not None:
+                if (reference.get("size_bytes") is not None
+                        and resolved.stat().st_size != reference["size_bytes"]):
+                    raise PackError(
+                        f"reference artifact size mismatch for {source.model_id}")
+                if source_digest(resolved) != reference.get("sha256"):
+                    raise PackError(
+                        f"reference artifact digest mismatch for {source.model_id}")
         module = module_name(source.model_id)
         if module in seen_modules:
             raise PackError(f"Soong module-name collision: {module}")
