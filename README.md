@@ -14,6 +14,74 @@ The first hardware target is Pixel 9a (`tegu`). The architecture is capability
 based so devices with more memory and better accelerators can select stronger
 models without maintaining a different product fork.
 
+## Product highlights
+
+### Phone and AI receptionist
+
+- **Original default dialer:** a Kotlin/Jetpack Compose phone app with
+  unidirectional data flow, system/light/dark themes, recents, visual voicemail,
+  multi-SIM selection, RTT, video-call surfaces, and ordinary Android Telecom
+  controls. Incoming calls expose **Decline**, **Ignore**, **Answer**, and **AI**.
+- **Owner-controlled AI answering:** the owner chooses when AI may answer and
+  can select a 1, 2, 3, or 4 second delay, or a randomized 1.01–3.99 second
+  delay. Emergency calls bypass AI, and the owner can take over an AI-handled
+  call without disconnecting it.
+- **Live bilingual call intelligence:** incoming audio is streamed toward
+  English/Spanish transcription, advisory spam/legitimacy scoring, bounded
+  caller context, and an on-device receptionist response path. Both call
+  directions remain available for artifact construction and owner takeover.
+- **Private by architecture:** model requests stay on device; call artifacts
+  are stored locally with a 24-hour expiry. AI failure hands the connected call
+  back to ordinary Telecom controls instead of hanging up.
+
+### SMS, MMS, and conversation context
+
+- **First-party Compose messaging:** an SMS-role-capable application with real
+  Telephony provider persistence, incoming/outgoing SMS paths, respond-via-
+  message, call launching, per-message SIM selection, and read-only Photo
+  Picker attachments.
+- **Phone + message + photo context:** calls, SMS/MMS, contacts, and reviewed
+  sent-photo descriptions meet through opaque per-install conversation
+  identities. Apps receive bounded retrieval results rather than unrestricted
+  access to one raw personal-data database.
+- **Durable and fail-closed:** provider reconciliation follows edits, deletes,
+  role loss, and process restart. MMS carrier operations are journaled to avoid
+  duplicate submission; ambiguous dual-SIM routing and unvalidated release
+  transports fail closed.
+
+### Camera and media intelligence
+
+- **Works with any camera app:** AIOS observes new MediaStore items instead of
+  replacing the camera. A normal single photo can be queued promptly; photo
+  bursts and videos are deferred until an appropriate idle period, including
+  charging with at least 80% battery for heavy work.
+- **Photo understanding with format safety:** simple JPEG and non-animated PNG
+  files support conservative, verified AIOS XMP updates. Advanced or ambiguous
+  photo containers remain index-only so the original format is not damaged.
+- **Video understanding:** deferred video work samples **20 nearest-sync
+  keyframes** across the clip and separately transcribes the complete primary
+  audio track. The private result includes descriptions and timestamped
+  subtitles without rendering or burning subtitles into the video.
+- **Portable enhanced copies:** an owner-initiated action can create a new MP4
+  that copies encoded audio/video samples without recompression and adds bounded
+  description and timed-transcript metadata tracks. Automatic indexing never
+  rewrites the camera original.
+
+### Model and hardware policy
+
+Pixel 9a research builds currently prefer the GPU for Gemma text/multimodal
+inference and use the CPU for Whisper transcription and Supertonic TTS. The
+Tensor G4 TPU/NPU is deliberately disabled until a compatible public runtime
+artifact and physical-device evidence exist. Model candidates are not admitted
+to release images until the checked-in bilingual latency, quality, memory, and
+thermal benchmark gates pass on the exact device/build/backend combination.
+
+> **Validation status:** Android 17 Cuttlefish now builds and clean-boots with
+> AIOS Phone as the default dialer and stable Phone → Call Intelligence → Model
+> Broker bindings. This is virtual integration evidence, not proof of Pixel
+> modem, camera, ARM inference, carrier, TPU/GPU, or near-real-time performance.
+> Pixel 9a flashing and physical model/call/media gates remain pending.
+
 ## Current state
 
 This repository is the small AIOS overlay and integration repository, not a copy
@@ -165,14 +233,17 @@ deadline has its own local idle-capable alarm, and reboot, service startup, or a
 unsafe legacy deadline deletes the row fail-closed instead of waiting for a
 later search or trusting a rolled-back wall clock.
 
-It has not yet been compiled by Soong or flashed. Android 17's official manifest
-does not contain the Pixel 9a `device/google/tegu` project, so the build strategy
-has three explicit lanes: continuously compile on Cuttlefish with
+It has been compiled by Soong and clean-booted on Cuttlefish with digest-bound
+evidence checked into `evidence/cuttlefish/`. It has not yet been flashed to the
+Pixel 9a. Android 17's official manifest does not contain the Pixel 9a
+`device/google/tegu` project, so the build strategy has three explicit lanes:
+continuously compile on Cuttlefish with
 `aios_cf_x86_64_phone`, boot a complete standard Android Emulator image with
 `aios_sdk_phone_x86_64`, and separately admit the `aios_tegu` hardware lane only
 after pinning one compatible platform/device/vendor/kernel/firmware set. An
-exact-base Android 17 Dialer lifecycle patch exists, but it and the generated,
-dependency-locked runtime provider must be built and tested on the Linux lane.
+exact-base Android 17 Dialer lifecycle patch exists and has built on the Linux
+integration lane; the generated dependency-locked runtime providers still need
+ARM Pixel packaging and physical-device performance evidence.
 Build evidence now rejects stale or empty outputs by matching every core AIOS APK
 to the size and digest in AOSP's current `installed-files-product.json`.
 See `docs/model-packaging.md` and
