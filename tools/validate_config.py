@@ -283,6 +283,21 @@ def validate_catalog(catalog: dict[str, Any]) -> None:
                     and re.fullmatch(r"[0-9a-f]{64}",
                                      str(reference.get("sha256", ""))) is not None,
                     f"{model['id']}: reference artifact must have HTTPS URL and digest")
+        if model.get("family") == "gemma4":
+            variant = "E2B" if "-e2b-" in model["id"] else (
+                "E4B" if "-e4b-" in model["id"] else None)
+            expected_repository = (f"litert-community/gemma-4-{variant}-it-litert-lm"
+                                   if variant is not None else None)
+            expected_digest = {
+                "E2B": "181938105e0eefd105961417e8da75903eacda102c4fce9ce90f50b97139a63c",
+                "E4B": "0b2a8980ce155fd97673d8e820b4d29d9c7d99b8fa6806f425d969b145bd52e0",
+            }.get(variant)
+            require(reference == {
+                        "url": (f"https://huggingface.co/{expected_repository}/resolve/main/"
+                                f"gemma-4-{variant}-it.litertlm"),
+                        "sha256": expected_digest,
+                    },
+                    f"{model['id']}: Gemma 4 must use the pinned LiteRT-LM artifact")
         if bundle is not None:
             require("bundle" in model["artifact_formats"]
                     and isinstance(bundle, dict)
@@ -2973,7 +2988,12 @@ def validate_aosp_overlay(root: Path) -> None:
     require("verifyBundle" in verifier_source
             and 'value.has("bundle_members")' in verifier_source
             and 'inner.getString("source_archive_sha256")' in verifier_source
-            and "verifyFile(modelId + \"/\" + name, locked)" in verifier_source,
+            and "verifyFile(modelId + \"/\" + name, locked, verifiedDigests)"
+            in verifier_source
+            and "Map<String, String> verifiedDigests = new HashMap<>()"
+            in verifier_source
+            and "verifiedDigests.put(artifact.getPath(), actualDigest)"
+            in verifier_source,
             "artifact verifier must reverify every locked bundle member")
     require("MAX_ARTIFACT_MANIFEST_BYTES" in verifier_source
             and "MAX_BUNDLE_DESCRIPTOR_BYTES" in verifier_source

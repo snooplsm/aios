@@ -56,8 +56,10 @@ final class ArtifactVerifier {
             }
             JSONArray artifacts = root.getJSONArray("artifacts");
             Map<String, VerifiedArtifact> verified = new HashMap<>();
+            Map<String, String> verifiedDigests = new HashMap<>();
             for (int index = 0; index < artifacts.length(); index++) {
-                VerifiedArtifact artifact = verifyOne(artifacts.getJSONObject(index));
+                VerifiedArtifact artifact = verifyOne(
+                        artifacts.getJSONObject(index), verifiedDigests);
                 if (verified.put(artifact.modelId, artifact) != null) {
                     throw new IOException("duplicate artifact ID: " + artifact.modelId);
                 }
@@ -69,14 +71,16 @@ final class ArtifactVerifier {
         }
     }
 
-    private VerifiedArtifact verifyOne(JSONObject value) throws IOException, JSONException {
+    private VerifiedArtifact verifyOne(
+            JSONObject value, Map<String, String> verifiedDigests)
+            throws IOException, JSONException {
         String modelId = value.getString("model_id");
         if (!MODEL_ID.matcher(modelId).matches()) {
             throw new IOException("invalid model ID");
         }
-        File artifact = verifyFile(modelId, value);
+        File artifact = verifyFile(modelId, value, verifiedDigests);
         if (value.has("bundle_members")) {
-            verifyBundle(modelId, artifact, value);
+            verifyBundle(modelId, artifact, value, verifiedDigests);
         }
         return new VerifiedArtifact(
                 modelId,
@@ -89,7 +93,8 @@ final class ArtifactVerifier {
                 strings(value.getJSONArray("languages")));
     }
 
-    private File verifyFile(String owner, JSONObject value)
+    private File verifyFile(
+            String owner, JSONObject value, Map<String, String> verifiedDigests)
             throws IOException, JSONException {
         String relativePath = value.getString("relative_path");
         File artifact = new File(configurationDirectory, relativePath).getCanonicalFile();
@@ -105,7 +110,11 @@ final class ArtifactVerifier {
         if (!DIGEST.matcher(expectedDigest).matches()) {
             throw new IOException(owner + ": malformed digest");
         }
-        String actualDigest = sha256(artifact);
+        String actualDigest = verifiedDigests.get(artifact.getPath());
+        if (actualDigest == null) {
+            actualDigest = sha256(artifact);
+            verifiedDigests.put(artifact.getPath(), actualDigest);
+        }
         if (!MessageDigest.isEqual(
                 expectedDigest.getBytes(StandardCharsets.US_ASCII),
                 actualDigest.getBytes(StandardCharsets.US_ASCII))) {
@@ -114,7 +123,11 @@ final class ArtifactVerifier {
         return artifact;
     }
 
-    private void verifyBundle(String modelId, File descriptor, JSONObject outer)
+    private void verifyBundle(
+            String modelId,
+            File descriptor,
+            JSONObject outer,
+            Map<String, String> verifiedDigests)
             throws IOException, JSONException {
         JSONObject inner = new JSONObject(readUtf8(
                 descriptor, MAX_BUNDLE_DESCRIPTOR_BYTES));
@@ -142,7 +155,7 @@ final class ArtifactVerifier {
                     || !locked.getString("sha256").equals(recorded.getString("sha256"))) {
                 throw new IOException(modelId + ": bundle descriptor member mismatch");
             }
-            verifyFile(modelId + "/" + name, locked);
+            verifyFile(modelId + "/" + name, locked, verifiedDigests);
         }
     }
 

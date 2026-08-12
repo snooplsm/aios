@@ -8,10 +8,12 @@ Example on the Linux build host:
 ```text
 python3 vendor/aios/tools/generate_model_pack.py \
   --acceptance /secure/local/model_acceptance.json \
-  --source gemma4-e2b-mobile-text:gpu=/secure/models/gemma4-e2b-mobile-text.litertlm \
+  --source gemma4-e2b-mobile-text:gpu=/secure/models/gemma-4-E2B-it.litertlm \
+  --source gemma4-e2b-mobile-multimodal:gpu=/secure/models/gemma-4-E2B-it.litertlm \
   --source whisper-base-multilingual-quantized:cpu=/secure/models/ggml-base-q5_1.bin \
   --source supertonic3-en-es-int8:cpu=/secure/models/supertonic3.tar.bz2 \
   --license-file gemma4-e2b-mobile-text=vendor/aios/LICENSE \
+  --license-file gemma4-e2b-mobile-multimodal=vendor/aios/LICENSE \
   --license-file supertonic3-en-es-int8=/secure/licenses/Supertonic-3-OpenRAIL-M.txt
 ```
 
@@ -19,6 +21,10 @@ The generator refuses unknown IDs, mismatched licenses, unsupported formats,
 duplicate IDs, and non-empty output directories. It copies artifacts into the
 ignored `generated/modelpack` tree, computes SHA-256 and exact size, produces an
 artifact manifest, and generates Soong modules plus the product make fragment.
+When separate logical text and media entries use the same verified Gemma file,
+the manifest preserves both capability records but the generated product stores
+one physical weight file. Deduplication is allowed only when digest, size,
+format, runtime, backend, license URL, and packaged-license lock all match.
 For a catalogued bundle such as Supertonic 3, it first verifies the archive's
 exact size and SHA-256, rejects links or unsafe member paths, extracts only the
 flat allowlisted members without using a general archive extractor, and then

@@ -186,6 +186,15 @@ class ModelCatalogTests(unittest.TestCase):
     def test_pixel_10_selects_12gb_tier(self):
         self.assertEqual("edge_12gb", validator.select_tier(self.catalog, 12288))
 
+    def test_gemma4_candidates_are_bound_to_official_litert_artifacts(self):
+        model = next(item for item in self.catalog["models"]
+                     if item["id"] == "gemma4-e2b-mobile-text")
+        model["reference_artifact"]["sha256"] = "0" * 64
+
+        with self.assertRaisesRegex(
+                validator.ValidationError, "pinned LiteRT-LM artifact"):
+            validator.validate_catalog(self.catalog)
+
     def test_high_memory_tier_exposes_ordered_independent_fallbacks(self):
         roles = validator.tier_candidate_roles(self.catalog, "edge_16gb_plus")
 
@@ -1069,11 +1078,20 @@ class ModelPackTests(unittest.TestCase):
                     temporary / "pack",
                 )
 
-    def test_generates_digest_manifest_and_soong_files(self):
+    def test_generates_digest_manifest_and_deduplicates_shared_weights(self):
         with tempfile.TemporaryDirectory() as raw:
             temporary = Path(raw)
             model = temporary / "model.litertlm"
             model.write_bytes(b"test-only-model-bytes")
+            fixture_digest = hashlib.sha256(model.read_bytes()).hexdigest()
+            catalog = load("model_catalog.json")
+            for item in catalog["models"]:
+                if item["id"] in {
+                        "gemma4-e2b-mobile-text",
+                        "gemma4-e2b-mobile-multimodal"}:
+                    item["reference_artifact"]["sha256"] = fixture_digest
+            catalog_path = temporary / "catalog.json"
+            catalog_path.write_text(json.dumps(catalog), encoding="utf-8")
             acceptance = temporary / "acceptance.json"
             acceptance.write_text(json.dumps({
                 "schema_version": 1,
@@ -1082,20 +1100,39 @@ class ModelPackTests(unittest.TestCase):
                     "license_url": "https://ai.google.dev/gemma/apache_2",
                     "accepted_at": "2026-08-09T00:00:00Z",
                     "accepted_by": "unit-test"
+                }, {
+                    "model_id": "gemma4-e2b-mobile-multimodal",
+                    "license_url": "https://ai.google.dev/gemma/apache_2",
+                    "accepted_at": "2026-08-09T00:00:00Z",
+                    "accepted_by": "unit-test"
                 }]
             }), encoding="utf-8")
             output = temporary / "pack"
             manifest = packager.generate(
-                ROOT / "config" / "model_catalog.json",
+                catalog_path,
                 acceptance,
-                [packager.Source("gemma4-e2b-mobile-text", None, model)],
+                [
+                    packager.Source("gemma4-e2b-mobile-text", None, model),
+                    packager.Source("gemma4-e2b-mobile-multimodal", None, model),
+                ],
                 output,
-                [packager.LicenseSource("gemma4-e2b-mobile-text", ROOT / "LICENSE")],
+                [
+                    packager.LicenseSource(
+                        "gemma4-e2b-mobile-text", ROOT / "LICENSE"),
+                    packager.LicenseSource(
+                        "gemma4-e2b-mobile-multimodal", ROOT / "LICENSE"),
+                ],
             )
-            artifact = manifest["artifacts"][0]
+            self.assertEqual(2, len(manifest["artifacts"]))
+            artifact, media_artifact = manifest["artifacts"]
             self.assertEqual(hashlib.sha256(model.read_bytes()).hexdigest(), artifact["sha256"])
             self.assertEqual(model.stat().st_size, artifact["size_bytes"])
             self.assertEqual("gpu", artifact["backend"])
+            self.assertEqual(artifact["relative_path"], media_artifact["relative_path"])
+            self.assertEqual(
+                ["gemma4-e2b-mobile-text.litertlm"],
+                [item.name for item in (output / "assets").glob("*.litertlm")],
+            )
             self.assertEqual(
                 hashlib.sha256((ROOT / "LICENSE").read_bytes()).hexdigest(),
                 artifact["packaged_license"]["sha256"],
@@ -1128,8 +1165,16 @@ class ModelPackTests(unittest.TestCase):
                 }]
             }), encoding="utf-8")
             output = temporary / "pack"
+            catalog = load("model_catalog.json")
+            catalog_model = next(
+                item for item in catalog["models"]
+                if item["id"] == "gemma4-e2b-mobile-text")
+            catalog_model["reference_artifact"]["sha256"] = hashlib.sha256(
+                model.read_bytes()).hexdigest()
+            catalog_path = temporary / "catalog.json"
+            catalog_path.write_text(json.dumps(catalog), encoding="utf-8")
             packager.generate(
-                ROOT / "config" / "model_catalog.json",
+                catalog_path,
                 acceptance,
                 [packager.Source("gemma4-e2b-mobile-text", None, model)],
                 output,

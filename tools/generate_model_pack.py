@@ -162,6 +162,15 @@ def validate_inputs(
     result = []
     seen: set[str] = set()
     seen_modules: set[str] = set()
+    source_digests: dict[Path, str] = {}
+
+    def source_digest(path: Path) -> str:
+        digest = source_digests.get(path)
+        if digest is None:
+            digest = sha256(path)
+            source_digests[path] = digest
+        return digest
+
     for source in sources:
         if source.model_id in seen:
             raise PackError(f"duplicate source for {source.model_id}")
@@ -220,7 +229,8 @@ def validate_inputs(
             if artifact_format not in model.get("artifact_formats", []):
                 raise PackError(f"catalog does not allow {suffix} for {source.model_id}")
             reference = model.get("reference_artifact")
-            if reference is not None and sha256(resolved) != reference.get("sha256"):
+            if (reference is not None
+                    and source_digest(resolved) != reference.get("sha256")):
                 raise PackError(f"reference artifact digest mismatch for {source.model_id}")
         module = module_name(source.model_id)
         if module in seen_modules:
@@ -247,6 +257,7 @@ def verify_generated_pack(output: Path) -> dict[str, Any]:
         raise PackError("generated artifact list is empty")
     seen: set[str] = set()
     assets = (output / "assets").resolve(strict=True)
+    verified_identities: dict[Path, tuple[int, str]] = {}
 
     def verified_file(record: dict[str, Any], owner: str) -> Path:
         raw_relative = record.get("relative_path")
@@ -263,9 +274,15 @@ def verify_generated_pack(output: Path) -> dict[str, Any]:
         if record.get("size_bytes", 0) <= 0 or path.stat().st_size != record["size_bytes"]:
             raise PackError(f"generated artifact size mismatch: {owner}")
         expected = record.get("sha256")
-        if not isinstance(expected, str) or not DIGEST_PATTERN.fullmatch(expected) \
-                or sha256(path) != expected:
+        if not isinstance(expected, str) or not DIGEST_PATTERN.fullmatch(expected):
             raise PackError(f"generated artifact digest mismatch: {owner}")
+        identity = (record["size_bytes"], expected)
+        prior = verified_identities.get(path)
+        if prior is not None and prior != identity:
+            raise PackError(f"shared generated artifact identity mismatch: {owner}")
+        if prior is None and sha256(path) != expected:
+            raise PackError(f"generated artifact digest mismatch: {owner}")
+        verified_identities[path] = identity
         return path
 
     for artifact in artifacts:
@@ -456,6 +473,8 @@ def generate(
     manifest_entries = []
     blueprint_blocks = []
     modules = []
+    shared_artifacts: dict[tuple[str, int, str, str, str, str, str], dict[str, Any]] = {}
+    source_digests: dict[Path, str] = {}
     for model, source, license_source in validated:
         license_module = (module_name(f"{model['id']}_model_license_terms")
                           if license_source is not None else None)
@@ -467,29 +486,60 @@ def generate(
             modules.extend(bundle_modules)
         else:
             suffix = source.path.suffix.lower()
-            destination_name = source.model_id + suffix
-            destination = assets / destination_name
-            shutil.copyfile(source.path, destination)
-            digest = sha256(destination)
-            module = module_name(source.model_id)
-            modules.append(module)
-            blueprint_blocks.append(
-                "prebuilt_etc {\n"
-                f"    name: \"{module}\",\n"
-                f"    src: \"assets/{destination_name}\",\n"
-                f"    filename: \"{destination_name}\",\n"
-                "    sub_dir: \"aios/models\",\n"
-                f"{licenses_property(license_module)}"
-                "    product_specific: true,\n"
-                "}\n"
+            source_digest = source_digests.get(source.path)
+            if source_digest is None:
+                source_digest = sha256(source.path)
+                source_digests[source.path] = source_digest
+            reference = model.get("reference_artifact")
+            if (reference is not None
+                    and source_digest != reference.get("sha256")):
+                raise PackError(
+                    f"reference artifact changed after validation for {source.model_id}")
+            source_size = source.path.stat().st_size
+            artifact_key = (
+                source_digest,
+                source_size,
+                suffix,
+                model["runtime"],
+                source.backend,
+                model["license_url"],
+                json.dumps(model.get("packaged_license"), sort_keys=True),
             )
+            shared = shared_artifacts.get(artifact_key)
+            if shared is None:
+                destination_name = source.model_id + suffix
+                destination = assets / destination_name
+                shutil.copyfile(source.path, destination)
+                digest = sha256(destination)
+                if digest != source_digest:
+                    raise PackError(
+                        f"model source changed while copying {source.model_id}")
+                module = module_name(source.model_id)
+                modules.append(module)
+                blueprint_blocks.append(
+                    "prebuilt_etc {\n"
+                    f"    name: \"{module}\",\n"
+                    f"    src: \"assets/{destination_name}\",\n"
+                    f"    filename: \"{destination_name}\",\n"
+                    "    sub_dir: \"aios/models\",\n"
+                    f"{licenses_property(license_module)}"
+                    "    product_specific: true,\n"
+                    "}\n"
+                )
+                shared = {
+                    "destination_name": destination_name,
+                    "sha256": digest,
+                    "size_bytes": destination.stat().st_size,
+                }
+                shared_artifacts[artifact_key] = shared
+            destination_name = shared["destination_name"]
             entry = {
                 "model_id": source.model_id,
                 "artifact_format": (
                     "ggml" if suffix == ".bin" else suffix.removeprefix(".")),
                 "relative_path": f"models/{destination_name}",
-                "sha256": digest,
-                "size_bytes": destination.stat().st_size,
+                "sha256": shared["sha256"],
+                "size_bytes": shared["size_bytes"],
                 "runtime": model["runtime"],
                 "backend": source.backend,
                 "capabilities": model["capabilities"],
