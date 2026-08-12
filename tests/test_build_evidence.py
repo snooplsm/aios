@@ -72,9 +72,9 @@ class BuildEvidenceTests(unittest.TestCase):
 
         out = base / "out"
         product_out = out / "target" / "product" / target_device
-        (product_out / "product").mkdir(parents=True)
+        (product_out / "product" / "etc").mkdir(parents=True)
         (product_out / "system").mkdir(parents=True)
-        (product_out / "product" / "build.prop").write_text(
+        (product_out / "product" / "etc" / "build.prop").write_text(
             "ro.aios.version=0.1-dev\n", encoding="utf-8"
         )
         (product_out / "system" / "build.prop").write_text(
@@ -92,7 +92,7 @@ class BuildEvidenceTests(unittest.TestCase):
         for relative in lanes["expected_product_artifacts"]:
             target = product_out / relative
             installed.append({
-                "Name": "/" + relative.removeprefix("product/"),
+                "Name": "/" + relative,
                 "Size": target.stat().st_size,
                 "SHA256": hashlib.sha256(target.read_bytes()).hexdigest(),
             })
@@ -128,6 +128,30 @@ class BuildEvidenceTests(unittest.TestCase):
                 value["installed_files_product_sha256"],
             )
             self.assertTrue(output.is_file())
+
+    def test_accepts_legacy_product_root_build_prop(self):
+        with tempfile.TemporaryDirectory() as raw:
+            aios, manifest, lock, out, log, product_out = self.create_fixture(raw)
+            installed = product_out / "product" / "etc" / "build.prop"
+            legacy = product_out / "product" / "build.prop"
+            installed.replace(legacy)
+            value = evidence.capture(
+                aios, "android_latest_integration", manifest, lock, out, log
+            )
+            self.assertEqual("passed", value["status"])
+
+    def test_accepts_legacy_partition_relative_manifest_paths(self):
+        with tempfile.TemporaryDirectory() as raw:
+            aios, manifest, lock, out, log, product_out = self.create_fixture(raw)
+            installed_path = product_out / "installed-files-product.json"
+            installed = json.loads(installed_path.read_text(encoding="utf-8"))
+            for item in installed:
+                item["Name"] = item["Name"].removeprefix("/product")
+            installed_path.write_text(json.dumps(installed), encoding="utf-8")
+            value = evidence.capture(
+                aios, "android_latest_integration", manifest, lock, out, log
+            )
+            self.assertEqual("passed", value["status"])
 
     def test_captures_android_emulator_lane_without_physical_claim(self):
         with tempfile.TemporaryDirectory() as raw:

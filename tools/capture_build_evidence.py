@@ -161,7 +161,12 @@ def require_manifest_membership(
         raise BuildEvidenceError(
             f"expected installed artifact is outside product partition: {relative}")
     installed_name = relative[len(prefix):]
-    record = records.get(installed_name)
+    # Android 17 records installed product paths as /product/..., while older
+    # branches emitted paths relative to the product partition. Bind either
+    # representation to the same explicitly product-scoped expected artifact.
+    record = records.get(relative)
+    if record is None:
+        record = records.get(installed_name)
     if record is None:
         raise BuildEvidenceError(
             f"artifact is absent from installed-files-product.json: {relative}")
@@ -182,6 +187,19 @@ def find_system_build_prop(product_out: Path) -> Path:
         if candidate.is_file():
             return candidate
     raise BuildEvidenceError("missing system build.prop in product output")
+
+
+def find_product_build_prop(product_out: Path) -> Path:
+    candidates = [
+        # Older trees staged partition properties at the partition root.
+        product_out / "product" / "build.prop",
+        # Android 17 stages the product property file at its installed location.
+        product_out / "product" / "etc" / "build.prop",
+    ]
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    raise BuildEvidenceError("missing product build.prop in product output")
 
 
 def write_json_atomic(path: Path, value: dict) -> None:
@@ -239,9 +257,7 @@ def capture(
     if not build_log.is_file() or build_log.stat().st_size == 0:
         raise BuildEvidenceError("successful build evidence requires a non-empty log")
     product_out = out_dir.resolve() / "target" / "product" / lane["target_device"]
-    product_properties_path = product_out / "product" / "build.prop"
-    if not product_properties_path.is_file():
-        raise BuildEvidenceError("missing product/build.prop in product output")
+    product_properties_path = find_product_build_prop(product_out)
     product_properties = read_properties(product_properties_path)
     if product_properties.get("ro.aios.version") != "0.1-dev":
         raise BuildEvidenceError("built product does not contain the expected AIOS identity")
