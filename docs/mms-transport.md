@@ -11,10 +11,13 @@ and AOSP's internal MMS source library.
 The protocol implementation is not copied into AIOS. The Messaging Soong module
 links `framework-mms-shared-srcs`, the Android 17 `frameworks/base` filegroup that
 owns `com.google.android.mms`. Patch
-`patches/0002-framework-mms-aios-visibility.patch` adds only the AIOS Messaging
-module to that filegroup's visibility list at frameworks/base commit
-`94b4c163b7dfe5ce3607f7bb8456f9573f7de57d`. Updating AOSP therefore keeps the
-codec and provider persister with their upstream owner; the patch verifier makes
+`patches/0002-framework-mms-aios-visibility.patch` adds Soong's narrowest legal
+platform-to-vendor visibility boundary, `//vendor:__subpackages__`, to that
+filegroup at frameworks/base commit
+`94b4c163b7dfe5ce3607f7bb8456f9573f7de57d`. Soong rejects visibility grants
+from a platform package to one specific package below `//vendor`; within AIOS,
+Messaging remains the only consumer. Updating AOSP therefore keeps the codec
+and provider persister with their upstream owner, while the patch verifier makes
 any changed boundary explicit.
 
 Shared UDF, repository, receiver, and UI code remains under `apps/messaging/src`

@@ -28,7 +28,7 @@
       "project": "frameworks/base",
       "file": "0002-framework-mms-aios-visibility.patch",
       "base_revision": "94b4c163b7dfe5ce3607f7bb8456f9573f7de57d",
-      "sha256": "2054489549ce6d61dc0e3225de4c4c68eff233f0697ca67541c5fbf771e5ff0f",
+      "sha256": "d23751af96b0a0d24bc6b2b1cf6c5a237b3959b725d3941cbbfe7d2e75247dfe",
       "owner": "messaging-platform",
       "paths": [
         "telephony/common/Android.bp"
@@ -37,9 +37,9 @@
         "tests/test_patch_series.py",
         "tests/test_validate_config.py"
       ],
-      "reason": "Allow the platform-signed AIOS Messaging app to statically link AOSP's maintained MMS codec and Telephony provider persister without copying protocol sources into vendor code.",
+      "reason": "Allow the platform-signed AIOS Messaging app to statically link AOSP's maintained MMS codec and Telephony provider persister without copying protocol sources into vendor code, using Soong's required platform-to-vendor subtree visibility boundary.",
       "removal_condition": "Remove when framework-mms-shared-srcs is public to product modules or AOSP provides an equivalent supported MMS codec and provider library.",
-      "rebase_notes": "Re-export from the tracked frameworks/base commit, keep the change to the single telephony/common/Android.bp visibility entry, and rebuild AiosMessaging with Soong."
+      "rebase_notes": "Re-export from the tracked frameworks/base commit, keep the change to the single telephony/common/Android.bp visibility entry using //vendor:__subpackages__, and rebuild AiosMessaging with Soong."
     }
   ]
 }

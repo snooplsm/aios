@@ -5704,9 +5704,10 @@ def validate_release_configuration(root: Path) -> None:
     mms_patch_text = (root / "patches" / mms_patches[0]["file"]).read_text(
         encoding="utf-8"
     )
-    require('"//vendor/aios/apps/messaging"' in mms_patch_text
+    require('"//vendor:__subpackages__"' in mms_patch_text
+            and '"//vendor/aios/apps/messaging"' not in mms_patch_text
             and "framework-mms-shared-srcs" in mms_patch_text,
-            "MMS patch may only expose the maintained framework source group")
+            "MMS patch must use Soong's legal platform-to-vendor visibility boundary")
     dialer_patch_text = (root / "patches" / dialer_patches[0]["file"]).read_text(
         encoding="utf-8"
     )
