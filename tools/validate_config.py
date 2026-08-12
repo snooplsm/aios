@@ -1087,6 +1087,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "preview/whisperpolicycheck/build.gradle.kts",
         "tools/bootstrap_reference_model.py",
         "tools/record_model_acceptance.py",
+        "tools/capture_model_pack_evidence.py",
         "tools/generate_model_pack.py",
         "tools/generate_model_admission.py",
         "tools/generate_runtime_pack.py",

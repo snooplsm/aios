@@ -88,3 +88,17 @@ update envelope and rollback protection.
 
 Never commit `model_acceptance.json`: it may identify a builder. The example file
 is a shape reference only and does not constitute acceptance.
+
+After generation, capture a small verification record that contains public
+artifact identities but no weights or private acceptance data:
+
+```text
+python3 vendor/aios/tools/capture_model_pack_evidence.py \
+  --pack /secure/output/modelpack \
+  --output evidence/model-pack/e2b.json
+```
+
+Capture requires a clean checkout, re-verifies every generated file, binds the
+manifest to the checked-in catalog and immutable Git revision, records physical
+model-payload deduplication, and explicitly does not claim inference or
+physical-device proof.
