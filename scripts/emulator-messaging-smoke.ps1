@@ -58,21 +58,31 @@ function Test-SameValues {
 
 function Find-DiscoveryFile {
     $running = Join-Path $env:LOCALAPPDATA "Temp\avd\running"
-    $matches = @()
+    $discoveryFiles = @()
     if (Test-Path -LiteralPath $running) {
         foreach ($candidate in @(Get-ChildItem -LiteralPath $running -Filter 'pid_*.ini' -File)) {
+            if ($candidate.BaseName -notmatch '^pid_(?<pid>[0-9]+)(?:_info)?$') {
+                continue
+            }
+            $emulatorPid = [int]$Matches['pid']
+            $emulatorProcess = Get-Process -Id $emulatorPid `
+                -ErrorAction SilentlyContinue
+            if ($null -eq $emulatorProcess -or
+                    $emulatorProcess.ProcessName -notin @('emulator', 'qemu-system-x86_64-headless')) {
+                continue
+            }
             $lines = @(Get-Content -LiteralPath $candidate.FullName)
             if ($lines -contains "port.serial=$consolePort" -and
                 $lines -match '^grpc\.port=[0-9]+$' -and
                 $lines -match '^grpc\.token=.+$') {
-                $matches += $candidate.FullName
+                $discoveryFiles += $candidate.FullName
             }
         }
     }
-    if ($matches.Count -ne 1) {
-        throw "Expected one authenticated emulator discovery file for $Serial, found $($matches.Count)"
+    if ($discoveryFiles.Count -ne 1) {
+        throw "Expected one authenticated emulator discovery file for $Serial, found $($discoveryFiles.Count)"
     }
-    return $matches[0]
+    return $discoveryFiles[0]
 }
 
 function Get-UiHierarchy {

@@ -1804,6 +1804,8 @@ def validate_aosp_overlay(root: Path) -> None:
             and "decodesFailurePhoneResponseWithUnknownField" in emulator_control_test
             and "ro.kernel.qemu" in messaging_smoke_script
             and "Find-DiscoveryFile" in messaging_smoke_script
+            and "Get-Process -Id" in messaging_smoke_script
+            and "qemu-system-x86_64-headless" in messaging_smoke_script
             and "Get-FileHash -LiteralPath $apkPath -Algorithm SHA256"
             in messaging_smoke_script
             and "production_sms_deliver_provider_path = $true"
