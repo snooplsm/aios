@@ -837,6 +837,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "scripts/refresh-aosp-integration.sh",
         "scripts/capture-aosp-lock.sh",
         "scripts/build-aosp-lane.sh",
+        "scripts/install-cuttlefish-host.sh",
         "docs/cuttlefish-bringup.md",
         "docs/emulator-bringup.md",
         "permissions/privapp-permissions-aios.xml",
@@ -1374,6 +1375,20 @@ def validate_aosp_overlay(root: Path) -> None:
             "com.aios.model.MODEL_SERVICE"):
         require(action in cuttlefish_evidence_source,
                 f"Cuttlefish boot evidence must resolve {action}")
+    cuttlefish_host_setup = (root / "scripts" /
+                             "install-cuttlefish-host.sh").read_text(
+        encoding="utf-8"
+    )
+    require("if [[ \"${EUID}\" -ne 0 ]]" in cuttlefish_host_setup
+            and "https://us-apt.pkg.dev/doc/repo-signing-key.gpg"
+            in cuttlefish_host_setup
+            and "android-cuttlefish-artifacts android-cuttlefish main"
+            in cuttlefish_host_setup
+            and "cuttlefish-base cuttlefish-user" in cuttlefish_host_setup
+            and "usermod -aG kvm,cvdnetwork,render" in cuttlefish_host_setup
+            and "Restart the WSL distribution" in cuttlefish_host_setup,
+            "Cuttlefish host setup must use official packages, narrow groups, "
+            "and require a membership refresh")
     lock_script = (root / "scripts" / "capture-aosp-lock.sh").read_text(
         encoding="utf-8"
     )

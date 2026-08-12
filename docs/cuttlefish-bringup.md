@@ -15,9 +15,16 @@ vendor/aios/scripts/build-aosp-lane.sh \
   12
 ```
 
-The host must expose `/dev/kvm`, have the matching Cuttlefish host support
-installed, and use the host tools built with the same source checkout. Launch
-one clean instance after selecting the AIOS product:
+The host must expose `/dev/kvm`, have Google's Cuttlefish host support installed,
+and use the host tools built with the same source checkout. On a new Linux/WSL
+host, install the official Artifact Registry packages and required group
+membership, then restart the distribution so the membership is active:
+
+```text
+sudo vendor/aios/scripts/install-cuttlefish-host.sh "$USER"
+```
+
+Launch one clean instance after selecting the AIOS product:
 
 ```text
 cd /absolute/path/to/aosp
