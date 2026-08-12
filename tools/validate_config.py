@@ -6195,6 +6195,17 @@ def validate_release_configuration(root: Path) -> None:
                 and "git -C $repositoryRoot diff --quiet --" in script
                 and "git -C $repositoryRoot diff --cached --quiet --" in script,
                 f"{script_name}: evidence must bind a clean exact AIOS revision")
+    telecom_smoke = (root / "scripts" / "emulator-telecom-smoke.ps1").read_text(
+        encoding="utf-8"
+    )
+    require("am start -W -a com.aios.phone.smoke.REGISTER" in telecom_smoke
+            and "Wait-ForPhoneAccountState -AccountId $fixtureAccount -Enabled $false"
+            in telecom_smoke
+            and "Wait-ForPhoneAccountState -AccountId $fixtureAccount -Enabled $true"
+            in telecom_smoke
+            and "Wait-ForPhoneAccountState -AccountId $fixtureSecondaryAccount -Enabled $true"
+            in telecom_smoke,
+            "Telecom smoke must wait for PhoneAccount registration and enablement")
 
     status_document = load_json(root / "config" / "release_status.json")
     require(status_document.get("schema_version") == 1,
