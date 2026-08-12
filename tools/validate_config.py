@@ -235,6 +235,10 @@ def validate_catalog(catalog: dict[str, Any]) -> None:
                 f"{model['id']}: allowed artifact formats are required")
         require(str(model.get("license_url", "")).startswith("https://"),
                 f"{model['id']}: an HTTPS license URL is required")
+        if model.get("family") == "gemma4":
+            require(model.get("license_url") == "https://ai.google.dev/gemma/apache_2"
+                    and model.get("license_spdx") == "Apache-2.0",
+                    f"{model['id']}: Gemma 4 must use its Apache-2.0 model license")
         packaged_license = model.get("packaged_license")
         if packaged_license is not None:
             require(isinstance(packaged_license, dict)
@@ -253,6 +257,16 @@ def validate_catalog(catalog: dict[str, Any]) -> None:
                                             str(kind)) is not None
                             for kind in packaged_license["soong_license_kinds"]),
                     f"{model['id']}: packaged model license needs exact file metadata")
+        if model.get("family") == "gemma4":
+            require(packaged_license == {
+                        "filename": "LICENSE.Apache-2.0.txt",
+                        "size_bytes": 11357,
+                        "sha256": ("c71d239df91726fc519c6eb72d318ec65820627232b2f796"
+                                   "219e87dcf35d0ab4"),
+                        "soong_license_kinds": [
+                            "SPDX-license-identifier-Apache-2.0"],
+                    },
+                    f"{model['id']}: Gemma 4 must package its Apache-2.0 license")
         allowed_backends = model.get("allowed_backends")
         require(isinstance(allowed_backends, list) and allowed_backends
                 and len(allowed_backends) == len(set(allowed_backends)),

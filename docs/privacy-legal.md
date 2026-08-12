@@ -97,13 +97,16 @@ that copy is published.
 ## Model licensing
 
 An "open-weight" model is not necessarily OSI open source and does not inherit
-the Apache-2.0 license of AIOS code. Supertonic 3 weights use OpenRAIL-M, which
+the license of AIOS code. Gemma 4 is explicitly Apache-2.0; each generated Gemma
+4 product directory therefore carries the exact catalog-pinned Apache-2.0 text
+and its Soong modules declare that SPDX license. Supertonic 3 weights use
+OpenRAIL-M, which
 includes use restrictions and redistribution conditions. Its Sherpa conversion
 archive contains an MIT code license that is not a substitute for the weights'
 license. The model packer therefore requires the separately pinned OpenRAIL-M
 text, installs it with the weights, and assigns the generated Soong modules a
-restricted license kind. Gemma terms and every future model license still need
-qualified review before a public image or device is distributed.
+restricted license kind. Every future model license still needs qualified review
+before a public image or device is distributed.
 
 ## Sources
 
@@ -112,3 +115,7 @@ qualified review before a public image or device is distributed.
   https://leginfo.legislature.ca.gov/faces/codes_displaySection.xhtml?lawCode=PEN&sectionNum=632
 - Supertonic 3 model license at the pinned revision:
   https://huggingface.co/Supertone/supertonic-3/blob/724fb5abbf5502583fb520898d45929e62f02c0b/LICENSE
+- Gemma 4 model card and Apache-2.0 designation:
+  https://ai.google.dev/gemma/docs/core/model_card_4
+- Gemma 4 Apache-2.0 license text:
+  https://ai.google.dev/gemma/apache_2

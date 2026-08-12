@@ -11,6 +11,7 @@ python3 vendor/aios/tools/generate_model_pack.py \
   --source gemma4-e2b-mobile-text:gpu=/secure/models/gemma4-e2b-mobile-text.litertlm \
   --source whisper-base-multilingual-quantized:cpu=/secure/models/ggml-base-q5_1.bin \
   --source supertonic3-en-es-int8:cpu=/secure/models/supertonic3.tar.bz2 \
+  --license-file gemma4-e2b-mobile-text=vendor/aios/LICENSE \
   --license-file supertonic3-en-es-int8=/secure/licenses/Supertonic-3-OpenRAIL-M.txt
 ```
 
@@ -32,7 +33,9 @@ from being mistaken for the separate license governing its weights.
 The generator also emits a per-model Soong `license` module from the catalogued
 license kinds and explicitly attaches it to the descriptor, every weight-file
 prebuilt, and the installed license text. Restricted weights therefore cannot
-silently inherit AIOS's Apache-2.0 source-code metadata.
+silently inherit AIOS's Apache-2.0 source-code metadata. Gemma 4 is itself
+Apache-2.0, but its model artifact still gets a separately verified license copy
+rather than relying on the surrounding repository license by implication.
 
 The generated manifest and files land together on the verified `/product`
 partition. Model Broker still recomputes size and SHA-256 before activation.

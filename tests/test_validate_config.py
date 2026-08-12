@@ -1079,7 +1079,7 @@ class ModelPackTests(unittest.TestCase):
                 "schema_version": 1,
                 "accepted": [{
                     "model_id": "gemma4-e2b-mobile-text",
-                    "license_url": "https://ai.google.dev/gemma/terms",
+                    "license_url": "https://ai.google.dev/gemma/apache_2",
                     "accepted_at": "2026-08-09T00:00:00Z",
                     "accepted_by": "unit-test"
                 }]
@@ -1090,12 +1090,24 @@ class ModelPackTests(unittest.TestCase):
                 acceptance,
                 [packager.Source("gemma4-e2b-mobile-text", None, model)],
                 output,
+                [packager.LicenseSource("gemma4-e2b-mobile-text", ROOT / "LICENSE")],
             )
             artifact = manifest["artifacts"][0]
             self.assertEqual(hashlib.sha256(model.read_bytes()).hexdigest(), artifact["sha256"])
             self.assertEqual(model.stat().st_size, artifact["size_bytes"])
             self.assertEqual("gpu", artifact["backend"])
+            self.assertEqual(
+                hashlib.sha256((ROOT / "LICENSE").read_bytes()).hexdigest(),
+                artifact["packaged_license"]["sha256"],
+            )
+            self.assertEqual(
+                (ROOT / "LICENSE").read_bytes(),
+                (output / "assets" / "gemma4-e2b-mobile-text"
+                 / "LICENSE.Apache-2.0.txt").read_bytes(),
+            )
             self.assertIn("aios_model_gemma4_e2b_mobile_text",
+                          (output / "Android.bp").read_text(encoding="utf-8"))
+            self.assertIn("SPDX-license-identifier-Apache-2.0",
                           (output / "Android.bp").read_text(encoding="utf-8"))
             self.assertIn("aios_model_artifacts",
                           (output / "aios_model_pack.mk").read_text(encoding="utf-8"))
@@ -1110,7 +1122,7 @@ class ModelPackTests(unittest.TestCase):
                 "schema_version": 1,
                 "accepted": [{
                     "model_id": "gemma4-e2b-mobile-text",
-                    "license_url": "https://ai.google.dev/gemma/terms",
+                    "license_url": "https://ai.google.dev/gemma/apache_2",
                     "accepted_at": "2026-08-09T00:00:00Z",
                     "accepted_by": "unit-test"
                 }]
@@ -1121,6 +1133,7 @@ class ModelPackTests(unittest.TestCase):
                 acceptance,
                 [packager.Source("gemma4-e2b-mobile-text", None, model)],
                 output,
+                [packager.LicenseSource("gemma4-e2b-mobile-text", ROOT / "LICENSE")],
             )
             (output / "assets" / "gemma4-e2b-mobile-text.litertlm").write_bytes(b"tampered")
             with self.assertRaisesRegex(packager.PackError, "size mismatch|digest mismatch"):

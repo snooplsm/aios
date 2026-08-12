@@ -17,7 +17,14 @@
       "allowed_backends": ["gpu", "cpu"],
       "default_backend": "gpu",
       "artifact_formats": ["litertlm"],
-      "license_url": "https://ai.google.dev/gemma/terms",
+      "license_url": "https://ai.google.dev/gemma/apache_2",
+      "license_spdx": "Apache-2.0",
+      "packaged_license": {
+        "filename": "LICENSE.Apache-2.0.txt",
+        "size_bytes": 11357,
+        "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+        "soong_license_kinds": ["SPDX-license-identifier-Apache-2.0"]
+      },
       "estimated_resident_mb": 840,
       "distribution": "licensed_build_input",
       "status": "candidate"
@@ -31,7 +38,14 @@
       "allowed_backends": ["gpu", "cpu"],
       "default_backend": "gpu",
       "artifact_formats": ["litertlm"],
-      "license_url": "https://ai.google.dev/gemma/terms",
+      "license_url": "https://ai.google.dev/gemma/apache_2",
+      "license_spdx": "Apache-2.0",
+      "packaged_license": {
+        "filename": "LICENSE.Apache-2.0.txt",
+        "size_bytes": 11357,
+        "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+        "soong_license_kinds": ["SPDX-license-identifier-Apache-2.0"]
+      },
       "estimated_resident_mb": 1100,
       "distribution": "licensed_build_input",
       "status": "candidate"
@@ -45,7 +59,14 @@
       "allowed_backends": ["gpu", "cpu"],
       "default_backend": "gpu",
       "artifact_formats": ["litertlm"],
-      "license_url": "https://ai.google.dev/gemma/terms",
+      "license_url": "https://ai.google.dev/gemma/apache_2",
+      "license_spdx": "Apache-2.0",
+      "packaged_license": {
+        "filename": "LICENSE.Apache-2.0.txt",
+        "size_bytes": 11357,
+        "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+        "soong_license_kinds": ["SPDX-license-identifier-Apache-2.0"]
+      },
       "estimated_resident_mb": 2200,
       "distribution": "licensed_build_input",
       "status": "candidate"
@@ -59,7 +80,14 @@
       "allowed_backends": ["gpu", "cpu"],
       "default_backend": "gpu",
       "artifact_formats": ["litertlm"],
-      "license_url": "https://ai.google.dev/gemma/terms",
+      "license_url": "https://ai.google.dev/gemma/apache_2",
+      "license_spdx": "Apache-2.0",
+      "packaged_license": {
+        "filename": "LICENSE.Apache-2.0.txt",
+        "size_bytes": 11357,
+        "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+        "soong_license_kinds": ["SPDX-license-identifier-Apache-2.0"]
+      },
       "estimated_resident_mb": 2500,
       "distribution": "licensed_build_input",
       "status": "candidate"
