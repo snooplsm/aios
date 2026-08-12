@@ -3,6 +3,22 @@
 Model weights are local build inputs and remain ignored by Git. AIOS packages
 them only after the builder records acceptance of the exact catalog license URL.
 
+Download a catalog-pinned single-file model into a directory outside the source
+checkout. The bootstrap resumes a `.partial` transfer, verifies SHA-256 before
+an atomic publish, refuses symlink targets and concurrent writers, and leaves a
+digest-mismatched partial file uninstalled for inspection:
+
+```text
+python3 vendor/aios/tools/bootstrap_reference_model.py \
+  --model-id gemma4-e2b-mobile-text \
+  --output-directory /secure/models
+```
+
+The E2B text and multimodal catalog entries intentionally reference the same
+published Gemma file, so this download runs once and that path is supplied for
+both logical roles below. Downloading is not license acceptance; the separate
+local acceptance record remains required.
+
 Example on the Linux build host:
 
 ```text

@@ -1078,6 +1078,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "scripts/bootstrap-emulator-asr-fixtures.ps1",
         "scripts/emulator-whisper-provider-smoke.ps1",
         "preview/whisperpolicycheck/build.gradle.kts",
+        "tools/bootstrap_reference_model.py",
         "tools/generate_model_pack.py",
         "tools/generate_model_admission.py",
         "tools/generate_runtime_pack.py",
@@ -3629,6 +3630,17 @@ def validate_aosp_overlay(root: Path) -> None:
                 f'TTS provider lock is stale for {member["path"]}')
     model_packager = (root / "tools" / "generate_model_pack.py").read_text(
         encoding="utf-8")
+    model_bootstrap = (root / "tools" / "bootstrap_reference_model.py").read_text(
+        encoding="utf-8")
+    require("model output directory must be outside the AIOS source tree"
+            in model_bootstrap
+            and "os.O_CREAT | os.O_EXCL | os.O_WRONLY" in model_bootstrap
+            and 'headers["Range"] = f"bytes={offset}-"' in model_bootstrap
+            and "actual_digest = sha256(partial)" in model_bootstrap
+            and "if actual_digest != expected_digest" in model_bootstrap
+            and "os.replace(partial, destination)" in model_bootstrap
+            and "refusing symbolic-link download path" in model_bootstrap,
+            "reference-model bootstrap must remain external, resumable, atomic, and verified")
     require('parser.add_argument("--license-file"' in model_packager
             and "packaged model license missing" in model_packager
             and 'entry["packaged_license"] = license_record' in model_packager
