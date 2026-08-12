@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "gate": "integration.emulator_call_retention",
+  "aios_revision": "d3f4d5420f10f744e87bf11a2452752f1d337c1f",
+  "tracked_source_clean": true,
+  "qemu": true,
+  "android_release": "16",
+  "api_level": 36,
+  "apk_sha256": "66a050bfdb8129c6da2c0be74f965ce5ba231838c0a6c8067018f84b7754da9a",
+  "exact_retention_hours": 24,
+  "active_writer_closed_before_expiry_delete": true,
+  "wall_clock_expiry_deleted": true,
+  "unreadable_metadata_deleted_fail_closed": true,
+  "fresh_artifact_preserved": true,
+  "resumed_artifact_deadline_unchanged": true,
+  "explicit_delete_verified": true,
+  "nearest_elapsed_alarm_verified": true,
+  "empty_store_alarm_cancel_path_exercised": true,
+  "private_artifacts_remaining": 0,
+  "physical_gate_evidence": false,
+  "captured_at": "2026-08-12T22:43:44Z"
+}
