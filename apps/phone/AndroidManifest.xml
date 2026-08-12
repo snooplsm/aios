@@ -16,6 +16,11 @@
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.WRITE_CALL_LOG" />
+    <!-- Android's voicemail provider uses ADD_VOICEMAIL as the runtime/app-op
+         gate even for reads. The dialer role grants it only when requested. -->
+    <uses-permission
+        android:name="com.android.voicemail.permission.ADD_VOICEMAIL"
+        tools:ignore="ProtectedPermissions" />
     <!-- The Soong module is a privileged role-capable system app and is explicitly
          allowlisted in privapp-permissions-aios.xml. -->
     <uses-permission

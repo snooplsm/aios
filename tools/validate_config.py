@@ -2360,6 +2360,7 @@ def validate_aosp_overlay(root: Path) -> None:
             and "MAX_ROWS = 50" in voicemail_source
             and "setDataSource(context, uri)" in voicemail_player
             and "ACTION_FETCH_VOICEMAIL" in voicemail_source
+            and "com.android.voicemail.permission.ADD_VOICEMAIL" in phone_manifest
             and "com.android.voicemail.permission.READ_VOICEMAIL" in phone_manifest
             and "com.android.voicemail.permission.WRITE_VOICEMAIL" in phone_manifest,
             "AIOS Phone must provide bounded, OMTP-aware, provider-streamed voicemail")
@@ -5579,7 +5580,8 @@ def validate_security_surface(root: Path) -> None:
     privileged_text = permissions_path.read_text(encoding="utf-8")
     require("android.permission.RECORD_AUDIO" not in privileged_text
             and "android.permission.READ_CALL_LOG" not in privileged_text
-            and "android.permission.WRITE_CALL_LOG" not in privileged_text,
+            and "android.permission.WRITE_CALL_LOG" not in privileged_text
+            and "com.android.voicemail.permission.ADD_VOICEMAIL" not in privileged_text,
             "runtime permissions must use default-permissions, not privapp allowlisting")
 
     default_permissions_path = root / "permissions" / "default-permissions-aios.xml"
