@@ -745,6 +745,8 @@ class IntegrationStructureTests(unittest.TestCase):
                 )
             shutil.copytree(ROOT / "evidence" / "cuttlefish",
                             temporary / "evidence" / "cuttlefish")
+            shutil.copytree(ROOT / "evidence" / "emulator",
+                            temporary / "evidence" / "emulator")
             value = json.loads((temporary / "config" / "release_status.json")
                                .read_text(encoding="utf-8"))
             value["statuses"]["boot.first_boot"]["status"] = "passed"
@@ -765,6 +767,8 @@ class IntegrationStructureTests(unittest.TestCase):
                             temporary / "config" / name)
             shutil.copytree(ROOT / "evidence" / "cuttlefish",
                             temporary / "evidence" / "cuttlefish")
+            shutil.copytree(ROOT / "evidence" / "emulator",
+                            temporary / "evidence" / "emulator")
             boot_path = next((temporary / "evidence" / "cuttlefish")
                              .rglob("cuttlefish-first-boot.json"))
             boot = json.loads(boot_path.read_text(encoding="utf-8"))
@@ -786,6 +790,8 @@ class IntegrationStructureTests(unittest.TestCase):
                             temporary / "config" / name)
             shutil.copytree(ROOT / "evidence" / "cuttlefish",
                             temporary / "evidence" / "cuttlefish")
+            shutil.copytree(ROOT / "evidence" / "emulator",
+                            temporary / "evidence" / "emulator")
             catalog_path = temporary / "config" / "model_catalog.json"
             catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
             pixel_9a = next(item for item in catalog["known_devices"]
