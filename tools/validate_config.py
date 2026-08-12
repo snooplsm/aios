@@ -1086,6 +1086,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "scripts/emulator-whisper-provider-smoke.ps1",
         "preview/whisperpolicycheck/build.gradle.kts",
         "tools/bootstrap_reference_model.py",
+        "tools/record_model_acceptance.py",
         "tools/generate_model_pack.py",
         "tools/generate_model_admission.py",
         "tools/generate_runtime_pack.py",
@@ -3639,6 +3640,8 @@ def validate_aosp_overlay(root: Path) -> None:
         encoding="utf-8")
     model_bootstrap = (root / "tools" / "bootstrap_reference_model.py").read_text(
         encoding="utf-8")
+    acceptance_recorder = (root / "tools" / "record_model_acceptance.py").read_text(
+        encoding="utf-8")
     require("model output directory must be outside the AIOS source tree"
             in model_bootstrap
             and "os.O_CREAT | os.O_EXCL | os.O_WRONLY" in model_bootstrap
@@ -3648,6 +3651,12 @@ def validate_aosp_overlay(root: Path) -> None:
             and "os.replace(partial, destination)" in model_bootstrap
             and "refusing symbolic-link download path" in model_bootstrap,
             "reference-model bootstrap must remain external, resumable, atomic, and verified")
+    require("acceptance output must be outside the AIOS source tree"
+            in acceptance_recorder
+            and "license URL mismatch" in acceptance_recorder
+            and "os.O_CREAT | os.O_EXCL | os.O_WRONLY" in acceptance_recorder
+            and "os.replace(temporary, destination)" in acceptance_recorder,
+            "model acceptance must remain explicit, external, atomic, and catalog-bound")
     require('parser.add_argument("--license-file"' in model_packager
             and "packaged model license missing" in model_packager
             and 'entry["packaged_license"] = license_record' in model_packager

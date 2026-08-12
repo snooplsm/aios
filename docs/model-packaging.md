@@ -19,6 +19,19 @@ published Gemma file, so this download runs once and that path is supplied for
 both logical roles below. Downloading is not license acceptance; the separate
 local acceptance record remains required.
 
+Record acceptance with the exact catalog URL in a private path outside the
+checkout. The command refuses an unknown model, an altered license URL, a
+symlink destination, or an output path inside the source tree. Repeating an
+already identical acceptance is idempotent and retains its original timestamp:
+
+```text
+python3 vendor/aios/tools/record_model_acceptance.py \
+  --output /secure/local/model_acceptance.json \
+  --accepted-by local-builder \
+  --accept gemma4-e2b-mobile-text=https://ai.google.dev/gemma/apache_2 \
+  --accept gemma4-e2b-mobile-multimodal=https://ai.google.dev/gemma/apache_2
+```
+
 Example on the Linux build host:
 
 ```text
