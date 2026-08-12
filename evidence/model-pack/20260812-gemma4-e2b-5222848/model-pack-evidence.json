@@ -1,0 +1,40 @@
+{
+  "aios_revision": "522284897fafc9098ba2b612b53e334e5c1007ed",
+  "artifacts": [
+    {
+      "backend": "gpu",
+      "license_url": "https://ai.google.dev/gemma/apache_2",
+      "model_id": "gemma4-e2b-mobile-text",
+      "relative_path": "models/gemma4-e2b-mobile-text.litertlm",
+      "runtime": "litert_lm",
+      "sha256": "181938105e0eefd105961417e8da75903eacda102c4fce9ce90f50b97139a63c",
+      "size_bytes": 2588147712
+    },
+    {
+      "backend": "gpu",
+      "license_url": "https://ai.google.dev/gemma/apache_2",
+      "model_id": "gemma4-e2b-mobile-multimodal",
+      "relative_path": "models/gemma4-e2b-mobile-text.litertlm",
+      "runtime": "litert_lm",
+      "sha256": "181938105e0eefd105961417e8da75903eacda102c4fce9ce90f50b97139a63c",
+      "size_bytes": 2588147712
+    }
+  ],
+  "captured_at": "2026-08-12T23:47:02.715353+00:00",
+  "catalog_binding_verified": true,
+  "contains_model_weights": false,
+  "generated_pack_verified": true,
+  "host": {
+    "machine": "x86_64",
+    "release": "6.18.33.2-microsoft-standard-WSL2",
+    "system": "Linux"
+  },
+  "logical_artifact_count": 2,
+  "model_artifacts_manifest_sha256": "f51bdc5dd2c79d24968b6d8e1b3b3fcf18304092d86854c4916c79c5d1ec0fa9",
+  "model_catalog_sha256": "004989284f1af7f4ec7517b1efcb3c406456372b1b26faede304117745ffb0c6",
+  "physical_model_payload_count": 1,
+  "proves_model_inference": false,
+  "proves_physical_device_runtime": false,
+  "schema_version": 1,
+  "status": "passed"
+}
