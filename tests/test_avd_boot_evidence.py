@@ -15,7 +15,7 @@ assert SPEC.loader is not None
 SPEC.loader.exec_module(capture_tool)
 
 
-FINGERPRINT = "aios/sdk_phone_x86_64/test:userdebug/test-keys"
+FINGERPRINT = "aios/aios_sdk_phone_x86_64/emu64x:userdebug/test-keys"
 REVISION = "a" * 40
 BOOT_ID = "12345678-1234-4abc-8def-1234567890ab"
 
@@ -27,7 +27,7 @@ def build_evidence():
         "lane": "android_avd_integration",
         "kind": "virtual_emulator",
         "product": "aios_sdk_phone_x86_64",
-        "target_device": "emulator_x86_64",
+        "target_device": "emu64x",
         "build_fingerprint": FINGERPRINT,
         "aios_revision": REVISION,
         "lane_eligible_for_physical_gates": False,

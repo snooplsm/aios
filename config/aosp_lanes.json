@@ -23,9 +23,9 @@
       "kind": "virtual_emulator",
       "manifest_revision": "android-latest-release",
       "product": "aios_sdk_phone_x86_64",
-      "target_device": "emulator_x86_64",
+      "target_device": "emu64x",
       "lunch_target": "aios_sdk_phone_x86_64-aosp_current-userdebug",
-      "upstream_product": "sdk_phone_x86_64",
+      "upstream_product": "sdk_phone64_x86_64",
       "required_projects": [
         "build/make",
         "device/generic/goldfish",

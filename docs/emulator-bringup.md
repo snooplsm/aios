@@ -1,7 +1,7 @@
 # Android Emulator system-image bring-up
 
 AIOS has a standard Android Emulator lane in addition to Cuttlefish. The
-`android_avd_integration` lane wraps AOSP's `sdk_phone_x86_64` product with the
+`android_avd_integration` lane wraps AOSP's `sdk_phone64_x86_64` product with the
 same additive AIOS packages used by the Pixel product. It produces a complete
 Goldfish-backed operating-system image, not only installable preview APKs.
 

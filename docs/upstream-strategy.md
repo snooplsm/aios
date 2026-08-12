@@ -13,7 +13,7 @@ uses three non-interchangeable lanes recorded in `config/aosp_lanes.json`:
 - `android_latest_integration` inherits the official Cuttlefish x86-64 phone and
   continuously compiles the full additive AIOS product against incoming AOSP.
   Its results can prove source/build compatibility but never a physical gate.
-- `android_avd_integration` inherits AOSP's `sdk_phone_x86_64` Goldfish product
+- `android_avd_integration` inherits AOSP's `sdk_phone64_x86_64` Goldfish product
   so the complete AIOS image can boot in the standard Android Emulator. An AVD
   hardware profile may resemble a Pixel 9a but does not emulate Tensor, modem,
   camera, accelerator, carrier, or thermal behavior.

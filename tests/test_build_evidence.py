@@ -159,14 +159,14 @@ class BuildEvidenceTests(unittest.TestCase):
                 raw,
                 lane_id="android_avd_integration",
                 product="aios_sdk_phone_x86_64",
-                target_device="emulator_x86_64",
+                target_device="emu64x",
             )
             value = evidence.capture(
                 aios, "android_avd_integration", manifest, lock, out, log
             )
             self.assertEqual("virtual_emulator", value["kind"])
             self.assertEqual("aios_sdk_phone_x86_64", value["product"])
-            self.assertEqual("emulator_x86_64", value["target_device"])
+            self.assertEqual("emu64x", value["target_device"])
             self.assertFalse(value["lane_eligible_for_physical_gates"])
             self.assertFalse(value["proves_physical_runtime_gate"])
 

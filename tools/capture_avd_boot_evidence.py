@@ -22,7 +22,7 @@ COMMIT_PATTERN = re.compile(r"[0-9a-f]{40}")
 EXPECTED_LANE = "android_avd_integration"
 EXPECTED_KIND = "virtual_emulator"
 EXPECTED_PRODUCT = "aios_sdk_phone_x86_64"
-EXPECTED_TARGET_DEVICE = "emulator_x86_64"
+EXPECTED_TARGET_DEVICE = "emu64x"
 EXPECTED_AIOS_VERSION = "0.1-dev"
 EXPECTED_PACKAGES = (
     "com.aios.callintelligence",

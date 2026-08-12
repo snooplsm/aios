@@ -1291,13 +1291,13 @@ def validate_aosp_overlay(root: Path) -> None:
             "Android-latest must have an additive Cuttlefish integration product")
     emulator_product = (root / "products" /
                         "aios_sdk_phone_x86_64.mk").read_text(encoding="utf-8")
-    require("$(SRC_TARGET_DIR)/product/sdk_phone_x86_64.mk"
+    require("device/generic/goldfish/64bitonly/product/sdk_phone64_x86_64.mk"
             in emulator_product
             and "vendor/aios/products/aios_common.mk" in emulator_product
             and "PRODUCT_ENFORCE_ARTIFACT_PATH_REQUIREMENTS := relaxed"
             in emulator_product
             and "PRODUCT_NAME := aios_sdk_phone_x86_64" in emulator_product
-            and "PRODUCT_DEVICE := emulator_x86_64" in emulator_product,
+            and "PRODUCT_DEVICE := emu64x" in emulator_product,
             "Android Emulator must have an additive x86-64 AIOS product")
     android_products = (root / "AndroidProducts.mk").read_text(encoding="utf-8")
     require("aios_tegu-aosp_current-userdebug" in android_products
@@ -5752,8 +5752,8 @@ def validate_release_configuration(root: Path) -> None:
     require(emulator.get("kind") == "virtual_emulator"
             and emulator.get("manifest_revision") == "android-latest-release"
             and emulator.get("product") == "aios_sdk_phone_x86_64"
-            and emulator.get("target_device") == "emulator_x86_64"
-            and emulator.get("upstream_product") == "sdk_phone_x86_64"
+            and emulator.get("target_device") == "emu64x"
+            and emulator.get("upstream_product") == "sdk_phone64_x86_64"
             and emulator.get("physical_gate_evidence") is False
             and "frameworks/base" in emulator.get("required_projects", [])
             and "device/generic/goldfish"
