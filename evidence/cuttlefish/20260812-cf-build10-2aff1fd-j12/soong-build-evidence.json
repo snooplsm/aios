@@ -1,0 +1,146 @@
+{
+  "aios_revision": "2aff1fd02bf8b952e2494657d03fd583fa73d61b",
+  "android_release": "17",
+  "artifacts": [
+    {
+      "path": "product/priv-app/AiosContextIntelligence/AiosContextIntelligence.apk",
+      "sha256": "1148c81175d59e39bf95dc003cbaad67f8662c5af578e76e234123ced9d3bbab",
+      "size_bytes": 41348
+    },
+    {
+      "path": "product/priv-app/AiosMessaging/AiosMessaging.apk",
+      "sha256": "defcf071a73da956eedaf7c3d6ec6a0d67e71e5e6d21783f1396910d78000dd2",
+      "size_bytes": 4882304
+    },
+    {
+      "path": "product/priv-app/AiosPhone/AiosPhone.apk",
+      "sha256": "b6abe45a6729ad3ee4df10969dfe6f876dc5537e0e277704b81b903c7e5063ac",
+      "size_bytes": 4789025
+    },
+    {
+      "path": "product/priv-app/AiosCallIntelligence/AiosCallIntelligence.apk",
+      "sha256": "b1064781192ab76de6089a00cbd7ac0a7a332c0aa05626a7fee96e16557ec240",
+      "size_bytes": 188639
+    },
+    {
+      "path": "product/priv-app/AiosMediaIntelligence/AiosMediaIntelligence.apk",
+      "sha256": "4ec6427404a95083632d371aece00f6b240376dd1e04616a2122901d3530272c",
+      "size_bytes": 221570
+    },
+    {
+      "path": "product/priv-app/AiosModelBroker/AiosModelBroker.apk",
+      "sha256": "43afb21e0afe38f957f0e14abfed8aa86aa64436a62cc1bd8ffa243d770d2556",
+      "size_bytes": 98527
+    },
+    {
+      "path": "product/overlay/AiosFrameworkDefaultsOverlay.apk",
+      "sha256": "021b96193439c0981e83bc984cf66796c519b701caef045b18eec78e25756a07",
+      "size_bytes": 8351
+    },
+    {
+      "path": "product/etc/aios/authorized_clients.json",
+      "sha256": "ee060330d9f2a3595a62179b20af6f0cdaf0c8ad0bf244e9cb5b1050bef0993a",
+      "size_bytes": 1162
+    },
+    {
+      "path": "product/etc/aios/model_catalog.json",
+      "sha256": "058ec0c110a01648eb35491ec82cea05c88f5bd0a69182b8290921f947511747",
+      "size_bytes": 9848
+    },
+    {
+      "path": "product/etc/aios/product_policy.json",
+      "sha256": "3e8003c1905542ef74f215e73100aff4d36d645c5bf16dc4a1d24147b0fb67b4",
+      "size_bytes": 2434
+    },
+    {
+      "path": "product/etc/aios/runtime_catalog.json",
+      "sha256": "9a5654a08fd4176a3b12c53f88a6b5f235408147b0ffda99b0f8e977be0e092b",
+      "size_bytes": 5560
+    },
+    {
+      "path": "product/etc/default-permissions/default-permissions-aios.xml",
+      "sha256": "65ea70a3df7aaaa3f7b3ec87e0a75fa146f30520e75a80ae60a6bb42d36fb318",
+      "size_bytes": 1702
+    },
+    {
+      "path": "product/etc/permissions/privapp-permissions-aios.xml",
+      "sha256": "5e52cfb20209ca37fb8a5c7bf615df4adce2dd0df71edd16ee701c4d247dc71b",
+      "size_bytes": 1810
+    },
+    {
+      "path": "product.img",
+      "sha256": "62c6f04c5837cf699578fb5a7fc0db848c02cebdf5864d2854367af09cde5892",
+      "size_bytes": 299298816
+    },
+    {
+      "path": "system.img",
+      "sha256": "4b1d61518cb75c9034513fdd0f83e9fa3798a73165745871f288898780e412cc",
+      "size_bytes": 1148432384
+    }
+  ],
+  "build_fingerprint": "AIOS/aios_cf_x86_64_phone/vsoc_x86_64:17/CP2A.260605.016/eng.ryan:userdebug/test-keys",
+  "build_log_sha256": "a69cad9d83ed25794b726f20e1dd5b523d0f863ff7e5af0ff0c6e8c3e133576b",
+  "captured_at": "2026-08-12T20:30:37+00:00",
+  "host": {
+    "machine": "x86_64",
+    "release": "6.18.33.2-microsoft-standard-WSL2",
+    "system": "Linux"
+  },
+  "installed_files_product_sha256": "54f73247304556cd8670b40cf91a04bea7c6d133599f23e24aa48b3140d9338a",
+  "kind": "virtual_integration",
+  "lane": "android_latest_integration",
+  "lane_eligible_for_physical_gates": false,
+  "lunch_target": "aios_cf_x86_64_phone-aosp_current-userdebug",
+  "manifest_lock_sha256": "cac365a587ebbc443400aa77376ec5d8280ecdbccb9faabc68f113b698bb0a68",
+  "manifest_repository_revision": "ad156f32caaa06dae91c02d443f6a8fe210eaa54",
+  "manifest_sha256": "6700a2f99f17d5670591e7d056c1d4fafc041ee1e46931f599b840363f90b177",
+  "patch_queue": [
+    {
+      "base_revision": "768ed834ced557e2d42476757776a26c68fed656",
+      "file": "0001-dialer-aios-call-assistant.patch",
+      "id": "dialer-aios-call-assistant",
+      "owner": "call-platform",
+      "paths": [
+        "Android.bp",
+        "AndroidManifest.xml",
+        "java/com/android/incallui/InCallServiceImpl.java",
+        "java/com/android/incallui/aios/AiosCallAssistant.java"
+      ],
+      "project": "packages/apps/Dialer",
+      "reason": "Connect the complete Android 17 AOSP Dialer Telecom lifecycle to model priority and the fail-closed AIOS Call Intelligence policy and capture service.",
+      "rebase_notes": "Re-export from the tracked Dialer base, preserve the four-file footprint, then rerun host validation, preview builds, emulator Telecom smoke, and every physical dialer/call gate.",
+      "removal_condition": "Remove only if AOSP exposes an equivalent stable call-assistant lifecycle API requiring no Dialer source hook.",
+      "sha256": "d020e9042561ab5d1a8534ea011178cb1996d416a2e62e9fa6f66ff4f89bdb57",
+      "tests": [
+        "scripts/emulator-telecom-smoke.ps1",
+        "tests/test_patch_series.py",
+        "tests/test_validate_config.py"
+      ]
+    },
+    {
+      "base_revision": "94b4c163b7dfe5ce3607f7bb8456f9573f7de57d",
+      "file": "0002-framework-mms-aios-visibility.patch",
+      "id": "framework-mms-aios-visibility",
+      "owner": "messaging-platform",
+      "paths": [
+        "telephony/common/Android.bp"
+      ],
+      "project": "frameworks/base",
+      "reason": "Allow the platform-signed AIOS Messaging app to statically link AOSP's maintained MMS codec and Telephony provider persister without copying protocol sources into vendor code, using Soong's required platform-to-vendor subtree visibility boundary.",
+      "rebase_notes": "Re-export from the tracked frameworks/base commit, keep the change to the single telephony/common/Android.bp visibility entry using //vendor:__subpackages__, and rebuild AiosMessaging with Soong.",
+      "removal_condition": "Remove when framework-mms-shared-srcs is public to product modules or AOSP provides an equivalent supported MMS codec and provider library.",
+      "sha256": "d23751af96b0a0d24bc6b2b1cf6c5a237b3959b725d3941cbbfe7d2e75247dfe",
+      "tests": [
+        "tests/test_patch_series.py",
+        "tests/test_validate_config.py"
+      ]
+    }
+  ],
+  "patch_queue_sha256": "1662b8c26d1893a6e5c7d6064ace4c8e8accfe326f15d0370a333635e97c5d0a",
+  "patch_series_sha256": "57d07b4ac3237768453da1216090f99cedce05353bf533925afa83bc57c858b3",
+  "product": "aios_cf_x86_64_phone",
+  "proves_physical_runtime_gate": false,
+  "schema_version": 2,
+  "status": "passed",
+  "target_device": "vsoc_x86_64"
+}
