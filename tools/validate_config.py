@@ -1331,10 +1331,16 @@ def validate_aosp_overlay(root: Path) -> None:
                 f"contract: {blueprint_path.relative_to(root)}")
 
     tegu_product = (root / "products" / "aios_tegu.mk").read_text(encoding="utf-8")
+    envsetup_commands = (root / "aios_tegu" /
+                         "cmds-for-envsetup.sh").read_text(encoding="utf-8")
     require("vendor/google_devices/tegu/tegu.mk" in tegu_product,
             "Pixel 9a product must inherit the generated pinned tegu product")
     require("vendor/aios/products/aios_common.mk" in tegu_product,
             "Pixel 9a product must inherit common AIOS additions")
+    require('source "$aios_tegu_env"' in envsetup_commands
+            and 'export BUILD_ID_aios_tegu="$BUILD_ID_tegu"'
+            in envsetup_commands,
+            "AIOS Pixel product must inherit the generated tegu BUILD_ID")
     cuttlefish_product = (root / "products" /
                           "aios_cf_x86_64_phone.mk").read_text(encoding="utf-8")
     require("device/google/cuttlefish/vsoc_x86_64/phone/aosp_cf.mk"
