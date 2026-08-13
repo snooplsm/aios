@@ -124,6 +124,25 @@ class PatchSeriesTransactionTests(unittest.TestCase):
             with self.assertRaisesRegex(patches.PatchVerificationError, "schema v2"):
                 patches.verify(root, aosp, {}, reverse=False)
 
+    def test_explicit_series_selects_lane_specific_queue(self):
+        with tempfile.TemporaryDirectory() as raw:
+            root, aosp, checkout, source = self.create_fixture(raw)
+            original = root / "patches" / "series.json"
+            alternate = root / "patches" / "pixel9a-series.json"
+            alternate.write_bytes(original.read_bytes())
+            original.write_text('{"schema_version":2,"patches":[]}',
+                                encoding="utf-8")
+            patches.apply_series(root, aosp, {}, "pixel9a-series.json")
+            self.assertEqual("after\n", source.read_text(encoding="utf-8"))
+            self.assertEqual("M  example.txt", git(checkout, "status", "--short"))
+            patches.revert_series(root, aosp, {}, "pixel9a-series.json")
+
+    def test_series_filename_cannot_escape_patch_directory(self):
+        with tempfile.TemporaryDirectory() as raw:
+            root, _, _, _ = self.create_fixture(raw)
+            with self.assertRaisesRegex(patches.PatchVerificationError, "unsafe"):
+                patches.load_series(root, "../series.json")
+
 
 if __name__ == "__main__":
     unittest.main()

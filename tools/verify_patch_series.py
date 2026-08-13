@@ -56,9 +56,13 @@ def parse_overrides(values: list[str]) -> dict[str, Path]:
     return result
 
 
-def load_series(root: Path) -> list[dict]:
+def load_series(root: Path, series_file: str = "series.json") -> list[dict]:
     patches_root = (root / "patches").resolve()
-    series = json.loads((patches_root / "series.json").read_text(encoding="utf-8"))
+    if (Path(series_file).name != series_file
+            or not series_file.endswith(".json")
+            or RELATIVE_PATTERN.fullmatch(series_file) is None):
+        raise PatchVerificationError("unsafe patch-series filename")
+    series = json.loads((patches_root / series_file).read_text(encoding="utf-8"))
     if not isinstance(series, dict) or set(series) != {"schema_version", "patches"} \
             or series.get("schema_version") != 2 \
             or not isinstance(series.get("patches"), list):
@@ -133,9 +137,10 @@ def load_entries(
     root: Path,
     aosp_root: Path,
     overrides: dict[str, Path],
+    series_file: str = "series.json",
 ) -> list[tuple[dict, Path, Path, str]]:
     entries = []
-    for item in load_series(root.resolve()):
+    for item in load_series(root.resolve(), series_file):
         project = item["project"]
         checkout = overrides.get(project, (aosp_root / project).resolve())
         if not (checkout / ".git").exists():
@@ -161,9 +166,10 @@ def verify(
     aosp_root: Path,
     overrides: dict[str, Path],
     reverse: bool,
+    series_file: str = "series.json",
 ) -> None:
     for item, checkout, patch_path, head in load_entries(
-        root, aosp_root, overrides
+        root, aosp_root, overrides, series_file
     ):
         arguments = ["git", "apply", "--check"]
         if reverse:
@@ -178,8 +184,9 @@ def apply_series(
     root: Path,
     aosp_root: Path,
     overrides: dict[str, Path],
+    series_file: str = "series.json",
 ) -> None:
-    entries = load_entries(root, aosp_root, overrides)
+    entries = load_entries(root, aosp_root, overrides, series_file)
     for checkout in {entry[1] for entry in entries}:
         if command(["git", "status", "--porcelain", "--untracked-files=all"], checkout):
             raise PatchVerificationError(
@@ -210,8 +217,9 @@ def revert_series(
     root: Path,
     aosp_root: Path,
     overrides: dict[str, Path],
+    series_file: str = "series.json",
 ) -> None:
-    entries = load_entries(root, aosp_root, overrides)
+    entries = load_entries(root, aosp_root, overrides, series_file)
     checkouts = {entry[1] for entry in entries}
     for checkout in checkouts:
         if command(["git", "diff", "--name-only"], checkout):
@@ -256,6 +264,7 @@ def main() -> int:
     parser.add_argument("--root", type=Path, default=ROOT)
     parser.add_argument("--aosp-root", type=Path, required=True)
     parser.add_argument("--project-root", action="append", default=[])
+    parser.add_argument("--series", default="series.json")
     actions = parser.add_mutually_exclusive_group()
     actions.add_argument(
         "--reverse",
@@ -278,11 +287,11 @@ def main() -> int:
         aosp_root = arguments.aosp_root.resolve()
         overrides = parse_overrides(arguments.project_root)
         if arguments.apply:
-            apply_series(root, aosp_root, overrides)
+            apply_series(root, aosp_root, overrides, arguments.series)
         elif arguments.revert:
-            revert_series(root, aosp_root, overrides)
+            revert_series(root, aosp_root, overrides, arguments.series)
         else:
-            verify(root, aosp_root, overrides, arguments.reverse)
+            verify(root, aosp_root, overrides, arguments.reverse, arguments.series)
     except (OSError, KeyError, json.JSONDecodeError, PatchVerificationError) as error:
         print(f"patch verification failed: {error}", file=sys.stderr)
         return 1

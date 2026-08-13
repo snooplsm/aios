@@ -44,13 +44,16 @@ class BuildEvidenceTests(unittest.TestCase):
         (aios / "patches").mkdir(parents=True)
         shutil.copy(ROOT / "config" / "aosp_lanes.json",
                     aios / "config" / "aosp_lanes.json")
-        shutil.copy(ROOT / "patches" / "series.json",
-                    aios / "patches" / "series.json")
-        patch_series = json.loads((aios / "patches" / "series.json")
-                                  .read_text(encoding="utf-8"))
-        for item in patch_series["patches"]:
-            shutil.copy(ROOT / "patches" / item["file"],
-                        aios / "patches" / item["file"])
+        patch_files = set()
+        for series_name in ("series.json", "pixel9a-series.json"):
+            shutil.copy(ROOT / "patches" / series_name,
+                        aios / "patches" / series_name)
+            patch_series = json.loads((aios / "patches" / series_name)
+                                      .read_text(encoding="utf-8"))
+            patch_files.update(item["file"] for item in patch_series["patches"])
+        for patch_file in patch_files:
+            shutil.copy(ROOT / "patches" / patch_file,
+                        aios / "patches" / patch_file)
         git(aios, "init")
         git(aios, "config", "core.autocrlf", "false")
         git(aios, "config", "user.name", "AIOS Test")
@@ -248,6 +251,8 @@ class BuildEvidenceTests(unittest.TestCase):
                 value["deployable_images"],
             )
             support = value["generated_device_support"]
+            self.assertEqual("pixel9a-series.json", value["patch_series_file"])
+            self.assertEqual(2, len(value["patch_queue"]))
             self.assertEqual("vendor/google_devices/tegu", support["path"])
             self.assertEqual(1, support["file_count"])
             self.assertRegex(support["tree_sha256"], r"^[0-9a-f]{64}$")

@@ -50,12 +50,17 @@ if [[ -e "$build_log" || -e "$build_evidence" ]]; then
 fi
 
 patches_applied=false
+patch_series="series.json"
+if [[ "$lane" == "pixel9a_tegu_hardware" ]]; then
+  patch_series="pixel9a-series.json"
+fi
 cleanup() {
   status=$?
   trap - EXIT INT TERM
   if [[ "$patches_applied" == true ]]; then
     if ! python3 "$aios_root/tools/verify_patch_series.py" \
-      --root "$aios_root" --aosp-root "$aosp_root" --revert; then
+      --root "$aios_root" --aosp-root "$aosp_root" \
+      --series "$patch_series" --revert; then
       echo "Patch cleanup failed; the exact staged series remains visible for manual recovery." >&2
       status=1
     fi
@@ -65,7 +70,8 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 python3 "$aios_root/tools/verify_patch_series.py" \
-  --root "$aios_root" --aosp-root "$aosp_root" --apply
+  --root "$aios_root" --aosp-root "$aosp_root" \
+  --series "$patch_series" --apply
 patches_applied=true
 
 lunch_target="$(python3 -c \

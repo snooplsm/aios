@@ -136,9 +136,13 @@ def select_lane(root: Path, lane_id: str) -> tuple[dict, list[str]]:
     ]
 
 
-def patch_queue_record(root: Path) -> tuple[list[dict], str]:
+def patch_queue_record(
+    root: Path, series_file: str = "series.json"
+) -> tuple[list[dict], str]:
     patches_root = (root / "patches").resolve()
-    document = load(patches_root / "series.json")
+    if Path(series_file).name != series_file or not series_file.endswith(".json"):
+        raise BuildEvidenceError("unsafe patch-series filename")
+    document = load(patches_root / series_file)
     if set(document) != {"schema_version", "patches"} \
             or document.get("schema_version") != 2 \
             or not isinstance(document.get("patches"), list):
@@ -497,7 +501,10 @@ def capture(
         raise BuildEvidenceError("AIOS HEAD differs from the resolved manifest lock")
     if git_output(root, "status", "--porcelain", "--untracked-files=all"):
         raise BuildEvidenceError("AIOS sources changed after manifest capture")
-    patch_queue, patch_queue_digest = patch_queue_record(root)
+    patch_series_file = ("pixel9a-series.json"
+                         if lane_id == "pixel9a_tegu_hardware"
+                         else "series.json")
+    patch_queue, patch_queue_digest = patch_queue_record(root, patch_series_file)
 
     generated_device_support = None
     if lane.get("artifact_layout") == "full_device_target_files":
@@ -582,7 +589,8 @@ def capture(
         "build_log_sha256": sha256(build_log),
         "installed_files_manifest": installed_manifest.name,
         "installed_files_sha256": sha256(installed_manifest),
-        "patch_series_sha256": sha256(root / "patches" / "series.json"),
+        "patch_series_file": patch_series_file,
+        "patch_series_sha256": sha256(root / "patches" / patch_series_file),
         "patch_queue_sha256": patch_queue_digest,
         "patch_queue": patch_queue,
         "captured_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),

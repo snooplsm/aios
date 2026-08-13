@@ -747,8 +747,8 @@ def validate_model_admission(root: Path) -> None:
                     f"{device['marketing_name']}: catalog-only device must remain research-only")
 
 
-def validate_patch_series(root: Path) -> None:
-    series = load_json(root / "patches" / "series.json")
+def validate_patch_series_file(root: Path, series_name: str) -> None:
+    series = load_json(root / "patches" / series_name)
     require(set(series) == {"schema_version", "patches"}
             and series.get("schema_version") == 2,
             "unsupported patch-series schema")
@@ -827,6 +827,11 @@ def validate_patch_series(root: Path) -> None:
                     f"{patch['id']}: {field} must be an actionable review note")
 
 
+def validate_patch_series(root: Path) -> None:
+    validate_patch_series_file(root, "series.json")
+    validate_patch_series_file(root, "pixel9a-series.json")
+
+
 def validate_default_dialer_overlay(root: Path) -> None:
     common_product = (root / "products" / "aios_common.mk").read_text(
         encoding="utf-8"
@@ -865,6 +870,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "products/aios_sdk_phone_x86_64.mk",
         "products/aios_gsi_arm64.mk",
         "config/aosp_lanes.json",
+        "patches/pixel9a-series.json",
         "tools/check_aosp_manifest.py",
         "tools/refresh_aosp_tracking.py",
         "tools/capture_build_evidence.py",
@@ -1645,6 +1651,8 @@ def validate_aosp_overlay(root: Path) -> None:
             and "trap cleanup EXIT INT TERM" in build_script
             and "capture_build_evidence.py" in build_script
             and "pixel9a_tegu_hardware" in build_script
+            and "pixel9a-series.json" in build_script
+            and '--series "$patch_series"' in build_script
             and "target-files-package" in build_script
             and 'build_status="${PIPESTATUS[0]}"' in build_script,
             "lane builds must be locked, patch-transactional, logged, and evidence-bound")
@@ -6325,6 +6333,21 @@ def validate_release_configuration(root: Path) -> None:
             and '"//vendor/aios/apps/messaging"' not in mms_patch_text
             and "framework-mms-shared-srcs" in mms_patch_text,
             "MMS patch must use Soong's legal platform-to-vendor visibility boundary")
+    pixel_series = load_json(root / "patches" / "pixel9a-series.json")
+    pixel_patches = pixel_series.get("patches", [])
+    pixel_by_project = {patch.get("project"): patch for patch in pixel_patches}
+    require(len(pixel_patches) == 2
+            and set(pixel_by_project)
+            == {"packages/apps/Dialer", "frameworks/base"}
+            and pixel_by_project["packages/apps/Dialer"]["base_revision"]
+            == "6a629762cf425002d34ecf28596813babda7d751"
+            and pixel_by_project["frameworks/base"]["base_revision"]
+            == "d6fd0d0e16b98e60d1cd738879c2c8807160f05e"
+            and pixel_by_project["packages/apps/Dialer"]["file"]
+            == dialer_patches[0]["file"]
+            and pixel_by_project["frameworks/base"]["file"]
+            == mms_patches[0]["file"],
+            "Pixel patch queue must bind only the pinned Dialer and framework forks")
     gsi_size_patches = [
         patch for patch in series["patches"]
         if patch["project"] == "build/make"

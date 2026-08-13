@@ -1,0 +1,45 @@
+{
+  "schema_version": 2,
+  "patches": [
+    {
+      "id": "dialer-aios-call-assistant-graphene17",
+      "project": "packages/apps/Dialer",
+      "file": "0001-dialer-aios-call-assistant.patch",
+      "base_revision": "6a629762cf425002d34ecf28596813babda7d751",
+      "sha256": "d020e9042561ab5d1a8534ea011178cb1996d416a2e62e9fa6f66ff4f89bdb57",
+      "owner": "call-platform",
+      "paths": [
+        "Android.bp",
+        "AndroidManifest.xml",
+        "java/com/android/incallui/InCallServiceImpl.java",
+        "java/com/android/incallui/aios/AiosCallAssistant.java"
+      ],
+      "tests": [
+        "scripts/emulator-telecom-smoke.ps1",
+        "tests/test_patch_series.py",
+        "tests/test_validate_config.py"
+      ],
+      "reason": "Connect the pinned GrapheneOS Android 17 Dialer Telecom lifecycle to model priority and the fail-closed AIOS Call Intelligence policy and capture service.",
+      "removal_condition": "Remove only if the device base exposes an equivalent stable call-assistant lifecycle API requiring no Dialer source hook.",
+      "rebase_notes": "Verify or re-export from the signed 2026080500 Dialer commit, preserve the four-file footprint, and pass host, emulator Telecom, and physical call gates."
+    },
+    {
+      "id": "framework-mms-aios-visibility-graphene17",
+      "project": "frameworks/base",
+      "file": "0002-framework-mms-aios-visibility.patch",
+      "base_revision": "d6fd0d0e16b98e60d1cd738879c2c8807160f05e",
+      "sha256": "d23751af96b0a0d24bc6b2b1cf6c5a237b3959b725d3941cbbfe7d2e75247dfe",
+      "owner": "messaging-platform",
+      "paths": [
+        "telephony/common/Android.bp"
+      ],
+      "tests": [
+        "tests/test_patch_series.py",
+        "tests/test_validate_config.py"
+      ],
+      "reason": "Allow the platform-signed AIOS Messaging app to link the maintained MMS codec and provider persister on the pinned full-device Android 17 base.",
+      "removal_condition": "Remove when the device base exports framework-mms-shared-srcs to product modules or supplies an equivalent supported MMS library.",
+      "rebase_notes": "Verify or re-export from the signed 2026080500 frameworks/base commit and retain only the vendor subtree visibility change."
+    }
+  ]
+}
