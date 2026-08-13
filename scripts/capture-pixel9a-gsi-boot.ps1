@@ -41,12 +41,14 @@ $BuildEvidencePath = [IO.Path]::GetFullPath($BuildEvidence)
 $EvidenceRoot = Split-Path -Parent $BuildEvidencePath
 $AvbEvidencePath = Join-Path $EvidenceRoot "avb-verification.json"
 $DsuEvidencePath = Join-Path $EvidenceRoot "dsu-payload.json"
+$SystemInterfacePath = Join-Path $EvidenceRoot "system-interface.json"
 foreach ($path in @(
     $InventoryPath,
     $PreflightPath,
     $BuildEvidencePath,
     $AvbEvidencePath,
-    $DsuEvidencePath
+    $DsuEvidencePath,
+    $SystemInterfacePath
 )) {
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
         throw "Required first-boot input does not exist: $path"
@@ -141,6 +143,7 @@ $PreflightRecord = Read-JsonObject $PreflightPath
 $BuildRecord = Read-JsonObject $BuildEvidencePath
 $AvbRecord = Read-JsonObject $AvbEvidencePath
 $DsuRecord = Read-JsonObject $DsuEvidencePath
+$SystemInterfaceRecord = Read-JsonObject $SystemInterfacePath
 if ($PreflightRecord.schema_version -ne 1 -or
     $PreflightRecord.status -ne "candidate" -or
     $PreflightRecord.expected_device -ne "tegu" -or
@@ -153,7 +156,9 @@ if ($PreflightRecord.schema_version -ne 1 -or
 if ((Get-Sha256 $InventoryPath) -ne $PreflightRecord.inventory_sha256 -or
     (Get-Sha256 $BuildEvidencePath) -ne $PreflightRecord.build_evidence_sha256 -or
     (Get-Sha256 $AvbEvidencePath) -ne $PreflightRecord.avb_evidence_sha256 -or
-    (Get-Sha256 $DsuEvidencePath) -ne $PreflightRecord.dsu_payload_evidence_sha256) {
+    (Get-Sha256 $DsuEvidencePath) -ne $PreflightRecord.dsu_payload_evidence_sha256 -or
+    (Get-Sha256 $SystemInterfacePath) -ne
+        $PreflightRecord.system_interface_evidence_sha256) {
     throw "First-boot inputs no longer match the preflight evidence chain"
 }
 if ((Get-TextSha256 $Serial) -ne $InventoryRecord.serial_sha256) {
@@ -164,7 +169,9 @@ if ($BuildRecord.status -ne "passed" -or
     $BuildRecord.product -ne "aios_gsi_arm64" -or
     $BuildRecord.proves_physical_runtime_gate -ne $false -or
     $AvbRecord.status -ne "passed" -or
-    $DsuRecord.status -ne "passed") {
+    $DsuRecord.status -ne "passed" -or
+    $SystemInterfaceRecord.status -ne "passed" -or
+    $SystemInterfaceRecord.proves_device_compatibility -ne $false) {
     throw "Build records are not an eligible unproven ARM64 GSI evidence set"
 }
 
@@ -272,6 +279,7 @@ $document = [ordered]@{
     build_evidence_sha256 = Get-Sha256 $BuildEvidencePath
     avb_evidence_sha256 = Get-Sha256 $AvbEvidencePath
     dsu_payload_evidence_sha256 = Get-Sha256 $DsuEvidencePath
+    system_interface_evidence_sha256 = Get-Sha256 $SystemInterfacePath
     images = $PreflightRecord.gsi_images
     build_fingerprint = $BuildRecord.build_fingerprint
     properties = $properties

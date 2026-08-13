@@ -39,6 +39,7 @@ EXPECTED_AVB_CHECKS = {
     "ext_filesystem_read_only_check_passed",
 }
 EXPECTED_GSI_PUBLIC_KEY_SHA1 = "cdbb77177f731920bbe0a0f94f84d9038ae0617d"
+VENDOR_API_PATTERN = re.compile(r"20[0-9]{2}(?:0[1-9]|1[0-2])")
 
 
 class GsiPreflightError(RuntimeError):
@@ -218,6 +219,55 @@ def validate_dsu_payload(
     return payload_path, payload
 
 
+def validate_system_interface(
+    build_path: Path,
+    build: dict,
+    artifacts: dict[str, dict],
+) -> tuple[Path, dict]:
+    interface_path = build_path.parent / "system-interface.json"
+    interface = load(interface_path)
+    system = artifacts["system.img"]
+    image = interface.get("system_image")
+    embedded = interface.get("embedded_property_file")
+    properties = interface.get("properties")
+    checks = interface.get("checks")
+    if (interface.get("schema_version") != 1
+            or interface.get("status") != "passed"
+            or interface.get("kind") != "gsi_system_interface_properties"
+            or interface.get("aios_revision") != build.get("aios_revision")
+            or interface.get("build_evidence_sha256") != sha256(build_path)
+            or not isinstance(image, dict)
+            or image.get("size_bytes") != system.get("size_bytes")
+            or image.get("sha256") != system.get("sha256")
+            or not isinstance(embedded, dict)
+            or embedded.get("path") != "/system/build.prop"
+            or not isinstance(embedded.get("size_bytes"), int)
+            or embedded["size_bytes"] <= 0
+            or SHA256_PATTERN.fullmatch(str(embedded.get("sha256", ""))) is None
+            or not isinstance(properties, dict)
+            or properties.get("ro.build.version.release")
+            != build.get("android_release")
+            or properties.get("ro.build.version.security_patch")
+            != build.get("security_patch")
+            or not str(properties.get("ro.build.version.sdk", "")).isdigit()
+            or VENDOR_API_PATTERN.fullmatch(str(
+                properties.get("ro.llndk.api_level", ""))) is None
+            or properties.get("ro.treble.enabled") != "true"
+            or not isinstance(checks, dict)
+            or set(checks) != {
+                "extracted_from_verified_system_image",
+                "build_output_matches_embedded_file",
+                "llndk_api_level_uses_yyyymm_format",
+            }
+            or any(value is not True for value in checks.values())
+            or interface.get("proves_device_compatibility") is not False
+            or interface.get("proves_physical_runtime_gate") is not False):
+        raise GsiPreflightError(
+            "system-interface evidence is not bound to the exact GSI image"
+        )
+    return interface_path, interface
+
+
 def validate_inputs(
     inventory: dict, build: dict, expected_device: str
 ) -> tuple[dict[str, dict], dict[str, bool]]:
@@ -261,6 +311,8 @@ def validate_inputs(
         raise GsiPreflightError(f"GSI evidence lacks required artifacts: {missing}")
 
     device = property_value(inventory, "ro.product.device")
+    vendor_api = property_value(inventory, "ro.vendor.api_level")
+    board_api = property_value(inventory, "ro.board.api_level")
     checks = {
         "expected_device": device == expected_device,
         "google_hardware": property_value(
@@ -271,9 +323,14 @@ def validate_inputs(
             inventory, "ro.treble.enabled").lower() == "true",
         "dynamic_partitions": property_value(
             inventory, "ro.boot.dynamic_partitions").lower() == "true",
-        "vendor_api_reported": property_value(
-            inventory, "ro.vendor.api_level").isdigit(),
-        "vndk_reported": bool(property_value(inventory, "ro.vndk.version")),
+        "vendor_api_reported": VENDOR_API_PATTERN.fullmatch(vendor_api)
+        is not None,
+        "board_api_reported": VENDOR_API_PATTERN.fullmatch(board_api)
+        is not None,
+        "first_api_reported": property_value(
+            inventory, "ro.product.first_api_level").isdigit(),
+        "vendor_build_sdk_reported": property_value(
+            inventory, "ro.vendor.build.version.sdk").isdigit(),
     }
     return artifacts, checks
 
@@ -289,6 +346,15 @@ def evaluate(
     avb_path, avb = validate_avb_evidence(build_path, build, artifacts)
     dsu_payload_path, dsu_payload = validate_dsu_payload(
         build_path, build, artifacts
+    )
+    interface_path, interface = validate_system_interface(
+        build_path, build, artifacts
+    )
+    vendor_api = property_value(inventory, "ro.vendor.api_level")
+    gsi_llndk = interface["properties"]["ro.llndk.api_level"]
+    checks["gsi_llndk_covers_vendor"] = (
+        VENDOR_API_PATTERN.fullmatch(vendor_api) is not None
+        and int(gsi_llndk) >= int(vendor_api)
     )
 
     device_release = parse_android_release(
@@ -337,6 +403,8 @@ def evaluate(
         blockers.append(
             "GSI security patch is older than the factory system; DSU rollback policy rejects it"
         )
+    if not dsu_advertised:
+        blockers.append("factory build does not advertise Dynamic System Updates")
     if locked:
         blockers.append("bootloader is currently locked; fastboot deployment would wipe on unlock")
     if available_bytes is None:
@@ -363,6 +431,8 @@ def evaluate(
         "avb_chain": avb["expected_chain_partition"],
         "dsu_payload_evidence_sha256": sha256(dsu_payload_path),
         "dsu_payload": dsu_payload["payload"],
+        "system_interface_evidence_sha256": sha256(interface_path),
+        "gsi_system_interface": interface["properties"],
         "gsi_images": {
             name: {
                 "size_bytes": artifacts[name]["size_bytes"],

@@ -82,6 +82,7 @@ class Pixel9aGsiBootEvidenceTests(unittest.TestCase):
             "build_evidence_sha256": validator.sha256(build_path),
             "avb_evidence_sha256": digest("avb"),
             "dsu_payload_evidence_sha256": digest("dsu"),
+            "system_interface_evidence_sha256": digest("interface"),
             "gsi_images": images,
         }
         preflight_path.write_text(json.dumps(preflight), encoding="utf-8")
@@ -105,6 +106,9 @@ class Pixel9aGsiBootEvidenceTests(unittest.TestCase):
             "build_evidence_sha256": validator.sha256(build_path),
             "avb_evidence_sha256": preflight["avb_evidence_sha256"],
             "dsu_payload_evidence_sha256": preflight["dsu_payload_evidence_sha256"],
+            "system_interface_evidence_sha256": preflight[
+                "system_interface_evidence_sha256"
+            ],
             "images": images,
             "build_fingerprint": build["build_fingerprint"],
             "properties": properties,

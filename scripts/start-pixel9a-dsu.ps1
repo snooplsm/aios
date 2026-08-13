@@ -46,13 +46,15 @@ $BuildEvidencePath = [IO.Path]::GetFullPath($BuildEvidence)
 $EvidenceRoot = Split-Path -Parent $BuildEvidencePath
 $AvbEvidencePath = Join-Path $EvidenceRoot "avb-verification.json"
 $DsuEvidencePath = Join-Path $EvidenceRoot "dsu-payload.json"
+$SystemInterfacePath = Join-Path $EvidenceRoot "system-interface.json"
 foreach ($path in @(
     $InventoryPath,
     $PreflightPath,
     $PayloadPath,
     $BuildEvidencePath,
     $AvbEvidencePath,
-    $DsuEvidencePath
+    $DsuEvidencePath,
+    $SystemInterfacePath
 )) {
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
         throw "Required DSU input does not exist: $path"
@@ -135,6 +137,7 @@ $PreflightRecord = Read-JsonObject $PreflightPath
 $BuildRecord = Read-JsonObject $BuildEvidencePath
 $AvbRecord = Read-JsonObject $AvbEvidencePath
 $DsuRecord = Read-JsonObject $DsuEvidencePath
+$SystemInterfaceRecord = Read-JsonObject $SystemInterfacePath
 
 if ($PreflightRecord.schema_version -ne 1 -or
     $PreflightRecord.status -ne "candidate" -or
@@ -158,8 +161,10 @@ if ($InventoryRecord.schema_version -ne 2 -or
 if ((Get-Sha256 $InventoryPath) -ne $PreflightRecord.inventory_sha256 -or
     (Get-Sha256 $BuildEvidencePath) -ne $PreflightRecord.build_evidence_sha256 -or
     (Get-Sha256 $AvbEvidencePath) -ne $PreflightRecord.avb_evidence_sha256 -or
-    (Get-Sha256 $DsuEvidencePath) -ne $PreflightRecord.dsu_payload_evidence_sha256) {
-    throw "Inventory, build, AVB, or DSU evidence changed after preflight"
+    (Get-Sha256 $DsuEvidencePath) -ne $PreflightRecord.dsu_payload_evidence_sha256 -or
+    (Get-Sha256 $SystemInterfacePath) -ne
+        $PreflightRecord.system_interface_evidence_sha256) {
+    throw "Inventory, build, AVB, DSU, or system-interface evidence changed after preflight"
 }
 if ((Get-TextSha256 $Serial) -ne $InventoryRecord.serial_sha256) {
     throw "Connected serial does not match the preflight inventory"
@@ -176,6 +181,8 @@ if ($sourcePayloadInfo.Name -ne $expectedPayload.name -or
 }
 if ($AvbRecord.status -ne "passed" -or
     $DsuRecord.status -ne "passed" -or
+    $SystemInterfaceRecord.status -ne "passed" -or
+    $SystemInterfaceRecord.proves_device_compatibility -ne $false -or
     $DsuRecord.safe_to_install -ne $false -or
     $BuildRecord.proves_physical_runtime_gate -ne $false) {
     throw "Build evidence does not preserve the pre-physical-test safety contract"

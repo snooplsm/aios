@@ -31,8 +31,11 @@ def inventory() -> dict:
             "ro.product.cpu.abilist64": "arm64-v8a",
             "ro.build.version.release": "16",
             "ro.build.version.security_patch": "2026-05-05",
-            "ro.vendor.api_level": "35",
-            "ro.vndk.version": "35",
+            "ro.vendor.api_level": "202404",
+            "ro.product.first_api_level": "35",
+            "ro.board.api_level": "202604",
+            "ro.vendor.build.version.sdk": "37",
+            "ro.vndk.version": "",
             "ro.treble.enabled": "true",
             "ro.boot.dynamic_partitions": "true",
             "ro.boot.flash.locked": "1",
@@ -158,6 +161,44 @@ class GsiPreflightTests(unittest.TestCase):
             "safe_to_install": False,
             "proves_physical_runtime_gate": False,
         }
+
+    @staticmethod
+    def system_interface(build_value, build_path):
+        system = next(
+            item for item in build_value["artifacts"]
+            if item["path"] == "system.img"
+        )
+        return {
+            "schema_version": 1,
+            "status": "passed",
+            "kind": "gsi_system_interface_properties",
+            "aios_revision": build_value.get("aios_revision"),
+            "build_evidence_sha256": preflight.sha256(build_path),
+            "system_image": {
+                "size_bytes": system["size_bytes"],
+                "sha256": system["sha256"],
+            },
+            "embedded_property_file": {
+                "path": "/system/build.prop",
+                "size_bytes": 100,
+                "sha256": digest("build.prop"),
+            },
+            "properties": {
+                "ro.build.version.release": build_value["android_release"],
+                "ro.build.version.sdk": "37",
+                "ro.build.version.security_patch": build_value["security_patch"],
+                "ro.llndk.api_level": "202604",
+                "ro.treble.enabled": "true",
+            },
+            "checks": {
+                "extracted_from_verified_system_image": True,
+                "build_output_matches_embedded_file": True,
+                "llndk_api_level_uses_yyyymm_format": True,
+            },
+            "proves_device_compatibility": False,
+            "proves_physical_runtime_gate": False,
+        }
+
     def write_inputs(self, raw, inventory_value=None, build_value=None):
         base = Path(raw)
         inventory_path = base / "inventory.json"
@@ -172,6 +213,10 @@ class GsiPreflightTests(unittest.TestCase):
         )
         (base / "dsu-payload.json").write_text(
             json.dumps(self.dsu_payload(selected_build, build_path)),
+            encoding="utf-8",
+        )
+        (base / "system-interface.json").write_text(
+            json.dumps(self.system_interface(selected_build, build_path)),
             encoding="utf-8",
         )
         return inventory_path, build_path
@@ -192,6 +237,10 @@ class GsiPreflightTests(unittest.TestCase):
             self.assertEqual(64, len(value["avb_evidence_sha256"]))
             self.assertEqual("gzip", value["dsu_payload"]["format"])
             self.assertEqual(64, len(value["dsu_payload_evidence_sha256"]))
+            self.assertEqual("202604", value["gsi_system_interface"][
+                "ro.llndk.api_level"
+            ])
+            self.assertTrue(value["checks"]["gsi_llndk_covers_vendor"])
             self.assertTrue(value["dsu_checks"]["data_free_space_sufficient"])
             self.assertGreaterEqual(len(value["blockers"]), 5)
 
@@ -279,6 +328,29 @@ class GsiPreflightTests(unittest.TestCase):
             with self.assertRaisesRegex(preflight.GsiPreflightError,
                                         "DSU payload evidence is not bound"):
                 preflight.evaluate(inventory_path, build_path, "tegu")
+
+    def test_rejects_system_interface_not_bound_to_system_image(self):
+        with tempfile.TemporaryDirectory() as raw:
+            inventory_path, build_path = self.write_inputs(raw)
+            interface_path = Path(raw) / "system-interface.json"
+            interface = json.loads(interface_path.read_text(encoding="utf-8"))
+            interface["system_image"]["sha256"] = "0" * 64
+            interface_path.write_text(json.dumps(interface), encoding="utf-8")
+            with self.assertRaisesRegex(preflight.GsiPreflightError,
+                                        "system-interface evidence is not bound"):
+                preflight.evaluate(inventory_path, build_path, "tegu")
+
+    def test_rejects_vendor_newer_than_gsi_llndk(self):
+        with tempfile.TemporaryDirectory() as raw:
+            inventory_value = inventory()
+            inventory_value["properties"]["ro.vendor.api_level"] = "202704"
+            inventory_path, build_path = self.write_inputs(
+                raw, inventory_value=inventory_value
+            )
+            result = preflight.evaluate(inventory_path, build_path, "tegu")
+            self.assertEqual("incompatible", result["status"])
+            self.assertFalse(result["checks"]["gsi_llndk_covers_vendor"])
+            self.assertFalse(result["fastboot_candidate"])
 
 
 if __name__ == "__main__":

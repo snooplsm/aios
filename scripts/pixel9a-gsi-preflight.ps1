@@ -36,7 +36,11 @@ $BuildEvidencePath = [IO.Path]::GetFullPath($BuildEvidence)
 if (-not (Test-Path -LiteralPath $BuildEvidencePath -PathType Leaf)) {
     throw "GSI build evidence does not exist: $BuildEvidencePath"
 }
-foreach ($sibling in @("avb-verification.json", "dsu-payload.json")) {
+foreach ($sibling in @(
+    "avb-verification.json",
+    "dsu-payload.json",
+    "system-interface.json"
+)) {
     $path = Join-Path (Split-Path -Parent $BuildEvidencePath) $sibling
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
         throw "GSI evidence is missing required sibling: $path"
@@ -47,27 +51,15 @@ if (-not (Test-Path -LiteralPath $OutputRoot)) {
     New-Item -ItemType Directory -Path $OutputRoot -Force | Out-Null
 }
 
-function Invoke-WslText {
-    param([Parameter(Mandatory = $true)][string[]]$Arguments)
-    $previousErrorActionPreference = $ErrorActionPreference
-    try {
-        $ErrorActionPreference = "Continue"
-        $raw = & wsl.exe -d $WslDistribution -- @Arguments 2>&1
-        $exitCode = $LASTEXITCODE
-    }
-    finally {
-        $ErrorActionPreference = $previousErrorActionPreference
-    }
-    $text = (($raw | ForEach-Object { $_.ToString() }) -join "`n").Trim()
-    if ($exitCode -ne 0) {
-        throw "wsl.exe $($Arguments -join ' ') failed: $text"
-    }
-    return $text
-}
-
 function Convert-ToWslPath {
     param([Parameter(Mandatory = $true)][string]$WindowsPath)
-    return Invoke-WslText -Arguments @("wslpath", "-a", $WindowsPath)
+    $absolute = [IO.Path]::GetFullPath($WindowsPath)
+    if ($absolute -notmatch "^([A-Za-z]):\\(.*)$") {
+        throw "Only absolute Windows drive paths can be converted for WSL: $absolute"
+    }
+    $drive = $Matches[1].ToLowerInvariant()
+    $relative = $Matches[2].Replace("\", "/")
+    return "/mnt/$drive/$relative"
 }
 
 $RunId = [DateTime]::UtcNow.ToString("yyyyMMddTHHmmssZ")

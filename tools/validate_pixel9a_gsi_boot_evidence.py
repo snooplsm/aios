@@ -130,7 +130,9 @@ def validate(
             and evidence.get("avb_evidence_sha256")
             == preflight.get("avb_evidence_sha256")
             and evidence.get("dsu_payload_evidence_sha256")
-            == preflight.get("dsu_payload_evidence_sha256"),
+            == preflight.get("dsu_payload_evidence_sha256")
+            and evidence.get("system_interface_evidence_sha256")
+            == preflight.get("system_interface_evidence_sha256"),
             "first-boot evidence is not bound to its input chain")
 
     expected_images = {

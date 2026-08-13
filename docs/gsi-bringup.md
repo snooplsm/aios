@@ -83,7 +83,8 @@ only when a different platform-tools installation is intentional.
 Review at least:
 
 - exact codename, factory fingerprint, Android release, and security patch;
-- ARM64 ABI, Treble state, vendor API/VNDK levels, and dynamic-partition state;
+- ARM64 ABI, Treble state, dated vendor/board API levels, and dynamic-partition
+  state;
 - bootloader, baseband, active slot, AVB state, and lock state;
 - whether DSU is advertised; and
 - the matching current factory image and recovery procedure.
@@ -95,6 +96,12 @@ space for the gzip copied into Downloads, the exact non-sparse `system.img`, an
 than applying the generic 10 GiB recommendation to an AIOS image whose packaged
 models make it larger than a typical GSI. For build 5 this totals 17,772,119,947
 bytes (about 16.55 GiB).
+
+Do not require `ro.vndk.version` on a current Pixel. AOSP removed VNDK version
+properties from Android 15-era vendor images. For modern images the checker
+instead binds the GSI's embedded `ro.llndk.api_level` to the exact `system.img`
+and requires it to be greater than or equal to the phone's dated
+`ro.vendor.api_level`, following AOSP's vendor API compatibility rule.
 
 That rollback comparison is a DSU constraint, not a claim that an unlocked
 fastboot research boot is structurally impossible. The preflight therefore
@@ -128,10 +135,13 @@ powershell -ExecutionPolicy Bypass -File scripts/pixel9a-gsi-preflight.ps1 `
 
 The output directory is intentionally required to be outside this repository.
 
-Keep the build's `avb-verification.json` and `dsu-payload.json` beside
+Keep the build's `avb-verification.json`, `dsu-payload.json`, and
+`system-interface.json` beside
 `soong-build-evidence.json`. The checker rejects the candidate unless the AVB
 record is digest-bound to the build record and exact image identities and the
-DSU record binds the gzip back to that exact raw `system.img`.
+DSU record binds the gzip back to that exact raw `system.img`. The interface
+record binds the LLNDK level extracted from `/system/build.prop` inside that
+same verified image.
 
 This checker can reject architecture, Treble, dynamic-partition, device-identity,
 Android-version, and security-patch mismatches. It deliberately emits

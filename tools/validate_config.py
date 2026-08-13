@@ -1385,9 +1385,19 @@ def validate_aosp_overlay(root: Path) -> None:
             and '"Android\\Sdk"' in inventory_script
             and "pass -AdbPath" in inventory_script
             and '$ErrorActionPreference = "Continue"' in inventory_script
+            and '"shell", "cat", "/proc/meminfo"' in inventory_script
+            and 'Could not identify exactly one MemTotal row'
+            in inventory_script
+            and '"shell", "sh", "-c"' not in inventory_script
             and "adb -s $Serial" in inventory_script
             and '"ro.product.cpu.abilist64"' in inventory_script
             and '"ro.vendor.api_level"' in inventory_script
+            and '"ro.product.first_api_level"' in inventory_script
+            and '"ro.board.api_level"' in inventory_script
+            and '"ro.vendor.build.version.sdk"' in inventory_script
+            and '"ro.llndk.api_level"' in inventory_script
+            and "PreserveFailureOutput" in inventory_script
+            and "dynamic_partition_metadata" in inventory_script
             and '"ro.treble.enabled"' in inventory_script
             and '"ro.boot.dynamic_partitions"' in inventory_script
             and '"android.software.dynamic_system"' in inventory_script
@@ -1407,8 +1417,13 @@ def validate_aosp_overlay(root: Path) -> None:
             and "outside the source repository" in pixel_preflight_script
             and "device-inventory.ps1" in pixel_preflight_script
             and "check_gsi_preflight.py" in pixel_preflight_script
+            and "Only absolute Windows drive paths can be converted for WSL"
+            in pixel_preflight_script
+            and 'return "/mnt/$drive/$relative"' in pixel_preflight_script
+            and '@("wslpath"' not in pixel_preflight_script
             and "avb-verification.json" in pixel_preflight_script
             and "dsu-payload.json" in pixel_preflight_script
+            and "system-interface.json" in pixel_preflight_script
             and "--expected-device tegu" in pixel_preflight_script
             and '$Preflight.status -ne "candidate"' in pixel_preflight_script
             and '$Preflight.safe_to_flash -ne $false' in pixel_preflight_script
@@ -1419,8 +1434,9 @@ def validate_aosp_overlay(root: Path) -> None:
         root / "scripts" / "start-pixel9a-dsu.ps1"
     ).read_text(encoding="utf-8")
     require("[switch]$IUnderstandThisStartsDsu" in dsu_start_script
-            and "Inventory, build, AVB, or DSU evidence changed after preflight"
+            and "Inventory, build, AVB, DSU, or system-interface evidence changed after preflight"
             in dsu_start_script
+            and "SystemInterfacePath" in dsu_start_script
             and "Connected serial does not match" in dsu_start_script
             and "Connected phone changed since inventory" in dsu_start_script
             and "current free space" in dsu_start_script
@@ -1462,6 +1478,7 @@ def validate_aosp_overlay(root: Path) -> None:
             and '"sha256sum"' in pixel_boot_capture
             and 'every_evidenced_system_artifact_verified = $true'
             in pixel_boot_capture
+            and 'system_interface_evidence_sha256' in pixel_boot_capture
             and 'proves_gsi_compatibility = $true' in pixel_boot_capture
             and 'proves_boot_first_boot = $true' in pixel_boot_capture
             and 'proves_physical_runtime_gate = $false' in pixel_boot_capture
@@ -6696,6 +6713,54 @@ def validate_release_configuration(root: Path) -> None:
                 and dsu.get("safe_to_install") is False
                 and dsu.get("proves_physical_runtime_gate") is False,
                 "ARM64 GSI DSU payload evidence is not bound to the system image")
+        interface_path = gsi_build_path.parent / "system-interface.json"
+        require(interface_path.is_file(),
+                "ARM64 GSI build evidence requires system-interface evidence")
+        interface = load_json(interface_path)
+        interface_image = interface.get("system_image")
+        embedded = interface.get("embedded_property_file")
+        interface_properties = interface.get("properties")
+        interface_checks = interface.get("checks")
+        require(interface.get("schema_version") == 1
+                and interface.get("status") == "passed"
+                and interface.get("kind")
+                == "gsi_system_interface_properties"
+                and interface.get("aios_revision")
+                == gsi_build.get("aios_revision")
+                and interface.get("build_evidence_sha256")
+                == hashlib.sha256(gsi_build_path.read_bytes()).hexdigest()
+                and isinstance(interface_image, dict)
+                and interface_image.get("size_bytes")
+                == system_artifact.get("size_bytes")
+                and interface_image.get("sha256")
+                == system_artifact.get("sha256")
+                and isinstance(embedded, dict)
+                and embedded.get("path") == "/system/build.prop"
+                and isinstance(embedded.get("size_bytes"), int)
+                and embedded["size_bytes"] > 0
+                and re.fullmatch(r"[0-9a-f]{64}",
+                                 str(embedded.get("sha256", ""))) is not None
+                and isinstance(interface_properties, dict)
+                and interface_properties.get("ro.build.version.release")
+                == gsi_build.get("android_release")
+                and interface_properties.get(
+                    "ro.build.version.security_patch"
+                ) == gsi_build.get("security_patch")
+                and re.fullmatch(
+                    r"20[0-9]{2}(?:0[1-9]|1[0-2])",
+                    str(interface_properties.get("ro.llndk.api_level", "")),
+                ) is not None
+                and interface_properties.get("ro.treble.enabled") == "true"
+                and isinstance(interface_checks, dict)
+                and set(interface_checks) == {
+                    "extracted_from_verified_system_image",
+                    "build_output_matches_embedded_file",
+                    "llndk_api_level_uses_yyyymm_format",
+                }
+                and all(value is True for value in interface_checks.values())
+                and interface.get("proves_device_compatibility") is False
+                and interface.get("proves_physical_runtime_gate") is False,
+                "ARM64 GSI system-interface evidence is not bound to the image")
 
     model_pack_gate = statuses["integration.reference_model_pack_verified"]
     if model_pack_gate["status"] == "passed":

@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "status": "passed",
+  "kind": "gsi_system_interface_properties",
+  "aios_revision": "3c0c685d39c63b6a3cb0d1d4f0d14a83228ad657",
+  "build_evidence_sha256": "1e1a032bc829714a9ea91682919f1d56203949bd7460915537936337594278f9",
+  "system_image": {
+    "size_bytes": 4639948800,
+    "sha256": "7c740c3a6af1478c6d683e6fd731d6c8722575b2c56102dac7bd49c0929ef32a"
+  },
+  "embedded_property_file": {
+    "path": "/system/build.prop",
+    "size_bytes": 5839,
+    "sha256": "6f8d206ab3d7de02cd3c9caeff067449b4a3168c5d66867bc7124cf30512a516"
+  },
+  "properties": {
+    "ro.build.version.release": "17",
+    "ro.build.version.sdk": "37",
+    "ro.build.version.security_patch": "2026-06-05",
+    "ro.llndk.api_level": "202604",
+    "ro.treble.enabled": "true"
+  },
+  "checks": {
+    "extracted_from_verified_system_image": true,
+    "build_output_matches_embedded_file": true,
+    "llndk_api_level_uses_yyyymm_format": true
+  },
+  "reference": "https://source.android.com/docs/core/architecture/api-flags",
+  "proves_device_compatibility": false,
+  "proves_physical_runtime_gate": false
+}

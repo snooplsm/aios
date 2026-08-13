@@ -31,6 +31,11 @@ store into a bounded temporary directory in 9.78 seconds, reproduced its SHA-256
 from the local copy in 3.32 seconds, and removed the generated copy. This is host
 transfer evidence only; it does not prove USB transfer or device acceptance.
 
+`system-interface.json` binds `/system/build.prop` extracted from the verified
+image. Its dated LLNDK API level is `202604`; device preflight compares that
+against the factory vendor API level instead of requiring the VNDK property
+removed from modern Android vendor images.
+
 This proves a deployable generic ARM64 system-image build, not a Pixel 9a boot.
 It does not prove device partition capacity, DSU support, vendor compatibility,
 radio/IMS behavior, call-audio capture, accelerator selection, inference

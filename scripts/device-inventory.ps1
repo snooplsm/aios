@@ -47,7 +47,8 @@ function Invoke-AdbText {
     param(
         [Parameter(Mandatory = $true)]
         [string[]]$AdbArguments,
-        [switch]$AllowFailure
+        [switch]$AllowFailure,
+        [switch]$PreserveFailureOutput
     )
 
     # Windows PowerShell promotes redirected native stderr to ErrorRecord
@@ -66,7 +67,7 @@ function Invoke-AdbText {
     if ($exitCode -ne 0 -and -not $AllowFailure) {
         throw "adb -s $Serial $($AdbArguments -join ' ') failed: $text"
     }
-    if ($exitCode -ne 0) {
+    if ($exitCode -ne 0 -and -not $PreserveFailureOutput) {
         return ""
     }
     return $text
@@ -94,6 +95,10 @@ $propertyNames = @(
     "ro.system.build.version.security_patch",
     "ro.vendor.build.security_patch",
     "ro.vendor.api_level",
+    "ro.product.first_api_level",
+    "ro.board.api_level",
+    "ro.vendor.build.version.sdk",
+    "ro.llndk.api_level",
     "ro.vndk.version",
     "ro.treble.enabled",
     "ro.boot.dynamic_partitions",
@@ -111,10 +116,21 @@ foreach ($name in $propertyNames) {
     $properties[$name] = Get-Property -Name $name
 }
 
-$memoryLine = Invoke-AdbText -AdbArguments @("shell", "sh", "-c", "grep '^MemTotal:' /proc/meminfo")
+$memoryDocument = Invoke-AdbText -AdbArguments @("shell", "cat", "/proc/meminfo")
+$memoryLine = @(
+    $memoryDocument -split "`n" |
+        Where-Object { $_ -match "^MemTotal:\s+[0-9]+\s+kB\s*$" }
+)
+if ($memoryLine.Count -ne 1) {
+    throw "Could not identify exactly one MemTotal row in /proc/meminfo"
+}
+$memoryLine = $memoryLine[0].Trim()
 $dataFilesystem = Invoke-AdbText -AdbArguments @("shell", "df", "-k", "/data") -AllowFailure
 $dynamicSystemFeature = Invoke-AdbText -AdbArguments @(
     "shell", "pm", "has-feature", "android.software.dynamic_system"
+) -AllowFailure -PreserveFailureOutput
+$dynamicPartitionMetadata = Invoke-AdbText -AdbArguments @(
+    "shell", "lpdump"
 ) -AllowFailure
 $currentSlot = Invoke-AdbText -AdbArguments @(
     "shell", "bootctl", "get-current-slot"
@@ -157,6 +173,7 @@ $document = [ordered]@{
         dynamic_system_feature = $dynamicSystemFeature
         memory = $memoryLine
         data_filesystem = $dataFilesystem
+        dynamic_partition_metadata = $dynamicPartitionMetadata
     }
     slots = $slotState
     collection = [ordered]@{
