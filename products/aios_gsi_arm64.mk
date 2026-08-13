@@ -18,8 +18,9 @@ AIOS_GSI_SYSTEM_MODULES := $(filter \
     Aios% aios_% default-permissions-aios privapp-permissions-aios, \
     $(PRODUCT_PACKAGES) $(PRODUCT_PACKAGES_DEBUG))
 # Instrumentation is installed under testcases rather than in system.img.
+# The policy module is the dependency anchor and cannot require itself.
 AIOS_GSI_SYSTEM_MODULES := $(filter-out \
-    AiosModelBenchmarkTests,$(AIOS_GSI_SYSTEM_MODULES))
+    AiosModelBenchmarkTests aios_product_policy,$(AIOS_GSI_SYSTEM_MODULES))
 $(call soong_config_set,aios,gsi_system_modules,$(AIOS_GSI_SYSTEM_MODULES))
 
 # AOSP's compliance GSI defaults to a 3 GiB dynamic-partition group. The

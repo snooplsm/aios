@@ -46,7 +46,7 @@
       "project": "build/make",
       "file": "0003-build-make-configurable-gsi-size.patch",
       "base_revision": "5ce6f787337d0223710bf7d4a16dbe6d2a35f777",
-      "sha256": "7b99c9e8372f41c1cca9cd386481de30dbda3c39a24f84d4223be997464c5a23",
+      "sha256": "a059dd2958b141a1161acc489faa055b51ad927961357069250c0758fad792fb",
       "owner": "gsi-platform",
       "paths": [
         "target/board/BoardConfigGsiCommon.mk",

@@ -9,12 +9,29 @@ license {
     license_text: ["LICENSE"],
 }
 
-prebuilt_etc {
+// The GSI system-image wrapper can depend on this stable config module while
+// its `required` edges carry the exact, locally generated AIOS package closure
+// into Soong's transitive packaging specs. `required` is intentionally a
+// non-configurable list property, so Android 17 supports list substitution.
+soong_config_module_type {
+    name: "aios_gsi_payload_anchor_type",
+    module_type: "prebuilt_etc",
+    config_namespace: "aios",
+    list_variables: ["gsi_system_modules"],
+    properties: ["required"],
+}
+
+aios_gsi_payload_anchor_type {
     name: "aios_product_policy",
     src: "config/product_policy.json",
     filename: "product_policy.json",
     sub_dir: "aios",
     product_specific: true,
+    soong_config_variables: {
+        gsi_system_modules: {
+            required: ["%s"],
+        },
+    },
 }
 
 prebuilt_etc {
