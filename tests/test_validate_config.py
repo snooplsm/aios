@@ -673,6 +673,20 @@ class IntegrationStructureTests(unittest.TestCase):
     def test_review_complete_patch_series_is_valid(self):
         validator.validate_patch_series(ROOT)
 
+    def test_gsi_patch_keeps_exact_upstream_wrapper_scope(self):
+        series = load("../patches/series.json")
+        patch = next(item for item in series["patches"]
+                     if item["project"] == "build/make")
+        self.assertEqual([
+            "target/board/BoardConfigGsiCommon.mk",
+            "target/product/gsi/Android.bp",
+        ], patch["paths"])
+        text = (ROOT / "patches" / patch["file"]).read_text(encoding="utf-8")
+        self.assertIn('name: "aios_gsi_system_image"', text)
+        self.assertIn('"aios_product_policy"', text)
+        self.assertNotIn("AiosPhone", text)
+        self.assertNotIn("aios_model_", text)
+
     def test_declared_patch_footprint_cannot_drift(self):
         with tempfile.TemporaryDirectory() as raw:
             temporary = Path(raw)

@@ -6161,8 +6161,11 @@ def validate_release_configuration(root: Path) -> None:
     ]
     require(len(gsi_size_patches) == 1
             and gsi_size_patches[0]["paths"]
-            == ["target/board/BoardConfigGsiCommon.mk"],
-            "GSI size override must have one build/make patch and one-file scope")
+            == [
+                "target/board/BoardConfigGsiCommon.mk",
+                "target/product/gsi/Android.bp",
+            ],
+            "GSI integration must have one build/make patch and exact two-file scope")
     gsi_size_patch_text = (
         root / "patches" / gsi_size_patches[0]["file"]
     ).read_text(encoding="utf-8")
@@ -6171,7 +6174,13 @@ def validate_release_configuration(root: Path) -> None:
             and "BOARD_GSI_DYNAMIC_PARTITIONS_SIZE ?= 3221225472"
             in gsi_size_patch_text
             and gsi_size_patch_text.count("?=") == 2,
-            "GSI size patch must only make the two upstream defaults conditional")
+            "GSI integration patch must make exactly two size defaults conditional")
+    require('name: "aios_gsi_system_image"' in gsi_size_patch_text
+            and 'defaults: ["android_gsi_defaults"]' in gsi_size_patch_text
+            and '"aios_product_policy"' in gsi_size_patch_text
+            and "aios_model" not in gsi_size_patch_text
+            and "AiosPhone" not in gsi_size_patch_text,
+            "GSI wrapper must extend upstream defaults through one stable AIOS anchor")
     dialer_patch_text = (root / "patches" / dialer_patches[0]["file"]).read_text(
         encoding="utf-8"
     )
