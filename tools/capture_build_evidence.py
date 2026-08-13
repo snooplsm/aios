@@ -208,6 +208,158 @@ def require_manifest_membership(
             f"installed-file digest does not match staged artifact: {relative}")
 
 
+def generated_product_path(lane: dict, relative: str) -> str:
+    path = Path(relative)
+    if (path.is_absolute() or not path.parts or ".." in path.parts
+            or path.parts[0] not in {"etc", "priv-app"}):
+        raise BuildEvidenceError(f"unsafe generated product path: {relative}")
+    return installed_artifact_path(
+        lane, f"product/{path.as_posix()}"
+    )
+
+
+def require_source_payload(
+    source: Path, expected_size: int, expected_sha256: str, label: str
+) -> None:
+    if (not source.is_file() or not isinstance(expected_size, int)
+            or expected_size <= 0
+            or SHA256_PATTERN.fullmatch(str(expected_sha256)) is None):
+        raise BuildEvidenceError(f"invalid generated payload declaration: {label}")
+    if source.stat().st_size != expected_size or sha256(source) != expected_sha256:
+        raise BuildEvidenceError(f"generated payload does not match its lock: {label}")
+
+
+def capture_generated_payloads(
+    root: Path,
+    product_out: Path,
+    lane: dict,
+    installed_records: dict[str, dict],
+) -> tuple[list[dict], dict]:
+    generated = root / "generated"
+    artifacts: list[dict] = []
+    summaries: dict = {}
+    installed_paths: set[str] = set()
+
+    def installed_record(relative: str) -> dict:
+        installed = generated_product_path(lane, relative)
+        if installed in installed_paths:
+            return next(item for item in artifacts if item["path"] == installed)
+        record = artifact_record(product_out, installed)
+        require_manifest_membership(installed_records, lane, installed, record)
+        installed_paths.add(installed)
+        artifacts.append(record)
+        return record
+
+    model_pack = generated / "modelpack"
+    model_manifest_path = model_pack / "model_artifacts.json"
+    if model_manifest_path.is_file():
+        document = load(model_manifest_path)
+        declarations = document.get("artifacts")
+        if document.get("schema_version") != 1 or not isinstance(declarations, list):
+            raise BuildEvidenceError("generated model pack manifest is invalid")
+        models: list[str] = []
+        declared_sources: dict[str, tuple[int, str]] = {}
+
+        def admit_model_file(item: dict, label: str) -> None:
+            relative = item.get("relative_path")
+            size = item.get("size_bytes")
+            digest = item.get("sha256")
+            if (not isinstance(relative, str)
+                    or not relative.startswith("models/")):
+                raise BuildEvidenceError(f"invalid model-pack path: {label}")
+            prior = declared_sources.get(relative)
+            declaration = (size, digest)
+            if prior is not None and prior != declaration:
+                raise BuildEvidenceError(
+                    f"conflicting shared model declaration: {relative}"
+                )
+            source = model_pack / "assets" / relative.removeprefix("models/")
+            require_source_payload(source, size, digest, label)
+            declared_sources[relative] = declaration
+            installed = installed_record(f"etc/aios/{relative}")
+            if (installed["size_bytes"] != size
+                    or installed["sha256"] != digest):
+                raise BuildEvidenceError(
+                    f"installed model payload differs from its lock: {label}"
+                )
+
+        for item in declarations:
+            if not isinstance(item, dict) or not isinstance(item.get("model_id"), str):
+                raise BuildEvidenceError("generated model declaration is invalid")
+            model_id = item["model_id"]
+            models.append(model_id)
+            admit_model_file(item, model_id)
+            packaged_license = item.get("packaged_license")
+            if packaged_license is not None:
+                if not isinstance(packaged_license, dict):
+                    raise BuildEvidenceError(f"invalid packaged license: {model_id}")
+                admit_model_file(packaged_license, f"{model_id} license")
+            members = item.get("bundle_members", [])
+            if not isinstance(members, list):
+                raise BuildEvidenceError(f"invalid model bundle: {model_id}")
+            for member in members:
+                if not isinstance(member, dict):
+                    raise BuildEvidenceError(f"invalid model bundle member: {model_id}")
+                admit_model_file(member, f"{model_id}:{member.get('name', '')}")
+
+        manifest_installed = installed_record("etc/aios/model_artifacts.json")
+        manifest_digest = sha256(model_manifest_path)
+        if manifest_installed["sha256"] != manifest_digest:
+            raise BuildEvidenceError("installed model manifest differs from generated input")
+        summaries["model_pack"] = {
+            "manifest_sha256": manifest_digest,
+            "models": models,
+            "installed_file_count": len(declared_sources) + 1,
+        }
+
+    runtime_root = generated / "runtimepack"
+    runtime_summaries = []
+    if runtime_root.is_dir():
+        for pack in sorted(path for path in runtime_root.iterdir() if path.is_dir()):
+            manifest_path = pack / "runtime_artifacts.json"
+            if not manifest_path.is_file():
+                continue
+            document = load(manifest_path)
+            runtime = document.get("runtime")
+            provider = document.get("provider_apk")
+            if (document.get("schema_version") != 1
+                    or not isinstance(runtime, str)
+                    or re.fullmatch(r"[a-z0-9][a-z0-9_]{0,63}", runtime) is None
+                    or runtime != pack.name
+                    or not isinstance(provider, dict)):
+                raise BuildEvidenceError(f"generated runtime pack is invalid: {pack.name}")
+            unsigned_relative = provider.get("relative_path")
+            if not isinstance(unsigned_relative, str):
+                raise BuildEvidenceError(f"runtime provider path is invalid: {runtime}")
+            unsigned_source = pack / "assets" / Path(unsigned_relative).name
+            require_source_payload(
+                unsigned_source,
+                provider.get("size_bytes"),
+                provider.get("sha256"),
+                runtime,
+            )
+            manifest_installed = installed_record(
+                f"etc/aios/runtime_artifacts-{runtime}.json"
+            )
+            manifest_digest = sha256(manifest_path)
+            if manifest_installed["sha256"] != manifest_digest:
+                raise BuildEvidenceError(
+                    f"installed runtime manifest differs from generated input: {runtime}"
+                )
+            module = f"AiosRuntimeProvider_{runtime}"
+            signed = installed_record(f"priv-app/{module}/{module}.apk")
+            runtime_summaries.append({
+                "runtime": runtime,
+                "source_revision": document.get("source_revision"),
+                "manifest_sha256": manifest_digest,
+                "unsigned_provider_sha256": provider["sha256"],
+                "platform_signed_provider_sha256": signed["sha256"],
+            })
+    if runtime_summaries:
+        summaries["runtime_packs"] = runtime_summaries
+    return artifacts, summaries
+
+
 def find_system_build_prop(product_out: Path) -> Path:
     candidates = [
         product_out / "system" / "build.prop",
@@ -310,6 +462,10 @@ def capture(
     ]
     for relative, artifact in zip(expected_artifacts, artifacts, strict=True):
         require_manifest_membership(installed_records, lane, relative, artifact)
+    generated_artifacts, generated_payloads = capture_generated_payloads(
+        root, product_out, lane, installed_records
+    )
+    artifacts.extend(generated_artifacts)
     required_images = lane.get("required_images")
     if (not isinstance(required_images, list) or not required_images
             or any(not isinstance(image, str) or not image
@@ -351,6 +507,8 @@ def capture(
         "lane_eligible_for_physical_gates": bool(lane["physical_gate_evidence"]),
         "proves_physical_runtime_gate": False,
     }
+    if generated_payloads:
+        value["generated_payloads"] = generated_payloads
     if lane["artifact_layout"] == "product_partition":
         # Preserve the schema-2 field consumed by existing checked-in build
         # evidence while exposing a partition-neutral field for GSI records.

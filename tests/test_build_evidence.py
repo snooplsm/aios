@@ -208,6 +208,91 @@ class BuildEvidenceTests(unittest.TestCase):
             )
             self.assertNotIn("product.img", paths)
 
+    def test_captures_model_and_platform_signed_runtime_payloads(self):
+        with tempfile.TemporaryDirectory() as raw:
+            aios, manifest, lock, out, log, product_out = self.create_fixture(
+                raw,
+                lane_id="android_gsi_arm64",
+                product="aios_gsi_arm64",
+                target_device="generic_arm64",
+            )
+            (aios / ".git" / "info" / "exclude").write_text(
+                "generated/\n", encoding="utf-8"
+            )
+            model_pack = aios / "generated" / "modelpack"
+            model_payload = model_pack / "assets" / "fixture-model.bin"
+            model_payload.parent.mkdir(parents=True)
+            model_payload.write_bytes(b"fixture model")
+            model_manifest = model_pack / "model_artifacts.json"
+            model_manifest.write_text(json.dumps({
+                "schema_version": 1,
+                "artifacts": [{
+                    "model_id": "fixture-model",
+                    "relative_path": "models/fixture-model.bin",
+                    "size_bytes": model_payload.stat().st_size,
+                    "sha256": hashlib.sha256(model_payload.read_bytes()).hexdigest(),
+                }],
+            }), encoding="utf-8")
+
+            runtime_pack = aios / "generated" / "runtimepack" / "litert_lm"
+            unsigned = runtime_pack / "assets" / "aios-runtime-litert_lm.apk"
+            unsigned.parent.mkdir(parents=True)
+            unsigned.write_bytes(b"unsigned provider")
+            runtime_manifest = runtime_pack / "runtime_artifacts.json"
+            runtime_manifest.write_text(json.dumps({
+                "schema_version": 1,
+                "runtime": "litert_lm",
+                "source_revision": "a" * 40,
+                "provider_apk": {
+                    "relative_path": "runtime/aios-runtime-litert_lm.apk",
+                    "size_bytes": unsigned.stat().st_size,
+                    "sha256": hashlib.sha256(unsigned.read_bytes()).hexdigest(),
+                },
+            }), encoding="utf-8")
+
+            installed_path = product_out / "installed-files-system.json"
+            installed = json.loads(installed_path.read_text(encoding="utf-8"))
+
+            def stage(relative, payload):
+                target = product_out / relative
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(payload)
+                installed.append({
+                    "Name": "/" + relative,
+                    "Size": target.stat().st_size,
+                    "SHA256": hashlib.sha256(target.read_bytes()).hexdigest(),
+                })
+
+            stage("system/product/etc/aios/models/fixture-model.bin",
+                  model_payload.read_bytes())
+            stage("system/product/etc/aios/model_artifacts.json",
+                  model_manifest.read_bytes())
+            stage("system/product/etc/aios/runtime_artifacts-litert_lm.json",
+                  runtime_manifest.read_bytes())
+            stage("system/product/priv-app/AiosRuntimeProvider_litert_lm/"
+                  "AiosRuntimeProvider_litert_lm.apk", b"platform signed provider")
+            installed_path.write_text(json.dumps(installed), encoding="utf-8")
+
+            value = evidence.capture(
+                aios, "android_gsi_arm64", manifest, lock, out, log
+            )
+            self.assertEqual(
+                ["fixture-model"],
+                value["generated_payloads"]["model_pack"]["models"],
+            )
+            runtime = value["generated_payloads"]["runtime_packs"][0]
+            self.assertEqual("litert_lm", runtime["runtime"])
+            self.assertNotEqual(runtime["unsigned_provider_sha256"],
+                                runtime["platform_signed_provider_sha256"])
+            paths = {item["path"] for item in value["artifacts"]}
+            self.assertIn(
+                "system/product/etc/aios/models/fixture-model.bin", paths
+            )
+            self.assertIn(
+                "system/product/priv-app/AiosRuntimeProvider_litert_lm/"
+                "AiosRuntimeProvider_litert_lm.apk", paths
+            )
+
     def test_rejects_lock_without_manifest_repository_revision(self):
         with tempfile.TemporaryDirectory() as raw:
             aios, manifest, lock, out, log, _ = self.create_fixture(raw)

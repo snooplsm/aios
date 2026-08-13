@@ -6423,6 +6423,43 @@ def validate_release_configuration(root: Path) -> None:
                 and gsi_build.get("lane_eligible_for_physical_gates") is True
                 and gsi_build.get("proves_physical_runtime_gate") is False,
                 "ARM64 GSI build evidence does not prove the deployable lane")
+        generated_payloads = gsi_build.get("generated_payloads")
+        model_payload = (generated_payloads.get("model_pack")
+                         if isinstance(generated_payloads, dict) else None)
+        runtime_payloads = (generated_payloads.get("runtime_packs")
+                            if isinstance(generated_payloads, dict) else None)
+        require(isinstance(model_payload, dict)
+                and set(model_payload.get("models", [])) == {
+                    "gemma4-e2b-mobile-text",
+                    "gemma4-e2b-mobile-multimodal",
+                    "whisper-base-multilingual-quantized",
+                    "supertonic3-en-es-int8",
+                }
+                and isinstance(model_payload.get("installed_file_count"), int)
+                and model_payload["installed_file_count"] == 15
+                and re.fullmatch(
+                    r"[0-9a-f]{64}",
+                    str(model_payload.get("manifest_sha256", ""))) is not None,
+                "ARM64 GSI evidence must bind every Pixel 9a model payload")
+        require(isinstance(runtime_payloads, list)
+                and {item.get("runtime") for item in runtime_payloads
+                     if isinstance(item, dict)} == {
+                         "litert_lm", "whisper_cpp", "sherpa_onnx_tts"
+                     }
+                and all(
+                    isinstance(item, dict)
+                    and re.fullmatch(r"[0-9a-f]{40}",
+                                     str(item.get("source_revision", "")))
+                    and re.fullmatch(r"[0-9a-f]{64}",
+                                     str(item.get("manifest_sha256", "")))
+                    and re.fullmatch(r"[0-9a-f]{64}",
+                                     str(item.get("unsigned_provider_sha256", "")))
+                    and re.fullmatch(
+                        r"[0-9a-f]{64}",
+                        str(item.get("platform_signed_provider_sha256", "")))
+                    for item in runtime_payloads
+                ),
+                "ARM64 GSI evidence must bind all platform-signed AI providers")
 
     model_pack_gate = statuses["integration.reference_model_pack_verified"]
     if model_pack_gate["status"] == "passed":
