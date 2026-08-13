@@ -66,6 +66,16 @@ lunch aios_sdk_phone_x86_64-aosp_current-userdebug
 emulator -wipe-data -no-snapshot
 ```
 
+For a background or Windows-hosted WSL launch, use the repository launcher so
+the AOSP root and emulator arguments remain distinct across the process
+boundary:
+
+```text
+vendor/aios/scripts/launch-aosp-avd.sh \
+  /absolute/path/to/aosp-latest 5554 \
+  -wipe-data -no-window -no-audio -no-boot-anim
+```
+
 `-wipe-data` affects only that emulator's disposable data image. Omit it when
 you intentionally want to retain the AVD's local test state. Do not point the
 emulator at Pixel factory images or `aios_tegu` artifacts; those images require
