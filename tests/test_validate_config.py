@@ -1183,6 +1183,8 @@ class ModelPackTests(unittest.TestCase):
                           (output / "Android.bp").read_text(encoding="utf-8"))
             self.assertIn('name: "aios_model_pack_anchor"',
                           (output / "Android.bp").read_text(encoding="utf-8"))
+            self.assertIn('phony {',
+                          (output / "Android.bp").read_text(encoding="utf-8"))
             self.assertIn('required: [',
                           (output / "Android.bp").read_text(encoding="utf-8"))
             self.assertIn("SPDX-license-identifier-Apache-2.0",

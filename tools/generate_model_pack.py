@@ -580,7 +580,7 @@ def generate(
         f'        "{module}",' for module in all_modules)
     blueprint_blocks.append(
         "// Stable transitive packaging anchor for the Android 17 GSI wrapper.\n"
-        "filegroup {\n"
+        "phony {\n"
         "    name: \"aios_model_pack_anchor\",\n"
         "    required: [\n"
         f"{anchor_required}\n"
