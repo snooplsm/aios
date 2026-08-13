@@ -26,14 +26,10 @@ diff --git a/java/com/android/incallui/InCallServiceImpl.java b/java/com/android
 index b9d0ecc..059adb2 100644
 --- a/java/com/android/incallui/InCallServiceImpl.java
 +++ b/java/com/android/incallui/InCallServiceImpl.java
-@@ -26,6 +26,7 @@ import android.telecom.InCallService;
- import com.android.dialer.blocking.FilteredNumberAsyncQueryHandler;
- import com.android.dialer.feedback.FeedbackComponent;
+@@ -29,2 +29,3 @@ import com.android.dialer.feedback.FeedbackComponent;
  import com.android.incallui.audiomode.AudioModeProvider;
 +import com.android.incallui.aios.AiosCallAssistant;
  import com.android.incallui.call.CallList;
- import com.android.incallui.call.ExternalCallList;
- import com.android.incallui.call.TelecomAdapter;
 @@ -47,6 +48,7 @@ public class InCallServiceImpl extends InCallService {
    // lifecycle of this service, because the singleton is associated with the state of the
    // Application, not this service.
