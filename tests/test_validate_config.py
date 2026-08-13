@@ -195,6 +195,15 @@ class ModelCatalogTests(unittest.TestCase):
                 validator.ValidationError, "pinned LiteRT-LM artifact"):
             validator.validate_catalog(self.catalog)
 
+    def test_every_single_file_reference_has_an_exact_size_lock(self):
+        model = next(item for item in self.catalog["models"]
+                     if item["id"] == "whisper-base-multilingual-quantized")
+        model["reference_artifact"].pop("size_bytes")
+
+        with self.assertRaisesRegex(
+                validator.ValidationError, "HTTPS URL, size, and digest"):
+            validator.validate_catalog(self.catalog)
+
     def test_high_memory_tier_exposes_ordered_independent_fallbacks(self):
         roles = validator.tier_candidate_roles(self.catalog, "edge_16gb_plus")
 

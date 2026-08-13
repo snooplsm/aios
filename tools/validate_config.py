@@ -280,12 +280,11 @@ def validate_catalog(catalog: dict[str, Any]) -> None:
         if reference is not None:
             require(isinstance(reference, dict)
                     and str(reference.get("url", "")).startswith("https://")
-                    and (reference.get("size_bytes") is None
-                         or (isinstance(reference.get("size_bytes"), int)
-                             and reference["size_bytes"] > 0))
+                    and isinstance(reference.get("size_bytes"), int)
+                    and reference["size_bytes"] > 0
                     and re.fullmatch(r"[0-9a-f]{64}",
                                      str(reference.get("sha256", ""))) is not None,
-                    f"{model['id']}: reference artifact must have HTTPS URL and digest")
+                    f"{model['id']}: reference artifact needs HTTPS URL, size, and digest")
         if model.get("family") == "gemma4":
             variant = "E2B" if "-e2b-" in model["id"] else (
                 "E4B" if "-e4b-" in model["id"] else None)
