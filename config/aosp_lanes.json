@@ -56,7 +56,11 @@
         "packages/apps/Dialer",
         "vendor/aios"
       ],
-      "compatibility_status": "candidate_requires_vintf_and_device_preflight",
+      "compatibility_status": "blocked_until_system_patch_matches_factory_and_physical_boot_passes",
+      "factory_build_floor": "CP2A.260705.006",
+      "factory_security_patch_floor": "2026-07-05",
+      "public_aosp_source_status": "exact_factory_tag_not_published",
+      "pvmfw_deployment_policy": "flash_atomically_with_matching_vbmeta_without_intermediate_reboot",
       "preserves_device_partitions": ["bootloader", "radio", "boot", "vendor", "odm"],
       "replaces_device_partitions": ["pvmfw", "system"],
       "physical_gate_evidence": true

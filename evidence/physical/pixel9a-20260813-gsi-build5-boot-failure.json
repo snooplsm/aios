@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "status": "failed",
+  "kind": "pixel_gsi_physical_boot_gate",
+  "device": "tegu",
+  "factory_build": {
+    "build_id": "CP2A.260705.006",
+    "security_patch": "2026-07-05",
+    "slot_restored": "a"
+  },
+  "candidate": {
+    "evidence_run": "20260813-gsi-build5-3c0c685-j12",
+    "build_id": "CP2A.260605.016",
+    "security_patch": "2026-06-05",
+    "system_sha256": "7c740c3a6af1478c6d683e6fd731d6c8722575b2c56102dac7bd49c0929ef32a",
+    "vbmeta_sha256": "42114b30264c02f4fdf6879c8f37f826dc600ef7f38e37021eca8ad89778beb4",
+    "pvmfw_sha256": "38a49732c64692b357b3a4d6e819f87c9a8734122c4d7647fc42f320a33e939c"
+  },
+  "observations": {
+    "image_transfer_completed": true,
+    "avb_verification_disabled_for_test_slot": true,
+    "userdata_erased": true,
+    "boot_completed": false,
+    "adb_diagnostic_window_captured": false,
+    "bootloop_observed": true,
+    "exact_crashing_subsystem_known": false
+  },
+  "deployment_sequence_findings": {
+    "intermediate_reboot_after_pvmfw_only_occurred": true,
+    "intermediate_reboot_was_invalid_avb_state": true,
+    "later_trial_retained_factory_pvmfw": true,
+    "candidate_system_and_factory_pvmfw_combination_proven_compatible": false
+  },
+  "recovery": {
+    "verified_factory_archive_used": true,
+    "factory_partition_update_completed": true,
+    "aios_removed_from_test_slot": true,
+    "userdata_and_metadata_erased": true
+  },
+  "release_decision": {
+    "candidate_rejected": true,
+    "older_system_patch_is_physical_blocker": true,
+    "exact_factory_source_tag_publicly_available": false,
+    "another_flash_allowed_without_new_build_and_runtime_evidence": false
+  },
+  "contains_device_serial": false,
+  "proves_root_cause": false,
+  "proves_physical_runtime_gate": false
+}

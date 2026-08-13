@@ -149,6 +149,41 @@ The build and AVB records must also bind `pvmfw.img`. AOSP's Pixel GSI guidance
 requires flashing it when the device advertises Android Virtualization
 Framework; omitting it from deployment evidence is a preflight failure.
 
+Do not flash `pvmfw.img` and reboot before its matching `vbmeta.img` is in
+place. The two images are one AVB transaction. An intermediate reboot leaves
+the selected slot with factory metadata authenticating a different firmware
+image and is expected to fail verified boot.
+
+## Pixel 9a physical result (2026-08-13)
+
+The `20260813-gsi-build5-3c0c685-j12` image is rejected for further Pixel 9a
+deployment. It was built as `CP2A.260605.016` with the 2026-06-05 security
+patch, while the test phone ran factory build `CP2A.260705.006` with the
+2026-07-05 patch. The old preflight excluded `system_patch_not_older` from the
+fastboot decision. The image passed build, AVB, filesystem, architecture,
+Treble, and coarse LLNDK checks but bootlooped before an ADB diagnostic window
+was captured. Google factory image `CP2A.260705.006` restored the phone.
+
+This result does not identify the crashing subsystem. Treat system/vendor
+monthly-version skew, the non-atomic initial `pvmfw` experiment, and the later
+factory-`pvmfw`/AIOS-system combination as separate unproven variables. A new
+physical candidate must satisfy all of these conditions:
+
+1. Its Android release and security patch are not older than the factory
+   system on the phone.
+2. Its system/vendor VINTF negotiation is exercised against the exact factory
+   vendor artifacts.
+3. `pvmfw`, `vbmeta`, and `system` are deployed without an intermediate boot.
+4. A non-destructive trial or dedicated test slot reaches `sys.boot_completed`
+   and preserves early-boot diagnostics before the image is called deployable.
+
+As of this result, Google's public AOSP build table maps only
+`CP2A.260605.016` to `android-17.0.0_r1`; it does not publish a source tag for
+the Pixel factory build `CP2A.260705.006`. Do not label the moving
+`android17-release` branch as an exact factory match. Until a compatible public
+tag exists, physical app integration should use a local-only factory-product
+overlay workflow that never commits or redistributes Google factory binaries.
+
 This checker can reject architecture, Treble, dynamic-partition, device-identity,
 Android-version, and security-patch mismatches. It deliberately emits
 `safe_to_flash: false`: VINTF execution, partition capacity, AVB, restoration,

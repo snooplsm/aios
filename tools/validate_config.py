@@ -6221,14 +6221,20 @@ def validate_release_configuration(root: Path) -> None:
             and gsi.get("required_images")
             == ["pvmfw.img", "system.img", "vbmeta.img"]
             and gsi.get("compatibility_status")
-            == "candidate_requires_vintf_and_device_preflight"
+            == "blocked_until_system_patch_matches_factory_and_physical_boot_passes"
+            and gsi.get("factory_build_floor") == "CP2A.260705.006"
+            and gsi.get("factory_security_patch_floor") == "2026-07-05"
+            and gsi.get("public_aosp_source_status")
+            == "exact_factory_tag_not_published"
+            and gsi.get("pvmfw_deployment_policy")
+            == "flash_atomically_with_matching_vbmeta_without_intermediate_reboot"
             and gsi.get("physical_gate_evidence") is True
             and gsi.get("replaces_device_partitions") == ["pvmfw", "system"]
             and set(gsi.get("preserves_device_partitions", []))
             == {"bootloader", "radio", "boot", "vendor", "odm"}
             and "device/generic/common" in gsi.get("required_projects", [])
             and "frameworks/base" in gsi.get("required_projects", []),
-            "ARM64 GSI must be a single-system physical candidate with preflight")
+            "ARM64 GSI must remain blocked on the witnessed Pixel compatibility gates")
     require(hardware.get("kind") == "physical_hardware"
             and hardware.get("manifest_revision") is None
             and hardware.get("product") == "aios_tegu"

@@ -389,10 +389,12 @@ def evaluate(
     dsu_advertised = str(capabilities.get("dynamic_system_feature", "")).lower() == "true"
     avf_advertised = str(capabilities.get(
         "virtualization_framework_feature", "")).lower() == "true"
-    fastboot_structural_checks = {
-        name: passed for name, passed in checks.items()
-        if name != "system_patch_not_older"
-    }
+    # A GSI older than the factory system is not a physical fastboot
+    # candidate.  Besides rollback policy, monthly platform changes can alter
+    # the framework/vendor contract without changing the Android release or
+    # the coarse LLNDK level.  The Pixel 9a CP2A.260705.006 physical trial
+    # demonstrated that treating this as a DSU-only restriction is unsafe.
+    fastboot_structural_checks = dict(checks)
     structural = all(fastboot_structural_checks.values())
     locked = property_value(inventory, "ro.boot.flash.locked") != "0"
     available_bytes = data_free_bytes(inventory)
@@ -415,7 +417,7 @@ def evaluate(
             blockers.append(f"failed structural check: {name}")
     if not checks["system_patch_not_older"]:
         blockers.append(
-            "GSI security patch is older than the factory system; DSU rollback policy rejects it"
+            "GSI security patch is older than the factory system; DSU and physical fastboot deployment reject it"
         )
     if not dsu_advertised:
         blockers.append("factory build does not advertise Dynamic System Updates")

@@ -266,7 +266,7 @@ class GsiPreflightTests(unittest.TestCase):
             self.assertFalse(result["checks"]["arm64_userspace"])
             self.assertFalse(result["fastboot_candidate"])
 
-    def test_older_gsi_patch_is_not_a_dsu_candidate(self):
+    def test_older_gsi_patch_is_not_a_physical_candidate(self):
         with tempfile.TemporaryDirectory() as raw:
             build_value = build()
             build_value["security_patch"] = "2026-04-05"
@@ -274,12 +274,13 @@ class GsiPreflightTests(unittest.TestCase):
                 raw, build_value=build_value
             )
             value = preflight.evaluate(inventory_path, build_path, "tegu")
-            self.assertEqual("candidate", value["status"])
+            self.assertEqual("incompatible", value["status"])
             self.assertFalse(value["checks"]["system_patch_not_older"])
             self.assertFalse(value["dsu_candidate"])
-            self.assertTrue(value["fastboot_candidate"])
-            self.assertNotIn("system_patch_not_older",
-                             value["fastboot_structural_checks"])
+            self.assertFalse(value["fastboot_candidate"])
+            self.assertFalse(value["fastboot_structural_checks"][
+                "system_patch_not_older"
+            ])
 
     def test_refuses_build_that_claims_physical_runtime(self):
         with tempfile.TemporaryDirectory() as raw:
