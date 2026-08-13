@@ -966,6 +966,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "apps/messaging/tests/src/com/aios/messaging/context/LatestOperationQueueTest.kt",
         "apps/messaging/tests/src/com/aios/messaging/mms/MmsOperationPolicyTest.kt",
         "patches/0002-framework-mms-aios-visibility.patch",
+        "patches/0003-build-make-configurable-gsi-size.patch",
         "docs/mms-transport.md",
         "preview/messagingcheck/build.gradle.kts",
         "preview/messagingcheck/src/main/java/com/aios/messaging/mms/platform/MmsTransportFactory.kt",
@@ -6154,6 +6155,23 @@ def validate_release_configuration(root: Path) -> None:
             and '"//vendor/aios/apps/messaging"' not in mms_patch_text
             and "framework-mms-shared-srcs" in mms_patch_text,
             "MMS patch must use Soong's legal platform-to-vendor visibility boundary")
+    gsi_size_patches = [
+        patch for patch in series["patches"]
+        if patch["project"] == "build/make"
+    ]
+    require(len(gsi_size_patches) == 1
+            and gsi_size_patches[0]["paths"]
+            == ["target/board/BoardConfigGsiCommon.mk"],
+            "GSI size override must have one build/make patch and one-file scope")
+    gsi_size_patch_text = (
+        root / "patches" / gsi_size_patches[0]["file"]
+    ).read_text(encoding="utf-8")
+    require("BOARD_SUPER_PARTITION_SIZE ?= 3229614080"
+            in gsi_size_patch_text
+            and "BOARD_GSI_DYNAMIC_PARTITIONS_SIZE ?= 3221225472"
+            in gsi_size_patch_text
+            and gsi_size_patch_text.count("?=") == 2,
+            "GSI size patch must only make the two upstream defaults conditional")
     dialer_patch_text = (root / "patches" / dialer_patches[0]["file"]).read_text(
         encoding="utf-8"
     )

@@ -40,6 +40,25 @@
       "reason": "Allow the platform-signed AIOS Messaging app to statically link AOSP's maintained MMS codec and Telephony provider persister without copying protocol sources into vendor code, using Soong's required platform-to-vendor subtree visibility boundary.",
       "removal_condition": "Remove when framework-mms-shared-srcs is public to product modules or AOSP provides an equivalent supported MMS codec and provider library.",
       "rebase_notes": "Re-export from the tracked frameworks/base commit, keep the change to the single telephony/common/Android.bp visibility entry using //vendor:__subpackages__, and rebuild AiosMessaging with Soong."
+    },
+    {
+      "id": "build-make-configurable-gsi-size",
+      "project": "build/make",
+      "file": "0003-build-make-configurable-gsi-size.patch",
+      "base_revision": "5ce6f787337d0223710bf7d4a16dbe6d2a35f777",
+      "sha256": "131838352d8887c079ee459ec214b917dffc25b4c046b1ea12e4aeef6b5bad27",
+      "owner": "gsi-platform",
+      "paths": [
+        "target/board/BoardConfigGsiCommon.mk"
+      ],
+      "tests": [
+        "scripts/build-aosp-lane.sh",
+        "tests/test_patch_series.py",
+        "tests/test_validate_config.py"
+      ],
+      "reason": "Preserve AOSP's compliance-GSI defaults while allowing an additive product to provide a larger build container for its catalog-pinned on-device models.",
+      "removal_condition": "Remove when BoardConfigGsiCommon uses conditional defaults or exposes an equivalent product-supported GSI sizing mechanism.",
+      "rebase_notes": "Re-export from the tracked build/make base, preserve the two assignment-operator changes only, verify the default GSI remains 3 GiB without overrides, verify the AIOS dumpvars are 6 GiB plus 8 MiB, then rebuild the model-inclusive ARM64 GSI."
     }
   ]
 }

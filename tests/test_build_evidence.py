@@ -130,7 +130,7 @@ class BuildEvidenceTests(unittest.TestCase):
             self.assertEqual("f" * 40, value["manifest_repository_revision"])
             self.assertEqual("2026-06-05", value["security_patch"])
             self.assertEqual(15, len(value["artifacts"]))
-            self.assertEqual(2, len(value["patch_queue"]))
+            self.assertEqual(3, len(value["patch_queue"]))
             self.assertRegex(value["patch_queue_sha256"], r"^[0-9a-f]{64}$")
             self.assertFalse(value["proves_physical_runtime_gate"])
             self.assertEqual(

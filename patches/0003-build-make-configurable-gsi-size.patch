@@ -1,0 +1,17 @@
+diff --git a/target/board/BoardConfigGsiCommon.mk b/target/board/BoardConfigGsiCommon.mk
+index 8a62796e51..d25cc57c63 100644
+--- a/target/board/BoardConfigGsiCommon.mk
++++ b/target/board/BoardConfigGsiCommon.mk
+@@ -65,10 +65,10 @@ BOARD_AVB_SYSTEM_ADD_HASHTREE_FOOTER_ARGS += --hash_algorithm sha256
+ 
+ ifdef BUILDING_GSI
+ # super.img spec for GSI targets
+-BOARD_SUPER_PARTITION_SIZE := 3229614080
++BOARD_SUPER_PARTITION_SIZE ?= 3229614080
+ BOARD_SUPER_PARTITION_GROUPS := gsi_dynamic_partitions
+ BOARD_GSI_DYNAMIC_PARTITIONS_PARTITION_LIST := system
+-BOARD_GSI_DYNAMIC_PARTITIONS_SIZE := 3221225472
++BOARD_GSI_DYNAMIC_PARTITIONS_SIZE ?= 3221225472
+ 
+ # Build pvmfw with GSI: b/376363989
+ ifeq (true,$(PRODUCT_BUILD_PVMFW_IMAGE))
