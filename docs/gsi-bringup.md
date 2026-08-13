@@ -173,6 +173,23 @@ copying the gzip or launching Android's DSU verification activity. It does not
 unlock, disable AVB, invoke fastboot, or reboot. Accept the verification UI and
 restart only from the DSU notification after installation completes.
 
+After AIOS reaches the fresh-user system UI and ADB is authorized again, capture
+the first-boot gate. This hashes every AIOS file represented by the build record
+on the phone, including model files and runtime providers, so allow several
+minutes:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/capture-pixel9a-gsi-boot.ps1 `
+  -Serial <adb-serial> `
+  -Inventory C:\safe\release-artifacts\pixel9a-factory-<run>.json `
+  -Preflight C:\safe\release-artifacts\pixel9a-gsi-preflight-<run>.json `
+  -Output C:\safe\release-artifacts\pixel9a-gsi-first-boot-<run>.json
+```
+
+The resulting record can prove the exact DSU boot and installed payload. It
+explicitly does not prove telephony, inference latency, media processing, both-
+slot reboot, factory restoration, or the complete physical milestone.
+
 Unlocking normally wipes user data. Pixel anti-rollback state may prevent
 booting older firmware even when an old public AOSP target exists. The exact
 phone inventory, not its marketing name, decides the allowed procedure.

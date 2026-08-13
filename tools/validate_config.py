@@ -878,6 +878,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "scripts/device-inventory.ps1",
         "scripts/pixel9a-gsi-preflight.ps1",
         "scripts/start-pixel9a-dsu.ps1",
+        "scripts/capture-pixel9a-gsi-boot.ps1",
         "docs/cuttlefish-bringup.md",
         "docs/emulator-bringup.md",
         "docs/gsi-bringup.md",
@@ -1434,6 +1435,31 @@ def validate_aosp_overlay(root: Path) -> None:
             and "fastboot.exe" not in dsu_start_script
             and "adb reboot" not in dsu_start_script,
             "Pixel 9a DSU start must be explicit, exact-evidence bound, and non-flashing")
+    pixel_boot_capture = (
+        root / "scripts" / "capture-pixel9a-gsi-boot.ps1"
+    ).read_text(encoding="utf-8")
+    require('kind = "pixel9a_gsi_dsu_first_boot"' in pixel_boot_capture
+            and "outside the source repository" in pixel_boot_capture
+            and '"sys.boot_completed"' in pixel_boot_capture
+            and '"ro.gsid.image_running"' in pixel_boot_capture
+            and '$BuildRecord.build_fingerprint' in pixel_boot_capture
+            and '"com.aios.phone"' in pixel_boot_capture
+            and '"com.aios.messaging"' in pixel_boot_capture
+            and '"com.aios.callintelligence"' in pixel_boot_capture
+            and '"com.aios.contextintelligence"' in pixel_boot_capture
+            and '"com.aios.mediaintelligence"' in pixel_boot_capture
+            and '"com.aios.modelbroker"' in pixel_boot_capture
+            and '"android.app.role.DIALER"' in pixel_boot_capture
+            and '"android:string/config_defaultDialer"' in pixel_boot_capture
+            and '"sha256sum"' in pixel_boot_capture
+            and 'every_evidenced_system_artifact_verified = $true'
+            in pixel_boot_capture
+            and 'proves_gsi_compatibility = $true' in pixel_boot_capture
+            and 'proves_boot_first_boot = $true' in pixel_boot_capture
+            and 'proves_physical_runtime_gate = $false' in pixel_boot_capture
+            and 'proves_telephony_gate = $false' in pixel_boot_capture
+            and 'proves_factory_restore = $false' in pixel_boot_capture,
+            "Pixel 9a first-boot capture must bind exact artifacts without overclaiming runtime gates")
     gsi_preflight = (root / "tools" / "check_gsi_preflight.py").read_text(
         encoding="utf-8"
     )
