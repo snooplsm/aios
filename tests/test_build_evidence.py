@@ -208,6 +208,23 @@ class BuildEvidenceTests(unittest.TestCase):
             )
             self.assertNotIn("product.img", paths)
 
+    def test_accepts_android_17_combined_gsi_installed_manifest(self):
+        with tempfile.TemporaryDirectory() as raw:
+            aios, manifest, lock, out, log, product_out = self.create_fixture(
+                raw,
+                lane_id="android_gsi_arm64",
+                product="aios_gsi_arm64",
+                target_device="generic_arm64",
+            )
+            legacy = product_out / "installed-files-system.json"
+            combined = product_out / "installed-files.json"
+            legacy.replace(combined)
+            value = evidence.capture(
+                aios, "android_gsi_arm64", manifest, lock, out, log
+            )
+            self.assertEqual("installed-files.json",
+                             value["installed_files_manifest"])
+
     def test_captures_model_and_platform_signed_runtime_payloads(self):
         with tempfile.TemporaryDirectory() as raw:
             aios, manifest, lock, out, log, product_out = self.create_fixture(

@@ -148,17 +148,32 @@ def installed_partition_records(
     product_out: Path, lane: dict
 ) -> tuple[Path, dict[str, dict]]:
     manifests = {
-        "product_partition": "installed-files-product.json",
-        "gsi_system_product": "installed-files-system.json",
+        "product_partition": ("installed-files-product.json",),
+        # Android 17's Soong-defined GSI writes the combined system filesystem
+        # inventory as installed-files.json. Older Kati-defined GSI builds used
+        # installed-files-system.json. Prefer the partition-specific legacy
+        # name when both exist, but accept only these two explicit contracts.
+        "gsi_system_product": (
+            "installed-files-system.json",
+            "installed-files.json",
+        ),
     }
-    manifest_name = manifests.get(lane.get("artifact_layout"))
-    if manifest_name is None:
+    manifest_names = manifests.get(lane.get("artifact_layout"))
+    if manifest_names is None:
         raise BuildEvidenceError(
             f"unsupported artifact layout: {lane.get('artifact_layout')}"
         )
-    manifest = product_out / manifest_name
-    if not manifest.is_file():
-        raise BuildEvidenceError(f"missing {manifest_name}")
+    manifest = next(
+        (product_out / name for name in manifest_names
+         if (product_out / name).is_file()),
+        None,
+    )
+    if manifest is None:
+        if len(manifest_names) == 1:
+            raise BuildEvidenceError(f"missing {manifest_names[0]}")
+        raise BuildEvidenceError(
+            f"missing installed-file manifest; expected one of {manifest_names}"
+        )
     document = load(manifest)
     if not isinstance(document, list) or not document:
         raise BuildEvidenceError("installed-file manifest must be a non-empty array")
