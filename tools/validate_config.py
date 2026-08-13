@@ -6648,6 +6648,7 @@ def validate_release_configuration(root: Path) -> None:
         dsu_source = dsu.get("source_image")
         dsu_payload = dsu.get("payload")
         dsu_checks = dsu.get("checks")
+        dsu_transfer = dsu.get("windows_transfer_probe")
         system_artifact = image_artifacts.get("system.img", {})
         require(dsu.get("schema_version") == 1
                 and dsu.get("status") == "passed"
@@ -6678,8 +6679,19 @@ def validate_release_configuration(root: Path) -> None:
                 and set(dsu_checks) == {
                     "gzip_integrity_verified",
                     "stream_decompression_sha256_verified",
+                    "windows_local_staging_sha256_verified",
                 }
                 and all(value is True for value in dsu_checks.values())
+                and isinstance(dsu_transfer, dict)
+                and dsu_transfer.get("source_transport") == "wsl_unc"
+                and isinstance(dsu_transfer.get("copy_seconds"), (int, float))
+                and dsu_transfer["copy_seconds"] > 0
+                and isinstance(dsu_transfer.get("hash_seconds"), (int, float))
+                and dsu_transfer["hash_seconds"] > 0
+                and dsu_transfer.get("size_bytes")
+                == dsu_payload.get("size_bytes")
+                and dsu_transfer.get("sha256") == dsu_payload.get("sha256")
+                and dsu_transfer.get("temporary_copy_removed") is True
                 and dsu.get("external_payload_only") is True
                 and dsu.get("safe_to_install") is False
                 and dsu.get("proves_physical_runtime_gate") is False,

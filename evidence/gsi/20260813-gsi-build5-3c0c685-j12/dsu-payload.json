@@ -20,7 +20,16 @@
   },
   "checks": {
     "gzip_integrity_verified": true,
-    "stream_decompression_sha256_verified": true
+    "stream_decompression_sha256_verified": true,
+    "windows_local_staging_sha256_verified": true
+  },
+  "windows_transfer_probe": {
+    "source_transport": "wsl_unc",
+    "copy_seconds": 9.78,
+    "hash_seconds": 3.32,
+    "size_bytes": 3468494731,
+    "sha256": "9cd69218dc5ea3eeac55e57548a012cad69fe3b190b8cbb23e3771f1243b2936",
+    "temporary_copy_removed": true
   },
   "prepared_at": "2026-08-13T06:21:38Z",
   "external_payload_only": true,

@@ -170,6 +170,7 @@ def validate_dsu_payload(
     source = payload.get("source_image")
     compressed = payload.get("payload")
     checks = payload.get("checks")
+    transfer = payload.get("windows_transfer_probe")
     system = artifacts["system.img"]
     if (payload.get("schema_version") != 1
             or payload.get("status") != "passed"
@@ -196,8 +197,18 @@ def validate_dsu_payload(
             or set(checks) != {
                 "gzip_integrity_verified",
                 "stream_decompression_sha256_verified",
+                "windows_local_staging_sha256_verified",
             }
             or any(value is not True for value in checks.values())
+            or not isinstance(transfer, dict)
+            or transfer.get("source_transport") != "wsl_unc"
+            or not isinstance(transfer.get("copy_seconds"), (int, float))
+            or transfer["copy_seconds"] <= 0
+            or not isinstance(transfer.get("hash_seconds"), (int, float))
+            or transfer["hash_seconds"] <= 0
+            or transfer.get("size_bytes") != compressed.get("size_bytes")
+            or transfer.get("sha256") != compressed.get("sha256")
+            or transfer.get("temporary_copy_removed") is not True
             or payload.get("external_payload_only") is not True
             or payload.get("safe_to_install") is not False
             or payload.get("proves_physical_runtime_gate") is not False):

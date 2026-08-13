@@ -26,6 +26,11 @@ reproduced the source image's SHA-256. Device preflight counts both the gzip in
 Downloads and the DSU system/userdata allocations before calling it a DSU
 candidate.
 
+A Windows transfer rehearsal copied the complete payload from the WSL evidence
+store into a bounded temporary directory in 9.78 seconds, reproduced its SHA-256
+from the local copy in 3.32 seconds, and removed the generated copy. This is host
+transfer evidence only; it does not prove USB transfer or device acceptance.
+
 This proves a deployable generic ARM64 system-image build, not a Pixel 9a boot.
 It does not prove device partition capacity, DSU support, vendor compatibility,
 radio/IMS behavior, call-audio capture, accelerator selection, inference

@@ -144,6 +144,15 @@ class GsiPreflightTests(unittest.TestCase):
             "checks": {
                 "gzip_integrity_verified": True,
                 "stream_decompression_sha256_verified": True,
+                "windows_local_staging_sha256_verified": True,
+            },
+            "windows_transfer_probe": {
+                "source_transport": "wsl_unc",
+                "copy_seconds": 1.0,
+                "hash_seconds": 1.0,
+                "size_bytes": max(1, system["size_bytes"] - 1),
+                "sha256": digest("gzip"),
+                "temporary_copy_removed": True,
             },
             "external_payload_only": True,
             "safe_to_install": False,
