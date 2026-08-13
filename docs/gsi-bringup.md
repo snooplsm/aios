@@ -153,6 +153,26 @@ and physical functionality cannot be proven from property strings.
    stack.
 4. Do not relock around a test-key AIOS image.
 
+After the wrapper reports `dsu_candidate: true`, use the separate start command
+with the inventory and preflight paths it printed. The payload currently lives
+outside Git in the WSL evidence directory and is accessible from Windows through
+`\\wsl.localhost\Ubuntu-24.04\home\ryan\aios-evidence\...`:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/start-pixel9a-dsu.ps1 `
+  -Serial <adb-serial> `
+  -Inventory C:\safe\release-artifacts\pixel9a-factory-<run>.json `
+  -Preflight C:\safe\release-artifacts\pixel9a-gsi-preflight-<run>.json `
+  -Payload \\wsl.localhost\Ubuntu-24.04\home\ryan\aios-evidence\20260813-gsi-build5-3c0c685-j12\17.aios_gsi_arm64.b7ec30e.raw.gz `
+  -IUnderstandThisStartsDsu
+```
+
+The start script revalidates the connected serial, unchanged factory build,
+current free space, all evidence digests, and the complete payload hash before
+copying the gzip or launching Android's DSU verification activity. It does not
+unlock, disable AVB, invoke fastboot, or reboot. Accept the verification UI and
+restart only from the DSU notification after installation completes.
+
 Unlocking normally wipes user data. Pixel anti-rollback state may prevent
 booting older firmware even when an old public AOSP target exists. The exact
 phone inventory, not its marketing name, decides the allowed procedure.

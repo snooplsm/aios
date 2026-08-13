@@ -877,6 +877,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "scripts/install-cuttlefish-host.sh",
         "scripts/device-inventory.ps1",
         "scripts/pixel9a-gsi-preflight.ps1",
+        "scripts/start-pixel9a-dsu.ps1",
         "docs/cuttlefish-bringup.md",
         "docs/emulator-bringup.md",
         "docs/gsi-bringup.md",
@@ -1412,6 +1413,27 @@ def validate_aosp_overlay(root: Path) -> None:
             and "No image was pushed, installed, flashed, or booted."
             in pixel_preflight_script,
             "Pixel 9a preflight wrapper must remain read-only and exact-image bound")
+    dsu_start_script = (
+        root / "scripts" / "start-pixel9a-dsu.ps1"
+    ).read_text(encoding="utf-8")
+    require("[switch]$IUnderstandThisStartsDsu" in dsu_start_script
+            and "Inventory, build, AVB, or DSU evidence changed after preflight"
+            in dsu_start_script
+            and "Connected serial does not match" in dsu_start_script
+            and "Connected phone changed since inventory" in dsu_start_script
+            and "current free space" in dsu_start_script
+            and "Get-FileHash" in dsu_start_script
+            and "android.software.dynamic_system" in dsu_start_script
+            and "com.android.dynsystem/com.android.dynsystem.VerificationActivity"
+            in dsu_start_script
+            and "android.os.image.action.START_INSTALL" in dsu_start_script
+            and '"KEY_SYSTEM_SIZE"' in dsu_start_script
+            and '"KEY_USERDATA_SIZE"' in dsu_start_script
+            and "did not unlock, fastboot-flash, disable AVB, or reboot"
+            in dsu_start_script
+            and "fastboot.exe" not in dsu_start_script
+            and "adb reboot" not in dsu_start_script,
+            "Pixel 9a DSU start must be explicit, exact-evidence bound, and non-flashing")
     gsi_preflight = (root / "tools" / "check_gsi_preflight.py").read_text(
         encoding="utf-8"
     )
