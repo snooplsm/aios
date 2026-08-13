@@ -1,0 +1,39 @@
+{
+  "aios_revision": "47bf8f99e7e7738e54842494e7fb28bb06f620b1",
+  "aios_version": "0.1-dev",
+  "boot_id": "077a72ca-49df-4bb3-9f36-6b620626b7a5",
+  "build_evidence_sha256": "8edb5dd41a248b51b6c5a13abef61f7da872ba1cf3547d1829340894f63b31b4",
+  "build_fingerprint": "AIOS/aios_sdk_phone_x86_64/emu64x:17/CP2A.260605.016/eng.ryan:userdebug/test-keys",
+  "captured_at": "2026-08-13T00:47:57+00:00",
+  "gate": "integration.android_avd_first_boot",
+  "kind": "virtual_emulator",
+  "lane": "android_avd_integration",
+  "lane_eligible_for_physical_gates": false,
+  "packages": {
+    "com.aios.callintelligence": [
+      "/product/priv-app/AiosCallIntelligence/AiosCallIntelligence.apk"
+    ],
+    "com.aios.contextintelligence": [
+      "/product/priv-app/AiosContextIntelligence/AiosContextIntelligence.apk"
+    ],
+    "com.aios.mediaintelligence": [
+      "/product/priv-app/AiosMediaIntelligence/AiosMediaIntelligence.apk"
+    ],
+    "com.aios.messaging": [
+      "/product/priv-app/AiosMessaging/AiosMessaging.apk"
+    ],
+    "com.aios.modelbroker": [
+      "/product/priv-app/AiosModelBroker/AiosModelBroker.apk"
+    ],
+    "com.aios.phone": [
+      "/product/priv-app/AiosPhone/AiosPhone.apk"
+    ]
+  },
+  "product": "aios_sdk_phone_x86_64",
+  "proves_physical_runtime_gate": false,
+  "schema_version": 1,
+  "serial": "emulator-5554",
+  "status": "passed",
+  "target_device": "emu64x",
+  "uptime_seconds": 119.85
+}

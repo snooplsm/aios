@@ -14,4 +14,6 @@ GSI or physical Pixel partition geometry.
 
 This is virtual-device build evidence. It cannot satisfy Pixel 9a boot,
 telephony, accelerator, inference-performance, or factory-restore gates. A
-separate first-boot record is required before the AVD first-boot gate can pass.
+separate first-boot record binds the running Goldfish guest to this exact build
+and verifies Android 17 completed boot with all six privileged AIOS packages on
+the product partition. Neither record can satisfy a physical Pixel 9a gate.
