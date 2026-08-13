@@ -66,6 +66,7 @@ def build() -> dict:
     return {
         "schema_version": 2,
         "status": "passed",
+        "aios_revision": "1" * 40,
         "lane": "android_gsi_arm64",
         "kind": "generic_system_image",
         "product": "aios_gsi_arm64",
@@ -74,7 +75,7 @@ def build() -> dict:
         "security_patch": "2026-06-05",
         "artifact_layout": "gsi_system_product",
         "deployable_images": ["system.img", "vbmeta.img"],
-        "installed_files_manifest": "installed-files-system.json",
+        "installed_files_manifest": "installed-files.json",
         "lane_eligible_for_physical_gates": True,
         "proves_physical_runtime_gate": False,
         "artifacts": [
@@ -85,14 +86,47 @@ def build() -> dict:
 
 
 class GsiPreflightTests(unittest.TestCase):
+    @staticmethod
+    def avb(build_value, build_path):
+        artifacts = {
+            item["path"]: item for item in build_value["artifacts"]
+        }
+        return {
+            "schema_version": 1,
+            "status": "passed",
+            "kind": "gsi_avb_chain_verification",
+            "aios_revision": build_value.get("aios_revision"),
+            "build_evidence_sha256": preflight.sha256(build_path),
+            "expected_chain_partition": {
+                "partition": "system",
+                "rollback_index_location": 1,
+                "public_key_sha1": preflight.EXPECTED_GSI_PUBLIC_KEY_SHA1,
+                "algorithm": "SHA256_RSA2048",
+            },
+            "images": {
+                name: {
+                    "size_bytes": artifacts[name]["size_bytes"],
+                    "sha256": artifacts[name]["sha256"],
+                }
+                for name in ("system.img", "vbmeta.img")
+            },
+            "checks": {name: True for name in preflight.EXPECTED_AVB_CHECKS},
+            "lane_eligible_for_physical_gates": True,
+            "proves_physical_runtime_gate": False,
+        }
+
     def write_inputs(self, raw, inventory_value=None, build_value=None):
         base = Path(raw)
         inventory_path = base / "inventory.json"
         build_path = base / "build.json"
+        selected_build = build_value or build()
         inventory_path.write_text(
             json.dumps(inventory_value or inventory()), encoding="utf-8"
         )
-        build_path.write_text(json.dumps(build_value or build()), encoding="utf-8")
+        build_path.write_text(json.dumps(selected_build), encoding="utf-8")
+        (base / "avb-verification.json").write_text(
+            json.dumps(self.avb(selected_build, build_path)), encoding="utf-8"
+        )
         return inventory_path, build_path
 
     def test_marks_structural_pixel9a_match_as_candidate_not_safe(self):
@@ -107,6 +141,8 @@ class GsiPreflightTests(unittest.TestCase):
             self.assertFalse(value["proves_gsi_compatibility"])
             self.assertFalse(value["proves_physical_runtime_gate"])
             self.assertIn("system.img", value["gsi_images"])
+            self.assertEqual("system", value["avb_chain"]["partition"])
+            self.assertEqual(64, len(value["avb_evidence_sha256"]))
             self.assertTrue(value["dsu_checks"]["data_free_space_sufficient"])
             self.assertGreaterEqual(len(value["blockers"]), 5)
 
@@ -162,6 +198,27 @@ class GsiPreflightTests(unittest.TestCase):
             self.assertFalse(value["dsu_checks"]["data_free_space_sufficient"])
             self.assertGreater(value["dsu_storage"]["required_bytes"],
                                value["dsu_storage"]["available_bytes"])
+
+    def test_accepts_legacy_partition_specific_installed_manifest(self):
+        with tempfile.TemporaryDirectory() as raw:
+            build_value = build()
+            build_value["installed_files_manifest"] = "installed-files-system.json"
+            inventory_path, build_path = self.write_inputs(
+                raw, build_value=build_value
+            )
+            value = preflight.evaluate(inventory_path, build_path, "tegu")
+            self.assertEqual("candidate", value["status"])
+
+    def test_rejects_avb_evidence_not_bound_to_build(self):
+        with tempfile.TemporaryDirectory() as raw:
+            inventory_path, build_path = self.write_inputs(raw)
+            avb_path = Path(raw) / "avb-verification.json"
+            avb_value = json.loads(avb_path.read_text(encoding="utf-8"))
+            avb_value["build_evidence_sha256"] = "0" * 64
+            avb_path.write_text(json.dumps(avb_value), encoding="utf-8")
+            with self.assertRaisesRegex(preflight.GsiPreflightError,
+                                        "AVB evidence is not bound"):
+                preflight.evaluate(inventory_path, build_path, "tegu")
 
 
 if __name__ == "__main__":

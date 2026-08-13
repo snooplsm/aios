@@ -5,14 +5,43 @@ param(
 
     [Parameter(Mandatory = $true)]
     [ValidateNotNullOrEmpty()]
-    [string]$Output
+    [string]$Output,
+
+    [Parameter(Mandatory = $false)]
+    [ValidateNotNullOrEmpty()]
+    [string]$AdbPath
 )
 
 $ErrorActionPreference = "Stop"
 
-if (-not (Get-Command adb -ErrorAction SilentlyContinue)) {
-    throw "adb is not available on PATH"
+function Resolve-AdbExecutable {
+    if ($AdbPath) {
+        $explicit = [IO.Path]::GetFullPath($AdbPath)
+        if (-not (Test-Path -LiteralPath $explicit -PathType Leaf)) {
+            throw "Explicit adb executable does not exist: $explicit"
+        }
+        return $explicit
+    }
+
+    $command = Get-Command adb -ErrorAction SilentlyContinue
+    if ($command) {
+        return $command.Source
+    }
+
+    $sdkRoots = @($env:ANDROID_SDK_ROOT, $env:ANDROID_HOME)
+    if ($env:LOCALAPPDATA) {
+        $sdkRoots += (Join-Path $env:LOCALAPPDATA "Android\Sdk")
+    }
+    foreach ($sdkRoot in $sdkRoots | Where-Object { $_ } | Select-Object -Unique) {
+        $candidate = Join-Path $sdkRoot "platform-tools\adb.exe"
+        if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+            return [IO.Path]::GetFullPath($candidate)
+        }
+    }
+    throw "adb was not found on PATH or in a configured Android SDK; pass -AdbPath"
 }
+
+$AdbExecutable = Resolve-AdbExecutable
 
 function Invoke-AdbText {
     param(
@@ -21,8 +50,18 @@ function Invoke-AdbText {
         [switch]$AllowFailure
     )
 
-    $raw = & adb -s $Serial @AdbArguments 2>&1
-    $exitCode = $LASTEXITCODE
+    # Windows PowerShell promotes redirected native stderr to ErrorRecord
+    # objects. Keep those records as data so AllowFailure probes can be handled
+    # by the explicit exit-code policy below instead of ErrorActionPreference.
+    $previousErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = "Continue"
+        $raw = & $AdbExecutable -s $Serial @AdbArguments 2>&1
+        $exitCode = $LASTEXITCODE
+    }
+    finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
     $text = (($raw | ForEach-Object { $_.ToString() }) -join "`n").Trim()
     if ($exitCode -ne 0 -and -not $AllowFailure) {
         throw "adb -s $Serial $($AdbArguments -join ' ') failed: $text"

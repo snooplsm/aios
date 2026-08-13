@@ -1376,6 +1376,11 @@ def validate_aosp_overlay(root: Path) -> None:
     )
     require("[string]$Serial" in inventory_script
             and "[string]$Output" in inventory_script
+            and "Resolve-AdbExecutable" in inventory_script
+            and "ANDROID_SDK_ROOT" in inventory_script
+            and '"Android\\Sdk"' in inventory_script
+            and "pass -AdbPath" in inventory_script
+            and '$ErrorActionPreference = "Continue"' in inventory_script
             and "adb -s $Serial" in inventory_script
             and '"ro.product.cpu.abilist64"' in inventory_script
             and '"ro.vendor.api_level"' in inventory_script

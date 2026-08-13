@@ -32,10 +32,11 @@ same Phone, Messaging, Call Intelligence, Context Intelligence, Media
 Intelligence, Model Broker, permissions, configuration, and default-dialer RRO
 are included without duplicate modules or a framework patch.
 
-Build evidence must find each required artifact in
-`installed-files-system.json` at its redirected path and digest both
-`system.img` and `vbmeta.img`. Merely producing a file named `system.img` is not
-evidence that AIOS was packaged into it.
+Build evidence must find each required artifact in Android's installed-file
+manifest at its redirected path and digest both `system.img` and `vbmeta.img`.
+Android 17 currently emits `installed-files.json`; older branches may emit the
+partition-specific `installed-files-system.json`. Merely producing a file named
+`system.img` is not evidence that AIOS was packaged into it.
 
 ## Build
 
@@ -75,6 +76,10 @@ powershell -File scripts/device-inventory.ps1 `
   -Output C:\safe\release-artifacts\pixel-9a-factory.json
 ```
 
+The script finds `adb` on `PATH`, through `ANDROID_SDK_ROOT`/`ANDROID_HOME`, or
+in Android Studio's default Windows SDK location. Use `-AdbPath <absolute-path>`
+only when a different platform-tools installation is intentional.
+
 Review at least:
 
 - exact codename, factory fingerprint, Android release, and security patch;
@@ -110,6 +115,10 @@ python tools/check_gsi_preflight.py \
   --expected-device tegu \
   --output /safe/release-artifacts/gsi-build-id/pixel-9a-preflight.json
 ```
+
+Keep the build's `avb-verification.json` beside `soong-build-evidence.json`.
+The checker rejects the candidate unless that AVB record is digest-bound to the
+build record and to the exact `system.img` and `vbmeta.img` identities.
 
 This checker can reject architecture, Treble, dynamic-partition, device-identity,
 Android-version, and security-patch mismatches. It deliberately emits

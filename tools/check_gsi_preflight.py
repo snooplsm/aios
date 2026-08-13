@@ -15,6 +15,7 @@ from pathlib import Path
 
 
 SHA256_PATTERN = re.compile(r"[0-9a-f]{64}")
+SHA1_PATTERN = re.compile(r"[0-9a-f]{40}")
 REQUIRED_PACKAGES = (
     "AiosContextIntelligence",
     "AiosMessaging",
@@ -25,6 +26,19 @@ REQUIRED_PACKAGES = (
 )
 DSU_USERDATA_BYTES = 8 * 1024 * 1024 * 1024
 DSU_STORAGE_HEADROOM_BYTES = 1024 * 1024 * 1024
+GSI_INSTALLED_MANIFESTS = {
+    "installed-files-system.json",
+    "installed-files.json",
+}
+EXPECTED_AVB_CHECKS = {
+    "vbmeta_signature_verified",
+    "system_chain_descriptor_matches_expected_key_and_slot",
+    "system_footer_signature_verified",
+    "system_sha256_hashtree_verified",
+    "pvmfw_sha256_hash_verified",
+    "ext_filesystem_read_only_check_passed",
+}
+EXPECTED_GSI_PUBLIC_KEY_SHA1 = "cdbb77177f731920bbe0a0f94f84d9038ae0617d"
 
 
 class GsiPreflightError(RuntimeError):
@@ -106,6 +120,46 @@ def build_artifact_map(build: dict) -> dict[str, dict]:
     return records
 
 
+def validate_avb_evidence(
+    build_path: Path,
+    build: dict,
+    artifacts: dict[str, dict],
+) -> tuple[Path, dict]:
+    avb_path = build_path.parent / "avb-verification.json"
+    avb = load(avb_path)
+    chain = avb.get("expected_chain_partition")
+    images = avb.get("images")
+    checks = avb.get("checks")
+    if (avb.get("schema_version") != 1
+            or avb.get("status") != "passed"
+            or avb.get("kind") != "gsi_avb_chain_verification"
+            or avb.get("aios_revision") != build.get("aios_revision")
+            or avb.get("build_evidence_sha256") != sha256(build_path)
+            or not isinstance(chain, dict)
+            or chain.get("partition") != "system"
+            or chain.get("rollback_index_location") != 1
+            or chain.get("algorithm") != "SHA256_RSA2048"
+            or chain.get("public_key_sha1") != EXPECTED_GSI_PUBLIC_KEY_SHA1
+            or not isinstance(images, dict)
+            or set(images) != {"system.img", "vbmeta.img"}
+            or any(
+                not isinstance(images[name], dict)
+                or images[name].get("size_bytes")
+                != artifacts[name].get("size_bytes")
+                or images[name].get("sha256") != artifacts[name].get("sha256")
+                for name in ("system.img", "vbmeta.img")
+            )
+            or not isinstance(checks, dict)
+            or set(checks) != EXPECTED_AVB_CHECKS
+            or any(checks[name] is not True for name in EXPECTED_AVB_CHECKS)
+            or avb.get("lane_eligible_for_physical_gates") is not True
+            or avb.get("proves_physical_runtime_gate") is not False):
+        raise GsiPreflightError(
+            "AVB evidence is not bound to the exact GSI build and images"
+        )
+    return avb_path, avb
+
+
 def validate_inputs(
     inventory: dict, build: dict, expected_device: str
 ) -> tuple[dict[str, dict], dict[str, bool]]:
@@ -129,10 +183,11 @@ def validate_inputs(
             or build.get("kind") != "generic_system_image"
             or build.get("product") != "aios_gsi_arm64"
             or build.get("target_device") != "generic_arm64"
+            or SHA1_PATTERN.fullmatch(str(build.get("aios_revision", ""))) is None
             or build.get("artifact_layout") != "gsi_system_product"
             or build.get("deployable_images") != ["system.img", "vbmeta.img"]
             or build.get("installed_files_manifest")
-            != "installed-files-system.json"
+            not in GSI_INSTALLED_MANIFESTS
             or build.get("lane_eligible_for_physical_gates") is not True
             or build.get("proves_physical_runtime_gate") is not False):
         raise GsiPreflightError("build evidence is not the exact ARM64 GSI lane")
@@ -173,6 +228,7 @@ def evaluate(
     inventory = load(inventory_path)
     build = load(build_path)
     artifacts, checks = validate_inputs(inventory, build, expected_device)
+    avb_path, avb = validate_avb_evidence(build_path, build, artifacts)
 
     device_release = parse_android_release(
         property_value(inventory, "ro.build.version.release"),
@@ -240,6 +296,8 @@ def evaluate(
         "observed_device": property_value(inventory, "ro.product.device"),
         "inventory_sha256": sha256(inventory_path),
         "build_evidence_sha256": sha256(build_path),
+        "avb_evidence_sha256": sha256(avb_path),
+        "avb_chain": avb["expected_chain_partition"],
         "gsi_images": {
             name: {
                 "size_bytes": artifacts[name]["size_bytes"],

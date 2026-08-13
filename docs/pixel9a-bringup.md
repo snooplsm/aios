@@ -108,8 +108,9 @@ expected to reveal any Android 17 API/module drift in this scaffold; fix it in
 `vendor/aios`, not by making unrecorded edits throughout AOSP.
 
 Next build the single-system ARM64 candidate from the same checkout. Its evidence
-recorder verifies the redirected AIOS artifacts in `installed-files-system.json`
-and digests `system.img` plus `vbmeta.img`:
+recorder verifies the redirected AIOS artifacts in Android's installed-file
+manifest (`installed-files.json` on Android 17, or the older
+`installed-files-system.json`) and digests `system.img` plus `vbmeta.img`:
 
 ```text
 vendor/aios/scripts/build-aosp-lane.sh \
