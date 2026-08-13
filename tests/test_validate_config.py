@@ -823,8 +823,15 @@ class IntegrationStructureTests(unittest.TestCase):
                             temporary / "evidence" / "model-pack")
             shutil.copytree(ROOT / "evidence" / "avd",
                             temporary / "evidence" / "avd")
-            boot_path = next((temporary / "evidence" / "cuttlefish")
-                             .rglob("cuttlefish-first-boot.json"))
+            status = json.loads(
+                (temporary / "config" / "release_status.json")
+                .read_text(encoding="utf-8")
+            )
+            boot_reference = status["statuses"][
+                "integration.android_latest_first_boot"
+            ]["evidence"]
+            self.assertEqual(len(boot_reference), 1)
+            boot_path = temporary / boot_reference[0]
             boot = json.loads(boot_path.read_text(encoding="utf-8"))
             boot["build_evidence_sha256"] = "0" * 64
             boot_path.write_text(json.dumps(boot), encoding="utf-8")
