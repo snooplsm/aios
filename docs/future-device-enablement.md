@@ -53,6 +53,12 @@ the catalog's ordered fallback chain. A Pixel 10 release profile is not
 activated until the missing product/build lane and physical-device evidence
 exist.
 
+The catalog-pinned E4B LiteRT-LM artifact has passed host download, digest,
+license, pack-generation, and physical-payload deduplication checks; the
+weight-free record is under `evidence/model-pack/`. This proves only that the
+candidate can be packaged reproducibly. It does not prove LiteRT initialization,
+Tensor G5 acceleration, latency, quality, thermal behavior, or device boot.
+
 A future Pixel 11 catalog and research profile will be added only after its
 hardware facts and codename are official. Release activation will additionally
 require a reproducibly validated platform/device/vendor/kernel build lane. As of
