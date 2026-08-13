@@ -46,19 +46,20 @@
       "project": "build/make",
       "file": "0003-build-make-configurable-gsi-size.patch",
       "base_revision": "5ce6f787337d0223710bf7d4a16dbe6d2a35f777",
-      "sha256": "131838352d8887c079ee459ec214b917dffc25b4c046b1ea12e4aeef6b5bad27",
+      "sha256": "7b99c9e8372f41c1cca9cd386481de30dbda3c39a24f84d4223be997464c5a23",
       "owner": "gsi-platform",
       "paths": [
-        "target/board/BoardConfigGsiCommon.mk"
+        "target/board/BoardConfigGsiCommon.mk",
+        "target/product/gsi/Android.bp"
       ],
       "tests": [
         "scripts/build-aosp-lane.sh",
         "tests/test_patch_series.py",
         "tests/test_validate_config.py"
       ],
-      "reason": "Preserve AOSP's compliance-GSI defaults while allowing an additive product to provide a larger build container for its catalog-pinned on-device models.",
-      "removal_condition": "Remove when BoardConfigGsiCommon uses conditional defaults or exposes an equivalent product-supported GSI sizing mechanism.",
-      "rebase_notes": "Re-export from the tracked build/make base, preserve the two assignment-operator changes only, verify the default GSI remains 3 GiB without overrides, verify the AIOS dumpvars are 6 GiB plus 8 MiB, then rebuild the model-inclusive ARM64 GSI."
+      "reason": "Preserve AOSP's compliance-GSI defaults while allowing an additive product to size its model-inclusive build container and declare its exact dynamic package closure to Android 17's Soong-defined system-image consistency check.",
+      "removal_condition": "Remove the sizing hunk when AOSP exposes a product-supported GSI sizing mechanism; remove the filesystem wrapper when additive products can extend android_gsi through a public Soong interface.",
+      "rebase_notes": "Re-export from the tracked build/make base, preserve the two conditional size defaults and the adjacent android_gsi_defaults wrapper, verify the default GSI remains 3 GiB, verify AIOS resolves its generated module list and 6 GiB group, then rebuild the model-inclusive ARM64 GSI."
     }
   ]
 }

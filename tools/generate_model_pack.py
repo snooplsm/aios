@@ -575,22 +575,9 @@ def generate(
         "    product_specific: true,\n"
         "}\n"
     )
-    all_modules = [*modules, "aios_model_artifacts"]
-    model_deps = "\n".join(f'        "{module}",' for module in all_modules)
-    blueprint_blocks.append(
-        "// Exact model dependency closure for Android 17's Soong-defined GSI.\n"
-        "// This file is generated and ignored because the modules and weights\n"
-        "// depend on locally accepted licenses and selected device tier.\n"
-        "android_system_image {\n"
-        "    name: \"aios_gsi_system_image_with_models\",\n"
-        "    defaults: [\"aios_gsi_system_image_defaults\"],\n"
-        "    deps: [\n"
-        f"{model_deps}\n"
-        "    ],\n"
-        "}\n"
-    )
     (output / "Android.bp").write_text("\n".join(blueprint_blocks), encoding="utf-8")
     package_lines = ["PRODUCT_PACKAGES += \\"]
+    all_modules = [*modules, "aios_model_artifacts"]
     for index, module in enumerate(all_modules):
         suffix = " \\" if index < len(all_modules) - 1 else ""
         package_lines.append(f"    {module}{suffix}")

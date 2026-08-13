@@ -15,3 +15,55 @@ index 8a62796e51..d25cc57c63 100644
  
  # Build pvmfw with GSI: b/376363989
  ifeq (true,$(PRODUCT_BUILD_PVMFW_IMAGE))
+diff --git a/target/product/gsi/Android.bp b/target/product/gsi/Android.bp
+index 00bc7fefbf..c8512cc955 100644
+--- a/target/product/gsi/Android.bp
++++ b/target/product/gsi/Android.bp
+@@ -186,6 +186,46 @@ android_system_image {
+     }),
+ }
+-
++// Additive products must enumerate their extra Kati PRODUCT_PACKAGES in the
++// selected Soong filesystem. Keep the wrapper beside android_gsi_defaults so
++// its private build.prop dependencies retain AOSP's namespace boundary. The
++// product supplies only its exact module names through a list variable.
++soong_config_module_type {
++    name: "aios_gsi_filesystem_defaults_type",
++    module_type: "android_filesystem_defaults",
++    config_namespace: "aios",
++    list_variables: ["gsi_system_modules"],
++    properties: ["deps"],
++}
++
++aios_gsi_filesystem_defaults_type {
++    name: "aios_gsi_system_image_defaults",
++    defaults: ["android_gsi_defaults"],
++    deps: [
++        // Match the compliance-GSI dependency carried by android_gsi.
++        "system_ext_userdebug_plat_sepolicy.cil",
++    ] + select(soong_config_variable("gsi", "import_usb_debugging_test_app"), {
++        true: ["UsbDisableDebugger"],
++        default: [],
++    }),
++    soong_config_variables: {
++        gsi_system_modules: {
++            deps: ["%s"],
++        },
++    },
++}
++
++android_system_image {
++    name: "aios_gsi_system_image",
++    defaults: ["aios_gsi_system_image_defaults"],
++    enabled: select(soong_config_variable(
++        "ANDROID",
++        "PRODUCT_INSTALL_DEBUG_POLICY_TO_SYSTEM_EXT",
++    ), {
++        "true": true,
++        default: false,
++    }),
++}
++
+ // system.img for aosp_{arch} targets
+ android_system_image {
+     name: "aosp_system_image",

@@ -8,25 +8,19 @@ $(call inherit-product, device/generic/common/gsi_arm64.mk)
 $(call inherit-product, vendor/aios/products/aios_common.mk)
 
 # Android 17 requires the selected Soong filesystem module to enumerate every
-# product package that lands in system.img.  The model pack generator emits a
-# second wrapper with the exact locally licensed model modules; otherwise use
-# the tracked, model-free wrapper.  Runtime packs have stable provider module
-# names and are admitted independently when their verified generated trees are
-# present.
+# product package that lands in system.img. The transactional build/make patch
+# provides a thin wrapper around AOSP's android_gsi_defaults in the only
+# namespace allowed to consume its private build.prop modules. Pass the exact
+# AIOS product dependency closure as a Soong list variable so locally generated
+# model/runtime modules do not need to be hard-coded into an upstream patch.
 PRODUCT_SOONG_DEFINED_SYSTEM_IMAGE := aios_gsi_system_image
-ifneq ($(wildcard vendor/aios/generated/modelpack/Android.bp),)
-PRODUCT_SOONG_DEFINED_SYSTEM_IMAGE := aios_gsi_system_image_with_models
-endif
-
-ifneq ($(wildcard vendor/aios/generated/runtimepack/litert_lm/Android.bp),)
-$(call soong_config_set_bool,aios,runtime_litert_lm,true)
-endif
-ifneq ($(wildcard vendor/aios/generated/runtimepack/sherpa_onnx_tts/Android.bp),)
-$(call soong_config_set_bool,aios,runtime_sherpa_onnx_tts,true)
-endif
-ifneq ($(wildcard vendor/aios/generated/runtimepack/whisper_cpp/Android.bp),)
-$(call soong_config_set_bool,aios,runtime_whisper_cpp,true)
-endif
+AIOS_GSI_SYSTEM_MODULES := $(filter \
+    Aios% aios_% default-permissions-aios privapp-permissions-aios, \
+    $(PRODUCT_PACKAGES) $(PRODUCT_PACKAGES_DEBUG))
+# Instrumentation is installed under testcases rather than in system.img.
+AIOS_GSI_SYSTEM_MODULES := $(filter-out \
+    AiosModelBenchmarkTests,$(AIOS_GSI_SYSTEM_MODULES))
+$(call soong_config_set,aios,gsi_system_modules,$(AIOS_GSI_SYSTEM_MODULES))
 
 # AOSP's compliance GSI defaults to a 3 GiB dynamic-partition group. The
 # catalog-pinned Pixel 9a model payloads alone occupy about 2.79 GB, so that
