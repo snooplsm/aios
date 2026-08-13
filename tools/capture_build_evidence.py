@@ -43,6 +43,49 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def digest_tree(path: Path) -> dict:
+    """Digest a generated device tree without embedding proprietary filenames."""
+    path = path.resolve()
+    if not path.is_dir():
+        raise BuildEvidenceError(f"missing generated device-support tree: {path}")
+    digest = hashlib.sha256()
+    file_count = 0
+    symlink_count = 0
+    total_bytes = 0
+    for item in sorted(path.rglob("*"), key=lambda value: value.as_posix()):
+        relative = item.relative_to(path).as_posix()
+        if item.is_symlink():
+            payload = os.readlink(item).encode("utf-8")
+            kind = b"symlink"
+            symlink_count += 1
+        elif item.is_file():
+            payload = sha256(item).encode("ascii")
+            kind = b"file"
+            size = item.stat().st_size
+            total_bytes += size
+            file_count += 1
+        elif item.is_dir():
+            continue
+        else:
+            raise BuildEvidenceError(
+                f"unsupported generated device-support entry: {relative}"
+            )
+        digest.update(relative.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(kind)
+        digest.update(b"\0")
+        digest.update(payload)
+        digest.update(b"\n")
+    if file_count == 0:
+        raise BuildEvidenceError("generated device-support tree contains no files")
+    return {
+        "file_count": file_count,
+        "symlink_count": symlink_count,
+        "total_file_bytes": total_bytes,
+        "tree_sha256": digest.hexdigest(),
+    }
+
+
 def read_properties(path: Path) -> dict[str, str]:
     values = {}
     for raw_line in path.read_text(encoding="utf-8", errors="strict").splitlines():
@@ -70,7 +113,7 @@ def git_output(root: Path, *arguments: str) -> str:
 
 def installed_artifact_path(lane: dict, relative: str) -> str:
     layout = lane.get("artifact_layout")
-    if layout == "product_partition":
+    if layout in {"product_partition", "full_device_target_files"}:
         return relative
     if layout == "gsi_system_product":
         if not relative.startswith("product/"):
@@ -149,6 +192,7 @@ def installed_partition_records(
 ) -> tuple[Path, dict[str, dict]]:
     manifests = {
         "product_partition": ("installed-files-product.json",),
+        "full_device_target_files": ("installed-files-product.json",),
         # Android 17's Soong-defined GSI writes the combined system filesystem
         # inventory as installed-files.json. Older Kati-defined GSI builds used
         # installed-files-system.json. Prefer the partition-specific legacy
@@ -200,7 +244,8 @@ def require_manifest_membership(
     records: dict[str, dict], lane: dict, relative: str, artifact: dict
 ) -> None:
     layout = lane.get("artifact_layout")
-    if layout == "product_partition" and relative.startswith("product/"):
+    if layout in {"product_partition", "full_device_target_files"} \
+            and relative.startswith("product/"):
         candidates = (relative, relative.removeprefix("product/"))
     elif layout == "gsi_system_product" and relative.startswith("system/product/"):
         # Android's GSI BoardConfig redirects product-specific modules into
@@ -454,6 +499,34 @@ def capture(
         raise BuildEvidenceError("AIOS sources changed after manifest capture")
     patch_queue, patch_queue_digest = patch_queue_record(root)
 
+    generated_device_support = None
+    if lane.get("artifact_layout") == "full_device_target_files":
+        if root.name != "aios" or root.parent.name != "vendor":
+            raise BuildEvidenceError(
+                "full-device evidence requires AIOS at AOSP vendor/aios"
+            )
+        aosp_root = root.parents[1]
+        relative = Path(str(lane.get("generated_device_path", "")))
+        if relative.is_absolute() or not relative.parts \
+                or ".." in relative.parts:
+            raise BuildEvidenceError("unsafe generated device-support path")
+        generated_root = (aosp_root / relative).resolve()
+        if aosp_root not in generated_root.parents:
+            raise BuildEvidenceError("generated device-support path escapes AOSP")
+        state_path = aosp_root / "vendor" / "state" / "tegu.json"
+        if not state_path.is_file():
+            raise BuildEvidenceError("missing generated tegu adevtool state")
+        generator_root = aosp_root / "vendor" / "adevtool"
+        generator_revision = git_output(generator_root, "rev-parse", "HEAD")
+        generated_device_support = {
+            "path": relative.as_posix(),
+            "generator": "adevtool",
+            "generator_revision": generator_revision,
+            "state_path": "vendor/state/tegu.json",
+            "state_sha256": sha256(state_path),
+            **digest_tree(generated_root),
+        }
+
     if not build_log.is_file() or build_log.stat().st_size == 0:
         raise BuildEvidenceError("successful build evidence requires a non-empty log")
     product_out = out_dir.resolve() / "target" / "product" / lane["target_device"]
@@ -524,7 +597,10 @@ def capture(
     }
     if generated_payloads:
         value["generated_payloads"] = generated_payloads
-    if lane["artifact_layout"] == "product_partition":
+    if generated_device_support is not None:
+        value["generated_device_support"] = generated_device_support
+    if lane["artifact_layout"] in {
+            "product_partition", "full_device_target_files"}:
         # Preserve the schema-2 field consumed by existing checked-in build
         # evidence while exposing a partition-neutral field for GSI records.
         value["installed_files_product_sha256"] = sha256(installed_manifest)

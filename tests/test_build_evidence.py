@@ -37,7 +37,9 @@ class BuildEvidenceTests(unittest.TestCase):
             product="aios_cf_x86_64_phone",
             target_device="vsoc_x86_64"):
         base = Path(raw)
-        aios = base / "aios"
+        aios = (base / "aosp" / "vendor" / "aios"
+                if lane_id == "pixel9a_tegu_hardware"
+                else base / "aios")
         (aios / "config").mkdir(parents=True)
         (aios / "patches").mkdir(parents=True)
         shutil.copy(ROOT / "config" / "aosp_lanes.json",
@@ -75,6 +77,24 @@ class BuildEvidenceTests(unittest.TestCase):
         lanes = json.loads((aios / "config" / "aosp_lanes.json")
                            .read_text(encoding="utf-8"))
         lane = next(item for item in lanes["lanes"] if item["id"] == lane_id)
+        if lane["artifact_layout"] == "full_device_target_files":
+            aosp_root = aios.parents[1]
+            generated = aosp_root / "vendor" / "google_devices" / "tegu"
+            generated.mkdir(parents=True)
+            (generated / "tegu.mk").write_text(
+                "PRODUCT_NAME := tegu\n", encoding="utf-8"
+            )
+            state = aosp_root / "vendor" / "state" / "tegu.json"
+            state.parent.mkdir(parents=True)
+            state.write_text('{"device":"tegu"}\n', encoding="utf-8")
+            adevtool = aosp_root / "vendor" / "adevtool"
+            adevtool.mkdir(parents=True)
+            git(adevtool, "init")
+            git(adevtool, "config", "user.name", "AIOS Test")
+            git(adevtool, "config", "user.email", "test@aios.invalid")
+            (adevtool / "README.md").write_text("fixture\n", encoding="utf-8")
+            git(adevtool, "add", "README.md")
+            git(adevtool, "commit", "-m", "fixture")
         expected_artifacts = [
             evidence.installed_artifact_path(lane, relative)
             for relative in lanes["expected_product_artifacts"]
@@ -207,6 +227,31 @@ class BuildEvidenceTests(unittest.TestCase):
                 "system/product/priv-app/AiosPhone/AiosPhone.apk", paths
             )
             self.assertNotIn("product.img", paths)
+
+    def test_captures_full_pixel_device_images_and_generated_support(self):
+        with tempfile.TemporaryDirectory() as raw:
+            aios, manifest, lock, out, log, _ = self.create_fixture(
+                raw,
+                lane_id="pixel9a_tegu_hardware",
+                product="aios_tegu",
+                target_device="tegu",
+            )
+            value = evidence.capture(
+                aios, "pixel9a_tegu_hardware", manifest, lock, out, log
+            )
+            self.assertEqual("full_device_target_files", value["artifact_layout"])
+            self.assertEqual("installed-files-product.json",
+                             value["installed_files_manifest"])
+            self.assertEqual(
+                ["boot.img", "product.img", "system.img", "vendor.img",
+                 "vendor_boot.img", "vendor_kernel_boot.img", "vbmeta.img"],
+                value["deployable_images"],
+            )
+            support = value["generated_device_support"]
+            self.assertEqual("vendor/google_devices/tegu", support["path"])
+            self.assertEqual(1, support["file_count"])
+            self.assertRegex(support["tree_sha256"], r"^[0-9a-f]{64}$")
+            self.assertRegex(support["state_sha256"], r"^[0-9a-f]{64}$")
 
     def test_accepts_android_17_combined_gsi_installed_manifest(self):
         with tempfile.TemporaryDirectory() as raw:

@@ -288,6 +288,12 @@ blocks the research release.
 
 ## Official references
 
+- GrapheneOS build guide and signed stable-manifest workflow:
+  https://grapheneos.org/build
+- GrapheneOS releases (select a tag explicitly listing Pixel 9a):
+  https://grapheneos.org/releases
+- GrapheneOS adevtool source and license:
+  https://github.com/GrapheneOS/adevtool
 - AOSP latest release setup: https://source.android.com/docs/setup/start
 - Pixel driver binaries: https://developers.google.com/android/drivers/
 - Pixel factory images and current flashing warnings:

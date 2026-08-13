@@ -1610,6 +1610,9 @@ def validate_aosp_overlay(root: Path) -> None:
             and "refresh_aosp_tracking.py" in lock_script
             and "android_avd_integration" in lock_script
             and "android_gsi_arm64" in lock_script
+            and "verify-tag 2026080500" in lock_script
+            and "vendor/google_devices/tegu/tegu.mk" in lock_script
+            and "vendor/state/tegu.json" in lock_script
             and "--manifest-revision" in lock_script
             and "status --porcelain --untracked-files=all" in lock_script
             and "Refusing to overwrite" in lock_script,
@@ -1641,6 +1644,8 @@ def validate_aosp_overlay(root: Path) -> None:
             and "--revert" in build_script
             and "trap cleanup EXIT INT TERM" in build_script
             and "capture_build_evidence.py" in build_script
+            and "pixel9a_tegu_hardware" in build_script
+            and "target-files-package" in build_script
             and 'build_status="${PIPESTATUS[0]}"' in build_script,
             "lane builds must be locked, patch-transactional, logged, and evidence-bound")
     build_evidence_source = (root / "tools" /
@@ -1650,6 +1655,9 @@ def validate_aosp_overlay(root: Path) -> None:
             and "installed_files_product_sha256" in build_evidence_source
             and "patch_queue_record" in build_evidence_source
             and "patch_queue_sha256" in build_evidence_source
+            and "generated_device_support" in build_evidence_source
+            and "vendor/state/tegu.json" in build_evidence_source
+            and "def digest_tree(" in build_evidence_source
             and '"schema_version": 2' in build_evidence_source
             and "empty installed product artifact" in build_evidence_source,
             "build evidence must bind product artifacts and the review-complete patch queue")

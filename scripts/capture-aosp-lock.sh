@@ -60,6 +60,29 @@ if [[ "$lane" == "android_latest_integration" || "$lane" == "android_avd_integra
     --root "$aios_root" \
     --manifest-repo "$aosp_root/.repo/manifests" \
     --check
+elif [[ "$lane" == "pixel9a_tegu_hardware" ]]; then
+  expected_manifest_commit="d1b2739828a783bbf9bd6ba5d50c727b9329b9b7"
+  if [[ "$manifest_revision" != "$expected_manifest_commit" ]]; then
+    echo "Pixel manifest is not the reviewed 2026080500 commit." >&2
+    exit 2
+  fi
+  signers_file="$aosp_root/.repo/aios-grapheneos-allowed-signers"
+  if [[ ! -s "$signers_file" ]]; then
+    echo "Missing GrapheneOS allowed-signers file; rerun bootstrap-aosp.sh." >&2
+    exit 2
+  fi
+  git -C "$aosp_root/.repo/manifests" \
+    -c "gpg.ssh.allowedSignersFile=$signers_file" \
+    verify-tag 2026080500
+  for generated in \
+      "$aosp_root/vendor/google_devices/tegu/tegu.mk" \
+      "$aosp_root/vendor/state/tegu.json"; do
+    if [[ ! -s "$generated" ]]; then
+      echo "Missing generated Pixel 9a device input: $generated" >&2
+      echo "Run: adevtool generate-all -d tegu" >&2
+      exit 2
+    fi
+  done
 fi
 repo manifest -r -o "$manifest"
 python3 "$aios_root/tools/check_aosp_manifest.py" \

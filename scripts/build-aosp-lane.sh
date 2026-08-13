@@ -87,7 +87,11 @@ if [[ "${TARGET_PRODUCT:-}" != "${lunch_target%%-*}" ]]; then
 fi
 
 set +e
-m -j "$jobs" 2>&1 | tee "$build_log"
+build_targets=()
+if [[ "$lane" == "pixel9a_tegu_hardware" ]]; then
+  build_targets=(target-files-package)
+fi
+m -j "$jobs" "${build_targets[@]}" 2>&1 | tee "$build_log"
 build_status="${PIPESTATUS[0]}"
 set -e
 if [[ "$build_status" -ne 0 ]]; then
