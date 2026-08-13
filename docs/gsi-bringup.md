@@ -190,6 +190,16 @@ The resulting record can prove the exact DSU boot and installed payload. It
 explicitly does not prove telephony, inference latency, media processing, both-
 slot reboot, factory restoration, or the complete physical milestone.
 
+Validate the external record independently before reviewing it for check-in:
+
+```text
+python tools/validate_pixel9a_gsi_boot_evidence.py \
+  --evidence /safe/release-artifacts/pixel9a-gsi-first-boot-<run>.json \
+  --inventory /safe/release-artifacts/pixel9a-factory-<run>.json \
+  --preflight /safe/release-artifacts/pixel9a-gsi-preflight-<run>.json \
+  --build-evidence evidence/gsi/20260813-gsi-build5-3c0c685-j12/soong-build-evidence.json
+```
+
 Unlocking normally wipes user data. Pixel anti-rollback state may prevent
 booting older firmware even when an old public AOSP target exists. The exact
 phone inventory, not its marketing name, decides the allowed procedure.

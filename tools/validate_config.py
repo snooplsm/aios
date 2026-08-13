@@ -871,6 +871,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "tools/capture_cuttlefish_boot_evidence.py",
         "tools/capture_avd_boot_evidence.py",
         "tools/check_gsi_preflight.py",
+        "tools/validate_pixel9a_gsi_boot_evidence.py",
         "scripts/refresh-aosp-integration.sh",
         "scripts/capture-aosp-lock.sh",
         "scripts/build-aosp-lane.sh",
@@ -1460,6 +1461,23 @@ def validate_aosp_overlay(root: Path) -> None:
             and 'proves_telephony_gate = $false' in pixel_boot_capture
             and 'proves_factory_restore = $false' in pixel_boot_capture,
             "Pixel 9a first-boot capture must bind exact artifacts without overclaiming runtime gates")
+    pixel_boot_validator = (
+        root / "tools" / "validate_pixel9a_gsi_boot_evidence.py"
+    ).read_text(encoding="utf-8")
+    require('"pixel9a_gsi_dsu_first_boot"' in pixel_boot_validator
+            and '"sys.boot_completed"' in pixel_boot_validator
+            and '"ro.gsid.image_running"' in pixel_boot_validator
+            and 'EXPECTED_CHECKS' in pixel_boot_validator
+            and 'installed AIOS artifacts do not match' in pixel_boot_validator
+            and 'evidence.get("proves_gsi_compatibility") is True'
+            in pixel_boot_validator
+            and 'evidence.get("proves_physical_runtime_gate") is False'
+            in pixel_boot_validator
+            and 'evidence.get("proves_telephony_gate") is False'
+            in pixel_boot_validator
+            and 'evidence.get("proves_factory_restore") is False'
+            in pixel_boot_validator,
+            "Pixel 9a boot evidence validator must bind inputs, artifacts, and proof boundaries")
     gsi_preflight = (root / "tools" / "check_gsi_preflight.py").read_text(
         encoding="utf-8"
     )
