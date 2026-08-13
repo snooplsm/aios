@@ -9,29 +9,55 @@ license {
     license_text: ["LICENSE"],
 }
 
-// The GSI system-image wrapper can depend on this stable config module while
-// its `required` edges carry the exact, locally generated AIOS package closure
-// into Soong's transitive packaging specs. `required` is intentionally a
-// non-configurable list property, so Android 17 supports list substitution.
-soong_config_module_type {
-    name: "aios_gsi_payload_anchor_type",
-    module_type: "prebuilt_etc",
-    config_namespace: "aios",
-    list_variables: ["gsi_system_modules"],
-    properties: ["required"],
-}
-
-aios_gsi_payload_anchor_type {
+// The GSI system-image wrapper depends on this stable config module. Its
+// required edges carry AIOS into Soong's transitive packaging specs. Optional
+// generated payloads use stable anchors selected only when their verified
+// local pack exists; model membership stays generator-owned and unrestricted.
+prebuilt_etc {
     name: "aios_product_policy",
     src: "config/product_policy.json",
     filename: "product_policy.json",
     sub_dir: "aios",
     product_specific: true,
-    soong_config_variables: {
-        gsi_system_modules: {
-            required: ["%s"],
-        },
-    },
+    required: [
+        "AiosCallIntelligence",
+        "AiosContextIntelligence",
+        "AiosFrameworkDefaultsOverlay",
+        "AiosMediaIntelligence",
+        "AiosMessaging",
+        "AiosModelBroker",
+        "AiosPhone",
+        "aios_authorized_clients",
+        "aios_model_admission",
+        "aios_model_catalog",
+        "aios_runtime_catalog",
+        "default-permissions-aios",
+        "privapp-permissions-aios",
+    ] + select(product_variable("debuggable"), {
+        true: ["AiosModelBenchmark"],
+        default: [],
+    }) + select(soong_config_variable("aios", "model_pack"), {
+        true: ["aios_model_pack_anchor"],
+        default: [],
+    }) + select(soong_config_variable("aios", "runtime_litert_lm"), {
+        true: [
+            "AiosRuntimeProvider_litert_lm",
+            "aios_runtime_artifacts_litert_lm",
+        ],
+        default: [],
+    }) + select(soong_config_variable("aios", "runtime_sherpa_onnx_tts"), {
+        true: [
+            "AiosRuntimeProvider_sherpa_onnx_tts",
+            "aios_runtime_artifacts_sherpa_onnx_tts",
+        ],
+        default: [],
+    }) + select(soong_config_variable("aios", "runtime_whisper_cpp"), {
+        true: [
+            "AiosRuntimeProvider_whisper_cpp",
+            "aios_runtime_artifacts_whisper_cpp",
+        ],
+        default: [],
+    }),
 }
 
 prebuilt_etc {

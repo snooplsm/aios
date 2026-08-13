@@ -10,18 +10,22 @@ $(call inherit-product, vendor/aios/products/aios_common.mk)
 # Android 17 requires the selected Soong filesystem module to enumerate every
 # product package that lands in system.img. The transactional build/make patch
 # provides a thin wrapper around AOSP's android_gsi_defaults in the only
-# namespace allowed to consume its private build.prop modules. Pass the exact
-# AIOS product dependency closure as a Soong list variable so locally generated
-# model/runtime modules do not need to be hard-coded into an upstream patch.
+# namespace allowed to consume its private build.prop modules. The stable AIOS
+# policy dependency carries common packages and optional generated pack anchors
+# through normal transitive required-module packaging specs.
 PRODUCT_SOONG_DEFINED_SYSTEM_IMAGE := aios_gsi_system_image
-AIOS_GSI_SYSTEM_MODULES := $(filter \
-    Aios% aios_% default-permissions-aios privapp-permissions-aios, \
-    $(PRODUCT_PACKAGES) $(PRODUCT_PACKAGES_DEBUG))
-# Instrumentation is installed under testcases rather than in system.img.
-# The policy module is the dependency anchor and cannot require itself.
-AIOS_GSI_SYSTEM_MODULES := $(filter-out \
-    AiosModelBenchmarkTests aios_product_policy,$(AIOS_GSI_SYSTEM_MODULES))
-$(call soong_config_set,aios,gsi_system_modules,$(AIOS_GSI_SYSTEM_MODULES))
+ifneq ($(wildcard vendor/aios/generated/modelpack/Android.bp),)
+$(call soong_config_set_bool,aios,model_pack,true)
+endif
+ifneq ($(wildcard vendor/aios/generated/runtimepack/litert_lm/Android.bp),)
+$(call soong_config_set_bool,aios,runtime_litert_lm,true)
+endif
+ifneq ($(wildcard vendor/aios/generated/runtimepack/sherpa_onnx_tts/Android.bp),)
+$(call soong_config_set_bool,aios,runtime_sherpa_onnx_tts,true)
+endif
+ifneq ($(wildcard vendor/aios/generated/runtimepack/whisper_cpp/Android.bp),)
+$(call soong_config_set_bool,aios,runtime_whisper_cpp,true)
+endif
 
 # AOSP's compliance GSI defaults to a 3 GiB dynamic-partition group. The
 # catalog-pinned Pixel 9a model payloads alone occupy about 2.79 GB, so that

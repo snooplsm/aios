@@ -575,9 +575,20 @@ def generate(
         "    product_specific: true,\n"
         "}\n"
     )
+    all_modules = [*modules, "aios_model_artifacts"]
+    anchor_required = "\n".join(
+        f'        "{module}",' for module in all_modules)
+    blueprint_blocks.append(
+        "// Stable transitive packaging anchor for the Android 17 GSI wrapper.\n"
+        "filegroup {\n"
+        "    name: \"aios_model_pack_anchor\",\n"
+        "    required: [\n"
+        f"{anchor_required}\n"
+        "    ],\n"
+        "}\n"
+    )
     (output / "Android.bp").write_text("\n".join(blueprint_blocks), encoding="utf-8")
     package_lines = ["PRODUCT_PACKAGES += \\"]
-    all_modules = [*modules, "aios_model_artifacts"]
     for index, module in enumerate(all_modules):
         suffix = " \\" if index < len(all_modules) - 1 else ""
         package_lines.append(f"    {module}{suffix}")
