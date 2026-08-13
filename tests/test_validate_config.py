@@ -1181,6 +1181,10 @@ class ModelPackTests(unittest.TestCase):
             )
             self.assertIn("aios_model_gemma4_e2b_mobile_text",
                           (output / "Android.bp").read_text(encoding="utf-8"))
+            self.assertIn('name: "aios_gsi_system_image_with_models"',
+                          (output / "Android.bp").read_text(encoding="utf-8"))
+            self.assertIn('defaults: ["aios_gsi_system_image_defaults"]',
+                          (output / "Android.bp").read_text(encoding="utf-8"))
             self.assertIn("SPDX-license-identifier-Apache-2.0",
                           (output / "Android.bp").read_text(encoding="utf-8"))
             self.assertIn("aios_model_artifacts",
