@@ -117,6 +117,17 @@ python tools/check_gsi_preflight.py \
   --output /safe/release-artifacts/gsi-build-id/pixel-9a-preflight.json
 ```
 
+On the Windows/WSL development host, the read-only wrapper performs both steps
+without pushing an image or changing the phone:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/pixel9a-gsi-preflight.ps1 `
+  -Serial <adb-serial> `
+  -OutputDirectory C:\safe\release-artifacts\pixel9a-preflight
+```
+
+The output directory is intentionally required to be outside this repository.
+
 Keep the build's `avb-verification.json` and `dsu-payload.json` beside
 `soong-build-evidence.json`. The checker rejects the candidate unless the AVB
 record is digest-bound to the build record and exact image identities and the

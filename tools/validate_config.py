@@ -876,6 +876,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "scripts/build-aosp-lane.sh",
         "scripts/install-cuttlefish-host.sh",
         "scripts/device-inventory.ps1",
+        "scripts/pixel9a-gsi-preflight.ps1",
         "docs/cuttlefish-bringup.md",
         "docs/emulator-bringup.md",
         "docs/gsi-bringup.md",
@@ -1395,6 +1396,22 @@ def validate_aosp_overlay(root: Path) -> None:
             and "Refusing to overwrite existing device inventory"
             in inventory_script,
             "device inventory must be explicit, read-only, and GSI-aware")
+    pixel_preflight_script = (
+        root / "scripts" / "pixel9a-gsi-preflight.ps1"
+    ).read_text(encoding="utf-8")
+    require("[string]$Serial" in pixel_preflight_script
+            and "[string]$OutputDirectory" in pixel_preflight_script
+            and "outside the source repository" in pixel_preflight_script
+            and "device-inventory.ps1" in pixel_preflight_script
+            and "check_gsi_preflight.py" in pixel_preflight_script
+            and "avb-verification.json" in pixel_preflight_script
+            and "dsu-payload.json" in pixel_preflight_script
+            and "--expected-device tegu" in pixel_preflight_script
+            and '$Preflight.status -ne "candidate"' in pixel_preflight_script
+            and '$Preflight.safe_to_flash -ne $false' in pixel_preflight_script
+            and "No image was pushed, installed, flashed, or booted."
+            in pixel_preflight_script,
+            "Pixel 9a preflight wrapper must remain read-only and exact-image bound")
     gsi_preflight = (root / "tools" / "check_gsi_preflight.py").read_text(
         encoding="utf-8"
     )
