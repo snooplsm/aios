@@ -6440,18 +6440,21 @@ def validate_release_configuration(root: Path) -> None:
                 and model_pack.get("proves_model_inference") is False
                 and model_pack.get("proves_physical_device_runtime") is False
                 and isinstance(model_pack.get("logical_artifact_count"), int)
-                and model_pack["logical_artifact_count"] >= 2
+                and model_pack["logical_artifact_count"] == 4
                 and isinstance(model_pack.get("physical_model_payload_count"), int)
-                and 0 < model_pack["physical_model_payload_count"]
-                <= model_pack["logical_artifact_count"],
+                and model_pack["physical_model_payload_count"] == 10,
                 "reference model-pack evidence is not catalog-bound packaging proof")
         packed_ids = {
             item.get("model_id") for item in model_pack.get("artifacts", [])
             if isinstance(item, dict)
         }
-        require({"gemma4-e2b-mobile-text", "gemma4-e2b-mobile-multimodal"}
-                .issubset(packed_ids),
-                "reference model pack must contain both Pixel 9a Gemma E2B roles")
+        require(packed_ids == {
+                    "gemma4-e2b-mobile-text",
+                    "gemma4-e2b-mobile-multimodal",
+                    "whisper-base-multilingual-quantized",
+                    "supertonic3-en-es-int8",
+                },
+                "reference model pack must contain every Pixel 9a model role")
 
     for gate_id, provider in (
         ("integration.emulator_bilingual_asr_provider", "asr"),

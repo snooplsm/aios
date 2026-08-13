@@ -1084,9 +1084,15 @@ class ModelPackTests(unittest.TestCase):
                     "accepted_by": "unit-test"
                 }]
             }), encoding="utf-8")
+            catalog = load("model_catalog.json")
+            whisper = next(item for item in catalog["models"]
+                           if item["id"] == "whisper-base-multilingual-quantized")
+            whisper["reference_artifact"]["size_bytes"] = model.stat().st_size
+            catalog_path = temporary / "catalog.json"
+            catalog_path.write_text(json.dumps(catalog), encoding="utf-8")
             with self.assertRaisesRegex(packager.PackError, "reference artifact digest"):
                 packager.generate(
-                    ROOT / "config" / "model_catalog.json",
+                    catalog_path,
                     acceptance,
                     [packager.Source(
                         "whisper-base-multilingual-quantized", "cpu", model)],

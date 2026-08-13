@@ -1,0 +1,58 @@
+{
+  "aios_revision": "094b3d003daa33931fa7d5f28f9e049571ef02cb",
+  "artifacts": [
+    {
+      "backend": "gpu",
+      "license_url": "https://ai.google.dev/gemma/apache_2",
+      "model_id": "gemma4-e2b-mobile-text",
+      "relative_path": "models/gemma4-e2b-mobile-text.litertlm",
+      "runtime": "litert_lm",
+      "sha256": "181938105e0eefd105961417e8da75903eacda102c4fce9ce90f50b97139a63c",
+      "size_bytes": 2588147712
+    },
+    {
+      "backend": "gpu",
+      "license_url": "https://ai.google.dev/gemma/apache_2",
+      "model_id": "gemma4-e2b-mobile-multimodal",
+      "relative_path": "models/gemma4-e2b-mobile-text.litertlm",
+      "runtime": "litert_lm",
+      "sha256": "181938105e0eefd105961417e8da75903eacda102c4fce9ce90f50b97139a63c",
+      "size_bytes": 2588147712
+    },
+    {
+      "backend": "cpu",
+      "license_url": "https://github.com/openai/whisper/blob/main/LICENSE",
+      "model_id": "whisper-base-multilingual-quantized",
+      "relative_path": "models/whisper-base-multilingual-quantized.bin",
+      "runtime": "whisper_cpp",
+      "sha256": "422f1ae452ade6f30a004d7e5c6a43195e4433bc370bf23fac9cc591f01a8898",
+      "size_bytes": 59707625
+    },
+    {
+      "backend": "cpu",
+      "license_url": "https://huggingface.co/Supertone/supertonic-3/blob/724fb5abbf5502583fb520898d45929e62f02c0b/LICENSE",
+      "model_id": "supertonic3-en-es-int8",
+      "relative_path": "models/supertonic3-en-es-int8.bundle.json",
+      "runtime": "sherpa_onnx_tts",
+      "sha256": "29899176c2cbc6f5910e4a286d280bd5501e45d86ab4f8613d9063c21dc9f1e8",
+      "size_bytes": 2047
+    }
+  ],
+  "captured_at": "2026-08-13T00:13:58.525553+00:00",
+  "catalog_binding_verified": true,
+  "contains_model_weights": false,
+  "generated_pack_verified": true,
+  "host": {
+    "machine": "x86_64",
+    "release": "6.18.33.2-microsoft-standard-WSL2",
+    "system": "Linux"
+  },
+  "logical_artifact_count": 4,
+  "model_artifacts_manifest_sha256": "76909421546e2c9ed7990d427108d27b947cb119b6daa94f532729ca9c3c8cd3",
+  "model_catalog_sha256": "10ef8b76b620de37e21ddc5f67dc5066105b7b5646e2679077d8345bb9e7569d",
+  "physical_model_payload_count": 10,
+  "proves_model_inference": false,
+  "proves_physical_device_runtime": false,
+  "schema_version": 1,
+  "status": "passed"
+}
