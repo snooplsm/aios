@@ -37,7 +37,13 @@ def inventory() -> dict:
             "ro.boot.dynamic_partitions": "true",
             "ro.boot.flash.locked": "1",
         },
-        "capabilities": {"dynamic_system_feature": "true"},
+        "capabilities": {
+            "dynamic_system_feature": "true",
+            "data_filesystem": (
+                "Filesystem 1K-blocks Used Available Use% Mounted on\n"
+                "/dev/block/dm-1 40000000 1000000 39000000 3% /data"
+            ),
+        },
         "collection": {
             "read_only": True,
             "unlock_attempted": False,
@@ -101,6 +107,7 @@ class GsiPreflightTests(unittest.TestCase):
             self.assertFalse(value["proves_gsi_compatibility"])
             self.assertFalse(value["proves_physical_runtime_gate"])
             self.assertIn("system.img", value["gsi_images"])
+            self.assertTrue(value["dsu_checks"]["data_free_space_sufficient"])
             self.assertGreaterEqual(len(value["blockers"]), 5)
 
     def test_rejects_wrong_architecture_as_incompatible(self):
@@ -135,6 +142,23 @@ class GsiPreflightTests(unittest.TestCase):
             with self.assertRaisesRegex(preflight.GsiPreflightError,
                                         "exact ARM64 GSI"):
                 preflight.evaluate(inventory_path, build_path, "tegu")
+
+    def test_dsu_candidate_requires_space_for_exact_image_and_userdata(self):
+        with tempfile.TemporaryDirectory() as raw:
+            inventory_value = inventory()
+            inventory_value["capabilities"]["data_filesystem"] = (
+                "Filesystem 1K-blocks Used Available Use% Mounted on\n"
+                "/dev/block/dm-1 9000000 1000000 8000000 12% /data"
+            )
+            inventory_path, build_path = self.write_inputs(
+                raw, inventory_value=inventory_value
+            )
+            value = preflight.evaluate(inventory_path, build_path, "tegu")
+            self.assertEqual("candidate", value["status"])
+            self.assertFalse(value["dsu_candidate"])
+            self.assertFalse(value["dsu_checks"]["data_free_space_sufficient"])
+            self.assertGreater(value["dsu_storage"]["required_bytes"],
+                               value["dsu_storage"]["available_bytes"])
 
 
 if __name__ == "__main__":

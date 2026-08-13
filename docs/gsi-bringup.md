@@ -75,7 +75,12 @@ Review at least:
 - whether DSU is advertised; and
 - the matching current factory image and recovery procedure.
 
-The GSI security patch must not be older than the running system for DSU.
+The GSI security patch must not be older than the running system for DSU. The
+preflight also parses the read-only `df -k /data` capture and requires free
+space for the exact non-sparse `system.img`, an 8 GiB DSU userdata image, and
+1 GiB of headroom. This is deliberately stricter than applying the generic
+10 GiB recommendation to an AIOS image whose packaged models make it larger
+than a typical GSI.
 Successful VINTF negotiation, partition capacity, AVB handling, and rollback
 constraints still require device-specific checks. A structurally compatible
 inventory is not permission to flash.

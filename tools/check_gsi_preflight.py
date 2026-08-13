@@ -23,6 +23,8 @@ REQUIRED_PACKAGES = (
     "AiosMediaIntelligence",
     "AiosModelBroker",
 )
+DSU_USERDATA_BYTES = 8 * 1024 * 1024 * 1024
+DSU_STORAGE_HEADROOM_BYTES = 1024 * 1024 * 1024
 
 
 class GsiPreflightError(RuntimeError):
@@ -65,6 +67,23 @@ def property_value(inventory: dict, name: str) -> str:
     if not isinstance(value, str):
         raise GsiPreflightError(f"device inventory lacks string property {name}")
     return value.strip()
+
+
+def data_free_bytes(inventory: dict) -> int | None:
+    capabilities = inventory.get("capabilities")
+    if not isinstance(capabilities, dict):
+        raise GsiPreflightError("device inventory capabilities must be an object")
+    raw = capabilities.get("data_filesystem")
+    if not isinstance(raw, str):
+        return None
+    lines = [line.strip() for line in raw.splitlines() if line.strip()]
+    if len(lines) < 2:
+        return None
+    fields = lines[-1].split()
+    # Toybox df -k ends with: 1K-blocks Used Available Use% Mounted-on.
+    if len(fields) < 6 or not fields[-3].isdigit():
+        return None
+    return int(fields[-3]) * 1024
 
 
 def build_artifact_map(build: dict) -> dict[str, dict]:
@@ -175,6 +194,17 @@ def evaluate(
     dsu_advertised = str(capabilities.get("dynamic_system_feature", "")).lower() == "true"
     structural = all(checks.values())
     locked = property_value(inventory, "ro.boot.flash.locked") != "0"
+    available_bytes = data_free_bytes(inventory)
+    required_bytes = (artifacts["system.img"]["size_bytes"]
+                      + DSU_USERDATA_BYTES + DSU_STORAGE_HEADROOM_BYTES)
+    dsu_checks = {
+        "advertised": dsu_advertised,
+        "data_free_space_reported": available_bytes is not None,
+        "data_free_space_sufficient": (
+            available_bytes is not None and available_bytes >= required_bytes
+        ),
+        "system_patch_not_older": checks["system_patch_not_older"],
+    }
 
     blockers = []
     for name, passed in checks.items():
@@ -182,6 +212,12 @@ def evaluate(
             blockers.append(f"failed structural check: {name}")
     if locked:
         blockers.append("bootloader is currently locked; fastboot deployment would wipe on unlock")
+    if available_bytes is None:
+        blockers.append("DSU free space could not be parsed from the read-only /data inventory")
+    elif available_bytes < required_bytes:
+        blockers.append(
+            "DSU free space is below system image plus 8 GiB userdata and 1 GiB headroom"
+        )
     blockers.extend([
         "VINTF negotiation has not been exercised with this exact image",
         "system partition capacity and AVB deployment have not been verified",
@@ -205,9 +241,15 @@ def evaluate(
         },
         "checks": checks,
         "dsu_advertised": dsu_advertised,
-        "dsu_candidate": structural and dsu_advertised and checks[
-            "system_patch_not_older"
-        ],
+        "dsu_storage": {
+            "available_bytes": available_bytes,
+            "required_bytes": required_bytes,
+            "system_image_bytes": artifacts["system.img"]["size_bytes"],
+            "userdata_bytes": DSU_USERDATA_BYTES,
+            "headroom_bytes": DSU_STORAGE_HEADROOM_BYTES,
+        },
+        "dsu_checks": dsu_checks,
+        "dsu_candidate": structural and all(dsu_checks.values()),
         "fastboot_candidate": structural,
         "bootloader_locked": locked,
         "blockers": blockers,
