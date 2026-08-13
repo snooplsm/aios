@@ -795,6 +795,8 @@ class IntegrationStructureTests(unittest.TestCase):
                             temporary / "evidence" / "emulator")
             shutil.copytree(ROOT / "evidence" / "model-pack",
                             temporary / "evidence" / "model-pack")
+            shutil.copytree(ROOT / "evidence" / "avd",
+                            temporary / "evidence" / "avd")
             value = json.loads((temporary / "config" / "release_status.json")
                                .read_text(encoding="utf-8"))
             value["statuses"]["boot.first_boot"]["status"] = "passed"
@@ -819,6 +821,8 @@ class IntegrationStructureTests(unittest.TestCase):
                             temporary / "evidence" / "emulator")
             shutil.copytree(ROOT / "evidence" / "model-pack",
                             temporary / "evidence" / "model-pack")
+            shutil.copytree(ROOT / "evidence" / "avd",
+                            temporary / "evidence" / "avd")
             boot_path = next((temporary / "evidence" / "cuttlefish")
                              .rglob("cuttlefish-first-boot.json"))
             boot = json.loads(boot_path.read_text(encoding="utf-8"))
@@ -841,6 +845,10 @@ class IntegrationStructureTests(unittest.TestCase):
             shutil.copytree(ROOT / "evidence", temporary / "evidence")
             status_path = temporary / "config" / "release_status.json"
             status = json.loads(status_path.read_text(encoding="utf-8"))
+            status["statuses"]["integration.android_avd_userdebug_succeeds"] = {
+                "status": "not_run",
+                "evidence": [],
+            }
             existing = next((temporary / "evidence" / "cuttlefish")
                             .rglob("cuttlefish-first-boot.json"))
             reference = existing.relative_to(temporary).as_posix()

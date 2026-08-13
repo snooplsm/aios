@@ -1,0 +1,154 @@
+{
+  "aios_revision": "47bf8f99e7e7738e54842494e7fb28bb06f620b1",
+  "android_release": "17",
+  "artifact_layout": "product_partition",
+  "artifacts": [
+    {
+      "path": "product/priv-app/AiosContextIntelligence/AiosContextIntelligence.apk",
+      "sha256": "1148c81175d59e39bf95dc003cbaad67f8662c5af578e76e234123ced9d3bbab",
+      "size_bytes": 41348
+    },
+    {
+      "path": "product/priv-app/AiosMessaging/AiosMessaging.apk",
+      "sha256": "430868606817d04529d0adfe306fd98fd0001fbeb65a4b76496f951d7c8a12ef",
+      "size_bytes": 4878208
+    },
+    {
+      "path": "product/priv-app/AiosPhone/AiosPhone.apk",
+      "sha256": "2a7b048bc508c8146faa8c8fe0d0c2577dc600bcd3ca69007ed982ae97acb499",
+      "size_bytes": 4784929
+    },
+    {
+      "path": "product/priv-app/AiosCallIntelligence/AiosCallIntelligence.apk",
+      "sha256": "b1064781192ab76de6089a00cbd7ac0a7a332c0aa05626a7fee96e16557ec240",
+      "size_bytes": 188639
+    },
+    {
+      "path": "product/priv-app/AiosMediaIntelligence/AiosMediaIntelligence.apk",
+      "sha256": "4ec6427404a95083632d371aece00f6b240376dd1e04616a2122901d3530272c",
+      "size_bytes": 221570
+    },
+    {
+      "path": "product/priv-app/AiosModelBroker/AiosModelBroker.apk",
+      "sha256": "0e6b911eff8ec5c57fdfa698fde91fd85a0238d651c5c4dd6e512b664d18e938",
+      "size_bytes": 98527
+    },
+    {
+      "path": "product/overlay/AiosFrameworkDefaultsOverlay.apk",
+      "sha256": "021b96193439c0981e83bc984cf66796c519b701caef045b18eec78e25756a07",
+      "size_bytes": 8351
+    },
+    {
+      "path": "product/etc/aios/authorized_clients.json",
+      "sha256": "ee060330d9f2a3595a62179b20af6f0cdaf0c8ad0bf244e9cb5b1050bef0993a",
+      "size_bytes": 1162
+    },
+    {
+      "path": "product/etc/aios/model_catalog.json",
+      "sha256": "10ef8b76b620de37e21ddc5f67dc5066105b7b5646e2679077d8345bb9e7569d",
+      "size_bytes": 12253
+    },
+    {
+      "path": "product/etc/aios/product_policy.json",
+      "sha256": "3e8003c1905542ef74f215e73100aff4d36d645c5bf16dc4a1d24147b0fb67b4",
+      "size_bytes": 2434
+    },
+    {
+      "path": "product/etc/aios/runtime_catalog.json",
+      "sha256": "9a5654a08fd4176a3b12c53f88a6b5f235408147b0ffda99b0f8e977be0e092b",
+      "size_bytes": 5560
+    },
+    {
+      "path": "product/etc/default-permissions/default-permissions-aios.xml",
+      "sha256": "65ea70a3df7aaaa3f7b3ec87e0a75fa146f30520e75a80ae60a6bb42d36fb318",
+      "size_bytes": 1702
+    },
+    {
+      "path": "product/etc/permissions/privapp-permissions-aios.xml",
+      "sha256": "5e52cfb20209ca37fb8a5c7bf615df4adce2dd0df71edd16ee701c4d247dc71b",
+      "size_bytes": 1810
+    },
+    {
+      "path": "product.img",
+      "sha256": "9a54eec1be48315383a22654bb8e7e0f2f907f314b032faac31fa1d9a0862377",
+      "size_bytes": 460996608
+    },
+    {
+      "path": "system.img",
+      "sha256": "69469eaf63f63599d1df97193ba08707498c8e8806f49bced5938c22cc25658b",
+      "size_bytes": 1162039296
+    }
+  ],
+  "build_fingerprint": "AIOS/aios_sdk_phone_x86_64/emu64x:17/CP2A.260605.016/eng.ryan:userdebug/test-keys",
+  "build_log_sha256": "94d8c0ad10c109c5143120ed5bb08d0629ba4bfbee141cfe2982abf288e5cea9",
+  "captured_at": "2026-08-13T00:37:55+00:00",
+  "deployable_images": [
+    "product.img",
+    "system.img"
+  ],
+  "host": {
+    "machine": "x86_64",
+    "release": "6.18.33.2-microsoft-standard-WSL2",
+    "system": "Linux"
+  },
+  "installed_files_manifest": "installed-files-product.json",
+  "installed_files_product_sha256": "828bf84d5553946639a3d893872b0e15fb648e0020804075f9d343886dfe819a",
+  "installed_files_sha256": "828bf84d5553946639a3d893872b0e15fb648e0020804075f9d343886dfe819a",
+  "kind": "virtual_emulator",
+  "lane": "android_avd_integration",
+  "lane_eligible_for_physical_gates": false,
+  "lunch_target": "aios_sdk_phone_x86_64-aosp_current-userdebug",
+  "manifest_lock_sha256": "82080b727054adb46b26654a4ddbfbfc83cad4940a363de66299ced958dc1146",
+  "manifest_repository_revision": "ad156f32caaa06dae91c02d443f6a8fe210eaa54",
+  "manifest_sha256": "b1bc007ed3578deadd64889766ec61f5f86a00e3c2e2bf356bd618a063f05395",
+  "patch_queue": [
+    {
+      "base_revision": "768ed834ced557e2d42476757776a26c68fed656",
+      "file": "0001-dialer-aios-call-assistant.patch",
+      "id": "dialer-aios-call-assistant",
+      "owner": "call-platform",
+      "paths": [
+        "Android.bp",
+        "AndroidManifest.xml",
+        "java/com/android/incallui/InCallServiceImpl.java",
+        "java/com/android/incallui/aios/AiosCallAssistant.java"
+      ],
+      "project": "packages/apps/Dialer",
+      "reason": "Connect the complete Android 17 AOSP Dialer Telecom lifecycle to model priority and the fail-closed AIOS Call Intelligence policy and capture service.",
+      "rebase_notes": "Re-export from the tracked Dialer base, preserve the four-file footprint, then rerun host validation, preview builds, emulator Telecom smoke, and every physical dialer/call gate.",
+      "removal_condition": "Remove only if AOSP exposes an equivalent stable call-assistant lifecycle API requiring no Dialer source hook.",
+      "sha256": "d020e9042561ab5d1a8534ea011178cb1996d416a2e62e9fa6f66ff4f89bdb57",
+      "tests": [
+        "scripts/emulator-telecom-smoke.ps1",
+        "tests/test_patch_series.py",
+        "tests/test_validate_config.py"
+      ]
+    },
+    {
+      "base_revision": "94b4c163b7dfe5ce3607f7bb8456f9573f7de57d",
+      "file": "0002-framework-mms-aios-visibility.patch",
+      "id": "framework-mms-aios-visibility",
+      "owner": "messaging-platform",
+      "paths": [
+        "telephony/common/Android.bp"
+      ],
+      "project": "frameworks/base",
+      "reason": "Allow the platform-signed AIOS Messaging app to statically link AOSP's maintained MMS codec and Telephony provider persister without copying protocol sources into vendor code, using Soong's required platform-to-vendor subtree visibility boundary.",
+      "rebase_notes": "Re-export from the tracked frameworks/base commit, keep the change to the single telephony/common/Android.bp visibility entry using //vendor:__subpackages__, and rebuild AiosMessaging with Soong.",
+      "removal_condition": "Remove when framework-mms-shared-srcs is public to product modules or AOSP provides an equivalent supported MMS codec and provider library.",
+      "sha256": "d23751af96b0a0d24bc6b2b1cf6c5a237b3959b725d3941cbbfe7d2e75247dfe",
+      "tests": [
+        "tests/test_patch_series.py",
+        "tests/test_validate_config.py"
+      ]
+    }
+  ],
+  "patch_queue_sha256": "1662b8c26d1893a6e5c7d6064ace4c8e8accfe326f15d0370a333635e97c5d0a",
+  "patch_series_sha256": "57d07b4ac3237768453da1216090f99cedce05353bf533925afa83bc57c858b3",
+  "product": "aios_sdk_phone_x86_64",
+  "proves_physical_runtime_gate": false,
+  "schema_version": 2,
+  "security_patch": "2026-06-05",
+  "status": "passed",
+  "target_device": "emu64x"
+}

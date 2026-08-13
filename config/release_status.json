@@ -5,7 +5,7 @@
     "integration.android_latest_manifest_locked": {"status": "passed", "evidence": ["evidence/cuttlefish/20260812-cf-build10-2aff1fd-j12/soong-build-evidence.json"]},
     "integration.android_latest_userdebug_succeeds": {"status": "passed", "evidence": ["evidence/cuttlefish/20260812-cf-build10-2aff1fd-j12/soong-build-evidence.json"]},
     "integration.android_latest_first_boot": {"status": "passed", "evidence": ["evidence/cuttlefish/20260812-cf-build10-2aff1fd-j12/cuttlefish-first-boot.json"]},
-    "integration.android_avd_userdebug_succeeds": {"status": "not_run", "evidence": []},
+    "integration.android_avd_userdebug_succeeds": {"status": "passed", "evidence": ["evidence/avd/20260813-avd-build4-47bf8f9-j12/soong-build-evidence.json"]},
     "integration.android_avd_first_boot": {"status": "not_run", "evidence": []},
     "integration.android_gsi_arm64_userdebug_succeeds": {"status": "not_run", "evidence": []},
     "integration.reference_model_pack_verified": {"status": "passed", "evidence": ["evidence/model-pack/20260813-pixel9a-complete-094b3d0/model-pack-evidence.json"]},
