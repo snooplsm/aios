@@ -1338,9 +1338,12 @@ def validate_aosp_overlay(root: Path) -> None:
             and "vendor/aios/products/aios_common.mk" in emulator_product
             and "PRODUCT_ENFORCE_ARTIFACT_PATH_REQUIREMENTS := relaxed"
             in emulator_product
+            and "BOARD_EMULATOR_DYNAMIC_PARTITIONS_SIZE := 2147483648"
+            in emulator_product
             and "PRODUCT_NAME := aios_sdk_phone_x86_64" in emulator_product
             and "PRODUCT_DEVICE := emu64x" in emulator_product,
-            "Android Emulator must have an additive x86-64 AIOS product")
+            "Android Emulator must have an additive x86-64 AIOS product with "
+            "sufficient virtual dynamic-partition space")
     gsi_product = (root / "products" / "aios_gsi_arm64.mk").read_text(
         encoding="utf-8"
     )

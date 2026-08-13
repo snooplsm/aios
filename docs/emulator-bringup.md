@@ -36,6 +36,12 @@ applies the reviewed AOSP patch queue, builds the product, checks every required
 AIOS artifact against `installed-files-product.json`, captures image digests,
 and restores the upstream projects.
 
+The AIOS wrapper sets the Goldfish dynamic-partition group to 2 GiB before
+inheriting the upstream SDK product. Android 17's current system/product/vendor
+set no longer fits the upstream 1800 MiB default once the AIOS product overlay
+is present. This changes only the disposable emulator disk geometry; it does
+not alter GSI or physical-device partition sizes.
+
 ## Launch the built image
 
 On an Ubuntu or WSL build host, the prebuilt emulator needs the PulseAudio
