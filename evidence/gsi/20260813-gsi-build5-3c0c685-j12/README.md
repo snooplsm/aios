@@ -19,6 +19,13 @@ the vbmeta signature, chain descriptor, system footer, SHA-256 dm-verity
 hashtree, and pvmfw hash. A read-only five-pass `e2fsck` also completed with no
 filesystem errors.
 
+`dsu-payload.json` binds the external 3,468,494,731-byte gzip payload back to
+the verified raw `system.img`. The payload itself remains outside Git because
+it contains the packaged model weights. A full streaming decompression
+reproduced the source image's SHA-256. Device preflight counts both the gzip in
+Downloads and the DSU system/userdata allocations before calling it a DSU
+candidate.
+
 This proves a deployable generic ARM64 system-image build, not a Pixel 9a boot.
 It does not prove device partition capacity, DSU support, vendor compatibility,
 radio/IMS behavior, call-audio capture, accelerator selection, inference

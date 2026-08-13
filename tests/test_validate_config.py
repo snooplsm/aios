@@ -868,6 +868,33 @@ class IntegrationStructureTests(unittest.TestCase):
                                         "AVB evidence is not bound"):
                 validator.validate_release_configuration(temporary)
 
+    def test_gsi_dsu_payload_must_bind_checked_in_system_image(self):
+        with tempfile.TemporaryDirectory() as raw:
+            temporary = Path(raw)
+            (temporary / "config").mkdir()
+            copy_patch_contract_fixture(temporary)
+            for name in ("aosp_tracking.json", "aosp_lanes.json",
+                         "model_catalog.json", "release_gates.json",
+                         "release_status.json"):
+                shutil.copy(ROOT / "config" / name,
+                            temporary / "config" / name)
+            shutil.copytree(ROOT / "evidence", temporary / "evidence")
+            status = json.loads(
+                (temporary / "config" / "release_status.json")
+                .read_text(encoding="utf-8")
+            )
+            build_reference = status["statuses"][
+                "integration.android_gsi_arm64_userdebug_succeeds"
+            ]["evidence"]
+            self.assertEqual(1, len(build_reference))
+            payload_path = (temporary / build_reference[0]).parent / "dsu-payload.json"
+            payload = json.loads(payload_path.read_text(encoding="utf-8"))
+            payload["source_image"]["sha256"] = "0" * 64
+            payload_path.write_text(json.dumps(payload), encoding="utf-8")
+            with self.assertRaisesRegex(validator.ValidationError,
+                                        "DSU payload evidence is not bound"):
+                validator.validate_release_configuration(temporary)
+
     def test_avd_first_boot_cannot_pass_before_its_build(self):
         with tempfile.TemporaryDirectory() as raw:
             temporary = Path(raw)

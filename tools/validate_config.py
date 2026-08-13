@@ -6551,6 +6551,49 @@ def validate_release_configuration(root: Path) -> None:
                 and avb.get("lane_eligible_for_physical_gates") is True
                 and avb.get("proves_physical_runtime_gate") is False,
                 "ARM64 GSI AVB evidence is not bound to the deployable images")
+        dsu_path = gsi_build_path.parent / "dsu-payload.json"
+        require(dsu_path.is_file(),
+                "ARM64 GSI build evidence requires sibling DSU payload evidence")
+        dsu = load_json(dsu_path)
+        dsu_source = dsu.get("source_image")
+        dsu_payload = dsu.get("payload")
+        dsu_checks = dsu.get("checks")
+        system_artifact = image_artifacts.get("system.img", {})
+        require(dsu.get("schema_version") == 1
+                and dsu.get("status") == "passed"
+                and dsu.get("kind") == "gsi_dsu_payload"
+                and dsu.get("aios_revision") == gsi_build.get("aios_revision")
+                and dsu.get("build_evidence_sha256")
+                == hashlib.sha256(gsi_build_path.read_bytes()).hexdigest()
+                and isinstance(dsu_source, dict)
+                and dsu_source.get("name") == "system.img"
+                and dsu_source.get("format")
+                == "raw_ext4_with_avb_footer"
+                and dsu_source.get("size_bytes")
+                == system_artifact.get("size_bytes")
+                and dsu_source.get("sha256")
+                == system_artifact.get("sha256")
+                and isinstance(dsu_payload, dict)
+                and isinstance(dsu_payload.get("name"), str)
+                and dsu_payload["name"].endswith(".raw.gz")
+                and dsu_payload.get("format") == "gzip"
+                and dsu_payload.get("compression_level") in range(1, 10)
+                and isinstance(dsu_payload.get("size_bytes"), int)
+                and dsu_payload["size_bytes"] > 0
+                and dsu_payload.get("uncompressed_size_bytes")
+                == system_artifact.get("size_bytes")
+                and re.fullmatch(r"[0-9a-f]{64}",
+                                 str(dsu_payload.get("sha256", ""))) is not None
+                and isinstance(dsu_checks, dict)
+                and set(dsu_checks) == {
+                    "gzip_integrity_verified",
+                    "stream_decompression_sha256_verified",
+                }
+                and all(value is True for value in dsu_checks.values())
+                and dsu.get("external_payload_only") is True
+                and dsu.get("safe_to_install") is False
+                and dsu.get("proves_physical_runtime_gate") is False,
+                "ARM64 GSI DSU payload evidence is not bound to the system image")
 
     model_pack_gate = statuses["integration.reference_model_pack_verified"]
     if model_pack_gate["status"] == "passed":

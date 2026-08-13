@@ -90,10 +90,11 @@ Review at least:
 
 The GSI security patch must not be older than the running system for DSU. The
 preflight also parses the read-only `df -k /data` capture and requires free
-space for the exact non-sparse `system.img`, an 8 GiB DSU userdata image, and
-1 GiB of headroom. This is deliberately stricter than applying the generic
-10 GiB recommendation to an AIOS image whose packaged models make it larger
-than a typical GSI.
+space for the gzip copied into Downloads, the exact non-sparse `system.img`, an
+8 GiB DSU userdata image, and 1 GiB of headroom. This is deliberately stricter
+than applying the generic 10 GiB recommendation to an AIOS image whose packaged
+models make it larger than a typical GSI. For build 5 this totals 17,772,119,947
+bytes (about 16.55 GiB).
 
 That rollback comparison is a DSU constraint, not a claim that an unlocked
 fastboot research boot is structurally impossible. The preflight therefore
@@ -116,9 +117,10 @@ python tools/check_gsi_preflight.py \
   --output /safe/release-artifacts/gsi-build-id/pixel-9a-preflight.json
 ```
 
-Keep the build's `avb-verification.json` beside `soong-build-evidence.json`.
-The checker rejects the candidate unless that AVB record is digest-bound to the
-build record and to the exact `system.img` and `vbmeta.img` identities.
+Keep the build's `avb-verification.json` and `dsu-payload.json` beside
+`soong-build-evidence.json`. The checker rejects the candidate unless the AVB
+record is digest-bound to the build record and exact image identities and the
+DSU record binds the gzip back to that exact raw `system.img`.
 
 This checker can reject architecture, Treble, dynamic-partition, device-identity,
 Android-version, and security-patch mismatches. It deliberately emits

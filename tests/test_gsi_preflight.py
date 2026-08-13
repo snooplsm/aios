@@ -115,6 +115,40 @@ class GsiPreflightTests(unittest.TestCase):
             "proves_physical_runtime_gate": False,
         }
 
+    @staticmethod
+    def dsu_payload(build_value, build_path):
+        system = next(
+            item for item in build_value["artifacts"]
+            if item["path"] == "system.img"
+        )
+        return {
+            "schema_version": 1,
+            "status": "passed",
+            "kind": "gsi_dsu_payload",
+            "aios_revision": build_value.get("aios_revision"),
+            "build_evidence_sha256": preflight.sha256(build_path),
+            "source_image": {
+                "name": "system.img",
+                "format": "raw_ext4_with_avb_footer",
+                "size_bytes": system["size_bytes"],
+                "sha256": system["sha256"],
+            },
+            "payload": {
+                "name": "17.test.raw.gz",
+                "format": "gzip",
+                "compression_level": 1,
+                "size_bytes": max(1, system["size_bytes"] - 1),
+                "uncompressed_size_bytes": system["size_bytes"],
+                "sha256": digest("gzip"),
+            },
+            "checks": {
+                "gzip_integrity_verified": True,
+                "stream_decompression_sha256_verified": True,
+            },
+            "external_payload_only": True,
+            "safe_to_install": False,
+            "proves_physical_runtime_gate": False,
+        }
     def write_inputs(self, raw, inventory_value=None, build_value=None):
         base = Path(raw)
         inventory_path = base / "inventory.json"
@@ -126,6 +160,10 @@ class GsiPreflightTests(unittest.TestCase):
         build_path.write_text(json.dumps(selected_build), encoding="utf-8")
         (base / "avb-verification.json").write_text(
             json.dumps(self.avb(selected_build, build_path)), encoding="utf-8"
+        )
+        (base / "dsu-payload.json").write_text(
+            json.dumps(self.dsu_payload(selected_build, build_path)),
+            encoding="utf-8",
         )
         return inventory_path, build_path
 
@@ -143,6 +181,8 @@ class GsiPreflightTests(unittest.TestCase):
             self.assertIn("system.img", value["gsi_images"])
             self.assertEqual("system", value["avb_chain"]["partition"])
             self.assertEqual(64, len(value["avb_evidence_sha256"]))
+            self.assertEqual("gzip", value["dsu_payload"]["format"])
+            self.assertEqual(64, len(value["dsu_payload_evidence_sha256"]))
             self.assertTrue(value["dsu_checks"]["data_free_space_sufficient"])
             self.assertGreaterEqual(len(value["blockers"]), 5)
 
@@ -218,6 +258,17 @@ class GsiPreflightTests(unittest.TestCase):
             avb_path.write_text(json.dumps(avb_value), encoding="utf-8")
             with self.assertRaisesRegex(preflight.GsiPreflightError,
                                         "AVB evidence is not bound"):
+                preflight.evaluate(inventory_path, build_path, "tegu")
+
+    def test_rejects_dsu_payload_not_bound_to_system_image(self):
+        with tempfile.TemporaryDirectory() as raw:
+            inventory_path, build_path = self.write_inputs(raw)
+            payload_path = Path(raw) / "dsu-payload.json"
+            payload_value = json.loads(payload_path.read_text(encoding="utf-8"))
+            payload_value["source_image"]["sha256"] = "0" * 64
+            payload_path.write_text(json.dumps(payload_value), encoding="utf-8")
+            with self.assertRaisesRegex(preflight.GsiPreflightError,
+                                        "DSU payload evidence is not bound"):
                 preflight.evaluate(inventory_path, build_path, "tegu")
 
 

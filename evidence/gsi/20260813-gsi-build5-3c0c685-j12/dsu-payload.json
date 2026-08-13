@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "status": "passed",
+  "kind": "gsi_dsu_payload",
+  "aios_revision": "3c0c685d39c63b6a3cb0d1d4f0d14a83228ad657",
+  "build_evidence_sha256": "1e1a032bc829714a9ea91682919f1d56203949bd7460915537936337594278f9",
+  "source_image": {
+    "name": "system.img",
+    "format": "raw_ext4_with_avb_footer",
+    "size_bytes": 4639948800,
+    "sha256": "7c740c3a6af1478c6d683e6fd731d6c8722575b2c56102dac7bd49c0929ef32a"
+  },
+  "payload": {
+    "name": "17.aios_gsi_arm64.b7ec30e.raw.gz",
+    "format": "gzip",
+    "compression_level": 1,
+    "size_bytes": 3468494731,
+    "uncompressed_size_bytes": 4639948800,
+    "sha256": "9cd69218dc5ea3eeac55e57548a012cad69fe3b190b8cbb23e3771f1243b2936"
+  },
+  "checks": {
+    "gzip_integrity_verified": true,
+    "stream_decompression_sha256_verified": true
+  },
+  "prepared_at": "2026-08-13T06:21:38Z",
+  "external_payload_only": true,
+  "safe_to_install": false,
+  "proves_physical_runtime_gate": false
+}

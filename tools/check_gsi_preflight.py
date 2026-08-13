@@ -160,6 +160,53 @@ def validate_avb_evidence(
     return avb_path, avb
 
 
+def validate_dsu_payload(
+    build_path: Path,
+    build: dict,
+    artifacts: dict[str, dict],
+) -> tuple[Path, dict]:
+    payload_path = build_path.parent / "dsu-payload.json"
+    payload = load(payload_path)
+    source = payload.get("source_image")
+    compressed = payload.get("payload")
+    checks = payload.get("checks")
+    system = artifacts["system.img"]
+    if (payload.get("schema_version") != 1
+            or payload.get("status") != "passed"
+            or payload.get("kind") != "gsi_dsu_payload"
+            or payload.get("aios_revision") != build.get("aios_revision")
+            or payload.get("build_evidence_sha256") != sha256(build_path)
+            or not isinstance(source, dict)
+            or source.get("name") != "system.img"
+            or source.get("format") != "raw_ext4_with_avb_footer"
+            or source.get("size_bytes") != system.get("size_bytes")
+            or source.get("sha256") != system.get("sha256")
+            or not isinstance(compressed, dict)
+            or not isinstance(compressed.get("name"), str)
+            or not compressed["name"].endswith(".raw.gz")
+            or compressed.get("format") != "gzip"
+            or compressed.get("compression_level") not in range(1, 10)
+            or not isinstance(compressed.get("size_bytes"), int)
+            or compressed["size_bytes"] <= 0
+            or compressed.get("uncompressed_size_bytes")
+            != system.get("size_bytes")
+            or SHA256_PATTERN.fullmatch(str(compressed.get("sha256", "")))
+            is None
+            or not isinstance(checks, dict)
+            or set(checks) != {
+                "gzip_integrity_verified",
+                "stream_decompression_sha256_verified",
+            }
+            or any(value is not True for value in checks.values())
+            or payload.get("external_payload_only") is not True
+            or payload.get("safe_to_install") is not False
+            or payload.get("proves_physical_runtime_gate") is not False):
+        raise GsiPreflightError(
+            "DSU payload evidence is not bound to the exact GSI system image"
+        )
+    return payload_path, payload
+
+
 def validate_inputs(
     inventory: dict, build: dict, expected_device: str
 ) -> tuple[dict[str, dict], dict[str, bool]]:
@@ -229,6 +276,9 @@ def evaluate(
     build = load(build_path)
     artifacts, checks = validate_inputs(inventory, build, expected_device)
     avb_path, avb = validate_avb_evidence(build_path, build, artifacts)
+    dsu_payload_path, dsu_payload = validate_dsu_payload(
+        build_path, build, artifacts
+    )
 
     device_release = parse_android_release(
         property_value(inventory, "ro.build.version.release"),
@@ -255,7 +305,9 @@ def evaluate(
     structural = all(fastboot_structural_checks.values())
     locked = property_value(inventory, "ro.boot.flash.locked") != "0"
     available_bytes = data_free_bytes(inventory)
+    compressed_payload_bytes = dsu_payload["payload"]["size_bytes"]
     required_bytes = (artifacts["system.img"]["size_bytes"]
+                      + compressed_payload_bytes
                       + DSU_USERDATA_BYTES + DSU_STORAGE_HEADROOM_BYTES)
     dsu_checks = {
         "advertised": dsu_advertised,
@@ -280,7 +332,7 @@ def evaluate(
         blockers.append("DSU free space could not be parsed from the read-only /data inventory")
     elif available_bytes < required_bytes:
         blockers.append(
-            "DSU free space is below system image plus 8 GiB userdata and 1 GiB headroom"
+            "DSU free space is below pushed gzip plus system image, 8 GiB userdata, and 1 GiB headroom"
         )
     blockers.extend([
         "VINTF negotiation has not been exercised with this exact image",
@@ -298,6 +350,8 @@ def evaluate(
         "build_evidence_sha256": sha256(build_path),
         "avb_evidence_sha256": sha256(avb_path),
         "avb_chain": avb["expected_chain_partition"],
+        "dsu_payload_evidence_sha256": sha256(dsu_payload_path),
+        "dsu_payload": dsu_payload["payload"],
         "gsi_images": {
             name: {
                 "size_bytes": artifacts[name]["size_bytes"],
@@ -312,6 +366,7 @@ def evaluate(
             "available_bytes": available_bytes,
             "required_bytes": required_bytes,
             "system_image_bytes": artifacts["system.img"]["size_bytes"],
+            "compressed_payload_bytes": compressed_payload_bytes,
             "userdata_bytes": DSU_USERDATA_BYTES,
             "headroom_bytes": DSU_STORAGE_HEADROOM_BYTES,
         },
