@@ -192,7 +192,11 @@ def evaluate(
     if not isinstance(capabilities, dict):
         raise GsiPreflightError("device inventory capabilities must be an object")
     dsu_advertised = str(capabilities.get("dynamic_system_feature", "")).lower() == "true"
-    structural = all(checks.values())
+    fastboot_structural_checks = {
+        name: passed for name, passed in checks.items()
+        if name != "system_patch_not_older"
+    }
+    structural = all(fastboot_structural_checks.values())
     locked = property_value(inventory, "ro.boot.flash.locked") != "0"
     available_bytes = data_free_bytes(inventory)
     required_bytes = (artifacts["system.img"]["size_bytes"]
@@ -207,9 +211,13 @@ def evaluate(
     }
 
     blockers = []
-    for name, passed in checks.items():
+    for name, passed in fastboot_structural_checks.items():
         if not passed:
             blockers.append(f"failed structural check: {name}")
+    if not checks["system_patch_not_older"]:
+        blockers.append(
+            "GSI security patch is older than the factory system; DSU rollback policy rejects it"
+        )
     if locked:
         blockers.append("bootloader is currently locked; fastboot deployment would wipe on unlock")
     if available_bytes is None:
@@ -240,6 +248,7 @@ def evaluate(
             for name in ("system.img", "vbmeta.img")
         },
         "checks": checks,
+        "fastboot_structural_checks": fastboot_structural_checks,
         "dsu_advertised": dsu_advertised,
         "dsu_storage": {
             "available_bytes": available_bytes,

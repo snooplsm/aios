@@ -128,9 +128,12 @@ class GsiPreflightTests(unittest.TestCase):
                 raw, build_value=build_value
             )
             value = preflight.evaluate(inventory_path, build_path, "tegu")
-            self.assertEqual("incompatible", value["status"])
+            self.assertEqual("candidate", value["status"])
             self.assertFalse(value["checks"]["system_patch_not_older"])
             self.assertFalse(value["dsu_candidate"])
+            self.assertTrue(value["fastboot_candidate"])
+            self.assertNotIn("system_patch_not_older",
+                             value["fastboot_structural_checks"])
 
     def test_refuses_build_that_claims_physical_runtime(self):
         with tempfile.TemporaryDirectory() as raw:

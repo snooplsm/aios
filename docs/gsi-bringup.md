@@ -81,6 +81,13 @@ space for the exact non-sparse `system.img`, an 8 GiB DSU userdata image, and
 1 GiB of headroom. This is deliberately stricter than applying the generic
 10 GiB recommendation to an AIOS image whose packaged models make it larger
 than a typical GSI.
+
+That rollback comparison is a DSU constraint, not a claim that an unlocked
+fastboot research boot is structurally impossible. The preflight therefore
+disables `dsu_candidate` on an older patch while leaving `fastboot_candidate`
+dependent on architecture, Treble, dynamic partitions, Android release, and
+reported vendor interfaces. It still records the patch mismatch as a blocker,
+keeps `safe_to_flash` false, and requires an operator-reviewed recovery plan.
 Successful VINTF negotiation, partition capacity, AVB handling, and rollback
 constraints still require device-specific checks. A structurally compatible
 inventory is not permission to flash.
