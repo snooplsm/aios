@@ -169,9 +169,14 @@ powershell -ExecutionPolicy Bypass -File scripts/start-pixel9a-dsu.ps1 `
 
 The start script revalidates the connected serial, unchanged factory build,
 current free space, all evidence digests, and the complete payload hash before
-copying the gzip or launching Android's DSU verification activity. It does not
-unlock, disable AVB, invoke fastboot, or reboot. Accept the verification UI and
-restart only from the DSU notification after installation completes.
+copying the gzip or launching Android's DSU verification activity. For a WSL
+payload it makes one generated copy under the Windows temporary directory,
+hashes and pushes that local file, and removes only that staging directory when
+the command finishes; this avoids hashing and pushing the large file twice over
+the WSL share. Override the temporary location with `-StagingDirectory` when
+needed. It does not unlock, disable AVB, invoke fastboot, or reboot. Accept the
+verification UI and restart only from the DSU notification after installation
+completes.
 
 After AIOS reaches the fresh-user system UI and ADB is authorized again, capture
 the first-boot gate. This hashes every AIOS file represented by the build record

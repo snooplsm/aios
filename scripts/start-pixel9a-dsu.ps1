@@ -21,6 +21,9 @@ param(
     [Parameter(Mandatory = $false)]
     [string]$AdbPath,
 
+    [Parameter(Mandatory = $false)]
+    [string]$StagingDirectory,
+
     [Parameter(Mandatory = $true)]
     [switch]$IUnderstandThisStartsDsu
 )
@@ -162,11 +165,10 @@ if ((Get-TextSha256 $Serial) -ne $InventoryRecord.serial_sha256) {
     throw "Connected serial does not match the preflight inventory"
 }
 
-$payloadInfo = Get-Item -LiteralPath $PayloadPath
 $expectedPayload = $DsuRecord.payload
-if ($payloadInfo.Name -ne $expectedPayload.name -or
-    $payloadInfo.Length -ne $expectedPayload.size_bytes -or
-    (Get-Sha256 $PayloadPath) -ne $expectedPayload.sha256 -or
+$sourcePayloadInfo = Get-Item -LiteralPath $PayloadPath
+if ($sourcePayloadInfo.Name -ne $expectedPayload.name -or
+    $sourcePayloadInfo.Length -ne $expectedPayload.size_bytes -or
     $PreflightRecord.dsu_payload.sha256 -ne $expectedPayload.sha256 -or
     $PreflightRecord.dsu_payload.uncompressed_size_bytes -ne
         $expectedPayload.uncompressed_size_bytes) {
@@ -178,6 +180,45 @@ if ($AvbRecord.status -ne "passed" -or
     $BuildRecord.proves_physical_runtime_gate -ne $false) {
     throw "Build evidence does not preserve the pre-physical-test safety contract"
 }
+
+$PayloadForTransfer = $PayloadPath
+$StagingRunRoot = $null
+if (-not $StagingDirectory) {
+    $StagingDirectory = Join-Path ([IO.Path]::GetTempPath()) "aios-dsu-staging"
+}
+$StagingRoot = [IO.Path]::GetFullPath($StagingDirectory)
+$RepositoryPrefix = $RepositoryRoot.TrimEnd([char[]]@("\", "/")) +
+    [IO.Path]::DirectorySeparatorChar
+if ($StagingRoot.Equals($RepositoryRoot, [StringComparison]::OrdinalIgnoreCase) -or
+    $StagingRoot.StartsWith($RepositoryPrefix, [StringComparison]::OrdinalIgnoreCase)) {
+    throw "DSU staging must remain outside the source repository"
+}
+
+try {
+    if ($PayloadPath.StartsWith("\\", [StringComparison]::Ordinal)) {
+        $drive = [IO.DriveInfo]::new([IO.Path]::GetPathRoot($StagingRoot))
+        $minimumFree = [Int64]$expectedPayload.size_bytes + 1073741824
+        if ($drive.AvailableFreeSpace -lt $minimumFree) {
+            throw "Local DSU staging drive lacks payload size plus 1 GiB headroom"
+        }
+        if (-not (Test-Path -LiteralPath $StagingRoot)) {
+            New-Item -ItemType Directory -Path $StagingRoot -Force | Out-Null
+        }
+        $StagingRunRoot = Join-Path $StagingRoot (
+            "run-" + [Guid]::NewGuid().ToString("N")
+        )
+        New-Item -ItemType Directory -Path $StagingRunRoot | Out-Null
+        $PayloadForTransfer = Join-Path $StagingRunRoot $expectedPayload.name
+        Write-Output "Staging one temporary local copy for reliable adb transfer..."
+        Copy-Item -LiteralPath $PayloadPath -Destination $PayloadForTransfer
+    }
+
+    $payloadInfo = Get-Item -LiteralPath $PayloadForTransfer
+    if ($payloadInfo.Name -ne $expectedPayload.name -or
+        $payloadInfo.Length -ne $expectedPayload.size_bytes -or
+        (Get-Sha256 $PayloadForTransfer) -ne $expectedPayload.sha256) {
+        throw "Transfer payload does not match the verified DSU identity"
+    }
 
 if ((Invoke-AdbText -AdbArguments @("get-state")) -ne "device") {
     throw "Pixel 9a is not authorized and online through ADB"
@@ -233,7 +274,9 @@ catch {
     throw "Refusing to overwrite an existing device payload: $remotePath"
 }
 Write-Output "Pushing the verified DSU payload; this may take several minutes..."
-Invoke-AdbText -AdbArguments @("push", $PayloadPath, $remotePath) | Write-Output
+Invoke-AdbText -AdbArguments @(
+    "push", $PayloadForTransfer, $remotePath
+) | Write-Output
 $remoteSize = Invoke-AdbText -AdbArguments @(
     "shell", "stat", "-c", "%s", $remotePath
 )
@@ -255,3 +298,18 @@ Invoke-AdbText -AdbArguments @(
 Write-Output "DSU verification/install UI started for the exact AIOS payload."
 Write-Output "Watch the DSU notification; restart only from that UI after installation succeeds."
 Write-Output "This script did not unlock, fastboot-flash, disable AVB, or reboot the phone."
+}
+finally {
+    if ($StagingRunRoot -and (Test-Path -LiteralPath $StagingRunRoot)) {
+        $stagingPrefix = $StagingRoot.TrimEnd([char[]]@("\", "/")) +
+            [IO.Path]::DirectorySeparatorChar
+        $resolvedRunRoot = [IO.Path]::GetFullPath($StagingRunRoot)
+        if (-not $resolvedRunRoot.StartsWith(
+            $stagingPrefix, [StringComparison]::OrdinalIgnoreCase
+        )) {
+            throw "Refusing to clean an unbounded DSU staging path"
+        }
+        Remove-Item -LiteralPath $resolvedRunRoot -Recurse -Force
+        Write-Output "Removed the generated local DSU staging copy."
+    }
+}

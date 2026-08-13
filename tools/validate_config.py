@@ -1425,6 +1425,13 @@ def validate_aosp_overlay(root: Path) -> None:
             and "Connected phone changed since inventory" in dsu_start_script
             and "current free space" in dsu_start_script
             and "Get-FileHash" in dsu_start_script
+            and "StagingDirectory" in dsu_start_script
+            and "payload size plus 1 GiB headroom" in dsu_start_script
+            and "Copy-Item -LiteralPath $PayloadPath" in dsu_start_script
+            and "Refusing to clean an unbounded DSU staging path"
+            in dsu_start_script
+            and "Removed the generated local DSU staging copy."
+            in dsu_start_script
             and "android.software.dynamic_system" in dsu_start_script
             and "com.android.dynsystem/com.android.dynsystem.VerificationActivity"
             in dsu_start_script
