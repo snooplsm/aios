@@ -1,7 +1,8 @@
-# Pixel 9a (tegu) product wrapper. The upstream device product owns hardware
-# configuration; AIOS contributes only additive product packages and identity.
+# Pixel 9a (tegu) product wrapper. The pinned GrapheneOS adevtool release
+# generates the complete hardware product at vendor/google_devices/tegu/tegu.mk;
+# AIOS contributes additive product packages and identity after generation.
 
-$(call inherit-product, device/google/tegu/aosp_tegu.mk)
+$(call inherit-product, vendor/google_devices/tegu/tegu.mk)
 $(call inherit-product, vendor/aios/products/aios_common.mk)
 
 PRODUCT_NAME := aios_tegu

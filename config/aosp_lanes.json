@@ -61,6 +61,7 @@
       "factory_security_patch_floor": "2026-07-05",
       "public_aosp_source_status": "exact_factory_tag_not_published",
       "pvmfw_deployment_policy": "flash_atomically_with_matching_vbmeta_without_intermediate_reboot",
+      "deployment_role": "generic_and_virtual_research_only",
       "preserves_device_partitions": ["bootloader", "radio", "boot", "vendor", "odm"],
       "replaces_device_partitions": ["pvmfw", "system"],
       "physical_gate_evidence": true
@@ -68,21 +69,27 @@
     {
       "id": "pixel9a_tegu_hardware",
       "kind": "physical_hardware",
-      "manifest_revision": null,
+      "manifest_url": "https://github.com/GrapheneOS/platform_manifest.git",
+      "manifest_revision": "refs/tags/2026080500",
+      "manifest_commit": "d1b2739828a783bbf9bd6ba5d50c727b9329b9b7",
+      "manifest_signature_status": "verified_grapheneos_allowed_signer",
       "product": "aios_tegu",
       "target_device": "tegu",
-      "lunch_target": "aios_tegu-aosp_current-userdebug",
-      "upstream_product": "aosp_tegu",
-      "artifact_layout": "product_partition",
-      "required_images": ["product.img", "system.img"],
+      "lunch_target": "aios_tegu-cur-userdebug",
+      "upstream_product": "tegu",
+      "artifact_layout": "full_device_target_files",
+      "required_images": ["boot.img", "product.img", "system.img", "vendor.img", "vendor_boot.img", "vendor_kernel_boot.img", "vbmeta.img"],
       "required_projects": [
         "build/make",
-        "device/google/tegu",
+        "device/google/tegu-kernels/6.1",
         "frameworks/base",
         "packages/apps/Dialer",
+        "vendor/adevtool",
         "vendor/aios"
       ],
-      "compatibility_status": "awaiting_pinned_platform_device_vendor_set",
+      "generated_device_path": "vendor/google_devices/tegu",
+      "device_generation_command": "adevtool generate-all -d tegu",
+      "compatibility_status": "pinned_base_selected_awaiting_aios_product_port_and_full_build",
       "allow_cross_release_device_tree": false,
       "physical_gate_evidence": true
     }

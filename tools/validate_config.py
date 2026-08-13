@@ -1325,8 +1325,8 @@ def validate_aosp_overlay(root: Path) -> None:
                 f"contract: {blueprint_path.relative_to(root)}")
 
     tegu_product = (root / "products" / "aios_tegu.mk").read_text(encoding="utf-8")
-    require("device/google/tegu/aosp_tegu.mk" in tegu_product,
-            "Pixel 9a product must inherit upstream aosp_tegu")
+    require("vendor/google_devices/tegu/tegu.mk" in tegu_product,
+            "Pixel 9a product must inherit the generated pinned tegu product")
     require("vendor/aios/products/aios_common.mk" in tegu_product,
             "Pixel 9a product must inherit common AIOS additions")
     cuttlefish_product = (root / "products" /
@@ -1364,7 +1364,7 @@ def validate_aosp_overlay(root: Path) -> None:
             "AIOS must have an additive ARM64 Generic System Image product "
             "with room for the catalog-pinned on-device model stack")
     android_products = (root / "AndroidProducts.mk").read_text(encoding="utf-8")
-    require("aios_tegu-aosp_current-userdebug" in android_products
+    require("aios_tegu-cur-userdebug" in android_products
             and "aios_cf_x86_64_phone-aosp_current-userdebug" in android_products
             and "aios_sdk_phone_x86_64-aosp_current-userdebug" in android_products
             and "aios_gsi_arm64-aosp_current-userdebug" in android_products,
@@ -6128,8 +6128,24 @@ def validate_release_configuration(root: Path) -> None:
             and target_policy.get("google_guidance_source")
             == "https://groups.google.com/g/android-building/c/S1G1edze3Co"
             and target_policy.get("android17_pixel_device_targets_present") is False
-            and target_policy.get("forward_physical_lane") == "android_gsi_arm64",
-            "post-Android-15 Pixel target policy must route through ARM64 GSI")
+            and target_policy.get("forward_physical_lane")
+            == "pixel9a_tegu_hardware"
+            and target_policy.get("device_support_source")
+            == "grapheneos_pinned_release_manifest"
+            and target_policy.get("device_support_source_url")
+            == "https://github.com/GrapheneOS/platform_manifest.git"
+            and target_policy.get("device_support_build_guide")
+            == "https://grapheneos.org/build",
+            "physical Pixel releases must use the pinned full-device lane")
+    require(tracking["first_device"].get("physical_manifest_tag")
+            == "2026080500"
+            and tracking["first_device"].get("physical_manifest_commit")
+            == "d1b2739828a783bbf9bd6ba5d50c727b9329b9b7"
+            and tracking["first_device"].get("physical_manifest_signature")
+            == "verified_grapheneos_allowed_signer_2026_08_13"
+            and tracking["first_device"].get("device_generation_command")
+            == "adevtool generate-all -d tegu",
+            "Pixel 9a device support must bind the reviewed signed manifest")
     public_candidate = tracking["first_device"].get(
         "last_complete_public_candidate", {}
     )
@@ -6187,7 +6203,8 @@ def validate_release_configuration(root: Path) -> None:
             "enabled device catalog entries must reference declared hardware lanes")
     for lane in lanes:
         require(lane.get("artifact_layout")
-                in {"product_partition", "gsi_system_product"}
+                in {"product_partition", "gsi_system_product",
+                    "full_device_target_files"}
                 and isinstance(lane.get("required_images"), list)
                 and bool(lane["required_images"])
                 and len(lane["required_images"]) == len(set(lane["required_images"]))
@@ -6228,6 +6245,8 @@ def validate_release_configuration(root: Path) -> None:
             == "exact_factory_tag_not_published"
             and gsi.get("pvmfw_deployment_policy")
             == "flash_atomically_with_matching_vbmeta_without_intermediate_reboot"
+            and gsi.get("deployment_role")
+            == "generic_and_virtual_research_only"
             and gsi.get("physical_gate_evidence") is True
             and gsi.get("replaces_device_partitions") == ["pvmfw", "system"]
             and set(gsi.get("preserves_device_partitions", []))
@@ -6236,15 +6255,34 @@ def validate_release_configuration(root: Path) -> None:
             and "frameworks/base" in gsi.get("required_projects", []),
             "ARM64 GSI must remain blocked on the witnessed Pixel compatibility gates")
     require(hardware.get("kind") == "physical_hardware"
-            and hardware.get("manifest_revision") is None
+            and hardware.get("manifest_url")
+            == "https://github.com/GrapheneOS/platform_manifest.git"
+            and hardware.get("manifest_revision") == "refs/tags/2026080500"
+            and hardware.get("manifest_commit")
+            == "d1b2739828a783bbf9bd6ba5d50c727b9329b9b7"
+            and hardware.get("manifest_signature_status")
+            == "verified_grapheneos_allowed_signer"
             and hardware.get("product") == "aios_tegu"
+            and hardware.get("lunch_target") == "aios_tegu-cur-userdebug"
+            and hardware.get("upstream_product") == "tegu"
+            and hardware.get("artifact_layout") == "full_device_target_files"
+            and hardware.get("required_images") == [
+                "boot.img", "product.img", "system.img", "vendor.img",
+                "vendor_boot.img", "vendor_kernel_boot.img", "vbmeta.img",
+            ]
             and hardware.get("compatibility_status")
-            == "awaiting_pinned_platform_device_vendor_set"
+            == "pinned_base_selected_awaiting_aios_product_port_and_full_build"
+            and hardware.get("generated_device_path")
+            == "vendor/google_devices/tegu"
+            and hardware.get("device_generation_command")
+            == "adevtool generate-all -d tegu"
             and hardware.get("allow_cross_release_device_tree") is False
             and hardware.get("physical_gate_evidence") is True
             and "frameworks/base" in hardware.get("required_projects", [])
-            and "device/google/tegu" in hardware.get("required_projects", []),
-            "Pixel 9a lane must require a pinned compatible device/vendor set")
+            and "device/google/tegu-kernels/6.1"
+            in hardware.get("required_projects", [])
+            and "vendor/adevtool" in hardware.get("required_projects", []),
+            "Pixel 9a lane must require the pinned full device-support set")
     dialer_reference = tracking.get("dialer_reference", {})
     require(dialer_reference.get("tag") == "android-17.0.0_r1"
             and re.fullmatch(r"[0-9a-f]{40}",

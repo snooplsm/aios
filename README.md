@@ -237,15 +237,18 @@ unsafe legacy deadline deletes the row fail-closed instead of waiting for a
 later search or trusting a rolled-back wall clock.
 
 It has been compiled by Soong and clean-booted on Cuttlefish with digest-bound
-evidence checked into `evidence/cuttlefish/`. It has not yet been flashed to the
-Pixel 9a. Android 17's official manifest does not contain the Pixel 9a
-`device/google/tegu` project, so the build strategy has four explicit lanes:
+evidence checked into `evidence/cuttlefish/`. A generic Android 17 AIOS GSI was
+tested on the Pixel 9a, bootlooped, and the exact Google factory image restored
+the phone. Android 17's official manifest does not contain a complete Pixel 9a
+target, so the corrected build strategy has four explicit lanes:
 continuously compile on Cuttlefish with
 `aios_cf_x86_64_phone`, boot a complete standard Android Emulator image with
 `aios_sdk_phone_x86_64`, build the complete privileged product as the
-`aios_gsi_arm64` single-system image for Treble hardware, and separately admit
-the `aios_tegu` full-device lane only
-after pinning one compatible platform/device/vendor/kernel/firmware set. An
+`aios_gsi_arm64` single-system image for generic integration only, and build the
+physical `aios_tegu` release from a verified, pinned GrapheneOS manifest plus its
+generated Pixel device/vendor support. The current physical base is signed tag
+`2026080500`; the full sync, AIOS patch rebase, device generation, and build are
+still in progress. An
 exact-base Android 17 Dialer lifecycle patch exists and has built on the Linux
 integration lane; the generated dependency-locked runtime providers still need
 ARM Pixel packaging and physical-device performance evidence.
@@ -347,17 +350,30 @@ This is a Goldfish x86-64 AVD, even if its screen profile resembles a Pixel 9a;
 it does not prove Pixel hardware, modem, camera, or accelerator behavior. See
 `docs/emulator-bringup.md`.
 
-The same latest-release checkout also builds the ARM64 GSI candidate:
+The same latest-release checkout also builds the ARM64 GSI research artifact:
 
 ```text
 vendor/aios/scripts/build-aosp-lane.sh /absolute/path/to/aosp android_gsi_arm64 /safe/evidence/gsi-build-id 4
 ```
 
 AOSP redirects AIOS's product-specific applications and policy into
-`/system/product` inside this lane's single `system.img`. The build preserves a
-Pixel's existing bootloader/radio/kernel/vendor stack when deployed, but it does
-not prove that a particular phone boots or retains telephony/camera behavior.
-See `docs/gsi-bringup.md`.
+`/system/product` inside this lane's single `system.img`. This keeps our payload
+compatible with incoming AOSP but is no longer the Pixel 9a flashing route. See
+`docs/gsi-bringup.md`.
+
+The physical Pixel lane uses a separate verified checkout and a complete target:
+
+```text
+vendor/aios/scripts/bootstrap-aosp.sh --lane pixel9a_tegu_hardware /home/ryan/grapheneos-aios
+repo sync -c -j4
+yarn --cwd vendor/adevtool/ install
+adevtool generate-all -d tegu
+lunch aios_tegu-cur-userdebug
+```
+
+The bootstrap pins GrapheneOS release `2026080500` and verifies its signed
+manifest before sync. Physical output must be full target-files/factory images
+with AIOS's own keys; partial `system` or factory-`product` overlays are rejected.
 
 When Google's moving manifest ref changes, refresh its reviewed observation
 before syncing projects:
@@ -372,7 +388,8 @@ above. The build refuses an unreviewed manifest-head change.
 
 ## Upstream strategy
 
-AIOS tracks AOSP's `android-latest-release` manifest on an integration branch and
-keeps product work under `vendor/aios` wherever Android interfaces allow it. A
-framework change is accepted only when a privileged app or stable system API
-cannot provide the capability. See `docs/upstream-strategy.md`.
+AIOS tracks AOSP's `android-latest-release` manifest for early integration and a
+reviewed, signed GrapheneOS stable tag for complete Pixel device releases. Product
+work stays under `vendor/aios` wherever Android interfaces allow it. A framework
+change is accepted only when a privileged app or stable system API cannot provide
+the capability. See `docs/upstream-strategy.md`.

@@ -11,7 +11,10 @@
     "google_guidance": "build_cuttlefish_and_gsi_targets_for_experimentation",
     "google_guidance_source": "https://groups.google.com/g/android-building/c/S1G1edze3Co",
     "android17_pixel_device_targets_present": false,
-    "forward_physical_lane": "android_gsi_arm64"
+    "forward_physical_lane": "pixel9a_tegu_hardware",
+    "device_support_source": "grapheneos_pinned_release_manifest",
+    "device_support_source_url": "https://github.com/GrapheneOS/platform_manifest.git",
+    "device_support_build_guide": "https://grapheneos.org/build"
   },
   "dialer_reference": {
     "tag": "android-17.0.0_r1",
@@ -26,8 +29,12 @@
   "first_device": {
     "marketing_name": "Pixel 9a",
     "codename": "tegu",
-    "aosp_product": "aosp_tegu",
+    "aosp_product": "tegu",
     "aios_product": "aios_tegu",
+    "physical_manifest_tag": "2026080500",
+    "physical_manifest_commit": "d1b2739828a783bbf9bd6ba5d50c727b9329b9b7",
+    "physical_manifest_signature": "verified_grapheneos_allowed_signer_2026_08_13",
+    "device_generation_command": "adevtool generate-all -d tegu",
     "public_driver_binary_latest_observed_android": 15,
     "factory_kernel_branch": "android-gs-tegu-6.1-android16",
     "present_in_observed_release_manifest": false,

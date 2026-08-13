@@ -25,6 +25,8 @@ or evidence overwrite. The moving `android-latest-release` name is useful for
 integration, not reproducibility.
 
 The same latest-release checkout supports `android_avd_integration` and
-`android_gsi_arm64`; pass the exact lane used to the lock command. The Pixel
-9a full-device lane requires its separately selected immutable release. A GSI
-lock proves the generic ARM64 source set only, not compatibility with a phone.
+`android_gsi_arm64`; pass the exact lane used to the lock command. The Pixel 9a
+full-device lane uses the separately pinned and signature-verified GrapheneOS
+release manifest. Run `adevtool generate-all -d tegu` before capturing its final
+lock. A GSI lock proves only the generic ARM64 source set, not compatibility with
+a phone.

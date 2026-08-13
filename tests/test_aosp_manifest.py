@@ -56,6 +56,13 @@ class AospManifestContractTests(unittest.TestCase):
             ("device/generic/common", "device/generic/common", COMMIT_A),
         ]
 
+    def pixel_projects(self):
+        return self.integration_projects() + [
+            ("device_google_tegu-kernels_6.1",
+             "device/google/tegu-kernels/6.1", COMMIT_A),
+            ("adevtool", "vendor/adevtool", COMMIT_B),
+        ]
+
     def test_android_latest_integration_lane_accepts_resolved_manifest(self):
         with tempfile.TemporaryDirectory() as raw:
             path = self.write_manifest(raw, self.integration_projects())
@@ -104,8 +111,19 @@ class AospManifestContractTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as raw:
             path = self.write_manifest(raw, self.integration_projects())
             with self.assertRaisesRegex(checker.ManifestContractError,
-                                        "device/google/tegu"):
+                                        "device/google/tegu-kernels/6.1"):
                 checker.check(path, ROOT, "pixel9a_tegu_hardware", COMMIT_E)
+
+    def test_pixel_lane_accepts_pinned_full_device_manifest(self):
+        with tempfile.TemporaryDirectory() as raw:
+            path = self.write_manifest(raw, self.pixel_projects())
+            value = checker.check(
+                path, ROOT, "pixel9a_tegu_hardware", COMMIT_E)
+            self.assertEqual("aios_tegu", value["product"])
+            self.assertEqual("aios_tegu-cur-userdebug", value["lunch_target"])
+            self.assertEqual("physical_hardware", value["kind"])
+            self.assertTrue(value["lane_eligible_for_physical_gates"])
+            self.assertFalse(value["proves_physical_runtime_gate"])
 
     def test_symbolic_project_revision_is_not_a_release_lock(self):
         with tempfile.TemporaryDirectory() as raw:

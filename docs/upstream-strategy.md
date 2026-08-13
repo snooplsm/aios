@@ -17,16 +17,14 @@ uses four non-interchangeable lanes recorded in `config/aosp_lanes.json`:
   so the complete AIOS image can boot in the standard Android Emulator. An AVD
   hardware profile may resemble a Pixel 9a but does not emulate Tensor, modem,
   camera, accelerator, carrier, or thermal behavior.
-- `android_gsi_arm64` inherits AOSP's official `gsi_arm64` product. Android's
-  GSI board redirects the complete product customization into the single
-  `system.img`; a compatible physical phone retains its bootloader, radio,
-  kernel, vendor, and ODM. The build is a physical candidate, not physical
-  evidence, until the exact device passes VINTF, boot, telephony, camera, and
-  recovery gates.
-- `pixel9a_tegu_hardware` remains the product and release target. It cannot be
-  initialized until a single immutable platform, device tree, vendor image,
-  kernel, bootloader, and radio family has been selected. Cross-release grafting
-  of `device/google/tegu` is explicitly forbidden.
+- `android_gsi_arm64` inherits AOSP's official `gsi_arm64` product and keeps the
+  additive AIOS system payload buildable against incoming AOSP. It is a generic
+  research artifact, not the Pixel 9a release or flashing route.
+- `pixel9a_tegu_hardware` is the physical product and release target. It pins a
+  signed GrapheneOS release manifest and uses its `adevtool` pipeline to produce
+  one coherent Pixel platform, generated device/vendor support, kernel,
+  firmware, SELinux policy, target-files package, and factory image. AIOS remains
+  an additive overlay and small reviewable patch queue on that pinned base.
 
 The overlay repository is checked out at `vendor/aios`. Upstream projects are
 not forked until a real patch is needed. Any necessary AOSP change lives as a
@@ -97,25 +95,36 @@ telephony behavior. See `docs/emulator-bringup.md` and `docs/gsi-bringup.md`.
 
 ## Pixel 9a reality
 
-Pixel 9a is codename `tegu`, has 8 GB RAM and Tensor G4. Google publishes a
-`tegu` device tree on Android 15, but it is absent from Android 16 and Android 17
-release manifests. When asked about the Android 16 omission, Google directed
-public experimentation to Cuttlefish and GSI rather than promising later Pixel
-device targets. Google's public driver-binary page likewise lists Pixel 9a
-vendor images only for Android 15. AIOS therefore maintains the generic GSI path
-and treats any full
-hardware baseline—not only the vendor image—as a gated input:
+Pixel 9a is codename `tegu`, has 8 GB RAM and Tensor G4. Google no longer ships
+complete Pixel targets in the public Android 16/17 AOSP manifest. Our first
+physical attempt incorrectly treated a generic Android 17 GSI plus the stock
+Pixel vendor stack as if it were an equivalent device build; it bootlooped.
 
-1. Prefer an officially published vendor image matching the platform build.
-2. For a personally owned prototype only, permit a local extractor to consume a
-   matching factory image after the developer accepts its terms.
-3. Never commit, mirror, or include those extracted artifacts in AIOS source.
-4. Do not claim carrier-feature parity until the real-device matrix passes.
+GrapheneOS independently maintains `tegu` as a production-ready target. Its
+signed release manifests pin AOSP forks and kernel prebuilts, while `adevtool`
+downloads and prepares matching factory/OTA inputs and generates missing device
+support. AIOS pins release `2026080500` (verified manifest commit
+`d1b2739828a783bbf9bd6ba5d50c727b9329b9b7`) for the next bring-up.
 
-The current kernel reference for `tegu` is the factory-supported
-`android-gs-tegu-6.1-android16` line. Platform, vendor, kernel, bootloader, and
-radio combinations are recorded together; arbitrary cross-version flashing is
-not supported.
+This creates two clean upstreams. Google's moving `android-latest-release`
+remains the early API/build integration lane for Cuttlefish, the Android
+Emulator, and generic GSI. A reviewed, signed GrapheneOS stable tag is the
+production Pixel device base. AIOS code stays in `vendor/aios`, with unavoidable
+platform changes in a digest-verified patch queue rebased separately for each
+upstream lane.
+
+Every full-device release keeps platform, generated vendor tree, kernel,
+bootloader, radio, target-files, and signing-key identities together. Extracted
+vendor or firmware inputs remain local and are never committed or redistributed.
+A complete signed factory image and the physical test matrix are still required
+before we claim telephony, camera, accelerator, or update support.
+
+AIOS is an independent derivative and is not GrapheneOS or endorsed by the
+GrapheneOS project. Each imported or forked project retains its upstream license
+and notices. In particular, the pinned `adevtool` revision
+`e87c5a26d045ab48ca0f9989dbe03367ba95f312` is MIT-licensed and its copyright
+and permission notice must remain with redistributed copies or substantial
+portions.
 
 ## Normal phone functionality
 

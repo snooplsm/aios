@@ -1,19 +1,19 @@
 # ARM64 GSI bring-up
 
-The `android_gsi_arm64` lane is AIOS's forward-compatible physical-device
-candidate for Treble-capable ARM64 Pixels. It tracks `android-latest-release`
-and inherits AOSP's official `gsi_arm64` product. It does not claim that an
-untested Pixel is compatible.
+The `android_gsi_arm64` lane keeps AIOS's additive system payload buildable on
+the forward AOSP integration branch. It tracks `android-latest-release` and
+inherits AOSP's official `gsi_arm64` product. It is a generic/virtual research
+artifact, not the Pixel 9a release image or default physical deployment route.
 
 Google stopped including complete Pixel device targets in the Android 16 AOSP
 manifest and directed public AOSP experimentation toward Cuttlefish and GSI.
-This lane therefore complements rather than replaces `pixel9a_tegu_hardware`:
+This lane therefore complements but never replaces `pixel9a_tegu_hardware`:
 
 - the GSI replaces the generic Android `system` partition and the AVF `pvmfw`
   image produced by the same build, while preserving the phone's bootloader,
   radio, kernel, vendor, and ODM partitions;
-- the full `tegu` lane remains available for an exact platform/device/vendor
-  set when one is legally and technically usable; and
+- the full `tegu` lane uses a pinned signed GrapheneOS manifest plus `adevtool`
+  to build the complete device support set and factory image; and
 - neither lane may satisfy a physical gate until evidence is captured on the
   actual device.
 
@@ -180,9 +180,9 @@ physical candidate must satisfy all of these conditions:
 As of this result, Google's public AOSP build table maps only
 `CP2A.260605.016` to `android-17.0.0_r1`; it does not publish a source tag for
 the Pixel factory build `CP2A.260705.006`. Do not label the moving
-`android17-release` branch as an exact factory match. Until a compatible public
-tag exists, physical app integration should use a local-only factory-product
-overlay workflow that never commits or redistributes Google factory binaries.
+`android17-release` branch as an exact factory match. The next physical build
+must use the pinned full `tegu` target described in `docs/pixel9a-bringup.md`;
+do not repeat the raw GSI or partial factory-product-overlay experiment.
 
 This checker can reject architecture, Treble, dynamic-partition, device-identity,
 Android-version, and security-patch mismatches. It deliberately emits

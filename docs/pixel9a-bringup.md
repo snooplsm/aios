@@ -18,10 +18,10 @@ scripts/bootstrap-aosp.sh \
 ```
 
 The same latest-release checkout can build the full standard Android Emulator
-through `android_avd_integration` and the deployable ARM64 Generic System Image
-through `android_gsi_arm64`; see `docs/emulator-bringup.md` and
-`docs/gsi-bringup.md`. Neither a virtual boot nor a GSI build substitutes for
-the physical Pixel checks below.
+through `android_avd_integration` and an ARM64 Generic System Image through
+`android_gsi_arm64`; see `docs/emulator-bringup.md` and `docs/gsi-bringup.md`.
+Those are generic integration artifacts. The GSI is no longer the Pixel 9a
+release route after the August 2026 boot failure.
 
 Before syncing, place this repository at `vendor/aios` through a real local Repo
 manifest as described in `manifests/README.md`. After sync, create the immutable
@@ -34,28 +34,39 @@ vendor/aios/scripts/capture-aosp-lock.sh \
   /safe/release-artifacts/android-latest-run-id
 ```
 
-Do not initialize the Pixel lane from `android-latest-release`: Android 17's
-official manifest does not include `device/google/tegu`. Once section 2 has
-identified a genuinely compatible immutable platform/device/vendor set,
-initialize a separate checkout with:
+Do not initialize the Pixel lane from Google's `android-latest-release` manifest:
+Android 17's official manifest does not include complete Pixel targets. AIOS
+instead pins GrapheneOS's signed `2026080500` release manifest, which supports
+`tegu` on Android 17 and carries the maintained device, kernel, firmware, vendor,
+and SELinux integration missing from the generic AOSP checkout. Initialize the
+separate physical checkout with:
 
 ```text
 scripts/bootstrap-aosp.sh \
   --lane pixel9a_tegu_hardware \
-  --revision <immutable-compatible-tag-or-commit> \
-  /absolute/path/to/aosp-tegu
+  /home/ryan/grapheneos-aios
 ```
 
-The resolved lock digest belongs in release evidence. Do not replace the moving
-tracking branch with a guessed tag or graft a device tree from another release.
-The full `tegu` checkout is optional when the GSI path passes the complete
-physical matrix; it remains useful for an exact compatible full-device release.
+The bootstrap verifies the tag against GrapheneOS's published allowed-signers
+file and requires manifest commit
+`d1b2739828a783bbf9bd6ba5d50c727b9329b9b7`. After the full sync, prepare the
+device support set exactly as the pinned build guide requires:
+
+```text
+yarn --cwd vendor/adevtool/ install
+adevtool generate-all -d tegu
+```
+
+Then expose this repository at `vendor/aios`, capture the resolved source lock,
+and port the small AIOS patch queue to the pinned GrapheneOS fork revisions.
+The full-device lane is mandatory for physical releases; never graft a device
+tree from another release or substitute a partial factory-product overlay.
 
 ## 2. Pixel hardware inputs
 
-For the GSI path, keep the phone's current bootloader, radio, kernel, vendor, and
-ODM partitions. Capture their identities before changing system. For the full
-`tegu` path, confirm all of the following describe one compatible release family:
+The signed GrapheneOS release manifest plus `adevtool` form the source of truth
+for the full `tegu` support set. Confirm all of the following are generated or
+selected by that same pinned release family:
 
 - AOSP platform and `device/google/tegu` revision;
 - Pixel vendor image;
@@ -63,25 +74,16 @@ ODM partitions. Capture their identities before changing system. For the full
 - bootloader and radio firmware; and
 - SELinux/vendor interface expectations.
 
-Google's public AOSP driver page currently lists `tegu` vendor images only for
-Android 15, while the Android 17 manifest omits the `tegu` device project. That
-is a platform-selection gate, not something to paper over. Prefer an official
-matching driver package. A personally owned research build may use a locally
-accepted and extracted matching factory image only under its license; never
-commit or redistribute extracted files.
+GrapheneOS documents `tegu` as a production-ready target and uses `adevtool` to
+download, extract, and prepare matching factory/OTA inputs. The tool also fills
+device support omitted by public AOSP, including properties, vendor interface
+declarations, overlays, sysconfig, and SELinux extensions. Locally accepted and
+extracted factory inputs stay private; never commit or redistribute them.
 
-The last complete public candidate is recorded machine-readably rather than
-guessed during bring-up: platform `android-15.0.0_r31`, build
-`BD4A.250505.003`, `device/google/tegu` commit
-`b0184eca7c2571669a0dd5708b5e555c475500be`, matching kernel-prebuilt commit
-`5380e4f672819d5c9936b740b0f8b7772d80dd56`, and Google's vendor archive SHA-256
-`0ad7cd61322c38ba01d142123de4e30c69e091c54c0901d18beae7e4b6da7be2`.
-This is a known complete candidate, not an authorization to downgrade. The
-factory inventory and rollback state decide whether it can be used at all.
-
-The documented factory-supported Pixel 9a kernel line currently maps to
-`android-gs-tegu-6.1-android16`. Record the exact kernel commit and artifacts used
-with the release manifest.
+The pinned manifest includes `device/google/tegu-kernels/6.1` at an immutable
+commit and `vendor/adevtool` at an immutable commit. The resolved manifest,
+adevtool state, downloaded-input digests, generated vendor-tree digest, target
+files, and signing-key identity must be captured together for every candidate.
 
 ## 3. Build order
 
@@ -107,11 +109,11 @@ or differs from the product image's installed-file record. The first compile is
 expected to reveal any Android 17 API/module drift in this scaffold; fix it in
 `vendor/aios`, not by making unrecorded edits throughout AOSP.
 
-Next build the single-system ARM64 candidate from the same checkout. Its evidence
+The ARM64 GSI may still be built from the generic checkout. Its evidence
 recorder verifies the redirected AIOS artifacts in Android's installed-file
 manifest (`installed-files.json` on Android 17, or the older
 `installed-files-system.json`) and digests `pvmfw.img`, `system.img`, and
-`vbmeta.img`:
+`vbmeta.img`. It is not a Pixel 9a deployment artifact:
 
 ```text
 vendor/aios/scripts/build-aosp-lane.sh \
@@ -121,13 +123,13 @@ vendor/aios/scripts/build-aosp-lane.sh \
   <safe-job-count>
 ```
 
-Only after the Pixel compatibility set and its resolved manifest pass the
-`pixel9a_tegu_hardware` lane contract should the same wrapper target that
-checkout:
+Only after device generation and the AIOS product/patch port pass the
+`pixel9a_tegu_hardware` lane contract should the wrapper target the pinned
+physical checkout:
 
 ```text
 vendor/aios/scripts/build-aosp-lane.sh \
-  /absolute/path/to/aosp-tegu \
+  /home/ryan/grapheneos-aios \
   pixel9a_tegu_hardware \
   /safe/release-artifacts/pixel9a-build-id \
   <safe-job-count>
