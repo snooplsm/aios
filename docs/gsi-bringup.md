@@ -56,6 +56,14 @@ vendor/aios/scripts/build-aosp-lane.sh \
 The successful record is eligible to identify a physical candidate, but its
 `proves_physical_runtime_gate` field remains false.
 
+The upstream compliance GSI group is 3 GiB. AIOS's distinct Pixel 9a reference
+model payloads total about 2.79 GB before Android and the provider APKs, so the
+wrapper builds inside a 6 GiB GSI group with AOSP's additional 8 MiB super
+metadata allowance. This is build-container geometry only. It neither resizes
+a connected Pixel nor proves that the resulting image fits its current dynamic
+partition layout; the exact non-sparse `system.img` size flows into the
+read-only preflight and DSU storage calculation below.
+
 ## Read-only device preflight
 
 Do not unlock or flash first. Connect exactly one intended phone, leave it on

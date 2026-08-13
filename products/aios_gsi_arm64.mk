@@ -7,6 +7,15 @@
 $(call inherit-product, device/generic/common/gsi_arm64.mk)
 $(call inherit-product, vendor/aios/products/aios_common.mk)
 
+# AOSP's compliance GSI defaults to a 3 GiB dynamic-partition group. The
+# catalog-pinned Pixel 9a model payloads alone occupy about 2.79 GB, so that
+# envelope cannot contain both Android and the required on-device AI stack.
+# Expand only this generated GSI container to 6 GiB plus the standard 8 MiB
+# super metadata allowance. These values do not resize a Pixel partition;
+# DSU/fastboot preflight still measures the exact image and device capacity.
+BOARD_GSI_DYNAMIC_PARTITIONS_SIZE := 6442450944
+BOARD_SUPER_PARTITION_SIZE := 6450839552
+
 # AIOS intentionally adds product packages to the GSI system image. Preserve
 # path checks for individual modules but allow this wrapper to extend the
 # upstream release product.

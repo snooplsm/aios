@@ -1351,9 +1351,13 @@ def validate_aosp_overlay(root: Path) -> None:
             and "vendor/aios/products/aios_common.mk" in gsi_product
             and "PRODUCT_ENFORCE_ARTIFACT_PATH_REQUIREMENTS := relaxed"
             in gsi_product
+            and "BOARD_GSI_DYNAMIC_PARTITIONS_SIZE := 6442450944"
+            in gsi_product
+            and "BOARD_SUPER_PARTITION_SIZE := 6450839552" in gsi_product
             and "PRODUCT_NAME := aios_gsi_arm64" in gsi_product
             and "PRODUCT_DEVICE := generic_arm64" in gsi_product,
-            "AIOS must have an additive ARM64 Generic System Image product")
+            "AIOS must have an additive ARM64 Generic System Image product "
+            "with room for the catalog-pinned on-device model stack")
     android_products = (root / "AndroidProducts.mk").read_text(encoding="utf-8")
     require("aios_tegu-aosp_current-userdebug" in android_products
             and "aios_cf_x86_64_phone-aosp_current-userdebug" in android_products
