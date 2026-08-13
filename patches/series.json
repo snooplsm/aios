@@ -46,7 +46,7 @@
       "project": "build/make",
       "file": "0003-build-make-configurable-gsi-size.patch",
       "base_revision": "5ce6f787337d0223710bf7d4a16dbe6d2a35f777",
-      "sha256": "a059dd2958b141a1161acc489faa055b51ad927961357069250c0758fad792fb",
+      "sha256": "52fd3325d6d467b8248189520216ebbe0ba807fb01c4273579c031856fc67fe2",
       "owner": "gsi-platform",
       "paths": [
         "target/board/BoardConfigGsiCommon.mk",
@@ -57,9 +57,9 @@
         "tests/test_patch_series.py",
         "tests/test_validate_config.py"
       ],
-      "reason": "Preserve AOSP's compliance-GSI defaults while allowing an additive product to size its model-inclusive build container and declare its exact dynamic package closure to Android 17's Soong-defined system-image consistency check.",
+      "reason": "Preserve AOSP's compliance-GSI defaults while allowing an additive product to size its model-inclusive build container, declare its package closure to Android 17's Soong system-image check, and align that image with the board's chained GSI AVB key.",
       "removal_condition": "Remove the sizing hunk when AOSP exposes a product-supported GSI sizing mechanism; remove the filesystem wrapper when additive products can extend android_gsi through a public Soong interface.",
-      "rebase_notes": "Re-export from the tracked build/make base, preserve the two conditional size defaults and the adjacent android_gsi_defaults wrapper, verify the default GSI remains 3 GiB, verify AIOS resolves its generated module list and 6 GiB group, then rebuild the model-inclusive ARM64 GSI."
+      "rebase_notes": "Re-export from the tracked build/make base, preserve the two conditional size defaults and adjacent android_gsi_defaults wrapper, verify the default GSI remains 3 GiB, verify AIOS resolves its generated payload and 6 GiB group, then require chained AVB verification of vbmeta plus system."
     }
   ]
 }

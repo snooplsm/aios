@@ -684,6 +684,8 @@ class IntegrationStructureTests(unittest.TestCase):
         text = (ROOT / "patches" / patch["file"]).read_text(encoding="utf-8")
         self.assertIn('name: "aios_gsi_system_image"', text)
         self.assertIn('"aios_product_policy"', text)
+        self.assertIn('avb_private_key: ":avb_testkey_rsa2048"', text)
+        self.assertIn('avb_algorithm: "SHA256_RSA2048"', text)
         self.assertNotIn("AiosPhone", text)
         self.assertNotIn("aios_model_", text)
 

@@ -19,7 +19,7 @@ diff --git a/target/product/gsi/Android.bp b/target/product/gsi/Android.bp
 index 00bc7fefbf..c8512cc955 100644
 --- a/target/product/gsi/Android.bp
 +++ b/target/product/gsi/Android.bp
-@@ -186,6 +186,29 @@ android_system_image {
+@@ -186,6 +186,31 @@ android_system_image {
      }),
  }
 -
@@ -31,6 +31,8 @@ index 00bc7fefbf..c8512cc955 100644
 +android_system_image {
 +    name: "aios_gsi_system_image",
 +    defaults: ["android_gsi_defaults"],
++    avb_private_key: ":avb_testkey_rsa2048",
++    avb_algorithm: "SHA256_RSA2048",
 +    deps: [
 +        "aios_product_policy",
 +        "system_ext_userdebug_plat_sepolicy.cil",

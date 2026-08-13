@@ -6177,10 +6177,13 @@ def validate_release_configuration(root: Path) -> None:
             "GSI integration patch must make exactly two size defaults conditional")
     require('name: "aios_gsi_system_image"' in gsi_size_patch_text
             and 'defaults: ["android_gsi_defaults"]' in gsi_size_patch_text
+            and 'avb_private_key: ":avb_testkey_rsa2048"'
+            in gsi_size_patch_text
+            and 'avb_algorithm: "SHA256_RSA2048"' in gsi_size_patch_text
             and '"aios_product_policy"' in gsi_size_patch_text
             and "aios_model" not in gsi_size_patch_text
             and "AiosPhone" not in gsi_size_patch_text,
-            "GSI wrapper must extend upstream defaults through one stable AIOS anchor")
+            "GSI wrapper must match the board AVB chain and use one stable AIOS anchor")
     dialer_patch_text = (root / "patches" / dialer_patches[0]["file"]).read_text(
         encoding="utf-8"
     )
