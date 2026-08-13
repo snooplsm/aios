@@ -3,7 +3,7 @@
   "status": "passed",
   "kind": "gsi_avb_chain_verification",
   "aios_revision": "3c0c685d39c63b6a3cb0d1d4f0d14a83228ad657",
-  "build_evidence_sha256": "1e1a032bc829714a9ea91682919f1d56203949bd7460915537936337594278f9",
+  "build_evidence_sha256": "b86a06d2e2102ba4ebf7ea8681f447a89a8ea41e61f7b8f524a3d5b36c979271",
   "expected_chain_partition": {
     "partition": "system",
     "rollback_index_location": 1,
@@ -11,6 +11,10 @@
     "algorithm": "SHA256_RSA2048"
   },
   "images": {
+    "pvmfw.img": {
+      "size_bytes": 901120,
+      "sha256": "38a49732c64692b357b3a4d6e819f87c9a8734122c4d7647fc42f320a33e939c"
+    },
     "system.img": {
       "size_bytes": 4639948800,
       "sha256": "7c740c3a6af1478c6d683e6fd731d6c8722575b2c56102dac7bd49c0929ef32a"
@@ -19,6 +23,13 @@
       "size_bytes": 65536,
       "sha256": "42114b30264c02f4fdf6879c8f37f826dc600ef7f38e37021eca8ad89778beb4"
     }
+  },
+  "pvmfw_descriptor": {
+    "partition": "pvmfw",
+    "algorithm": "SHA256_RSA4096",
+    "public_key_sha1": "2597c218aae470a130f61162feaae70afd97f011",
+    "original_image_size_bytes": 761856,
+    "digest": "188a4b52981c61336e03499901c064253004faee96fff55a9e313014a321bba4"
   },
   "checks": {
     "vbmeta_signature_verified": true,

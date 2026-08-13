@@ -34,6 +34,7 @@ class Pixel9aGsiBootEvidenceTests(unittest.TestCase):
             "serial_sha256": digest("serial"),
         }
         artifacts = [
+            {"path": "pvmfw.img", "size_bytes": 5, "sha256": digest("pvmfw")},
             {"path": "system.img", "size_bytes": 100, "sha256": digest("system")},
             {"path": "vbmeta.img", "size_bytes": 10, "sha256": digest("vbmeta")},
             {
@@ -56,7 +57,7 @@ class Pixel9aGsiBootEvidenceTests(unittest.TestCase):
             "android_release": "17",
             "security_patch": "2026-06-05",
             "build_fingerprint": "AIOS/test/generic_arm64:17/test:userdebug/test-keys",
-            "deployable_images": ["system.img", "vbmeta.img"],
+            "deployable_images": ["pvmfw.img", "system.img", "vbmeta.img"],
             "proves_physical_runtime_gate": False,
             "artifacts": artifacts,
         }
@@ -67,7 +68,7 @@ class Pixel9aGsiBootEvidenceTests(unittest.TestCase):
                 "size_bytes": next(x for x in artifacts if x["path"] == name)["size_bytes"],
                 "sha256": next(x for x in artifacts if x["path"] == name)["sha256"],
             }
-            for name in ("system.img", "vbmeta.img")
+            for name in ("pvmfw.img", "system.img", "vbmeta.img")
         }
         preflight = {
             "schema_version": 1,

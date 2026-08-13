@@ -39,6 +39,8 @@ EXPECTED_AVB_CHECKS = {
     "ext_filesystem_read_only_check_passed",
 }
 EXPECTED_GSI_PUBLIC_KEY_SHA1 = "cdbb77177f731920bbe0a0f94f84d9038ae0617d"
+EXPECTED_PVMFW_PUBLIC_KEY_SHA1 = "2597c218aae470a130f61162feaae70afd97f011"
+DEPLOYABLE_IMAGES = ("pvmfw.img", "system.img", "vbmeta.img")
 VENDOR_API_PATTERN = re.compile(r"20[0-9]{2}(?:0[1-9]|1[0-2])")
 
 
@@ -129,6 +131,7 @@ def validate_avb_evidence(
     avb_path = build_path.parent / "avb-verification.json"
     avb = load(avb_path)
     chain = avb.get("expected_chain_partition")
+    pvmfw_descriptor = avb.get("pvmfw_descriptor")
     images = avb.get("images")
     checks = avb.get("checks")
     if (avb.get("schema_version") != 1
@@ -141,14 +144,23 @@ def validate_avb_evidence(
             or chain.get("rollback_index_location") != 1
             or chain.get("algorithm") != "SHA256_RSA2048"
             or chain.get("public_key_sha1") != EXPECTED_GSI_PUBLIC_KEY_SHA1
+            or not isinstance(pvmfw_descriptor, dict)
+            or pvmfw_descriptor.get("partition") != "pvmfw"
+            or pvmfw_descriptor.get("algorithm") != "SHA256_RSA4096"
+            or pvmfw_descriptor.get("public_key_sha1")
+            != EXPECTED_PVMFW_PUBLIC_KEY_SHA1
+            or not isinstance(pvmfw_descriptor.get("original_image_size_bytes"), int)
+            or pvmfw_descriptor["original_image_size_bytes"] <= 0
+            or SHA256_PATTERN.fullmatch(str(
+                pvmfw_descriptor.get("digest", ""))) is None
             or not isinstance(images, dict)
-            or set(images) != {"system.img", "vbmeta.img"}
+            or set(images) != set(DEPLOYABLE_IMAGES)
             or any(
                 not isinstance(images[name], dict)
                 or images[name].get("size_bytes")
                 != artifacts[name].get("size_bytes")
                 or images[name].get("sha256") != artifacts[name].get("sha256")
-                for name in ("system.img", "vbmeta.img")
+                for name in DEPLOYABLE_IMAGES
             )
             or not isinstance(checks, dict)
             or set(checks) != EXPECTED_AVB_CHECKS
@@ -293,7 +305,7 @@ def validate_inputs(
             or build.get("target_device") != "generic_arm64"
             or SHA1_PATTERN.fullmatch(str(build.get("aios_revision", ""))) is None
             or build.get("artifact_layout") != "gsi_system_product"
-            or build.get("deployable_images") != ["system.img", "vbmeta.img"]
+            or build.get("deployable_images") != list(DEPLOYABLE_IMAGES)
             or build.get("installed_files_manifest")
             not in GSI_INSTALLED_MANIFESTS
             or build.get("lane_eligible_for_physical_gates") is not True
@@ -301,7 +313,7 @@ def validate_inputs(
         raise GsiPreflightError("build evidence is not the exact ARM64 GSI lane")
 
     artifacts = build_artifact_map(build)
-    required_paths = {"system.img", "vbmeta.img"}
+    required_paths = set(DEPLOYABLE_IMAGES)
     required_paths.update(
         f"system/product/priv-app/{name}/{name}.apk"
         for name in REQUIRED_PACKAGES
@@ -375,6 +387,8 @@ def evaluate(
     if not isinstance(capabilities, dict):
         raise GsiPreflightError("device inventory capabilities must be an object")
     dsu_advertised = str(capabilities.get("dynamic_system_feature", "")).lower() == "true"
+    avf_advertised = str(capabilities.get(
+        "virtualization_framework_feature", "")).lower() == "true"
     fastboot_structural_checks = {
         name: passed for name, passed in checks.items()
         if name != "system_patch_not_older"
@@ -438,11 +452,13 @@ def evaluate(
                 "size_bytes": artifacts[name]["size_bytes"],
                 "sha256": artifacts[name]["sha256"],
             }
-            for name in ("system.img", "vbmeta.img")
+            for name in DEPLOYABLE_IMAGES
         },
         "checks": checks,
         "fastboot_structural_checks": fastboot_structural_checks,
         "dsu_advertised": dsu_advertised,
+        "virtualization_framework_advertised": avf_advertised,
+        "pvmfw_required": avf_advertised,
         "dsu_storage": {
             "available_bytes": available_bytes,
             "required_bytes": required_bytes,

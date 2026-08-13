@@ -105,7 +105,8 @@ def validate(
             and build.get("lane") == "android_gsi_arm64"
             and build.get("product") == "aios_gsi_arm64"
             and build.get("target_device") == "generic_arm64"
-            and build.get("deployable_images") == ["system.img", "vbmeta.img"]
+            and build.get("deployable_images")
+            == ["pvmfw.img", "system.img", "vbmeta.img"]
             and build.get("proves_physical_runtime_gate") is False,
             "build is not the exact eligible ARM64 GSI")
 
@@ -140,7 +141,7 @@ def validate(
             "size_bytes": artifacts[name]["size_bytes"],
             "sha256": artifacts[name]["sha256"],
         }
-        for name in ("system.img", "vbmeta.img")
+        for name in ("pvmfw.img", "system.img", "vbmeta.img")
     }
     require(preflight.get("gsi_images") == expected_images
             and evidence.get("images") == expected_images,

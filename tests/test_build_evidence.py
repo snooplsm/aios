@@ -196,7 +196,7 @@ class BuildEvidenceTests(unittest.TestCase):
             )
             self.assertEqual("generic_system_image", value["kind"])
             self.assertEqual("gsi_system_product", value["artifact_layout"])
-            self.assertEqual(["system.img", "vbmeta.img"],
+            self.assertEqual(["pvmfw.img", "system.img", "vbmeta.img"],
                              value["deployable_images"])
             self.assertEqual("installed-files-system.json",
                              value["installed_files_manifest"])

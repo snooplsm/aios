@@ -868,6 +868,35 @@ class IntegrationStructureTests(unittest.TestCase):
                                         "AVB evidence is not bound"):
                 validator.validate_release_configuration(temporary)
 
+    def test_gsi_pvmfw_descriptor_must_bind_checked_in_image(self):
+        with tempfile.TemporaryDirectory() as raw:
+            temporary = Path(raw)
+            (temporary / "config").mkdir()
+            copy_patch_contract_fixture(temporary)
+            for name in ("aosp_tracking.json", "aosp_lanes.json",
+                         "model_catalog.json", "release_gates.json",
+                         "release_status.json"):
+                shutil.copy(ROOT / "config" / name,
+                            temporary / "config" / name)
+            shutil.copytree(ROOT / "evidence", temporary / "evidence")
+            status = json.loads(
+                (temporary / "config" / "release_status.json")
+                .read_text(encoding="utf-8")
+            )
+            build_reference = status["statuses"][
+                "integration.android_gsi_arm64_userdebug_succeeds"
+            ]["evidence"]
+            self.assertEqual(1, len(build_reference))
+            avb_path = (
+                temporary / build_reference[0]
+            ).parent / "avb-verification.json"
+            avb = json.loads(avb_path.read_text(encoding="utf-8"))
+            avb["pvmfw_descriptor"]["public_key_sha1"] = "0" * 40
+            avb_path.write_text(json.dumps(avb), encoding="utf-8")
+            with self.assertRaisesRegex(validator.ValidationError,
+                                        "AVB evidence is not bound"):
+                validator.validate_release_configuration(temporary)
+
     def test_gsi_dsu_payload_must_bind_checked_in_system_image(self):
         with tempfile.TemporaryDirectory() as raw:
             temporary = Path(raw)

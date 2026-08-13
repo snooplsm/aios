@@ -1397,6 +1397,9 @@ def validate_aosp_overlay(root: Path) -> None:
             and '"ro.vendor.build.version.sdk"' in inventory_script
             and '"ro.llndk.api_level"' in inventory_script
             and "PreserveFailureOutput" in inventory_script
+            and '"android.software.virtualization_framework"'
+            in inventory_script
+            and "virtualization_framework_feature" in inventory_script
             and "dynamic_partition_metadata" in inventory_script
             and '"ro.treble.enabled"' in inventory_script
             and '"ro.boot.dynamic_partitions"' in inventory_script
@@ -1508,7 +1511,9 @@ def validate_aosp_overlay(root: Path) -> None:
     require('build.get("lane") != "android_gsi_arm64"' in gsi_preflight
             and 'build.get("artifact_layout") != "gsi_system_product"'
             in gsi_preflight
-            and '"system.img", "vbmeta.img"' in gsi_preflight
+            and '"pvmfw.img", "system.img", "vbmeta.img"' in gsi_preflight
+            and "EXPECTED_PVMFW_PUBLIC_KEY_SHA1" in gsi_preflight
+            and '"pvmfw_required": avf_advertised' in gsi_preflight
             and '"arm64_userspace"' in gsi_preflight
             and '"treble_enabled"' in gsi_preflight
             and '"dynamic_partitions"' in gsi_preflight
@@ -6213,11 +6218,12 @@ def validate_release_configuration(root: Path) -> None:
             and gsi.get("target_device") == "generic_arm64"
             and gsi.get("upstream_product") == "gsi_arm64"
             and gsi.get("artifact_layout") == "gsi_system_product"
-            and gsi.get("required_images") == ["system.img", "vbmeta.img"]
+            and gsi.get("required_images")
+            == ["pvmfw.img", "system.img", "vbmeta.img"]
             and gsi.get("compatibility_status")
             == "candidate_requires_vintf_and_device_preflight"
             and gsi.get("physical_gate_evidence") is True
-            and gsi.get("replaces_device_partitions") == ["system"]
+            and gsi.get("replaces_device_partitions") == ["pvmfw", "system"]
             and set(gsi.get("preserves_device_partitions", []))
             == {"bootloader", "radio", "boot", "vendor", "odm"}
             and "device/generic/common" in gsi.get("required_projects", [])
@@ -6564,7 +6570,7 @@ def validate_release_configuration(root: Path) -> None:
                 and gsi_build.get("android_release") == "17"
                 and gsi_build.get("artifact_layout") == "gsi_system_product"
                 and gsi_build.get("deployable_images")
-                == ["system.img", "vbmeta.img"]
+                == ["pvmfw.img", "system.img", "vbmeta.img"]
                 and gsi_build.get("installed_files_manifest") in {
                     "installed-files-system.json", "installed-files.json"
                 }
@@ -6616,7 +6622,7 @@ def validate_release_configuration(root: Path) -> None:
             item.get("path"): item
             for item in gsi_build.get("artifacts", [])
             if isinstance(item, dict)
-            and item.get("path") in {"system.img", "vbmeta.img"}
+            and item.get("path") in {"pvmfw.img", "system.img", "vbmeta.img"}
         }
         avb_images = avb.get("images")
         expected_checks = {
@@ -6629,6 +6635,7 @@ def validate_release_configuration(root: Path) -> None:
         }
         checks = avb.get("checks")
         chain = avb.get("expected_chain_partition")
+        pvmfw_descriptor = avb.get("pvmfw_descriptor")
         require(avb.get("schema_version") == 1
                 and avb.get("status") == "passed"
                 and avb.get("kind") == "gsi_avb_chain_verification"
@@ -6641,16 +6648,31 @@ def validate_release_configuration(root: Path) -> None:
                 and chain.get("public_key_sha1")
                 == "cdbb77177f731920bbe0a0f94f84d9038ae0617d"
                 and chain.get("algorithm") == "SHA256_RSA2048"
+                and isinstance(pvmfw_descriptor, dict)
+                and pvmfw_descriptor.get("partition") == "pvmfw"
+                and pvmfw_descriptor.get("algorithm") == "SHA256_RSA4096"
+                and pvmfw_descriptor.get("public_key_sha1")
+                == "2597c218aae470a130f61162feaae70afd97f011"
+                and isinstance(
+                    pvmfw_descriptor.get("original_image_size_bytes"), int
+                )
+                and pvmfw_descriptor["original_image_size_bytes"] > 0
+                and re.fullmatch(
+                    r"[0-9a-f]{64}",
+                    str(pvmfw_descriptor.get("digest", "")),
+                ) is not None
                 and isinstance(avb_images, dict)
-                and set(avb_images) == {"system.img", "vbmeta.img"}
-                and set(image_artifacts) == {"system.img", "vbmeta.img"}
+                and set(avb_images)
+                == {"pvmfw.img", "system.img", "vbmeta.img"}
+                and set(image_artifacts)
+                == {"pvmfw.img", "system.img", "vbmeta.img"}
                 and all(
                     isinstance(avb_images[name], dict)
                     and avb_images[name].get("size_bytes")
                     == image_artifacts[name].get("size_bytes")
                     and avb_images[name].get("sha256")
                     == image_artifacts[name].get("sha256")
-                    for name in ("system.img", "vbmeta.img")
+                    for name in ("pvmfw.img", "system.img", "vbmeta.img")
                 )
                 and isinstance(checks, dict)
                 and set(checks) == expected_checks

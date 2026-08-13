@@ -129,6 +129,9 @@ $dataFilesystem = Invoke-AdbText -AdbArguments @("shell", "df", "-k", "/data") -
 $dynamicSystemFeature = Invoke-AdbText -AdbArguments @(
     "shell", "pm", "has-feature", "android.software.dynamic_system"
 ) -AllowFailure -PreserveFailureOutput
+$virtualizationFrameworkFeature = Invoke-AdbText -AdbArguments @(
+    "shell", "pm", "has-feature", "android.software.virtualization_framework"
+) -AllowFailure -PreserveFailureOutput
 $dynamicPartitionMetadata = Invoke-AdbText -AdbArguments @(
     "shell", "lpdump"
 ) -AllowFailure
@@ -171,6 +174,7 @@ $document = [ordered]@{
     properties = $properties
     capabilities = [ordered]@{
         dynamic_system_feature = $dynamicSystemFeature
+        virtualization_framework_feature = $virtualizationFrameworkFeature
         memory = $memoryLine
         data_filesystem = $dataFilesystem
         dynamic_partition_metadata = $dynamicPartitionMetadata

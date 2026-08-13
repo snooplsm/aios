@@ -48,7 +48,7 @@
       "lunch_target": "aios_gsi_arm64-aosp_current-userdebug",
       "upstream_product": "gsi_arm64",
       "artifact_layout": "gsi_system_product",
-      "required_images": ["system.img", "vbmeta.img"],
+      "required_images": ["pvmfw.img", "system.img", "vbmeta.img"],
       "required_projects": [
         "build/make",
         "device/generic/common",
@@ -58,7 +58,7 @@
       ],
       "compatibility_status": "candidate_requires_vintf_and_device_preflight",
       "preserves_device_partitions": ["bootloader", "radio", "boot", "vendor", "odm"],
-      "replaces_device_partitions": ["system"],
+      "replaces_device_partitions": ["pvmfw", "system"],
       "physical_gate_evidence": true
     },
     {

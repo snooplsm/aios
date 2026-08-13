@@ -42,6 +42,7 @@ def inventory() -> dict:
         },
         "capabilities": {
             "dynamic_system_feature": "true",
+            "virtualization_framework_feature": "true",
             "data_filesystem": (
                 "Filesystem 1K-blocks Used Available Use% Mounted on\n"
                 "/dev/block/dm-1 40000000 1000000 39000000 3% /data"
@@ -59,6 +60,7 @@ def inventory() -> dict:
 
 def build() -> dict:
     names = [
+        "pvmfw.img",
         "system.img",
         "vbmeta.img",
         *[
@@ -77,7 +79,7 @@ def build() -> dict:
         "android_release": "17",
         "security_patch": "2026-06-05",
         "artifact_layout": "gsi_system_product",
-        "deployable_images": ["system.img", "vbmeta.img"],
+        "deployable_images": ["pvmfw.img", "system.img", "vbmeta.img"],
         "installed_files_manifest": "installed-files.json",
         "lane_eligible_for_physical_gates": True,
         "proves_physical_runtime_gate": False,
@@ -106,12 +108,19 @@ class GsiPreflightTests(unittest.TestCase):
                 "public_key_sha1": preflight.EXPECTED_GSI_PUBLIC_KEY_SHA1,
                 "algorithm": "SHA256_RSA2048",
             },
+            "pvmfw_descriptor": {
+                "partition": "pvmfw",
+                "algorithm": "SHA256_RSA4096",
+                "public_key_sha1": preflight.EXPECTED_PVMFW_PUBLIC_KEY_SHA1,
+                "original_image_size_bytes": 100,
+                "digest": digest("pvmfw descriptor"),
+            },
             "images": {
                 name: {
                     "size_bytes": artifacts[name]["size_bytes"],
                     "sha256": artifacts[name]["sha256"],
                 }
-                for name in ("system.img", "vbmeta.img")
+                for name in preflight.DEPLOYABLE_IMAGES
             },
             "checks": {name: True for name in preflight.EXPECTED_AVB_CHECKS},
             "lane_eligible_for_physical_gates": True,
@@ -233,6 +242,9 @@ class GsiPreflightTests(unittest.TestCase):
             self.assertFalse(value["proves_gsi_compatibility"])
             self.assertFalse(value["proves_physical_runtime_gate"])
             self.assertIn("system.img", value["gsi_images"])
+            self.assertIn("pvmfw.img", value["gsi_images"])
+            self.assertTrue(value["virtualization_framework_advertised"])
+            self.assertTrue(value["pvmfw_required"])
             self.assertEqual("system", value["avb_chain"]["partition"])
             self.assertEqual(64, len(value["avb_evidence_sha256"]))
             self.assertEqual("gzip", value["dsu_payload"]["format"])
@@ -313,6 +325,17 @@ class GsiPreflightTests(unittest.TestCase):
             avb_path = Path(raw) / "avb-verification.json"
             avb_value = json.loads(avb_path.read_text(encoding="utf-8"))
             avb_value["build_evidence_sha256"] = "0" * 64
+            avb_path.write_text(json.dumps(avb_value), encoding="utf-8")
+            with self.assertRaisesRegex(preflight.GsiPreflightError,
+                                        "AVB evidence is not bound"):
+                preflight.evaluate(inventory_path, build_path, "tegu")
+
+    def test_rejects_pvmfw_not_bound_to_build_artifact(self):
+        with tempfile.TemporaryDirectory() as raw:
+            inventory_path, build_path = self.write_inputs(raw)
+            avb_path = Path(raw) / "avb-verification.json"
+            avb_value = json.loads(avb_path.read_text(encoding="utf-8"))
+            avb_value["images"]["pvmfw.img"]["sha256"] = "0" * 64
             avb_path.write_text(json.dumps(avb_value), encoding="utf-8")
             with self.assertRaisesRegex(preflight.GsiPreflightError,
                                         "AVB evidence is not bound"):

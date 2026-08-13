@@ -9,8 +9,9 @@ Google stopped including complete Pixel device targets in the Android 16 AOSP
 manifest and directed public AOSP experimentation toward Cuttlefish and GSI.
 This lane therefore complements rather than replaces `pixel9a_tegu_hardware`:
 
-- the GSI replaces only the generic Android `system` partition and preserves
-  the phone's bootloader, radio, kernel, vendor, and ODM partitions;
+- the GSI replaces the generic Android `system` partition and the AVF `pvmfw`
+  image produced by the same build, while preserving the phone's bootloader,
+  radio, kernel, vendor, and ODM partitions;
 - the full `tegu` lane remains available for an exact platform/device/vendor
   set when one is legally and technically usable; and
 - neither lane may satisfy a physical gate until evidence is captured on the
@@ -33,7 +34,8 @@ Intelligence, Model Broker, permissions, configuration, and default-dialer RRO
 are included without duplicate modules or a framework patch.
 
 Build evidence must find each required artifact in Android's installed-file
-manifest at its redirected path and digest both `system.img` and `vbmeta.img`.
+manifest at its redirected path and digest `pvmfw.img`, `system.img`, and
+`vbmeta.img`.
 Android 17 currently emits `installed-files.json`; older branches may emit the
 partition-specific `installed-files-system.json`. Merely producing a file named
 `system.img` is not evidence that AIOS was packaged into it.
@@ -86,7 +88,7 @@ Review at least:
 - ARM64 ABI, Treble state, dated vendor/board API levels, and dynamic-partition
   state;
 - bootloader, baseband, active slot, AVB state, and lock state;
-- whether DSU is advertised; and
+- whether DSU and Android Virtualization Framework are advertised;
 - the matching current factory image and recovery procedure.
 
 The GSI security patch must not be older than the running system for DSU. The
@@ -142,6 +144,10 @@ record is digest-bound to the build record and exact image identities and the
 DSU record binds the gzip back to that exact raw `system.img`. The interface
 record binds the LLNDK level extracted from `/system/build.prop` inside that
 same verified image.
+
+The build and AVB records must also bind `pvmfw.img`. AOSP's Pixel GSI guidance
+requires flashing it when the device advertises Android Virtualization
+Framework; omitting it from deployment evidence is a preflight failure.
 
 This checker can reject architecture, Treble, dynamic-partition, device-identity,
 Android-version, and security-patch mismatches. It deliberately emits

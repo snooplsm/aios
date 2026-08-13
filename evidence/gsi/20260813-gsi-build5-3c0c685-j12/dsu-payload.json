@@ -3,7 +3,7 @@
   "status": "passed",
   "kind": "gsi_dsu_payload",
   "aios_revision": "3c0c685d39c63b6a3cb0d1d4f0d14a83228ad657",
-  "build_evidence_sha256": "1e1a032bc829714a9ea91682919f1d56203949bd7460915537936337594278f9",
+  "build_evidence_sha256": "b86a06d2e2102ba4ebf7ea8681f447a89a8ea41e61f7b8f524a3d5b36c979271",
   "source_image": {
     "name": "system.img",
     "format": "raw_ext4_with_avb_footer",

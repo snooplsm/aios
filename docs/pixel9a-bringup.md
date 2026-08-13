@@ -110,7 +110,8 @@ expected to reveal any Android 17 API/module drift in this scaffold; fix it in
 Next build the single-system ARM64 candidate from the same checkout. Its evidence
 recorder verifies the redirected AIOS artifacts in Android's installed-file
 manifest (`installed-files.json` on Android 17, or the older
-`installed-files-system.json`) and digests `system.img` plus `vbmeta.img`:
+`installed-files-system.json`) and digests `pvmfw.img`, `system.img`, and
+`vbmeta.img`:
 
 ```text
 vendor/aios/scripts/build-aosp-lane.sh \

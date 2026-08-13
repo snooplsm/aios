@@ -3,7 +3,7 @@
   "status": "passed",
   "kind": "gsi_system_interface_properties",
   "aios_revision": "3c0c685d39c63b6a3cb0d1d4f0d14a83228ad657",
-  "build_evidence_sha256": "1e1a032bc829714a9ea91682919f1d56203949bd7460915537936337594278f9",
+  "build_evidence_sha256": "b86a06d2e2102ba4ebf7ea8681f447a89a8ea41e61f7b8f524a3d5b36c979271",
   "system_image": {
     "size_bytes": 4639948800,
     "sha256": "7c740c3a6af1478c6d683e6fd731d6c8722575b2c56102dac7bd49c0929ef32a"
