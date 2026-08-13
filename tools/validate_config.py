@@ -6441,7 +6441,8 @@ def validate_release_configuration(root: Path) -> None:
         require(len(gsi_build_gate["evidence"]) == 1
                 and not gsi_build_gate["evidence"][0].startswith("https://"),
                 "ARM64 GSI build evidence must be one local record")
-        gsi_build = load_json((root / gsi_build_gate["evidence"][0]).resolve())
+        gsi_build_path = (root / gsi_build_gate["evidence"][0]).resolve()
+        gsi_build = load_json(gsi_build_path)
         require(gsi_build.get("schema_version") == 2
                 and gsi_build.get("status") == "passed"
                 and gsi_build.get("lane") == "android_gsi_arm64"
@@ -6452,8 +6453,9 @@ def validate_release_configuration(root: Path) -> None:
                 and gsi_build.get("artifact_layout") == "gsi_system_product"
                 and gsi_build.get("deployable_images")
                 == ["system.img", "vbmeta.img"]
-                and gsi_build.get("installed_files_manifest")
-                == "installed-files-system.json"
+                and gsi_build.get("installed_files_manifest") in {
+                    "installed-files-system.json", "installed-files.json"
+                }
                 and gsi_build.get("lane_eligible_for_physical_gates") is True
                 and gsi_build.get("proves_physical_runtime_gate") is False,
                 "ARM64 GSI build evidence does not prove the deployable lane")
@@ -6494,6 +6496,56 @@ def validate_release_configuration(root: Path) -> None:
                     for item in runtime_payloads
                 ),
                 "ARM64 GSI evidence must bind all platform-signed AI providers")
+        avb_path = gsi_build_path.parent / "avb-verification.json"
+        require(avb_path.is_file(),
+                "ARM64 GSI build evidence requires sibling AVB verification")
+        avb = load_json(avb_path)
+        image_artifacts = {
+            item.get("path"): item
+            for item in gsi_build.get("artifacts", [])
+            if isinstance(item, dict)
+            and item.get("path") in {"system.img", "vbmeta.img"}
+        }
+        avb_images = avb.get("images")
+        expected_checks = {
+            "vbmeta_signature_verified",
+            "system_chain_descriptor_matches_expected_key_and_slot",
+            "system_footer_signature_verified",
+            "system_sha256_hashtree_verified",
+            "pvmfw_sha256_hash_verified",
+            "ext_filesystem_read_only_check_passed",
+        }
+        checks = avb.get("checks")
+        chain = avb.get("expected_chain_partition")
+        require(avb.get("schema_version") == 1
+                and avb.get("status") == "passed"
+                and avb.get("kind") == "gsi_avb_chain_verification"
+                and avb.get("aios_revision") == gsi_build.get("aios_revision")
+                and avb.get("build_evidence_sha256")
+                == hashlib.sha256(gsi_build_path.read_bytes()).hexdigest()
+                and isinstance(chain, dict)
+                and chain.get("partition") == "system"
+                and chain.get("rollback_index_location") == 1
+                and chain.get("public_key_sha1")
+                == "cdbb77177f731920bbe0a0f94f84d9038ae0617d"
+                and chain.get("algorithm") == "SHA256_RSA2048"
+                and isinstance(avb_images, dict)
+                and set(avb_images) == {"system.img", "vbmeta.img"}
+                and set(image_artifacts) == {"system.img", "vbmeta.img"}
+                and all(
+                    isinstance(avb_images[name], dict)
+                    and avb_images[name].get("size_bytes")
+                    == image_artifacts[name].get("size_bytes")
+                    and avb_images[name].get("sha256")
+                    == image_artifacts[name].get("sha256")
+                    for name in ("system.img", "vbmeta.img")
+                )
+                and isinstance(checks, dict)
+                and set(checks) == expected_checks
+                and all(checks[name] is True for name in expected_checks)
+                and avb.get("lane_eligible_for_physical_gates") is True
+                and avb.get("proves_physical_runtime_gate") is False,
+                "ARM64 GSI AVB evidence is not bound to the deployable images")
 
     model_pack_gate = statuses["integration.reference_model_pack_verified"]
     if model_pack_gate["status"] == "passed":

@@ -1,0 +1,313 @@
+{
+  "aios_revision": "3c0c685d39c63b6a3cb0d1d4f0d14a83228ad657",
+  "android_release": "17",
+  "artifact_layout": "gsi_system_product",
+  "artifacts": [
+    {
+      "path": "system/product/priv-app/AiosContextIntelligence/AiosContextIntelligence.apk",
+      "sha256": "1148c81175d59e39bf95dc003cbaad67f8662c5af578e76e234123ced9d3bbab",
+      "size_bytes": 41348
+    },
+    {
+      "path": "system/product/priv-app/AiosMessaging/AiosMessaging.apk",
+      "sha256": "430868606817d04529d0adfe306fd98fd0001fbeb65a4b76496f951d7c8a12ef",
+      "size_bytes": 4878208
+    },
+    {
+      "path": "system/product/priv-app/AiosPhone/AiosPhone.apk",
+      "sha256": "2a7b048bc508c8146faa8c8fe0d0c2577dc600bcd3ca69007ed982ae97acb499",
+      "size_bytes": 4784929
+    },
+    {
+      "path": "system/product/priv-app/AiosCallIntelligence/AiosCallIntelligence.apk",
+      "sha256": "b1064781192ab76de6089a00cbd7ac0a7a332c0aa05626a7fee96e16557ec240",
+      "size_bytes": 188639
+    },
+    {
+      "path": "system/product/priv-app/AiosMediaIntelligence/AiosMediaIntelligence.apk",
+      "sha256": "4ec6427404a95083632d371aece00f6b240376dd1e04616a2122901d3530272c",
+      "size_bytes": 221570
+    },
+    {
+      "path": "system/product/priv-app/AiosModelBroker/AiosModelBroker.apk",
+      "sha256": "0e6b911eff8ec5c57fdfa698fde91fd85a0238d651c5c4dd6e512b664d18e938",
+      "size_bytes": 98527
+    },
+    {
+      "path": "system/product/overlay/AiosFrameworkDefaultsOverlay.apk",
+      "sha256": "021b96193439c0981e83bc984cf66796c519b701caef045b18eec78e25756a07",
+      "size_bytes": 8351
+    },
+    {
+      "path": "system/product/etc/aios/authorized_clients.json",
+      "sha256": "ee060330d9f2a3595a62179b20af6f0cdaf0c8ad0bf244e9cb5b1050bef0993a",
+      "size_bytes": 1162
+    },
+    {
+      "path": "system/product/etc/aios/model_catalog.json",
+      "sha256": "10ef8b76b620de37e21ddc5f67dc5066105b7b5646e2679077d8345bb9e7569d",
+      "size_bytes": 12253
+    },
+    {
+      "path": "system/product/etc/aios/product_policy.json",
+      "sha256": "3e8003c1905542ef74f215e73100aff4d36d645c5bf16dc4a1d24147b0fb67b4",
+      "size_bytes": 2434
+    },
+    {
+      "path": "system/product/etc/aios/runtime_catalog.json",
+      "sha256": "9a5654a08fd4176a3b12c53f88a6b5f235408147b0ffda99b0f8e977be0e092b",
+      "size_bytes": 5560
+    },
+    {
+      "path": "system/product/etc/default-permissions/default-permissions-aios.xml",
+      "sha256": "65ea70a3df7aaaa3f7b3ec87e0a75fa146f30520e75a80ae60a6bb42d36fb318",
+      "size_bytes": 1702
+    },
+    {
+      "path": "system/product/etc/permissions/privapp-permissions-aios.xml",
+      "sha256": "5e52cfb20209ca37fb8a5c7bf615df4adce2dd0df71edd16ee701c4d247dc71b",
+      "size_bytes": 1810
+    },
+    {
+      "path": "system/product/etc/aios/models/gemma4-e2b-mobile-text.litertlm",
+      "sha256": "181938105e0eefd105961417e8da75903eacda102c4fce9ce90f50b97139a63c",
+      "size_bytes": 2588147712
+    },
+    {
+      "path": "system/product/etc/aios/models/gemma4-e2b-mobile-text/LICENSE.Apache-2.0.txt",
+      "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+      "size_bytes": 11357
+    },
+    {
+      "path": "system/product/etc/aios/models/gemma4-e2b-mobile-multimodal/LICENSE.Apache-2.0.txt",
+      "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+      "size_bytes": 11357
+    },
+    {
+      "path": "system/product/etc/aios/models/whisper-base-multilingual-quantized.bin",
+      "sha256": "422f1ae452ade6f30a004d7e5c6a43195e4433bc370bf23fac9cc591f01a8898",
+      "size_bytes": 59707625
+    },
+    {
+      "path": "system/product/etc/aios/models/supertonic3-en-es-int8.bundle.json",
+      "sha256": "29899176c2cbc6f5910e4a286d280bd5501e45d86ab4f8613d9063c21dc9f1e8",
+      "size_bytes": 2047
+    },
+    {
+      "path": "system/product/etc/aios/models/supertonic3-en-es-int8/MODEL_LICENSE.OpenRAIL-M.txt",
+      "sha256": "0d944a9110fed9a9602d60e0423a272903e7bd21ab060490774efc77c2275e9f",
+      "size_bytes": 15007
+    },
+    {
+      "path": "system/product/etc/aios/models/supertonic3-en-es-int8/duration_predictor.int8.onnx",
+      "sha256": "c3eb91414d5ff8a7a239b7fe9e34e7e2bf8a8140d8375ffb14718b1c639325db",
+      "size_bytes": 3700147
+    },
+    {
+      "path": "system/product/etc/aios/models/supertonic3-en-es-int8/text_encoder.int8.onnx",
+      "sha256": "c7befd5ea8c3119769e8a6c1486c4edc6a3bc8365c67621c881bbb774b9902ff",
+      "size_bytes": 36416150
+    },
+    {
+      "path": "system/product/etc/aios/models/supertonic3-en-es-int8/vector_estimator.int8.onnx",
+      "sha256": "20cd86fa5c6effedfda0e7cffe5b0569ca401c440a0c3a1d72bf39286c0db3fd",
+      "size_bytes": 78400833
+    },
+    {
+      "path": "system/product/etc/aios/models/supertonic3-en-es-int8/vocoder.int8.onnx",
+      "sha256": "e923d60f53f95eb1ce235f1dc33ec56d9c057823c96fa6f8acf98f32b0da6152",
+      "size_bytes": 25991073
+    },
+    {
+      "path": "system/product/etc/aios/models/supertonic3-en-es-int8/tts.json",
+      "sha256": "42078d3aef1cd43ab43021f3c54f47d2d75ceb4e75f627f118890128b06a0d09",
+      "size_bytes": 8253
+    },
+    {
+      "path": "system/product/etc/aios/models/supertonic3-en-es-int8/unicode_indexer.bin",
+      "sha256": "8402ca48e5189a8950138580b0fff64db6f072f24ac07cd54ba8b2fbb9883b30",
+      "size_bytes": 262144
+    },
+    {
+      "path": "system/product/etc/aios/models/supertonic3-en-es-int8/voice.bin",
+      "sha256": "67d5209b0ee8ce6c74105ffbe12fe6a7628aea3b4ba2fcb308a4a67938a93ce8",
+      "size_bytes": 517168
+    },
+    {
+      "path": "system/product/etc/aios/models/supertonic3-en-es-int8/LICENSE",
+      "sha256": "0dfe0d0ba84416fe3879d9a34f4909d8d0137c78d1e95834177b0414ac096fa2",
+      "size_bytes": 1070
+    },
+    {
+      "path": "system/product/etc/aios/model_artifacts.json",
+      "sha256": "76909421546e2c9ed7990d427108d27b947cb119b6daa94f532729ca9c3c8cd3",
+      "size_bytes": 6129
+    },
+    {
+      "path": "system/product/etc/aios/runtime_artifacts-litert_lm.json",
+      "sha256": "eb8c3a3d40ecfa9c9c9e503b8d37e2ab16437c72d868ddc47ad068ac5e6139e1",
+      "size_bytes": 2342
+    },
+    {
+      "path": "system/product/priv-app/AiosRuntimeProvider_litert_lm/AiosRuntimeProvider_litert_lm.apk",
+      "sha256": "aacd708652097206cd7b38128527acbc6e5d56110abbd18316ad601aa145ec0f",
+      "size_bytes": 47945846
+    },
+    {
+      "path": "system/product/etc/aios/runtime_artifacts-sherpa_onnx_tts.json",
+      "sha256": "1275e16c114728b6dd5088f7acfeb0694ed48b77b4b42fef253a918b085985e4",
+      "size_bytes": 1357
+    },
+    {
+      "path": "system/product/priv-app/AiosRuntimeProvider_sherpa_onnx_tts/AiosRuntimeProvider_sherpa_onnx_tts.apk",
+      "sha256": "e647c10cd4c62a7d15417883a225e215e9c56553a77e893ba7e0b0bb8536f7b3",
+      "size_bytes": 31569655
+    },
+    {
+      "path": "system/product/etc/aios/runtime_artifacts-whisper_cpp.json",
+      "sha256": "0242f987d01d4da4a35cc362d2ef4ca456e58caeb0aac4191c0c799cda1a01d9",
+      "size_bytes": 1152
+    },
+    {
+      "path": "system/product/priv-app/AiosRuntimeProvider_whisper_cpp/AiosRuntimeProvider_whisper_cpp.apk",
+      "sha256": "48e980998cdf4821388e6dee874061169fa3c3fa47ff5436e5e52dc15a56f3ee",
+      "size_bytes": 1688367
+    },
+    {
+      "path": "system.img",
+      "sha256": "7c740c3a6af1478c6d683e6fd731d6c8722575b2c56102dac7bd49c0929ef32a",
+      "size_bytes": 4639948800
+    },
+    {
+      "path": "vbmeta.img",
+      "sha256": "42114b30264c02f4fdf6879c8f37f826dc600ef7f38e37021eca8ad89778beb4",
+      "size_bytes": 65536
+    }
+  ],
+  "build_fingerprint": "AIOS/aios_gsi_arm64/generic_arm64:17/CP2A.260605.016/eng.ryan:userdebug/test-keys",
+  "build_log_sha256": "fb14f5519461c65deb7e2992f7a20e32351b0d1198159792332720287fb4a899",
+  "captured_at": "2026-08-13T05:52:57+00:00",
+  "deployable_images": [
+    "system.img",
+    "vbmeta.img"
+  ],
+  "generated_payloads": {
+    "model_pack": {
+      "installed_file_count": 15,
+      "manifest_sha256": "76909421546e2c9ed7990d427108d27b947cb119b6daa94f532729ca9c3c8cd3",
+      "models": [
+        "gemma4-e2b-mobile-text",
+        "gemma4-e2b-mobile-multimodal",
+        "whisper-base-multilingual-quantized",
+        "supertonic3-en-es-int8"
+      ]
+    },
+    "runtime_packs": [
+      {
+        "manifest_sha256": "eb8c3a3d40ecfa9c9c9e503b8d37e2ab16437c72d868ddc47ad068ac5e6139e1",
+        "platform_signed_provider_sha256": "aacd708652097206cd7b38128527acbc6e5d56110abbd18316ad601aa145ec0f",
+        "runtime": "litert_lm",
+        "source_revision": "2117fc4314670e00047bc8469783f02a68c33f0c",
+        "unsigned_provider_sha256": "6c867774fc4c6998af2d73576f39d81be33169a8a4db5781fb3afbe1d4b73c05"
+      },
+      {
+        "manifest_sha256": "1275e16c114728b6dd5088f7acfeb0694ed48b77b4b42fef253a918b085985e4",
+        "platform_signed_provider_sha256": "e647c10cd4c62a7d15417883a225e215e9c56553a77e893ba7e0b0bb8536f7b3",
+        "runtime": "sherpa_onnx_tts",
+        "source_revision": "142807252687d81b40d6315f23470a1512a00de3",
+        "unsigned_provider_sha256": "df3769202ef82c794b051d4246bcb22149a40e467aec11d47dae32f9c1497903"
+      },
+      {
+        "manifest_sha256": "0242f987d01d4da4a35cc362d2ef4ca456e58caeb0aac4191c0c799cda1a01d9",
+        "platform_signed_provider_sha256": "48e980998cdf4821388e6dee874061169fa3c3fa47ff5436e5e52dc15a56f3ee",
+        "runtime": "whisper_cpp",
+        "source_revision": "306c88f4d1286aec1bf96e544632897886af5501",
+        "unsigned_provider_sha256": "a86fb449a1aa945eaa6e2174b9ba5ffc23c0fa87ad752b8856c1215bb1b0f887"
+      }
+    ]
+  },
+  "host": {
+    "machine": "x86_64",
+    "release": "6.18.33.2-microsoft-standard-WSL2",
+    "system": "Linux"
+  },
+  "installed_files_manifest": "installed-files.json",
+  "installed_files_sha256": "c6615bf3ac38d9ea5674495c431ed4546107ffbf31b421e45c6f1d4b20a2944e",
+  "kind": "generic_system_image",
+  "lane": "android_gsi_arm64",
+  "lane_eligible_for_physical_gates": true,
+  "lunch_target": "aios_gsi_arm64-aosp_current-userdebug",
+  "manifest_lock_sha256": "e9d9c8272b45b3b4f5cb9554821f70107d26a8553fba0d5b17dd77d9bdfce6f9",
+  "manifest_repository_revision": "ad156f32caaa06dae91c02d443f6a8fe210eaa54",
+  "manifest_sha256": "02163e0606444fcfb25b6a1c20dc16639620ccb6dc78b93708df0cd7772cb5f8",
+  "patch_queue": [
+    {
+      "base_revision": "768ed834ced557e2d42476757776a26c68fed656",
+      "file": "0001-dialer-aios-call-assistant.patch",
+      "id": "dialer-aios-call-assistant",
+      "owner": "call-platform",
+      "paths": [
+        "Android.bp",
+        "AndroidManifest.xml",
+        "java/com/android/incallui/InCallServiceImpl.java",
+        "java/com/android/incallui/aios/AiosCallAssistant.java"
+      ],
+      "project": "packages/apps/Dialer",
+      "reason": "Connect the complete Android 17 AOSP Dialer Telecom lifecycle to model priority and the fail-closed AIOS Call Intelligence policy and capture service.",
+      "rebase_notes": "Re-export from the tracked Dialer base, preserve the four-file footprint, then rerun host validation, preview builds, emulator Telecom smoke, and every physical dialer/call gate.",
+      "removal_condition": "Remove only if AOSP exposes an equivalent stable call-assistant lifecycle API requiring no Dialer source hook.",
+      "sha256": "d020e9042561ab5d1a8534ea011178cb1996d416a2e62e9fa6f66ff4f89bdb57",
+      "tests": [
+        "scripts/emulator-telecom-smoke.ps1",
+        "tests/test_patch_series.py",
+        "tests/test_validate_config.py"
+      ]
+    },
+    {
+      "base_revision": "94b4c163b7dfe5ce3607f7bb8456f9573f7de57d",
+      "file": "0002-framework-mms-aios-visibility.patch",
+      "id": "framework-mms-aios-visibility",
+      "owner": "messaging-platform",
+      "paths": [
+        "telephony/common/Android.bp"
+      ],
+      "project": "frameworks/base",
+      "reason": "Allow the platform-signed AIOS Messaging app to statically link AOSP's maintained MMS codec and Telephony provider persister without copying protocol sources into vendor code, using Soong's required platform-to-vendor subtree visibility boundary.",
+      "rebase_notes": "Re-export from the tracked frameworks/base commit, keep the change to the single telephony/common/Android.bp visibility entry using //vendor:__subpackages__, and rebuild AiosMessaging with Soong.",
+      "removal_condition": "Remove when framework-mms-shared-srcs is public to product modules or AOSP provides an equivalent supported MMS codec and provider library.",
+      "sha256": "d23751af96b0a0d24bc6b2b1cf6c5a237b3959b725d3941cbbfe7d2e75247dfe",
+      "tests": [
+        "tests/test_patch_series.py",
+        "tests/test_validate_config.py"
+      ]
+    },
+    {
+      "base_revision": "5ce6f787337d0223710bf7d4a16dbe6d2a35f777",
+      "file": "0003-build-make-configurable-gsi-size.patch",
+      "id": "build-make-configurable-gsi-size",
+      "owner": "gsi-platform",
+      "paths": [
+        "target/board/BoardConfigGsiCommon.mk",
+        "target/product/gsi/Android.bp"
+      ],
+      "project": "build/make",
+      "reason": "Preserve AOSP's compliance-GSI defaults while allowing an additive product to size its model-inclusive build container, declare its package closure to Android 17's Soong system-image check, and align that image with the board's chained GSI AVB key.",
+      "rebase_notes": "Re-export from the tracked build/make base, preserve the two conditional size defaults and adjacent android_gsi_defaults wrapper, verify the default GSI remains 3 GiB, verify AIOS resolves its generated payload and 6 GiB group, then require chained AVB verification of vbmeta plus system.",
+      "removal_condition": "Remove the sizing hunk when AOSP exposes a product-supported GSI sizing mechanism; remove the filesystem wrapper when additive products can extend android_gsi through a public Soong interface.",
+      "sha256": "52fd3325d6d467b8248189520216ebbe0ba807fb01c4273579c031856fc67fe2",
+      "tests": [
+        "scripts/build-aosp-lane.sh",
+        "tests/test_patch_series.py",
+        "tests/test_validate_config.py"
+      ]
+    }
+  ],
+  "patch_queue_sha256": "6669450d5b78418870c9abed625b3435bbeb49046d6a77697da93b1ea0b8466c",
+  "patch_series_sha256": "a8ad34f2dfbef3eb5ef0a7e5c6a07820902c41780a0b2843efb2ff6c532c6cd8",
+  "product": "aios_gsi_arm64",
+  "proves_physical_runtime_gate": false,
+  "schema_version": 2,
+  "security_patch": "2026-06-05",
+  "status": "passed",
+  "target_device": "generic_arm64"
+}

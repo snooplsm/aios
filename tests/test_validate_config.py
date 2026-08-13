@@ -805,14 +805,7 @@ class IntegrationStructureTests(unittest.TestCase):
                     (ROOT / "config" / name).read_text(encoding="utf-8"),
                     encoding="utf-8",
                 )
-            shutil.copytree(ROOT / "evidence" / "cuttlefish",
-                            temporary / "evidence" / "cuttlefish")
-            shutil.copytree(ROOT / "evidence" / "emulator",
-                            temporary / "evidence" / "emulator")
-            shutil.copytree(ROOT / "evidence" / "model-pack",
-                            temporary / "evidence" / "model-pack")
-            shutil.copytree(ROOT / "evidence" / "avd",
-                            temporary / "evidence" / "avd")
+            shutil.copytree(ROOT / "evidence", temporary / "evidence")
             value = json.loads((temporary / "config" / "release_status.json")
                                .read_text(encoding="utf-8"))
             value["statuses"]["boot.first_boot"]["status"] = "passed"
@@ -831,14 +824,7 @@ class IntegrationStructureTests(unittest.TestCase):
                          "release_status.json"):
                 shutil.copy(ROOT / "config" / name,
                             temporary / "config" / name)
-            shutil.copytree(ROOT / "evidence" / "cuttlefish",
-                            temporary / "evidence" / "cuttlefish")
-            shutil.copytree(ROOT / "evidence" / "emulator",
-                            temporary / "evidence" / "emulator")
-            shutil.copytree(ROOT / "evidence" / "model-pack",
-                            temporary / "evidence" / "model-pack")
-            shutil.copytree(ROOT / "evidence" / "avd",
-                            temporary / "evidence" / "avd")
+            shutil.copytree(ROOT / "evidence", temporary / "evidence")
             status = json.loads(
                 (temporary / "config" / "release_status.json")
                 .read_text(encoding="utf-8")
@@ -853,6 +839,33 @@ class IntegrationStructureTests(unittest.TestCase):
             boot_path.write_text(json.dumps(boot), encoding="utf-8")
             with self.assertRaisesRegex(validator.ValidationError,
                                         "not bound to its build"):
+                validator.validate_release_configuration(temporary)
+
+    def test_gsi_avb_evidence_must_bind_checked_in_build_record(self):
+        with tempfile.TemporaryDirectory() as raw:
+            temporary = Path(raw)
+            (temporary / "config").mkdir()
+            copy_patch_contract_fixture(temporary)
+            for name in ("aosp_tracking.json", "aosp_lanes.json",
+                         "model_catalog.json", "release_gates.json",
+                         "release_status.json"):
+                shutil.copy(ROOT / "config" / name,
+                            temporary / "config" / name)
+            shutil.copytree(ROOT / "evidence", temporary / "evidence")
+            status = json.loads(
+                (temporary / "config" / "release_status.json")
+                .read_text(encoding="utf-8")
+            )
+            build_reference = status["statuses"][
+                "integration.android_gsi_arm64_userdebug_succeeds"
+            ]["evidence"]
+            self.assertEqual(1, len(build_reference))
+            avb_path = (temporary / build_reference[0]).parent / "avb-verification.json"
+            avb = json.loads(avb_path.read_text(encoding="utf-8"))
+            avb["build_evidence_sha256"] = "0" * 64
+            avb_path.write_text(json.dumps(avb), encoding="utf-8")
+            with self.assertRaisesRegex(validator.ValidationError,
+                                        "AVB evidence is not bound"):
                 validator.validate_release_configuration(temporary)
 
     def test_avd_first_boot_cannot_pass_before_its_build(self):
@@ -953,12 +966,7 @@ class IntegrationStructureTests(unittest.TestCase):
                          "release_status.json"):
                 shutil.copy(ROOT / "config" / name,
                             temporary / "config" / name)
-            shutil.copytree(ROOT / "evidence" / "cuttlefish",
-                            temporary / "evidence" / "cuttlefish")
-            shutil.copytree(ROOT / "evidence" / "emulator",
-                            temporary / "evidence" / "emulator")
-            shutil.copytree(ROOT / "evidence" / "model-pack",
-                            temporary / "evidence" / "model-pack")
+            shutil.copytree(ROOT / "evidence", temporary / "evidence")
             catalog_path = temporary / "config" / "model_catalog.json"
             catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
             pixel_9a = next(item for item in catalog["known_devices"]

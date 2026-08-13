@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "status": "passed",
+  "kind": "gsi_avb_chain_verification",
+  "aios_revision": "3c0c685d39c63b6a3cb0d1d4f0d14a83228ad657",
+  "build_evidence_sha256": "1e1a032bc829714a9ea91682919f1d56203949bd7460915537936337594278f9",
+  "expected_chain_partition": {
+    "partition": "system",
+    "rollback_index_location": 1,
+    "public_key_sha1": "cdbb77177f731920bbe0a0f94f84d9038ae0617d",
+    "algorithm": "SHA256_RSA2048"
+  },
+  "images": {
+    "system.img": {
+      "size_bytes": 4639948800,
+      "sha256": "7c740c3a6af1478c6d683e6fd731d6c8722575b2c56102dac7bd49c0929ef32a"
+    },
+    "vbmeta.img": {
+      "size_bytes": 65536,
+      "sha256": "42114b30264c02f4fdf6879c8f37f826dc600ef7f38e37021eca8ad89778beb4"
+    }
+  },
+  "checks": {
+    "vbmeta_signature_verified": true,
+    "system_chain_descriptor_matches_expected_key_and_slot": true,
+    "system_footer_signature_verified": true,
+    "system_sha256_hashtree_verified": true,
+    "pvmfw_sha256_hash_verified": true,
+    "ext_filesystem_read_only_check_passed": true
+  },
+  "lane_eligible_for_physical_gates": true,
+  "proves_physical_runtime_gate": false
+}
