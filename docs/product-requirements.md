@@ -86,6 +86,13 @@ because monotonic time resets at reboot, previous-boot artifacts are deleted
 fail-closed instead of being granted a new window. Cleanup runs at boot, after a
 call, and periodically; expired records are not recoverable through the
 application.
+The append-only transcript is also the active-call recovery journal. It records
+committed assistant replies in order with ASR output. After a same-boot service
+restart, only a bounded tail of finalized English/Spanish caller and assistant
+turns may rebuild receptionist memory; partial hypotheses, uplink/owner audio,
+malformed records, and expired or previous-boot artifacts must not enter the
+prompt. Cross-call retrieval remains a bounded, permission-checked SQLite/FTS
+projection rather than raw SQL exposed to applications.
 If the dialer dies while Telecom keeps a call connected, Call Intelligence stops
 the orphaned capture immediately. A reconnected dialer may start a fresh capture
 session for the same opaque call ID, but it must append to the existing artifact

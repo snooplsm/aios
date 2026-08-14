@@ -166,9 +166,20 @@ final class ReceptionistDialogueClient implements AutoCloseable {
     }
 
     synchronized void beginCall(
-            String callId, boolean knownContact, String priorContextJson) {
+            String callId,
+            boolean knownContact,
+            String priorContextJson,
+            List<TranscriptContextRecovery.Turn> recoveredConversation) {
         if (!closed && callId != null && !callId.isEmpty()) {
-            calls.put(callId, new CallState(knownContact, priorContextJson));
+            CallState state = new CallState(knownContact, priorContextJson);
+            if (recoveredConversation != null) {
+                for (TranscriptContextRecovery.Turn turn : recoveredConversation) {
+                    if (turn != null) {
+                        state.memory.appendFinal(turn.role, turn.language, turn.text);
+                    }
+                }
+            }
+            calls.put(callId, state);
         }
     }
 

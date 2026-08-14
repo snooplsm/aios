@@ -1312,6 +1312,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/callintelligence/src/com/aios/callintelligence/CallContextAccumulator.java",
         "services/callintelligence/src/com/aios/callintelligence/IncrementalCallerTranscript.java",
         "services/callintelligence/src/com/aios/callintelligence/TranscriptRevisionGate.java",
+        "services/callintelligence/src/com/aios/callintelligence/TranscriptContextRecovery.java",
         "services/callintelligence/src/com/aios/callintelligence/CallTranscriptRevisionClock.java",
         "services/callintelligence/src/com/aios/callintelligence/PcmTranscriptTimeline.java",
         "services/callintelligence/src/com/aios/callintelligence/CallRequestIdentityTracker.java",
@@ -1355,6 +1356,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/callintelligence/tests/src/com/aios/callintelligence/CallContextAccumulatorTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/IncrementalCallerTranscriptTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/TranscriptRevisionGateTest.java",
+        "services/callintelligence/tests/src/com/aios/callintelligence/TranscriptContextRecoveryTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/CallTranscriptRevisionClockTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/PcmTranscriptTimelineTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/CallRequestIdentityTrackerTest.java",
@@ -4880,6 +4882,13 @@ def validate_aosp_overlay(root: Path) -> None:
         root / "services" / "callintelligence" / "tests" / "src" / "com" /
         "aios" / "callintelligence" / "RollingConversationMemoryTest.java"
     ).read_text(encoding="utf-8")
+    transcript_context_recovery = (
+        call_source_root / "TranscriptContextRecovery.java"
+    ).read_text(encoding="utf-8")
+    transcript_context_recovery_test = (
+        root / "services" / "callintelligence" / "tests" / "src" / "com" /
+        "aios" / "callintelligence" / "TranscriptContextRecoveryTest.java"
+    ).read_text(encoding="utf-8")
     assistant_turn_queue = (
         call_source_root / "AssistantTurnQueue.java"
     ).read_text(encoding="utf-8")
@@ -4956,6 +4965,25 @@ def validate_aosp_overlay(root: Path) -> None:
             and '"src/com/aios/callintelligence/RollingConversationMemory.java"'
             in call_host_test,
             "call prompts must use versioned rolling memory with stale-result rejection")
+    require("class TranscriptContextRecovery" in transcript_context_recovery
+            and '"downlink".equals(direction)' in transcript_context_recovery
+            and '"assistant".equals(direction)' in transcript_context_recovery
+            and "MAX_RECOVERED_CHARS = RollingConversationMemory.MAX_RETAINED_CHARS"
+            in transcript_context_recovery
+            and "admitsOnlyFinalBilingualCallerAndAssistantTurns"
+            in transcript_context_recovery_test
+            and "recoveryKeepsTheNewestBoundedExactTail"
+            in transcript_context_recovery_test
+            and "readConversationTail()" in artifact_source
+            and 'appendJsonLine("transcript.jsonl", transcript)' in artifact_source
+            and "stored.readConversationTail()" in call_service
+            and '"transcript_context_restored"' in call_service
+            and 'communicationSummary.appendTranscript(' in call_service
+            and 'communicationSummary.appendAssistantReply(' in call_service
+            and "recoveredConversation" in receptionist_source
+            and '"src/com/aios/callintelligence/TranscriptContextRecovery.java"'
+            in call_host_test,
+            "final call turns must support bounded crash-safe receptionist recovery")
     require("Math.addExact" in receptionist_request_tracker
             and "expected.deadlineElapsedRealtimeMillis" in receptionist_request_tracker
             and "current != expected" in receptionist_request_tracker
@@ -5233,7 +5261,8 @@ def validate_aosp_overlay(root: Path) -> None:
     require("expires_at_epoch_ms" in artifact_source,
             "call artifacts need an absolute expiry")
     require("dialogue.jsonl" in artifact_source
-            and "appendAssistantReply" in artifact_source,
+            and "appendAssistantReply" in artifact_source
+            and 'transcript.put("direction", "assistant")' in artifact_source,
             "local receptionist replies must share the call-artifact retention boundary")
 
     capture_source = (call_source_root / "TelephonyAudioCapture.java").read_text(

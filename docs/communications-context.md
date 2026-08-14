@@ -153,6 +153,15 @@ transcript segments, assistant replies, and validated risk events in a bounded
 directory name, not a number, and its expiry is copied from the immutable local
 artifact metadata. A context write is skipped if that expiry has already passed.
 No separate context TTL can extend the 24-hour call-artifact lifetime.
+The FTS document is a retrieval projection, not the authoritative transcript.
+Accepted ASR records remain in the private append-only `transcript.jsonl`
+journal, and accepted assistant replies are written into that same ordered
+journal before TTS setup. If Call Intelligence restarts while Telecom
+keeps the call alive, it reads at most a 256 KiB journal tail, rejects partial,
+uplink, malformed, non-English/Spanish, and oversized records, and restores a
+bounded set of finalized caller/assistant turns directly into receptionist
+memory. This deterministic recovery does not issue a broad SQL query and cannot
+extend the artifact expiry.
 Call Intelligence passes the artifact's original elapsed-realtime creation and
 expiry pair plus Android boot identity with the expiring call document; the
 context database validates and stores them without reconstructing them from

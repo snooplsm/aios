@@ -11,10 +11,12 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.io.RandomAccessFile;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /** Credential-encrypted call artifacts with a 24-hour maximum and emergency erasure. */
@@ -217,6 +219,9 @@ final class CallArtifactStore {
     }
 
     static final class Session implements AutoCloseable {
+        private static final int MAX_CONTEXT_RECOVERY_BYTES = 256 * 1_024;
+        private static final int MAX_CONTEXT_JOURNAL_LINE_CHARS = 16_384;
+
         private final File directory;
         final String sourceId;
         final long createdAtEpochMillis;
@@ -260,6 +265,50 @@ final class CallArtifactStore {
             return uplink;
         }
 
+        /**
+         * Reads only a bounded tail of the append-only transcript. A tail cut
+         * starts after the next newline, so a split UTF-8 sequence or JSON
+         * record can never become model context. Malformed/torn records are
+         * ignored independently and the pure admission policy applies the
+         * final role, language, turn, and total-memory bounds.
+         */
+        synchronized List<TranscriptContextRecovery.Turn> readConversationTail()
+                throws IOException {
+            File transcript = new File(directory, "transcript.jsonl");
+            if (!transcript.isFile() || transcript.length() <= 0L) return List.of();
+            long length = transcript.length();
+            long start = Math.max(0L, length - MAX_CONTEXT_RECOVERY_BYTES);
+            byte[] encoded = new byte[(int) (length - start)];
+            try (RandomAccessFile stream = new RandomAccessFile(transcript, "r")) {
+                stream.seek(start);
+                stream.readFully(encoded);
+            }
+            String tail = new String(encoded, StandardCharsets.UTF_8);
+            if (start > 0L) {
+                int boundary = tail.indexOf('\n');
+                if (boundary < 0) return List.of();
+                tail = tail.substring(boundary + 1);
+            }
+            TranscriptContextRecovery recovery = new TranscriptContextRecovery();
+            for (String line : tail.split("\\n")) {
+                if (line.isBlank() || line.length() > MAX_CONTEXT_JOURNAL_LINE_CHARS) {
+                    continue;
+                }
+                try {
+                    JSONObject value = new JSONObject(line);
+                    recovery.accept(
+                            value.optString("direction", ""),
+                            value.optString("language", ""),
+                            value.optString("text", ""),
+                            value.optBoolean("is_final", false));
+                } catch (JSONException malformed) {
+                    // A killed writer may leave one torn tail record. It does
+                    // not invalidate earlier independently synced turns.
+                }
+            }
+            return recovery.snapshot();
+        }
+
         synchronized void appendTranscript(
                 String direction,
                 String language,
@@ -280,12 +329,7 @@ final class CallArtifactStore {
             } catch (JSONException impossible) {
                 throw new IOException("cannot encode transcript segment", impossible);
             }
-            try (FileOutputStream stream = new FileOutputStream(
-                    new File(directory, "transcript.jsonl"), true)) {
-                stream.write(value.toString().getBytes(StandardCharsets.UTF_8));
-                stream.write('\n');
-                stream.getFD().sync();
-            }
+            appendJsonLine("transcript.jsonl", value);
         }
 
         synchronized void appendAssessment(
@@ -328,12 +372,21 @@ final class CallArtifactStore {
             } catch (JSONException impossible) {
                 throw new IOException("cannot encode assistant reply", impossible);
             }
-            try (FileOutputStream stream = new FileOutputStream(
-                    new File(directory, "dialogue.jsonl"), true)) {
-                stream.write(value.toString().getBytes(StandardCharsets.UTF_8));
-                stream.write('\n');
-                stream.getFD().sync();
+            JSONObject transcript = new JSONObject();
+            try {
+                transcript.put("direction", "assistant");
+                transcript.put("language", language);
+                transcript.put("text", text);
+                transcript.put("is_final", true);
+                transcript.put("observed_at_epoch_ms", observedAtEpochMillis);
+            } catch (JSONException impossible) {
+                throw new IOException("cannot encode assistant transcript", impossible);
             }
+            // Commit the unified conversation journal before the compatibility
+            // dialogue record. This preserves the model's accepted reply for
+            // continuity even if the process is lost during later TTS setup.
+            appendJsonLine("transcript.jsonl", transcript);
+            appendJsonLine("dialogue.jsonl", value);
         }
 
         synchronized void appendAssistantState(
@@ -369,6 +422,15 @@ final class CallArtifactStore {
             closeQuietly(uplink);
             downlink = null;
             uplink = null;
+        }
+
+        private void appendJsonLine(String name, JSONObject value) throws IOException {
+            try (FileOutputStream stream = new FileOutputStream(
+                    new File(directory, name), true)) {
+                stream.write(value.toString().getBytes(StandardCharsets.UTF_8));
+                stream.write('\n');
+                stream.getFD().sync();
+            }
         }
 
         private static void closeQuietly(OutputStream stream) {

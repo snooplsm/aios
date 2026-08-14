@@ -890,10 +890,18 @@ public final class CallIntelligenceService extends Service {
         ResilientFanoutOutputStream downlinkFanout = null;
         ResilientFanoutOutputStream uplinkFanout = null;
         TelephonyAudioCapture capture = null;
+        List<TranscriptContextRecovery.Turn> recoveredConversation = List.of();
         try {
             CallCommunicationContextClient.PreparedContext preparedContext =
                     pendingCommunicationContexts.remove(callId);
             stored = artifactStore.create(callId, answeredByAi, System.currentTimeMillis());
+            if (answeredByAi) {
+                try {
+                    recoveredConversation = stored.readConversationTail();
+                } catch (IOException error) {
+                    notifyStatus(callId, -2, "transcript_context_restore_failed");
+                }
+            }
             downlinkAsr = asr.openStream(callId, "downlink");
             uplinkAsr = asr.openStream(callId, "uplink");
             if (answeredByAi && downlinkAsr == null) {
@@ -913,18 +921,22 @@ public final class CallIntelligenceService extends Service {
                     stored, capture, downlinkFanout, uplinkFanout,
                     downlinkAsr, uplinkAsr,
                     new SpamRiskEngine(knownContact), ownerUid, answeredByAi, knownContact,
-                    preparedContext);
+                    preparedContext, recoveredConversation);
             sessions.put(callId, active);
             if (answeredByAi) {
                 receptionist.beginCall(
                         callId,
                         knownContact,
-                        preparedContext == null ? "[]" : preparedContext.priorContextJson);
+                        preparedContext == null ? "[]" : preparedContext.priorContextJson,
+                        recoveredConversation);
             } else {
                 classifier.beginCall(callId, knownContact);
             }
             capture.startRequired();
             RetentionAlarm.scheduleNext(this, artifactStore);
+            if (!recoveredConversation.isEmpty()) {
+                notifyStatus(callId, 6, "transcript_context_restored");
+            }
             notifyStatus(callId, 1, "capture_started");
             return active;
         } catch (IOException | RuntimeException error) {
@@ -1788,7 +1800,8 @@ public final class CallIntelligenceService extends Service {
                 int ownerUid,
                 boolean answeredByAi,
                 boolean knownContact,
-                CallCommunicationContextClient.PreparedContext communicationContext) {
+                CallCommunicationContextClient.PreparedContext communicationContext,
+                List<TranscriptContextRecovery.Turn> recoveredConversation) {
             this.stored = stored;
             this.capture = capture;
             this.downlinkFanout = downlinkFanout;
@@ -1800,6 +1813,17 @@ public final class CallIntelligenceService extends Service {
             assistantHandling = new AssistantHandlingTracker(answeredByAi);
             this.knownContact = knownContact;
             this.communicationContext = communicationContext;
+            if (recoveredConversation != null) {
+                for (TranscriptContextRecovery.Turn turn : recoveredConversation) {
+                    if (turn == null) continue;
+                    if ("caller".equals(turn.role)) {
+                        communicationSummary.appendTranscript(
+                                "downlink", turn.language, turn.text, true);
+                    } else if ("assistant".equals(turn.role)) {
+                        communicationSummary.appendAssistantReply(turn.language, turn.text);
+                    }
+                }
+            }
             if (downlinkAsr != null) {
                 downlinkTranscriptRevisions.activate(downlinkAsr.identity);
                 downlinkTranscriptTimeline.activate(downlinkAsr.identity, 0L);

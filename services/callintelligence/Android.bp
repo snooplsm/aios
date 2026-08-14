@@ -45,6 +45,7 @@ java_test_host {
         "src/com/aios/callintelligence/RollingConversationMemory.java",
         "src/com/aios/callintelligence/IncrementalCallerTranscript.java",
         "src/com/aios/callintelligence/TranscriptRevisionGate.java",
+        "src/com/aios/callintelligence/TranscriptContextRecovery.java",
         "src/com/aios/callintelligence/CallTranscriptRevisionClock.java",
         "src/com/aios/callintelligence/PcmTranscriptTimeline.java",
         "src/com/aios/callintelligence/CallArtifactRetention.java",
