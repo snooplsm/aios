@@ -111,8 +111,10 @@ public final class SessionArbiterTest {
     public void memoryPressurePreemptsOnlyBackgroundWork() {
         SessionArbiter arbiter = arbiter(3);
         arbiter.submit(1L, 100, WorkClass.CALL_RX, 3);
-        arbiter.submit(2L, 200, WorkClass.MEDIA_BACKGROUND, 3);
         arbiter.submit(3L, 300, WorkClass.CALL_BACKGROUND, 3);
+        // Media submitted after call work remains queued and is still a
+        // preemptible lease that pressure must remove.
+        arbiter.submit(2L, 200, WorkClass.MEDIA_BACKGROUND, 3);
 
         SessionArbiter.Change pressure = arbiter.preemptBackgroundForMemoryPressure();
 

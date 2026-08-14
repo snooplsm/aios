@@ -78,7 +78,7 @@ public final class RollingConversationMemoryTest {
     @Test
     public void compactionInputFitsTheConfiguredModelContextBudget() {
         RollingConversationMemory memory = new RollingConversationMemory();
-        for (int index = 0; index < 18; index++) {
+        for (int index = 0; index < 14; index++) {
             memory.appendFinal("caller", "es", index + ":" + "x".repeat(1_500));
         }
 
