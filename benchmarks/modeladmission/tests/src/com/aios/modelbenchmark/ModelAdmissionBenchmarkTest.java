@@ -22,6 +22,7 @@ import android.os.PowerManager;
 import android.os.SystemClock;
 import android.telecom.TelecomManager;
 import android.util.Base64;
+import android.util.Log;
 
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 import androidx.test.platform.app.InstrumentationRegistry;
@@ -68,6 +69,7 @@ import java.util.concurrent.atomic.AtomicLong;
  */
 @RunWith(AndroidJUnit4.class)
 public final class ModelAdmissionBenchmarkTest {
+    private static final String TAG = "AiosModelDiagnostic";
     private static final int ADMISSION_RUNS_PER_LANGUAGE = 5;
     private static final int PCM_16_BIT = AudioFormat.ENCODING_PCM_16BIT;
     private static final int TTS_SAMPLE_RATE = 44_100;
@@ -78,6 +80,7 @@ public final class ModelAdmissionBenchmarkTest {
     private static final int ASR_ENDPOINT_SILENCE_MILLIS = 800;
     private static final long BIND_TIMEOUT_MILLIS = 15_000L;
     private static final long INFERENCE_TIMEOUT_MILLIS = 120_000L;
+    private static final long DIAGNOSTIC_TIMEOUT_MILLIS = 45_000L;
     private static final String ARTIFACT_MANIFEST =
             "/product/etc/aios/model_artifacts.json";
     private static final String EN_PHRASE =
@@ -100,6 +103,190 @@ public final class ModelAdmissionBenchmarkTest {
     @Test
     public void runAudioRealtimeSmoke() throws Exception {
         runBenchmark(1, false, false, "audio_realtime_smoke");
+    }
+
+    /** One isolated English invocation per selected physical-device model role. */
+    @Test
+    public void runSingleModelDiagnostic() throws Exception {
+        Instrumentation instrumentation = InstrumentationRegistry.getInstrumentation();
+        Context context = instrumentation.getTargetContext();
+        assertTrue("diagnostic requires an eng/userdebug build",
+                "eng".equals(Build.TYPE) || "userdebug".equals(Build.TYPE));
+        TelecomManager telecom = context.getSystemService(TelecomManager.class);
+        assertNotNull("Telecom is unavailable", telecom);
+        assertFalse("refusing to diagnose models during a live call", telecom.isInCall());
+
+        ArtifactCatalog artifacts = ArtifactCatalog.load(new File(ARTIFACT_MANIFEST));
+        try (BrokerConnection connection = BrokerConnection.bind(context)) {
+            IAiosModelService broker = connection.service;
+            Map<String, ModelCapability> capabilities = waitForCapabilities(broker);
+            requireCapabilities(capabilities);
+            JSONArray results = new JSONArray();
+
+            Artifact ttsArtifact = artifacts.require(capabilities.get(
+                    "speech_synthesis").selectedModelId);
+            int ttsMemoryBefore = runtimePssMb(context);
+            AudioInvocation tts;
+            ResourceObservation ttsObservation;
+            logDiagnosticStart(ttsArtifact, "speech_synthesis", ttsMemoryBefore);
+            try (ResourceSampler sampler = new ResourceSampler(context)) {
+                tts = invokeTts(
+                        broker, "en", EN_PHRASE, DIAGNOSTIC_TIMEOUT_MILLIS);
+                ttsObservation = sampler.finish();
+            }
+            results.put(diagnosticResult(
+                    ttsArtifact,
+                    "speech_synthesis",
+                    tts.invocation,
+                    ttsObservation,
+                    ttsMemoryBefore,
+                    runtimePssMb(context),
+                    new JSONObject()
+                            .put("input_id", "fixed_plumbing_sentence_en")
+                            .put("pcm_bytes", tts.pcm.length)
+                            .put("audio_duration_ms",
+                                    tts.pcm.length / 2L * 1_000L / TTS_SAMPLE_RATE)
+                            .put("time_to_first_audio_ms", tts.firstAudioAt > 0L
+                                    ? tts.firstAudioAt - tts.invocation.startedAt
+                                    : DIAGNOSTIC_TIMEOUT_MILLIS)));
+
+            Artifact asrArtifact = artifacts.require(capabilities.get(
+                    "streaming_asr").selectedModelId);
+            byte[] asrSpeech = tts.pcm.length > 0
+                    ? resampleTtsTo16k(tts.pcm)
+                    : new byte[ASR_SAMPLE_RATE * 2];
+            byte[] asrInput = appendSilence(asrSpeech, ASR_ENDPOINT_SILENCE_MILLIS);
+            int asrMemoryBefore = runtimePssMb(context);
+            Invocation asr;
+            ResourceObservation asrObservation;
+            logDiagnosticStart(asrArtifact, "streaming_asr", asrMemoryBefore);
+            try (ResourceSampler sampler = new ResourceSampler(context)) {
+                asr = invokeAsr(
+                        broker, asrInput, false, DIAGNOSTIC_TIMEOUT_MILLIS);
+                asrObservation = sampler.finish();
+            }
+            results.put(diagnosticResult(
+                    asrArtifact,
+                    "streaming_asr",
+                    asr,
+                    asrObservation,
+                    asrMemoryBefore,
+                    runtimePssMb(context),
+                    new JSONObject()
+                            .put("input_id", tts.pcm.length > 0
+                                    ? "supertonic_plumbing_sentence_en"
+                                    : "fallback_silence_after_tts_failure")
+                            .put("input_audio_duration_ms", durationMillis(asrInput))
+                            .put("transcript", asr.latestChunk)));
+
+            Artifact textArtifact = artifacts.require(capabilities.get(
+                    "text_generation").selectedModelId);
+            int textMemoryBefore = runtimePssMb(context);
+            Invocation text;
+            ResourceObservation textObservation;
+            logDiagnosticStart(textArtifact, "text_generation", textMemoryBefore);
+            try (ResourceSampler sampler = new ResourceSampler(context)) {
+                text = invokeText(
+                        broker,
+                        "text_generation",
+                        "call_agent",
+                        "en",
+                        "Reply with only the word blue: what color is a clear daytime sky?",
+                        8,
+                        DIAGNOSTIC_TIMEOUT_MILLIS);
+                textObservation = sampler.finish();
+            }
+            results.put(diagnosticResult(
+                    textArtifact,
+                    "text_generation",
+                    text,
+                    textObservation,
+                    textMemoryBefore,
+                    runtimePssMb(context),
+                    new JSONObject()
+                            .put("input_id", "fixed_blue_answer_en")
+                            .put("response", resultText(text.result))));
+
+            Artifact mediaArtifact = artifacts.require(capabilities.get(
+                    "image_understanding").selectedModelId);
+            int mediaMemoryBefore = runtimePssMb(context);
+            Invocation media;
+            ResourceObservation mediaObservation;
+            logDiagnosticStart(mediaArtifact, "image_understanding", mediaMemoryBefore);
+            try (ResourceSampler sampler = new ResourceSampler(context)) {
+                media = invokeMedia(
+                        broker,
+                        "image_understanding",
+                        "en",
+                        redJpeg(),
+                        DIAGNOSTIC_TIMEOUT_MILLIS);
+                mediaObservation = sampler.finish();
+            }
+            results.put(diagnosticResult(
+                    mediaArtifact,
+                    "image_understanding",
+                    media,
+                    mediaObservation,
+                    mediaMemoryBefore,
+                    runtimePssMb(context),
+                    new JSONObject()
+                            .put("input_id", "generated_solid_red_jpeg_64x64")
+                            .put("response", parseObject(media.result))));
+
+            JSONObject measurements = new JSONObject()
+                    .put("schema_version", 1)
+                    .put("suite_version", 4)
+                    .put("mode", "single_model_diagnostic")
+                    .put("results", results);
+            Bundle output = new Bundle();
+            output.putString(
+                    "aios_measurements_base64",
+                    Base64.encodeToString(
+                            measurements.toString().getBytes(StandardCharsets.UTF_8),
+                            Base64.NO_WRAP));
+            instrumentation.addResults(output);
+        }
+    }
+
+    private static void logDiagnosticStart(
+            Artifact artifact, String capability, int memoryBeforeMb) {
+        Log.i(TAG, "START capability=" + capability
+                + " model=" + artifact.modelId
+                + " runtime=" + artifact.runtime
+                + " backend=" + artifact.backend
+                + " aios_runtime_pss_mb=" + memoryBeforeMb);
+    }
+
+    private static JSONObject diagnosticResult(
+            Artifact artifact,
+            String capability,
+            Invocation invocation,
+            ResourceObservation observation,
+            int memoryBeforeMb,
+            int memoryAfterMb,
+            JSONObject details) throws JSONException {
+        long elapsed = Math.max(0L, invocation.completedAt - invocation.startedAt);
+        long firstOutput = invocation.firstChunkAt.get() > 0L
+                ? invocation.firstChunkAt.get() - invocation.startedAt
+                : DIAGNOSTIC_TIMEOUT_MILLIS;
+        JSONObject metrics = new JSONObject()
+                .put("succeeded", invocation.succeeded())
+                .put("error", invocation.error)
+                .put("elapsed_ms", elapsed)
+                .put("first_output_ms", firstOutput)
+                .put("aios_runtime_pss_before_mb", memoryBeforeMb)
+                .put("aios_runtime_pss_after_mb", memoryAfterMb)
+                .put("aios_runtime_peak_pss_mb", observation.peakRssMb)
+                .put("thermal_status_max", observation.thermalStatusMax)
+                .put("details", details);
+        Log.i(TAG, "FINISH capability=" + capability
+                + " model=" + artifact.modelId
+                + " success=" + invocation.succeeded()
+                + " elapsed_ms=" + elapsed
+                + " first_output_ms=" + firstOutput
+                + " error=" + (invocation.error.isEmpty() ? "none" : invocation.error)
+                + " aios_runtime_pss_mb=" + memoryAfterMb);
+        return result(artifact, metrics).put("capability", capability);
     }
 
     private static void runBenchmark(
@@ -422,10 +609,24 @@ public final class ModelAdmissionBenchmarkTest {
             String language,
             String text,
             int maxTokens) throws Exception {
-        Invocation invocation = new Invocation();
+        return invokeText(
+                broker, capability, workload, language, text, maxTokens,
+                INFERENCE_TIMEOUT_MILLIS);
+    }
+
+    private static Invocation invokeText(
+            IAiosModelService broker,
+            String capability,
+            String workload,
+            String language,
+            String text,
+            int maxTokens,
+            long timeoutMillis) throws Exception {
+        Invocation invocation = new Invocation(capability, timeoutMillis);
         try {
             long session = broker.createSession(
-                    request(capability, workload, language, maxTokens), invocation.callback);
+                    request(capability, workload, language, maxTokens, timeoutMillis),
+                    invocation.callback);
             invocation.sessionId = session;
             if (session > 0L) broker.submitText(session, text, true);
         } catch (Exception error) {
@@ -440,11 +641,21 @@ public final class ModelAdmissionBenchmarkTest {
             String capability,
             String language,
             byte[] media) throws Exception {
-        Invocation invocation = new Invocation();
+        return invokeMedia(
+                broker, capability, language, media, INFERENCE_TIMEOUT_MILLIS);
+    }
+
+    private static Invocation invokeMedia(
+            IAiosModelService broker,
+            String capability,
+            String language,
+            byte[] media,
+            long timeoutMillis) throws Exception {
+        Invocation invocation = new Invocation(capability, timeoutMillis);
         ParcelFileDescriptor[] pipe = null;
         try {
             long session = broker.createSession(request(
-                    capability, "media_background", language, 256),
+                    capability, "media_background", language, 256, timeoutMillis),
                     invocation.callback);
             invocation.sessionId = session;
             if (session > 0L) {
@@ -467,7 +678,16 @@ public final class ModelAdmissionBenchmarkTest {
 
     private static AudioInvocation invokeTts(
             IAiosModelService broker, String language, String text) throws Exception {
-        Invocation invocation = new Invocation();
+        return invokeTts(
+                broker, language, text, INFERENCE_TIMEOUT_MILLIS);
+    }
+
+    private static AudioInvocation invokeTts(
+            IAiosModelService broker,
+            String language,
+            String text,
+            long timeoutMillis) throws Exception {
+        Invocation invocation = new Invocation("speech_synthesis", timeoutMillis);
         ExecutorService reader = null;
         AtomicLong firstAudioAt = new AtomicLong(0L);
         Future<byte[]> pcm = null;
@@ -475,7 +695,8 @@ public final class ModelAdmissionBenchmarkTest {
         ParcelFileDescriptor[] pipe = null;
         try {
             long session = broker.createSession(request(
-                    "speech_synthesis", "call_agent", language, 0), invocation.callback);
+                    "speech_synthesis", "call_agent", language, 0, timeoutMillis),
+                    invocation.callback);
             invocation.sessionId = session;
             if (session > 0L) {
                 pipe = ParcelFileDescriptor.createPipe();
@@ -506,13 +727,21 @@ public final class ModelAdmissionBenchmarkTest {
             IAiosModelService broker,
             byte[] pcm,
             boolean paceAtRealtime) throws Exception {
-        Invocation invocation = new Invocation();
+        return invokeAsr(broker, pcm, paceAtRealtime, INFERENCE_TIMEOUT_MILLIS);
+    }
+
+    private static Invocation invokeAsr(
+            IAiosModelService broker,
+            byte[] pcm,
+            boolean paceAtRealtime,
+            long timeoutMillis) throws Exception {
+        Invocation invocation = new Invocation("streaming_asr", timeoutMillis);
         ExecutorService writer = null;
         Future<?> write = null;
         ParcelFileDescriptor[] pipe = null;
         try {
             ModelRequest request = request(
-                    "streaming_asr", "call_rx", "und", 0);
+                    "streaming_asr", "call_rx", "und", 0, timeoutMillis);
             if (paceAtRealtime) {
                 request.deadlineElapsedRealtimeMillis = Long.MAX_VALUE;
             }
@@ -586,6 +815,16 @@ public final class ModelAdmissionBenchmarkTest {
 
     private static ModelRequest request(
             String capability, String workload, String language, int maxTokens) {
+        return request(
+                capability, workload, language, maxTokens, INFERENCE_TIMEOUT_MILLIS);
+    }
+
+    private static ModelRequest request(
+            String capability,
+            String workload,
+            String language,
+            int maxTokens,
+            long timeoutMillis) {
         ModelRequest request = new ModelRequest();
         request.requestId = "benchmark-" + capability + "-" + language + "-"
                 + Long.toUnsignedString(System.nanoTime());
@@ -594,7 +833,7 @@ public final class ModelAdmissionBenchmarkTest {
         request.language = language;
         request.maxOutputTokens = maxTokens;
         request.deadlineElapsedRealtimeMillis =
-                SystemClock.elapsedRealtime() + INFERENCE_TIMEOUT_MILLIS;
+                SystemClock.elapsedRealtime() + timeoutMillis;
         request.allowFallback = false;
         return request;
     }
@@ -887,6 +1126,8 @@ public final class ModelAdmissionBenchmarkTest {
 
     private static final class Invocation {
         final long startedAt = SystemClock.elapsedRealtime();
+        final String capability;
+        final long timeoutMillis;
         final CountDownLatch completed = new CountDownLatch(1);
         final AtomicLong firstChunkAt = new AtomicLong(0L);
         final AtomicLong inputStartedAt = new AtomicLong(0L);
@@ -902,11 +1143,21 @@ public final class ModelAdmissionBenchmarkTest {
         volatile String latestChunk = "";
         volatile String finalChunkLanguage = "";
 
+        Invocation(String capability, long timeoutMillis) {
+            this.capability = capability;
+            this.timeoutMillis = timeoutMillis;
+        }
+
         final IModelCallback callback = new IModelCallback.Stub() {
             @Override
             public void onChunk(GenerationChunk chunk) {
                 long observedAt = SystemClock.elapsedRealtime();
-                firstChunkAt.compareAndSet(0L, observedAt);
+                if (firstChunkAt.compareAndSet(0L, observedAt)) {
+                    Log.i(TAG, "FIRST_OUTPUT capability=" + capability
+                            + " session=" + sessionId
+                            + " elapsed_ms=" + (observedAt - startedAt)
+                            + " final=" + (chunk != null && chunk.isFinal));
+                }
                 if (chunk != null && !chunk.isFinal
                         && firstNonFinalChunkAt.compareAndSet(0L, observedAt)) {
                     firstNonFinalSourceStartMillis.set(chunk.sourceStartMillis);
@@ -926,6 +1177,9 @@ public final class ModelAdmissionBenchmarkTest {
             public void onCompleted(InferenceResult value) {
                 result = value;
                 completedAt = SystemClock.elapsedRealtime();
+                Log.i(TAG, "COMPLETED capability=" + capability
+                        + " session=" + sessionId
+                        + " elapsed_ms=" + (completedAt - startedAt));
                 completed.countDown();
             }
 
@@ -933,23 +1187,34 @@ public final class ModelAdmissionBenchmarkTest {
             public void onError(int code, String message) {
                 error = code + ":" + (message == null ? "" : message);
                 completedAt = SystemClock.elapsedRealtime();
+                Log.e(TAG, "ERROR capability=" + capability
+                        + " session=" + sessionId
+                        + " elapsed_ms=" + (completedAt - startedAt)
+                        + " code=" + code + " message=" + message);
                 completed.countDown();
             }
         };
 
         void await(IAiosModelService broker) throws Exception {
-            if (!completed.await(INFERENCE_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)) {
+            if (!completed.await(timeoutMillis, TimeUnit.MILLISECONDS)) {
                 error = "timeout";
                 completedAt = SystemClock.elapsedRealtime();
+                Log.e(TAG, "TIMEOUT capability=" + capability
+                        + " session=" + sessionId
+                        + " elapsed_ms=" + (completedAt - startedAt));
                 if (sessionId > 0L) broker.cancel(sessionId);
             }
         }
 
         void failLocal(Throwable failure) {
             if (error.isEmpty()) {
-                error = failure.getClass().getSimpleName();
+                error = failure.getClass().getSimpleName()
+                        + ":" + (failure.getMessage() == null ? "" : failure.getMessage());
             }
             completedAt = SystemClock.elapsedRealtime();
+            Log.e(TAG, "LOCAL_ERROR capability=" + capability
+                    + " session=" + sessionId
+                    + " elapsed_ms=" + (completedAt - startedAt), failure);
             completed.countDown();
         }
 
@@ -959,13 +1224,13 @@ public final class ModelAdmissionBenchmarkTest {
 
         long firstLatencyOrTimeout() {
             long value = firstChunkAt.get();
-            return value > 0L ? value - startedAt : INFERENCE_TIMEOUT_MILLIS;
+            return value > 0L ? value - startedAt : timeoutMillis;
         }
 
         long elapsedOrTimeout() {
             return succeeded()
                     ? Math.max(0L, completedAt - startedAt)
-                    : INFERENCE_TIMEOUT_MILLIS;
+                    : timeoutMillis;
         }
 
         boolean sawNonFinalPartial() {

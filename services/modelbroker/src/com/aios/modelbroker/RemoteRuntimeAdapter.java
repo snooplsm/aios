@@ -12,6 +12,7 @@ import android.os.IBinder;
 import android.os.Looper;
 import android.os.ParcelFileDescriptor;
 import android.os.RemoteException;
+import android.os.SystemClock;
 import android.util.Log;
 
 import com.aios.model.AudioStreamFormat;
@@ -26,6 +27,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /** Binds one allowlisted, platform-signed runtime in a separate process. */
 final class RemoteRuntimeAdapter implements RuntimeAdapter {
@@ -174,7 +176,13 @@ final class RemoteRuntimeAdapter implements RuntimeAdapter {
         transport.sizeBytes = artifact.sizeBytes;
         transport.backend = artifact.backend;
 
-        RemoteSession session = new RemoteSession(current, callback);
+        Log.i(TAG, "OPEN runtime=" + spec.runtimeId
+                + " capability=" + request.capability
+                + " model=" + artifact.modelId
+                + " backend=" + artifact.backend
+                + " request=" + request.requestId);
+        RemoteSession session = new RemoteSession(
+                current, callback, request.capability, artifact.modelId, request.requestId);
         long providerSessionId = current.createSession(transport, request, session.transport);
         if (providerSessionId <= 0L) {
             throw new IOException("runtime provider rejected the session");
@@ -387,12 +395,25 @@ final class RemoteRuntimeAdapter implements RuntimeAdapter {
     private final class RemoteSession implements RuntimeAdapter.Session {
         private final IAiosRuntimeProvider owner;
         private final IModelCallback callback;
+        private final String capability;
+        private final String modelId;
+        private final String requestId;
+        private final long createdAt = SystemClock.elapsedRealtime();
+        private final AtomicBoolean firstChunkLogged = new AtomicBoolean(false);
         private long id = -1L;
         private volatile boolean closed;
 
         final IModelCallback transport = new IModelCallback.Stub() {
             @Override
             public void onChunk(GenerationChunk chunk) {
+                if (firstChunkLogged.compareAndSet(false, true)) {
+                    Log.i(TAG, "FIRST_CHUNK runtime=" + spec.runtimeId
+                            + " capability=" + capability
+                            + " model=" + modelId
+                            + " request=" + requestId
+                            + " elapsed_ms="
+                            + (SystemClock.elapsedRealtime() - createdAt));
+                }
                 try {
                     callback.onChunk(chunk);
                 } catch (RemoteException error) {
@@ -402,6 +423,11 @@ final class RemoteRuntimeAdapter implements RuntimeAdapter {
 
             @Override
             public void onCompleted(InferenceResult result) {
+                Log.i(TAG, "COMPLETED runtime=" + spec.runtimeId
+                        + " capability=" + capability
+                        + " model=" + modelId
+                        + " request=" + requestId
+                        + " elapsed_ms=" + (SystemClock.elapsedRealtime() - createdAt));
                 try {
                     callback.onCompleted(result);
                 } catch (RemoteException ignored) {
@@ -413,6 +439,12 @@ final class RemoteRuntimeAdapter implements RuntimeAdapter {
 
             @Override
             public void onError(int code, String message) {
+                Log.e(TAG, "ERROR runtime=" + spec.runtimeId
+                        + " capability=" + capability
+                        + " model=" + modelId
+                        + " request=" + requestId
+                        + " elapsed_ms=" + (SystemClock.elapsedRealtime() - createdAt)
+                        + " code=" + code + " message=" + message);
                 try {
                     callback.onError(code, message);
                 } catch (RemoteException ignored) {
@@ -423,9 +455,17 @@ final class RemoteRuntimeAdapter implements RuntimeAdapter {
             }
         };
 
-        RemoteSession(IAiosRuntimeProvider owner, IModelCallback callback) {
+        RemoteSession(
+                IAiosRuntimeProvider owner,
+                IModelCallback callback,
+                String capability,
+                String modelId,
+                String requestId) {
             this.owner = owner;
             this.callback = callback;
+            this.capability = capability;
+            this.modelId = modelId;
+            this.requestId = requestId;
         }
 
         synchronized void attach(long sessionId) {
@@ -443,6 +483,9 @@ final class RemoteRuntimeAdapter implements RuntimeAdapter {
         public synchronized void submitText(String text, boolean endOfInput)
                 throws RemoteException {
             requireOpen();
+            Log.i(TAG, "SUBMIT_TEXT runtime=" + spec.runtimeId
+                    + " request=" + requestId + " chars="
+                    + (text == null ? 0 : text.length()));
             owner.submitText(id, text, endOfInput);
         }
 
@@ -452,6 +495,8 @@ final class RemoteRuntimeAdapter implements RuntimeAdapter {
                 AudioStreamFormat format,
                 boolean endOfInput) throws RemoteException {
             requireOpen();
+            Log.i(TAG, "SUBMIT_AUDIO runtime=" + spec.runtimeId
+                    + " request=" + requestId);
             owner.submitAudio(id, pcmStream, format, endOfInput);
         }
 
@@ -460,6 +505,8 @@ final class RemoteRuntimeAdapter implements RuntimeAdapter {
                 ParcelFileDescriptor pcmSink,
                 AudioStreamFormat format) throws RemoteException {
             requireOpen();
+            Log.i(TAG, "ATTACH_AUDIO_OUTPUT runtime=" + spec.runtimeId
+                    + " request=" + requestId);
             owner.attachAudioOutput(id, pcmSink, format);
         }
 
@@ -469,6 +516,8 @@ final class RemoteRuntimeAdapter implements RuntimeAdapter {
                 String mimeType,
                 boolean endOfInput) throws RemoteException {
             requireOpen();
+            Log.i(TAG, "SUBMIT_MEDIA runtime=" + spec.runtimeId
+                    + " request=" + requestId + " mime=" + mimeType);
             owner.submitMedia(id, media, mimeType, endOfInput);
         }
 

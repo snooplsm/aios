@@ -8,6 +8,7 @@ import android.os.IBinder
 import android.os.ParcelFileDescriptor
 import android.os.RemoteException
 import android.os.SystemClock
+import android.util.Log
 import com.aios.model.AudioStreamFormat
 import com.aios.model.IModelCallback
 import com.aios.model.InferenceResult
@@ -38,6 +39,7 @@ import kotlin.math.roundToInt
 /** Digest-locked, CPU-only Supertonic 3 provider for English/Spanish call speech. */
 class SherpaTtsRuntimeService : Service() {
     private companion object {
+        const val TAG = "AiosTtsRuntime"
         const val BROKER_PACKAGE = "com.aios.modelbroker"
         const val RUNTIME_ID = "sherpa_onnx_tts"
         const val IMPLEMENTATION_VERSION = "1.13.4"
@@ -177,6 +179,8 @@ class SherpaTtsRuntimeService : Service() {
                 return -1L
             }
             sessions[id] = session
+            Log.i(TAG, "SESSION_CREATED id=$id model=${artifact.modelId} " +
+                "language=${request.language} backend=${artifact.backend}")
             return id
         }
 
@@ -191,6 +195,7 @@ class SherpaTtsRuntimeService : Service() {
                     "TTS requires one bounded final text after output attachment")
                 return
             }
+            Log.i(TAG, "TEXT_SUBMITTED id=$sessionId chars=${text.length}")
             runtimeExecutor.execute { synthesize(session, text) }
         }
 
@@ -295,6 +300,7 @@ class SherpaTtsRuntimeService : Service() {
             private set
         var failure: IOException? = null
             private set
+        private var firstBlockLogged = false
 
         override fun invoke(samples: FloatArray): Int {
             if (session.cancelled.get() || session.completed.get()
@@ -304,6 +310,12 @@ class SherpaTtsRuntimeService : Service() {
             }
             return try {
                 writePcm16(output, samples)
+                if (!firstBlockLogged) {
+                    firstBlockLogged = true
+                    Log.i(TAG, "FIRST_AUDIO id=${session.id} elapsed_ms=" +
+                        (SystemClock.elapsedRealtime() - session.createdAtElapsed) +
+                        " samples=${samples.size}")
+                }
                 sampleCount += samples.size
                 1
             } catch (error: IOException) {
@@ -315,6 +327,7 @@ class SherpaTtsRuntimeService : Service() {
 
     private fun synthesize(session: TtsSession, text: String) {
         if (session.cancelled.get() || session.completed.get()) return
+        Log.i(TAG, "SYNTHESIS_START id=${session.id}")
         val descriptor = synchronized(session) { session.sink }
         if (descriptor == null) {
             fail(session, ERROR_INVALID_REQUEST, "TTS output disappeared")
@@ -324,6 +337,8 @@ class SherpaTtsRuntimeService : Service() {
         var sampleCount = 0L
         try {
             val tts = ensureEngine(session.artifact)
+            Log.i(TAG, "ENGINE_READY id=${session.id} elapsed_ms=" +
+                (SystemClock.elapsedRealtime() - session.createdAtElapsed))
             check(tts.sampleRate() == SAMPLE_RATE_HZ) { "unexpected TTS sample rate" }
             check(tts.numSpeakers() > SPEAKER_ID) { "configured TTS speaker is absent" }
             ParcelFileDescriptor.AutoCloseOutputStream(descriptor).use { output ->
@@ -349,6 +364,7 @@ class SherpaTtsRuntimeService : Service() {
             check(sampleCount > 0L) { "TTS produced no PCM" }
             complete(session, sampleCount)
         } catch (error: Exception) {
+            Log.e(TAG, "SYNTHESIS_FAILED id=${session.id}", error)
             synchronized(session) {
                 if (session.sink === descriptor) session.sink = null
             }
@@ -361,6 +377,7 @@ class SherpaTtsRuntimeService : Service() {
     }
 
     private fun ensureEngine(artifact: RuntimeArtifact): OfflineTts {
+        val startedAt = SystemClock.elapsedRealtime()
         val descriptor = verifiedDescriptorFile(artifact)
         val identity = EngineIdentity(descriptor.absolutePath, artifact.modelDigest)
         synchronized(engineLock) {
@@ -373,6 +390,7 @@ class SherpaTtsRuntimeService : Service() {
             }) { "cannot switch TTS bundles while synthesis is active" }
             closeEngineLocked()
             val files = verifiedBundleFiles(descriptor)
+            Log.i(TAG, "ENGINE_INITIALIZE_START model=${artifact.modelId}")
             val threadCount = Runtime.getRuntime().availableProcessors().coerceIn(2, 8)
             val config = OfflineTtsConfig(
                 model = OfflineTtsModelConfig(
@@ -392,6 +410,8 @@ class SherpaTtsRuntimeService : Service() {
             )
             val tts = OfflineTts(config = config)
             check(tts.sampleRate() == SAMPLE_RATE_HZ) { "bundle is not 44.1 kHz Supertonic" }
+            Log.i(TAG, "ENGINE_INITIALIZE_DONE model=${artifact.modelId} elapsed_ms=" +
+                (SystemClock.elapsedRealtime() - startedAt))
             return tts.also { engineHolder = EngineHolder(identity, it) }
         }
     }
@@ -481,6 +501,8 @@ class SherpaTtsRuntimeService : Service() {
 
     private fun complete(session: TtsSession, sampleCount: Long) {
         if (!session.completed.compareAndSet(false, true)) return
+        Log.i(TAG, "SYNTHESIS_DONE id=${session.id} samples=$sampleCount elapsed_ms=" +
+            (SystemClock.elapsedRealtime() - session.createdAtElapsed))
         sessions.remove(session.id, session)
         session.callback.asBinder().unlinkToDeath(session.deathRecipient, 0)
         val output = JSONObject()
@@ -507,6 +529,8 @@ class SherpaTtsRuntimeService : Service() {
 
     private fun fail(session: TtsSession, code: Int, message: String) {
         if (!session.completed.compareAndSet(false, true)) return
+        Log.e(TAG, "SESSION_FAILED id=${session.id} code=$code elapsed_ms=" +
+            (SystemClock.elapsedRealtime() - session.createdAtElapsed) + " message=$message")
         sessions.remove(session.id, session)
         session.cancelled.set(true)
         session.callback.asBinder().unlinkToDeath(session.deathRecipient, 0)

@@ -8,6 +8,7 @@ import android.os.IBinder
 import android.os.ParcelFileDescriptor
 import android.os.RemoteException
 import android.os.SystemClock
+import android.util.Log
 import com.aios.model.AudioStreamFormat
 import com.aios.model.GenerationChunk
 import com.aios.model.IModelCallback
@@ -32,6 +33,7 @@ import kotlin.concurrent.thread
 /** CPU whisper.cpp provider with incoming-call decode priority. */
 class WhisperRuntimeService : Service() {
     private companion object {
+        const val TAG = "AiosWhisperRuntime"
         const val BROKER_PACKAGE = "com.aios.modelbroker"
         const val RUNTIME_ID = "whisper_cpp"
         const val IMPLEMENTATION_VERSION = "1.9.4"
@@ -169,6 +171,8 @@ class WhisperRuntimeService : Service() {
                     return -1L
                 }
                 sessions[id] = session
+                Log.i(TAG, "SESSION_CREATED id=$id model=${artifact.modelId} " +
+                    "workload=${request.workload} backend=${artifact.backend}")
                 return id
             }
         }
@@ -208,6 +212,8 @@ class WhisperRuntimeService : Service() {
                 return
             }
             session.input = owned
+            Log.i(TAG, "AUDIO_SUBMITTED id=$sessionId sample_rate=${format.sampleRateHz} " +
+                "direction=${format.direction}")
             session.reader = thread(
                 start = true,
                 isDaemon = true,
@@ -278,6 +284,7 @@ class WhisperRuntimeService : Service() {
     }
 
     private fun readPcm(session: AsrSession, descriptor: ParcelFileDescriptor) {
+        Log.i(TAG, "PCM_READ_START id=${session.id}")
         val frame = ByteArray(VAD_FRAME_BYTES)
         // Calls publish a replaceable partial about every few spoken words. Offline
         // media keeps larger windows to favor throughput and stable subtitle cues.
@@ -384,8 +391,10 @@ class WhisperRuntimeService : Service() {
                         endOfStream = true,
                     )
                 }
+                Log.i(TAG, "PCM_READ_DONE id=${session.id} samples=$sampleOffset")
             }
         } catch (error: IOException) {
+            Log.e(TAG, "PCM_READ_FAILED id=${session.id}", error)
             if (!session.cancelled.get()) {
                 fail(session, ERROR_RUNTIME_FAILED, "PCM stream failed")
             }
@@ -494,6 +503,9 @@ class WhisperRuntimeService : Service() {
                 continue
             }
             try {
+                val decodeStartedAt = SystemClock.elapsedRealtime()
+                Log.i(TAG, "DECODE_START id=${session.id} start_ms=${window.startMillis} " +
+                    "end_ms=${window.endMillis} samples=${window.samples?.size ?: 0}")
                 val decoded = synchronized(modelLock) {
                     if (session.cancelled.get() || session.completed.get()) {
                         emptyArray<String>()
@@ -519,6 +531,8 @@ class WhisperRuntimeService : Service() {
                 if (decoded == null) continue
                 val language = decoded.getOrElse(0) { "und" }
                 val text = decoded.getOrElse(1) { "" }.trim()
+                Log.i(TAG, "DECODE_DONE id=${session.id} language=$language chars=${text.length} " +
+                    "elapsed_ms=${SystemClock.elapsedRealtime() - decodeStartedAt}")
                 if (language !in setOf("en", "es")) {
                     fail(session, ERROR_INVALID_REQUEST,
                          "detected language is outside English/Spanish policy")
@@ -540,6 +554,7 @@ class WhisperRuntimeService : Service() {
             } catch (_: RemoteException) {
                 cancelInternal(session.id)
             } catch (error: Exception) {
+                Log.e(TAG, "DECODE_FAILED id=${session.id}", error)
                 fail(session, ERROR_RUNTIME_FAILED,
                      (error::class.java.simpleName + ": ASR decode failed").take(256))
             }
@@ -561,6 +576,9 @@ class WhisperRuntimeService : Service() {
             sourceEndMillis = emission.endMillis
         }
         try {
+            Log.i(TAG, "CHUNK id=${session.id} final=${emission.finalChunk} " +
+                "chars=${emission.text.length} source_start_ms=${emission.startMillis} " +
+                "source_end_ms=${emission.endMillis}")
             session.callback.onChunk(chunk)
         } catch (_: RemoteException) {
             cancelInternal(session.id)
@@ -580,13 +598,19 @@ class WhisperRuntimeService : Service() {
             "cannot switch ASR models while another stream is active"
         }
         closeModelLocked()
+        val startedAt = SystemClock.elapsedRealtime()
+        Log.i(TAG, "MODEL_INITIALIZE_START model=${artifact.modelId} bytes=${model.length()}")
         val context = NativeWhisper.create(model.absolutePath)
         check(context != 0L) { "native model context is absent" }
+        Log.i(TAG, "MODEL_INITIALIZE_DONE model=${artifact.modelId} elapsed_ms=" +
+            (SystemClock.elapsedRealtime() - startedAt))
         return ModelHolder(identity, context).also { currentModel = it }
     }
 
     private fun complete(session: AsrSession) {
         if (!session.completed.compareAndSet(false, true)) return
+        Log.i(TAG, "SESSION_DONE id=${session.id} windows=${session.decodedWindows.get()} " +
+            "elapsed_ms=${SystemClock.elapsedRealtime() - session.createdAtElapsed}")
         sessions.remove(session.id, session)
         session.callback.asBinder().unlinkToDeath(session.deathRecipient, 0)
         closeDescriptor(session.input)
@@ -618,6 +642,8 @@ class WhisperRuntimeService : Service() {
 
     private fun fail(session: AsrSession, code: Int, message: String) {
         if (!session.completed.compareAndSet(false, true)) return
+        Log.e(TAG, "SESSION_FAILED id=${session.id} code=$code elapsed_ms=" +
+            (SystemClock.elapsedRealtime() - session.createdAtElapsed) + " message=$message")
         sessions.remove(session.id, session)
         session.cancelled.set(true)
         session.decodeCancellation.cancel(nativeDecodeSignal)

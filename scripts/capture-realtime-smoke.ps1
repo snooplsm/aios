@@ -4,7 +4,7 @@ param(
 
     [string]$Serial = "",
 
-    [ValidateSet("full", "audio")]
+    [ValidateSet("full", "audio", "single")]
     [string]$Mode = "full"
 )
 
@@ -57,14 +57,39 @@ $memoryText = (Invoke-AiosAdb -Arguments @("shell", "cat", "/proc/meminfo")) -jo
 $memoryMatch = [regex]::Match($memoryText, "(?m)^MemTotal:\s+(\d+)\s+kB\s*$")
 if (-not $memoryMatch.Success) { throw "cannot read device total RAM" }
 
-$testMethod = if ($Mode -eq "audio") { "runAudioRealtimeSmoke" } else { "runRealtimeSmoke" }
-$expectedMode = if ($Mode -eq "audio") { "audio_realtime_smoke" } else { "realtime_smoke" }
-$expectedRoles = if ($Mode -eq "audio") { 2 } else { 3 }
-$evidenceKind = if ($Mode -eq "audio") {
-    "pixel_aios_audio_realtime_smoke"
-} else {
-    "pixel_aios_realtime_model_smoke"
+$modeConfig = switch ($Mode) {
+    "audio" {
+        @{
+            TestMethod = "runAudioRealtimeSmoke"
+            ExpectedMode = "audio_realtime_smoke"
+            ExpectedRoles = 2
+            EvidenceKind = "pixel_aios_audio_realtime_smoke"
+        }
+    }
+    "single" {
+        @{
+            TestMethod = "runSingleModelDiagnostic"
+            ExpectedMode = "single_model_diagnostic"
+            ExpectedRoles = 4
+            EvidenceKind = "pixel_aios_single_model_diagnostic"
+        }
+    }
+    default {
+        @{
+            TestMethod = "runRealtimeSmoke"
+            ExpectedMode = "realtime_smoke"
+            ExpectedRoles = 3
+            EvidenceKind = "pixel_aios_realtime_model_smoke"
+        }
+    }
 }
+$testMethod = $modeConfig.TestMethod
+$expectedMode = $modeConfig.ExpectedMode
+$expectedRoles = $modeConfig.ExpectedRoles
+$evidenceKind = $modeConfig.EvidenceKind
+
+# The selected tags contain lifecycle/timing metadata and errors, never prompt text or PCM.
+Invoke-AiosAdb -Arguments @("logcat", "-b", "all", "-c") | Out-Null
 $instrumentationOutput = Invoke-AiosAdb -Arguments @(
     "shell", "am", "instrument", "-w", "-r",
     "-e", "class",
@@ -72,6 +97,21 @@ $instrumentationOutput = Invoke-AiosAdb -Arguments @(
     "com.aios.modelbenchmark.tests/androidx.test.runner.AndroidJUnitRunner"
 )
 $instrumentationText = $instrumentationOutput -join "`n"
+$diagnosticPatterns = @(
+    "AiosModelDiagnostic",
+    "AiosRemoteRuntime",
+    "AiosLiteRtLmRuntime",
+    "AiosTtsRuntime",
+    "AiosWhisperRuntime",
+    "lowmemorykiller",
+    "lmkd",
+    "OutOfMemory",
+    "Fatal signal",
+    "FATAL EXCEPTION"
+)
+$diagnosticLog = Invoke-AiosAdb -Arguments @("logcat", "-b", "all", "-d", "-v", "threadtime") |
+    Select-String -SimpleMatch -Pattern $diagnosticPatterns |
+    ForEach-Object { $_.Line }
 $matches = [regex]::Matches(
     $instrumentationText,
     "(?m)^INSTRUMENTATION_(?:STATUS|RESULT): " +
@@ -101,6 +141,7 @@ $record = [ordered]@{
     completed_at = [DateTime]::UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
     admission_evidence = $false
     results = $measurement.results
+    diagnostic_log = @($diagnosticLog)
 }
 $parent = Split-Path -Parent $outputPath
 if ($parent) { New-Item -ItemType Directory -Force -Path $parent | Out-Null }

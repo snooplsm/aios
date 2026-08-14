@@ -144,6 +144,8 @@ class LiteRtLmRuntimeService : Service() {
                 notifyError(callback, ERROR_RUNTIME_FAILED, "session ID collision")
                 return -1L
             }
+            Log.i(TAG, "SESSION_CREATED id=$id capability=${request.capability} " +
+                "model=${artifact.modelId} backend=${artifact.backend}")
             runtimeExecutor.execute { prepare(session) }
             return id
         }
@@ -157,6 +159,7 @@ class LiteRtLmRuntimeService : Service() {
                 fail(session, ERROR_INVALID_REQUEST, "invalid text input")
                 return
             }
+            Log.i(TAG, "TEXT_SUBMITTED id=$sessionId chars=${text.length}")
             runtimeExecutor.execute {
                 startGeneration(session) { conversation, callback ->
                     conversation.sendMessageAsync(
@@ -228,6 +231,7 @@ class LiteRtLmRuntimeService : Service() {
                 owned.use { descriptor ->
                     try {
                         val bytes = readBounded(descriptor, MAX_MEDIA_BYTES)
+                        Log.i(TAG, "MEDIA_READ id=$sessionId mime=$mimeType bytes=${bytes.size}")
                         val prompt = mediaPrompt(session.request.language, capability)
                         val contents = when (capability) {
                             "image_understanding", "video_understanding" -> Contents.of(
@@ -244,6 +248,7 @@ class LiteRtLmRuntimeService : Service() {
                             )
                         }
                     } catch (error: Exception) {
+                        Log.e(TAG, "MEDIA_FAILED id=$sessionId", error)
                         fail(session, ERROR_RUNTIME_FAILED, safeError(error))
                     }
                 }
@@ -279,8 +284,12 @@ class LiteRtLmRuntimeService : Service() {
 
     private fun prepare(session: ProviderSession) {
         if (session.cancelled.get() || session.completed.get()) return
+        val startedAt = SystemClock.elapsedRealtime()
+        Log.i(TAG, "PREPARE_START id=${session.id} capability=${session.request.capability}")
         try {
             val model = verifiedModelFile(session.artifact)
+            Log.i(TAG, "MODEL_VERIFIED id=${session.id} bytes=${model.length()} " +
+                "elapsed_ms=${SystemClock.elapsedRealtime() - startedAt}")
             val vision = session.request.capability in setOf(
                 "image_understanding", "video_understanding")
             val audio = session.request.capability == "audio_understanding"
@@ -292,6 +301,8 @@ class LiteRtLmRuntimeService : Service() {
                 audio,
             )
             val engine = ensureEngine(identity)
+            Log.i(TAG, "ENGINE_READY id=${session.id} " +
+                "elapsed_ms=${SystemClock.elapsedRealtime() - startedAt}")
             if (session.cancelled.get() || session.completed.get()) return
             val instruction = when (session.request.capability) {
                 "image_understanding", "video_understanding", "audio_understanding" ->
@@ -308,7 +319,10 @@ class LiteRtLmRuntimeService : Service() {
                     thinkingConfig = ThinkingConfig(enableThinking = false),
                 )
             )
+            Log.i(TAG, "CONVERSATION_READY id=${session.id} " +
+                "elapsed_ms=${SystemClock.elapsedRealtime() - startedAt}")
         } catch (error: Exception) {
+            Log.e(TAG, "PREPARE_FAILED id=${session.id}", error)
             fail(session, ERROR_RUNTIME_FAILED, safeError(error))
         }
     }
@@ -340,7 +354,12 @@ class LiteRtLmRuntimeService : Service() {
                 cacheDir = modelCache.absolutePath,
             )
         )
+        val initializedAt = SystemClock.elapsedRealtime()
+        Log.i(TAG, "ENGINE_INITIALIZE_START backend=${identity.backend} " +
+            "vision=${identity.vision} audio=${identity.audio}")
         engine.initialize()
+        Log.i(TAG, "ENGINE_INITIALIZE_DONE backend=${identity.backend} " +
+            "elapsed_ms=${SystemClock.elapsedRealtime() - initializedAt}")
         engineHolder = EngineHolder(identity, engine)
         return engine
     }
@@ -360,8 +379,11 @@ class LiteRtLmRuntimeService : Service() {
             return
         }
         try {
+            Log.i(TAG, "INFERENCE_START id=${session.id} " +
+                "capability=${session.request.capability}")
             send(conversation, callbackFor(session))
         } catch (error: Exception) {
+            Log.e(TAG, "INFERENCE_START_FAILED id=${session.id}", error)
             fail(session, ERROR_RUNTIME_FAILED, safeError(error))
         }
     }
@@ -370,6 +392,10 @@ class LiteRtLmRuntimeService : Service() {
         override fun onMessage(message: Message) {
             if (session.completed.get() || session.cancelled.get()) return
             val text = message.toString()
+            if (session.sequence.get() == 0L) {
+                Log.i(TAG, "FIRST_TOKEN id=${session.id} elapsed_ms=" +
+                    (SystemClock.elapsedRealtime() - session.createdAtElapsed))
+            }
             synchronized(session.response) { session.response.append(text) }
             val chunk = GenerationChunk().apply {
                 sequence = session.sequence.getAndIncrement()
@@ -392,6 +418,8 @@ class LiteRtLmRuntimeService : Service() {
             sessions.remove(session.id, session)
             session.callback.asBinder().unlinkToDeath(session.deathRecipient, 0)
             val raw = synchronized(session.response) { session.response.toString().trim() }
+            Log.i(TAG, "INFERENCE_DONE id=${session.id} chars=${raw.length} elapsed_ms=" +
+                (SystemClock.elapsedRealtime() - session.createdAtElapsed))
             val output = if (session.request.capability in setOf(
                     "call_classification", "image_understanding", "video_understanding",
                     "audio_understanding")) {
@@ -421,12 +449,15 @@ class LiteRtLmRuntimeService : Service() {
         }
 
         override fun onError(throwable: Throwable) {
+            Log.e(TAG, "INFERENCE_FAILED id=${session.id}", throwable)
             fail(session, ERROR_RUNTIME_FAILED, safeError(throwable))
         }
     }
 
     private fun fail(session: ProviderSession, code: Int, message: String) {
         if (!session.completed.compareAndSet(false, true)) return
+        Log.e(TAG, "SESSION_FAILED id=${session.id} code=$code elapsed_ms=" +
+            (SystemClock.elapsedRealtime() - session.createdAtElapsed) + " message=$message")
         sessions.remove(session.id, session)
         session.callback.asBinder().unlinkToDeath(session.deathRecipient, 0)
         notifyError(session.callback, code, message)
@@ -435,6 +466,8 @@ class LiteRtLmRuntimeService : Service() {
 
     private fun cancelInternal(sessionId: Long) {
         val session = sessions.remove(sessionId) ?: return
+        Log.w(TAG, "SESSION_CANCELLED id=$sessionId elapsed_ms=" +
+            (SystemClock.elapsedRealtime() - session.createdAtElapsed))
         session.cancelled.set(true)
         session.completed.set(true)
         session.callback.asBinder().unlinkToDeath(session.deathRecipient, 0)

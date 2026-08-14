@@ -1918,9 +1918,16 @@ def validate_aosp_overlay(root: Path) -> None:
             and "runAudioRealtimeSmoke" in benchmark_source
             and 'runBenchmark(1, false, false, "audio_realtime_smoke")'
             in benchmark_source
+            and "runSingleModelDiagnostic" in benchmark_source
+            and '"single_model_diagnostic"' in benchmark_source
+            and "DIAGNOSTIC_TIMEOUT_MILLIS = 45_000L" in benchmark_source
+            and "AiosModelDiagnostic" in benchmark_source
             and "ADMISSION_RUNS_PER_LANGUAGE = 5" in benchmark_source
             and "pixel_aios_realtime_model_smoke" in realtime_capture
             and "pixel_aios_audio_realtime_smoke" in realtime_capture
+            and "pixel_aios_single_model_diagnostic" in realtime_capture
+            and 'ValidateSet("full", "audio", "single")' in realtime_capture
+            and "diagnostic_log" in realtime_capture
             and "admission_evidence = $false" in realtime_capture
             and "#$testMethod" in realtime_capture
             and "runAudioRealtimeSmoke" in realtime_capture
@@ -3565,6 +3572,12 @@ def validate_aosp_overlay(root: Path) -> None:
             and "armConnectionTimeout" in remote_runtime
             and "provider == current" in remote_runtime,
             "runtime bindings must recover from terminal death and missing callbacks, while session opens reject provider races")
+    require('TAG = "AiosRemoteRuntime"' in remote_runtime
+            and '"OPEN runtime="' in remote_runtime
+            and '"FIRST_CHUNK runtime="' in remote_runtime
+            and '"COMPLETED runtime="' in remote_runtime
+            and '"ERROR runtime="' in remote_runtime,
+            "model broker must log privacy-safe provider lifecycle and failures")
     require("linkToDeath" in session_controller
             and "requireOwner(record, ownerUid)" in session_controller
             and "MAX_PENDING_INPUTS" in session_controller,
@@ -3714,6 +3727,12 @@ def validate_aosp_overlay(root: Path) -> None:
             and "sessions.isEmpty()" in provider_source
             and "closeEngine()" in provider_source,
             "LiteRT-LM must release an idle engine under Android memory pressure")
+    require('TAG = "AiosLiteRtLmRuntime"' in provider_source
+            and '"ENGINE_INITIALIZE_START' in provider_source
+            and '"FIRST_TOKEN' in provider_source
+            and '"INFERENCE_FAILED' in provider_source
+            and 'Log.e(TAG, "PREPARE_FAILED' in provider_source,
+            "LiteRT-LM must expose privacy-safe stage timing and exception logs")
     provider_build = (provider_root / "app" / "build.gradle.kts").read_text(
         encoding="utf-8"
     )
@@ -3791,6 +3810,12 @@ def validate_aosp_overlay(root: Path) -> None:
             and "MessageDigest.isEqual" in whisper_source
             and "model.length() == artifact.sizeBytes" in whisper_source,
             "ASR runtime must reverify model confinement, size, and digest")
+    require('TAG = "AiosWhisperRuntime"' in whisper_source
+            and '"MODEL_INITIALIZE_START' in whisper_source
+            and '"DECODE_START' in whisper_source
+            and '"DECODE_FAILED' in whisper_source
+            and '"SESSION_DONE' in whisper_source,
+            "ASR runtime must expose privacy-safe model and decode diagnostics")
     require("BuildConfig.ALLOW_EMULATOR_MODEL_FIXTURES" in whisper_source
             and 'Build.HARDWARE.equals("ranchu"' in whisper_source
             and 'Build.HARDWARE.equals("goldfish"' in whisper_source
@@ -3988,6 +4013,12 @@ def validate_aosp_overlay(root: Path) -> None:
             and "TRIM_MEMORY_RUNNING_LOW" not in tts_source
             and "if (sessions.isEmpty()) closeEngine()" in tts_source,
             "TTS runtime must support cancellation, deadlines, and pressure cleanup")
+    require('TAG = "AiosTtsRuntime"' in tts_source
+            and '"ENGINE_INITIALIZE_START' in tts_source
+            and '"FIRST_AUDIO' in tts_source
+            and '"SYNTHESIS_FAILED' in tts_source
+            and '"SYNTHESIS_DONE' in tts_source,
+            "TTS runtime must expose privacy-safe engine and synthesis diagnostics")
     require('File(configuration, "models").canonicalFile' in tts_source
             and "MessageDigest.isEqual" in tts_source
             and "EXPECTED_MEMBERS" in tts_source
