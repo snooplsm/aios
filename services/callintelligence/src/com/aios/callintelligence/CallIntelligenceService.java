@@ -1282,6 +1282,10 @@ public final class CallIntelligenceService extends Service {
         notifyTranscript(segment);
         if ("downlink".equals(direction)
                 && chunk.text != null && !chunk.text.isBlank()) {
+            if (session.isAiHandling() && !chunk.isFinal) {
+                receptionist.observeCallerPartial(
+                        callId, language, chunk.text, accepted.revision);
+            }
             // Whisper partials replace the current turn rather than append to it.
             // The heuristic is set-based, so observing each revision builds risk
             // context early. Provisional evidence is replaced by the next partial;

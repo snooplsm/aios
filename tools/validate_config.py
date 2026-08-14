@@ -4830,6 +4830,13 @@ def validate_aosp_overlay(root: Path) -> None:
     receptionist_source = (
         call_source_root / "ReceptionistDialogueClient.java"
     ).read_text(encoding="utf-8")
+    rolling_memory_source = (
+        call_source_root / "RollingConversationMemory.java"
+    ).read_text(encoding="utf-8")
+    rolling_memory_test = (
+        root / "services" / "callintelligence" / "tests" / "src" / "com" /
+        "aios" / "callintelligence" / "RollingConversationMemoryTest.java"
+    ).read_text(encoding="utf-8")
     assistant_turn_queue = (
         call_source_root / "AssistantTurnQueue.java"
     ).read_text(encoding="utf-8")
@@ -4863,10 +4870,15 @@ def validate_aosp_overlay(root: Path) -> None:
             and "Never quote or disclose it" in receptionist_source
             and "updatePriorContext" in receptionist_source
             and "prior_context_json=" in receptionist_source
+            and "compacted_call_summary_json=" in receptionist_source
+            and "recent_exact_turns_json=" in receptionist_source
+            and "current_live_partial_json=" in receptionist_source
+            and "observeCallerPartial" in receptionist_source
+            and "receptionist.observeCallerPartial(" in call_service
             and 'request.capability = "text_generation"' in receptionist_source
             and 'request.workload = "call_agent"' in receptionist_source
             and "request.allowFallback = true" in receptionist_source
-            and receptionist_source.index("appendBounded(state.history")
+            and receptionist_source.index('state.memory.appendFinal("caller"')
             < receptionist_source.index("state.pending = pending")
             and "if (broker == null || !available) return" in receptionist_source
             and "exactKeys(" in receptionist_source
@@ -4875,6 +4887,25 @@ def validate_aosp_overlay(root: Path) -> None:
             and "hasControlCharacter" in receptionist_reply_policy
             and "receptionist_timeout" in receptionist_source,
             "AI receptionist must be tool-free, injection-resistant, schema-bound, and timed out")
+    require("class RollingConversationMemory" in rolling_memory_source
+            and "CompactionInput prepareCompaction()" in rolling_memory_source
+            and "input.inputSummaryRevision != summaryRevision" in rolling_memory_source
+            and "input.inputSummaryThroughTurnId != summaryThroughTurnId"
+            in rolling_memory_source
+            and "input.firstTurnId != summaryThroughTurnId + 1L"
+            in rolling_memory_source
+            and "discardedThroughTurnId > summaryThroughTurnId"
+            in rolling_memory_source
+            and "actual.toString().equals(input.finalizedPrefix)" in rolling_memory_source
+            and "finalized.subList(0, lastIndex + 1).clear()" in rolling_memory_source
+            and "livePartial" in rolling_memory_source
+            and "staleOrDuplicateCompactionCannotReplaceNewerSummary"
+            in rolling_memory_test
+            and "compactionNamesExactPrefixAndKeepsNewerTurnsVerbatim"
+            in rolling_memory_test
+            and '"src/com/aios/callintelligence/RollingConversationMemory.java"'
+            in call_host_test,
+            "call prompts must use versioned rolling memory with stale-result rejection")
     require("Math.addExact" in receptionist_request_tracker
             and "expected.deadlineElapsedRealtimeMillis" in receptionist_request_tracker
             and "current != expected" in receptionist_request_tracker
