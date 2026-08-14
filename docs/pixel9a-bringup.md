@@ -101,6 +101,13 @@ LiteRT-LM, Whisper.cpp, and TTS runtime providers. A model-free image, a partial
 pack, or an undeclared extra payload now fails evidence capture even when the
 Android build itself succeeds.
 
+For an unlocked development device, package the evidenced target-files archive
+with `tools/package_pixel_dev_image.py`. It invokes the pinned
+`img_from_target_files`, refuses mismatched target-files evidence, CRC-checks the
+result, requires `tegu` plus explicit bootloader/baseband versions, verifies the
+full partition set and model/runtime inventory, and emits a hash-bound release
+record. Test-key packages are never suitable for a locked bootloader or release.
+
 ```text
 vendor/aios/scripts/build-aosp-lane.sh \
   /absolute/path/to/aosp-latest \

@@ -874,6 +874,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "tools/check_aosp_manifest.py",
         "tools/refresh_aosp_tracking.py",
         "tools/capture_build_evidence.py",
+        "tools/package_pixel_dev_image.py",
         "tools/capture_cuttlefish_boot_evidence.py",
         "tools/capture_avd_boot_evidence.py",
         "tools/check_gsi_preflight.py",
@@ -1677,6 +1678,16 @@ def validate_aosp_overlay(root: Path) -> None:
             and '"schema_version": 2' in build_evidence_source
             and "empty installed product artifact" in build_evidence_source,
             "build evidence must bind product artifacts and the review-complete patch queue")
+    pixel_packager = (root / "tools" /
+                      "package_pixel_dev_image.py").read_text(encoding="utf-8")
+    require("img_from_target_files" in pixel_packager
+            and "validate_build_input" in pixel_packager
+            and "inspect_fastboot_zip" in pixel_packager
+            and "public_android_test_keys_unlocked_bootloader_only" in pixel_packager
+            and "version-bootloader" in pixel_packager
+            and "version-baseband" in pixel_packager
+            and "contains_required_model_payloads" in pixel_packager,
+            "Pixel development packaging must be evidence-bound and device-guarded")
 
     common_product = (root / "products" / "aios_common.mk").read_text(
         encoding="utf-8"
