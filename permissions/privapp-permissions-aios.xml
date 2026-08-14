@@ -32,4 +32,9 @@
         <permission name="android.permission.DUMP" />
         <permission name="android.permission.READ_PRIVILEGED_PHONE_STATE" />
     </privapp-permissions>
+
+    <!-- Installed only by the eng/userdebug developer-defaults build flag. -->
+    <privapp-permissions package="com.aios.developerdefaults">
+        <permission name="android.permission.WRITE_SECURE_SETTINGS" />
+    </privapp-permissions>
 </permissions>

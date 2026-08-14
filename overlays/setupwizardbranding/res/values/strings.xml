@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Resource identifiers stay stable for upstream compatibility. -->
+    <string name="app_name">AIOS Setup</string>
+    <string name="welcome_to_grapheneos">Welcome to AIOS</string>
+    <string name="grapheneos_icon">AIOS icon</string>
+    <string name="grapheneos_desc">Private, on-device intelligence built into your phone.</string>
+    <string name="network_location_enabled_desc">Enable network location to determine your location more accurately and efficiently, including indoors. Nearby wireless signal identifiers are sent through the configured privacy proxy only while network location is in use.</string>
+    <string name="geocoder_enabled_desc">Enable the geocoder so apps can use the configured privacy-preserving network service to convert between geographic coordinates and human-readable addresses. Some apps need this for critical functionality.</string>
+    <string name="data_restore_desc">If you have a backup from your previous AIOS device, you can restore it here.</string>
+</resources>

@@ -1,6 +1,26 @@
 # Common product additions. Keep this file additive so device products remain
 # owned by their upstream AOSP projects.
 
+# Developer options and authenticated ADB default on only for eng/userdebug.
+# Override with AIOS_ENABLE_DEVELOPER_DEFAULTS=false for a quieter debug image.
+# A production user build defaults off and rejects an attempted force-enable.
+AIOS_ENABLE_DEVELOPER_DEFAULTS ?= $(if $(filter userdebug eng,$(TARGET_BUILD_VARIANT)),true,false)
+ifeq ($(AIOS_ENABLE_DEVELOPER_DEFAULTS),true)
+ifeq ($(filter userdebug eng,$(TARGET_BUILD_VARIANT)),)
+$(error AIOS_ENABLE_DEVELOPER_DEFAULTS=true is forbidden for a production user build)
+endif
+PRODUCT_PACKAGES += AiosDeveloperDefaults
+PRODUCT_PRODUCT_PROPERTIES += ro.aios.developer_defaults=true
+else
+PRODUCT_PRODUCT_PROPERTIES += ro.aios.developer_defaults=false
+endif
+
+# Original AIOS artwork is optional and additive to the upstream device product.
+AIOS_ENABLE_BOOT_ANIMATION ?= true
+ifeq ($(AIOS_ENABLE_BOOT_ANIMATION),true)
+PRODUCT_PACKAGES += aios_bootanimation
+endif
+
 PRODUCT_PACKAGES += \
     AiosContextIntelligence \
     AiosMessaging \

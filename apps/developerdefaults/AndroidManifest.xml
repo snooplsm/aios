@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.aios.developerdefaults">
+
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS" />
+
+    <application
+        android:allowBackup="false"
+        android:defaultToDeviceProtectedStorage="true"
+        android:directBootAware="true"
+        android:hasCode="true"
+        android:label="AIOS development defaults"
+        android:supportsRtl="true">
+        <!-- The package is present only when AIOS_ENABLE_DEVELOPER_DEFAULTS=true. -->
+        <meta-data
+            android:name="com.aios.developer_defaults"
+            android:value="true" />
+        <receiver
+            android:name=".DeveloperDefaultsReceiver"
+            android:directBootAware="true"
+            android:enabled="true"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+    </application>
+</manifest>

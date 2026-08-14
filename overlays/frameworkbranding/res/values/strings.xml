@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="deprecated_abi_message_grapheneos">This app only supports 32-bit code and is not compatible with newer devices. Switch to a modern 64-bit build. AIOS keeps 32-bit app support disabled on newer devices for improved security.</string>
+</resources>

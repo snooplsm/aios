@@ -858,8 +858,55 @@ def validate_default_dialer_overlay(root: Path) -> None:
     require(defaults_config.count('name="config_defaultDialer"') == 1
             and ">com.aios.phone</string>" in defaults_config,
             "fresh AIOS users must receive AIOS Phone as the configured dialer")
-
-
+    developer_manifest = (root / "apps" / "developerdefaults" /
+                          "AndroidManifest.xml").read_text(encoding="utf-8")
+    developer_receiver = (root / "apps" / "developerdefaults" / "src" / "com" /
+                          "aios" / "developerdefaults" /
+                          "DeveloperDefaultsReceiver.java").read_text(encoding="utf-8")
+    developer_policy = (root / "apps" / "developerdefaults" / "src" / "com" /
+                        "aios" / "developerdefaults" /
+                        "DeveloperDefaultsPolicy.java").read_text(encoding="utf-8")
+    developer_test = (root / "apps" / "developerdefaults" / "tests" / "src" /
+                      "com" / "aios" / "developerdefaults" /
+                      "DeveloperDefaultsPolicyTest.java").read_text(encoding="utf-8")
+    developer_build = (root / "apps" / "developerdefaults" /
+                       "Android.bp").read_text(encoding="utf-8")
+    require("AIOS_ENABLE_DEVELOPER_DEFAULTS ?=" in common_product
+            and "$(filter userdebug eng,$(TARGET_BUILD_VARIANT))" in common_product
+            and "AIOS_ENABLE_DEVELOPER_DEFAULTS=true is forbidden" in common_product
+            and "PRODUCT_PACKAGES += AiosDeveloperDefaults" in common_product
+            and "ro.aios.developer_defaults=true" in common_product
+            and "ro.aios.developer_defaults=false" in common_product
+            and "ro.adb.secure" not in common_product,
+            "developer defaults must be an authenticated-ADB debug-only build flag")
+    require('name: "AiosDeveloperDefaults"' in developer_build
+            and 'sdk_version: "system_current"' in developer_build
+            and "platform_apis: true" not in developer_build
+            and "privileged: true" in developer_build
+            and "product_specific: true" in developer_build
+            and "android.permission.WRITE_SECURE_SETTINGS" in developer_manifest
+            and 'android:directBootAware="true"' in developer_manifest
+            and 'android:name="com.aios.developer_defaults"' in developer_manifest
+            and "Build.IS_DEBUGGABLE" in developer_receiver
+            and "ENABLED_METADATA" in developer_receiver
+            and "getBoolean(ENABLED_METADATA, false)" in developer_receiver
+            and "Settings.Global.DEVELOPMENT_SETTINGS_ENABLED" in developer_receiver
+            and "Settings.Global.ADB_ENABLED" in developer_receiver
+            and "return debuggable && productFlagEnabled" in developer_policy
+            and "requiresDebuggableBuildAndExplicitProductFlag" in developer_test,
+            "developer defaults app must double-gate secure settings at runtime and in tests")
+    boot_make = (root / "assets" / "bootanimation" /
+                 "Android.mk").read_text(encoding="utf-8")
+    boot_builder = (root / "tools" /
+                    "build_boot_animation.py").read_text(encoding="utf-8")
+    require("AIOS_ENABLE_BOOT_ANIMATION ?= true" in common_product
+            and "PRODUCT_PACKAGES += aios_bootanimation" in common_product
+            and "LOCAL_MODULE := aios_bootanimation" in boot_make
+            and "$(TARGET_OUT_PRODUCT)/media" in boot_make
+            and "ZIP_STORED" in boot_builder
+            and "WIDTH = 1080" in boot_builder
+            and "HEIGHT = 2424" in boot_builder,
+            "AIOS boot animation must be optional, product-scoped, and deterministically generated")
 def validate_aosp_overlay(root: Path) -> None:
     required_files = [
         "Android.bp",
@@ -893,9 +940,35 @@ def validate_aosp_overlay(root: Path) -> None:
         "docs/emulator-bringup.md",
         "docs/gsi-bringup.md",
         "permissions/privapp-permissions-aios.xml",
+        "apps/developerdefaults/Android.bp",
+        "apps/developerdefaults/AndroidManifest.xml",
+        "apps/developerdefaults/src/com/aios/developerdefaults/DeveloperDefaultsPolicy.java",
+        "apps/developerdefaults/src/com/aios/developerdefaults/DeveloperDefaultsReceiver.java",
+        "apps/developerdefaults/tests/src/com/aios/developerdefaults/DeveloperDefaultsPolicyTest.java",
+        "assets/branding/README.md",
+        "assets/branding/aios-boot-emblem-master.png",
+        "assets/branding/aios-boot-wordmark-master.png",
+        "assets/branding/aios-ui-knot.png",
+        "assets/bootanimation/Android.mk",
+        "assets/bootanimation/bootanimation.zip",
+        "tools/build_boot_animation.py",
+        "tests/test_boot_animation.py",
+        "docs/development-defaults.md",
+        "docs/boot-animation.md",
+        "docs/visual-branding.md",
         "overlays/frameworkdefaults/Android.bp",
         "overlays/frameworkdefaults/AndroidManifest.xml",
         "overlays/frameworkdefaults/res/values/config.xml",
+        "overlays/frameworkbranding/Android.bp",
+        "overlays/frameworkbranding/AndroidManifest.xml",
+        "overlays/frameworkbranding/res/values/strings.xml",
+        "overlays/settingsbranding/Android.bp",
+        "overlays/settingsbranding/AndroidManifest.xml",
+        "overlays/settingsbranding/res/values/strings.xml",
+        "overlays/setupwizardbranding/Android.bp",
+        "overlays/setupwizardbranding/AndroidManifest.xml",
+        "overlays/setupwizardbranding/res/values/strings.xml",
+        "overlays/setupwizardbranding/res/drawable-nodpi/grapheneos_icon.png",
         "apps/phone/Android.bp",
         "apps/phone/AndroidManifest.xml",
         "apps/phone/src/com/aios/phone/DirectBootPreferencePolicy.kt",
@@ -1729,6 +1802,44 @@ def validate_aosp_overlay(root: Path) -> None:
     require("AiosPhone" in common_product and "AiosPhoneAssistant" not in common_product,
             "the product must include the full AIOS Phone module")
     validate_default_dialer_overlay(root)
+    tegu_product = (root / "products" / "aios_tegu.mk").read_text(
+        encoding="utf-8"
+    )
+    require(all(module in tegu_product for module in (
+                "AiosFrameworkBrandingOverlay",
+                "AiosSettingsBrandingOverlay",
+                "AiosSetupWizardBrandingOverlay")),
+            "the Pixel product must install every visual-only AIOS branding overlay")
+    setup_branding_manifest = (root / "overlays" / "setupwizardbranding" /
+                               "AndroidManifest.xml").read_text(encoding="utf-8")
+    setup_branding_values = (root / "overlays" / "setupwizardbranding" / "res" /
+                             "values" / "strings.xml").read_text(encoding="utf-8")
+    settings_branding_manifest = (root / "overlays" / "settingsbranding" /
+                                  "AndroidManifest.xml").read_text(encoding="utf-8")
+    settings_branding_values = (root / "overlays" / "settingsbranding" / "res" /
+                                "values" / "strings.xml").read_text(encoding="utf-8")
+    framework_branding_manifest = (root / "overlays" / "frameworkbranding" /
+                                   "AndroidManifest.xml").read_text(encoding="utf-8")
+    framework_branding_values = (root / "overlays" / "frameworkbranding" / "res" /
+                                 "values" / "strings.xml").read_text(encoding="utf-8")
+    require('android:targetPackage="app.grapheneos.setupwizard"'
+            in setup_branding_manifest
+            and 'android:isStatic="true"' in setup_branding_manifest
+            and "Welcome to AIOS" in setup_branding_values
+            and "Private, on-device intelligence" in setup_branding_values
+            and "GrapheneOS" not in setup_branding_values,
+            "Setup Wizard must retain its internal target while showing only AIOS copy")
+    require('android:targetPackage="com.android.settings"'
+            in settings_branding_manifest
+            and "AIOS exploit protections" in settings_branding_values
+            and "AIOS remains installed" in settings_branding_values
+            and "Privacy proxy" in settings_branding_values
+            and "GrapheneOS" not in settings_branding_values,
+            "Settings must replace visible upstream branding without mislabeling endpoints")
+    require('android:targetPackage="android"' in framework_branding_manifest
+            and "AIOS keeps 32-bit app support disabled" in framework_branding_values
+            and "GrapheneOS" not in framework_branding_values,
+            "framework notices must show AIOS branding on the Pixel lane")
     require("AiosMessaging" in common_product
             and "AiosContextIntelligence" in common_product,
             "the product must include first-party messaging and communication context")
@@ -6022,12 +6133,13 @@ def validate_security_surface(root: Path) -> None:
             f"model artifacts must not be committed: {committed_artifacts}")
 
     common_product = (root / "products" / "aios_common.mk").read_text(encoding="utf-8")
+    tegu_product = (root / "products" / "aios_tegu.mk").read_text(encoding="utf-8")
     module_names = discover_blueprint_modules(root)
     local_packages = [name for name in module_names if re.search(r"(?i)aios", name)]
     for module in local_packages:
         if module == "AIOS_Apache_2_0":
             continue
-        require(module in common_product or module in {
+        require(module in common_product or module in tegu_product or module in {
                     "aios_call_api", "aios_context_api", "aios_media_context_api",
                     "aios_media_metadata_api", "aios_model_api", "aios_runtime_api",
                     "aios_runtime_common"}

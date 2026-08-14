@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Internal resource names remain upstream-compatible; visible copy is AIOS. -->
+    <string name="aep_compat_mode_summary">Improves compatibility by disabling some AIOS exploit protections for this app</string>
+    <string name="supl_enabled_grapheneos_proxy">Privacy proxy</string>
+    <string name="remote_provisioning_enabled_grapheneos_proxy">Privacy proxy</string>
+    <string name="psds_enabled_grapheneos_server">Privacy server</string>
+    <string name="conn_checks_grapheneos_server">Privacy server</string>
+    <string name="widevine_provisioning_enabled_grapheneos_proxy">Privacy proxy</string>
+    <string name="network_location_enabled_grapheneos_apple_proxy">Privacy proxy for Apple location</string>
+    <string name="geocoder_enabled_grapheneos_server">Privacy geocoder</string>
+    <string name="cert_transparency_dl_grapheneos_server">Privacy server</string>
+    <string name="duress_pwd_description">Duress password can be entered instead of the user password anywhere it is requested, including the lock screen for any user or profile.\n\nSubmitting it immediately makes stored data permanently inaccessible, deletes all eSIMs, and powers off the device. AIOS remains installed.\n\nDuress PIN works the same way as duress password.</string>
+    <string name="app_play_integrity_top_intro">The Play Integrity API lets services inspect device properties through their app. AIOS is not an unmodified stock OS and is not expected to satisfy device or strong integrity checks, so some apps may restrict access. App developers can use Android hardware attestation when they need to verify the hardware, OS, and app without requiring a specific stock operating system.</string>
+</resources>

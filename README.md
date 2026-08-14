@@ -78,20 +78,26 @@ thermal benchmark gates pass on the exact device/build/backend combination.
 
 > **Validation status:** Android 17 Cuttlefish now builds and clean-boots with
 > AIOS Phone as the default dialer and stable Phone → Call Intelligence → Model
-> Broker bindings. This is virtual integration evidence, not proof of Pixel
-> modem, camera, ARM inference, carrier, TPU/GPU, or near-real-time performance.
+> Broker bindings. A wiped Pixel 9a has also booted the complete signed
+> `aios_tegu` userdebug image and identified itself as `AIOS on Pixel 9a` over
+> authenticated ADB. This proves full-device boot, but not modem, camera,
+> carrier, TPU/GPU, or near-real-time model performance.
 > A complete catalog-pinned Pixel 9a model pack (Gemma 4 E2B, Whisper base, and
 > Supertonic 3) has also passed host packaging and deduplication verification
-> without committing its weights. Pixel 9a flashing, native inference on the
-> Pixel, and physical model/call/media gates remain pending.
+> without committing its weights. Native Pixel inference and the physical
+> model/call/media gates remain pending.
 
 ## Current state
 
 This repository is the small AIOS overlay and integration repository, not a copy
 of AOSP. It now contains the AOSP product wrapper, Binder contracts, fail-closed
-Model Broker policy, crash-isolated runtime transport, and session arbitration,
-Call Intelligence policy/capture/
-retention plus Broker ASR streaming, and a durable MediaStore inference worker.
+Model Broker policy, crash-isolated runtime transport, session arbitration,
+Call Intelligence policy/capture/retention plus Broker ASR streaming, and a
+durable MediaStore inference worker. It also has an eng/userdebug-only build
+flag for authenticated ADB plus visible Developer options, an optional original
+1080x2424 AIOS boot animation, and visual-only Pixel-lane overlays for AIOS
+branding in Setup Wizard, Settings, and framework notices. Production `user`
+builds reject attempted developer-default enablement.
 The call path also has a digest-locked, arm64 Sherpa-ONNX/Supertonic 3 provider
 that streams native 44.1 kHz English/Spanish receptionist speech through the broker.
 The owner-facing phone application is now an original Kotlin/Jetpack Compose

@@ -1,0 +1,7 @@
+runtime_resource_overlay {
+    name: "AiosFrameworkBrandingOverlay",
+    resource_dirs: ["res"],
+    certificate: "platform",
+    manifest: "AndroidManifest.xml",
+    product_specific: true,
+}

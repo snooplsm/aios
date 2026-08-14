@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.aios.setupwizard.branding.overlay">
+
+    <application android:hasCode="false" />
+
+    <!-- Internal target identity remains upstream-compatible; only resources change. -->
+    <overlay
+        android:isStatic="true"
+        android:priority="1000"
+        android:targetPackage="app.grapheneos.setupwizard" />
+</manifest>

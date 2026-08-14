@@ -1,0 +1,23 @@
+android_app {
+    name: "AiosDeveloperDefaults",
+    manifest: "AndroidManifest.xml",
+    srcs: ["src/**/*.java"],
+    sdk_version: "system_current",
+    certificate: "platform",
+    privileged: true,
+    product_specific: true,
+    min_sdk_version: "35",
+    optimize: {
+        enabled: true,
+    },
+}
+
+java_test_host {
+    name: "aios_developerdefaults_host_tests",
+    srcs: [
+        "src/com/aios/developerdefaults/DeveloperDefaultsPolicy.java",
+        "tests/src/**/*.java",
+    ],
+    static_libs: ["junit"],
+    test_suites: ["general-tests"],
+}
