@@ -36,7 +36,7 @@ class WhisperRuntimeService : Service() {
         const val TAG = "AiosWhisperRuntime"
         const val BROKER_PACKAGE = "com.aios.modelbroker"
         const val RUNTIME_ID = "whisper_cpp"
-        const val IMPLEMENTATION_VERSION = "1.9.8"
+        const val IMPLEMENTATION_VERSION = "1.9.9"
         const val PROVIDER_API_VERSION = 2
         const val ERROR_INVALID_REQUEST = 2
         const val ERROR_BUSY = 3
@@ -80,6 +80,7 @@ class WhisperRuntimeService : Service() {
         val englishWindows = AtomicInteger(0)
         val spanishWindows = AtomicInteger(0)
         val turn = StreamingAsrTurnAccumulator()
+        val turnLanguage = TurnLanguagePolicy()
         val decodeCancellation = DecodeCancellationFence()
         lateinit var deathRecipient: IBinder.DeathRecipient
         @Volatile var input: ParcelFileDescriptor? = null
@@ -500,12 +501,15 @@ class WhisperRuntimeService : Service() {
             }
             if (window.samples == null && window.endOfTurn) {
                 emitTurn(session, session.turn.finishTurn())
+                session.turnLanguage.finishTurn()
                 continue
             }
             try {
                 val decodeStartedAt = SystemClock.elapsedRealtime()
+                val decoderLanguage = session.turnLanguage.decoderLanguage()
                 Log.i(TAG, "DECODE_START id=${session.id} start_ms=${window.startMillis} " +
-                    "end_ms=${window.endMillis} samples=${window.samples?.size ?: 0}")
+                    "end_ms=${window.endMillis} samples=${window.samples?.size ?: 0} " +
+                    "language=$decoderLanguage")
                 val decoded = synchronized(modelLock) {
                     if (session.cancelled.get() || session.completed.get()) {
                         emptyArray<String>()
@@ -518,7 +522,7 @@ class WhisperRuntimeService : Service() {
                             NativeWhisper.transcribe(
                                 model.nativeContext,
                                 window.samples!!,
-                                "auto",
+                                decoderLanguage,
                                 THREAD_COUNT,
                                 cancellation,
                             )
@@ -529,15 +533,18 @@ class WhisperRuntimeService : Service() {
                 }
                 if (session.cancelled.get() || session.completed.get()) continue
                 if (decoded == null) continue
-                val language = decoded.getOrElse(0) { "und" }
+                val reportedLanguage = decoded.getOrElse(0) { "und" }
                 val text = decoded.getOrElse(1) { "" }.trim()
-                Log.i(TAG, "DECODE_DONE id=${session.id} language=$language chars=${text.length} " +
-                    "elapsed_ms=${SystemClock.elapsedRealtime() - decodeStartedAt}")
-                if (language !in setOf("en", "es")) {
-                    fail(session, ERROR_INVALID_REQUEST,
-                         "detected language is outside English/Spanish policy")
+                val language = try {
+                    session.turnLanguage.acceptDecoderResult(reportedLanguage)
+                } catch (error: IllegalArgumentException) {
+                    fail(session, ERROR_INVALID_REQUEST, error.message ?:
+                        "detected language is outside English/Spanish policy")
                     continue
                 }
+                Log.i(TAG, "DECODE_DONE id=${session.id} language=$language " +
+                    "reported_language=$reportedLanguage chars=${text.length} " +
+                    "elapsed_ms=${SystemClock.elapsedRealtime() - decodeStartedAt}")
                 if (language == "en") session.englishWindows.incrementAndGet()
                 if (language == "es") session.spanishWindows.incrementAndGet()
                 session.decodedWindows.incrementAndGet()
@@ -551,6 +558,7 @@ class WhisperRuntimeService : Service() {
                         window.endOfTurn,
                     ),
                 )
+                if (window.endOfTurn) session.turnLanguage.finishTurn()
             } catch (_: RemoteException) {
                 cancelInternal(session.id)
             } catch (error: Exception) {

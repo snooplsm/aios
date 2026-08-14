@@ -30,8 +30,12 @@ Low-energy frames outside a turn are skipped. A single priority decode queue
 services both directions: incoming/downlink work is always scheduled before
 outgoing/uplink work. Each session is bounded to four queued decode items;
 falling behind closes that AI stream rather than blocking authoritative local
-capture or telephony. English and Spanish are auto-detected per window; other
-detected languages fail the prototype's declared language policy.
+capture or telephony. English and Spanish are auto-detected; other detected
+languages fail the prototype's declared language policy. For live calls, the
+first supported window locks the decoder to that language only until the
+current 600 ms endpoint. This prevents a short low-information tail from being
+independently misclassified while allowing the next utterance to switch between
+English and Spanish. Offline media windows remain independent turns.
 
 The 100 ms VAD hot path scans little-endian PCM16 energy directly and allocates
 no float array; float conversion happens only when a speech-bearing decode
