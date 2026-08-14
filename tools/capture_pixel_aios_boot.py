@@ -30,6 +30,7 @@ REQUIRED_PACKAGES = (
 )
 PROPERTY_NAMES = (
     "sys.boot_completed",
+    "sys.user.0.ce_available",
     "ro.gsid.image_running",
     "ro.build.fingerprint",
     "ro.build.type",
@@ -178,6 +179,7 @@ def collect(
     }
     expected_properties = {
         "sys.boot_completed": "1",
+        "sys.user.0.ce_available": "true",
         "ro.build.fingerprint": build.get("build_fingerprint"),
         "ro.build.type": "userdebug",
         "ro.build.version.release": build.get("android_release"),
@@ -198,8 +200,6 @@ def collect(
         raise BootEvidenceError("connected Pixel is running a GSI rather than full AIOS")
     if "arm64-v8a" not in properties["ro.product.cpu.abilist64"].split(","):
         raise BootEvidenceError("connected Pixel does not expose arm64-v8a")
-    if runner.run(["shell", "cmd", "user", "is-user-unlocked", "0"]) != "true":
-        raise BootEvidenceError("owner credential storage is not unlocked")
     if runner.run(["shell", "settings", "get", "secure", "user_setup_complete"]) != "1":
         raise BootEvidenceError("fresh-user setup is not complete")
 

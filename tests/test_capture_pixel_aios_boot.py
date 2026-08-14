@@ -28,6 +28,7 @@ class FakeAdb:
         self.artifacts = {"/" + item["path"]: item for item in artifacts}
         self.properties = {
             "sys.boot_completed": "1",
+            "sys.user.0.ce_available": "true",
             "ro.gsid.image_running": "",
             "ro.build.fingerprint": FINGERPRINT,
             "ro.build.type": "userdebug",
@@ -50,8 +51,6 @@ class FakeAdb:
             return f"List of devices attached\n{SERIAL} device product:tegu\n"
         if arguments[:2] == ["shell", "getprop"]:
             return self.properties[arguments[2]]
-        if arguments[:5] == ["shell", "cmd", "user", "is-user-unlocked", "0"]:
-            return "true"
         if arguments[:5] == ["shell", "settings", "get", "secure", "user_setup_complete"]:
             return "1"
         if arguments[:3] == ["shell", "pm", "path"]:

@@ -1715,6 +1715,7 @@ def validate_aosp_overlay(root: Path) -> None:
             and "ro.gsid.image_running" in pixel_boot_capture
             and "ro.boot.verifiedbootstate" in pixel_boot_capture
             and "ro.boot.vbmeta.device_state" in pixel_boot_capture
+            and "sys.user.0.ce_available" in pixel_boot_capture
             and "android.app.role.DIALER" in pixel_boot_capture
             and "every_evidenced_product_artifact_verified" in pixel_boot_capture
             and "proves_physical_full_device_boot" in pixel_boot_capture
