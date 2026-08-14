@@ -33,6 +33,9 @@ import java.io.File
 import java.io.FileInputStream
 import java.io.IOException
 import java.security.MessageDigest
+import java.nio.file.Files
+import java.nio.file.LinkOption
+import java.nio.file.attribute.BasicFileAttributes
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
@@ -47,7 +50,7 @@ class LiteRtLmRuntimeService : Service() {
         const val TAG = "AiosLiteRtLmRuntime"
         const val BROKER_PACKAGE = "com.aios.modelbroker"
         const val RUNTIME_ID = "litert_lm"
-        const val IMPLEMENTATION_VERSION = "0.15.0"
+        const val IMPLEMENTATION_VERSION = "0.15.1"
         const val PROVIDER_API_VERSION = 2
         const val ERROR_INVALID_REQUEST = 2
         const val ERROR_BUSY = 3
@@ -69,6 +72,14 @@ class LiteRtLmRuntimeService : Service() {
     )
 
     private data class EngineHolder(val identity: EngineIdentity, val engine: Engine)
+
+    private data class VerifiedModelIdentity(
+        val path: String,
+        val digest: String,
+        val sizeBytes: Long,
+        val lastModifiedMillis: Long,
+        val fileKey: String,
+    )
 
     private class ProviderSession(
         val id: Long,
@@ -92,6 +103,7 @@ class LiteRtLmRuntimeService : Service() {
         Thread(work, "aios-litertlm-runtime").apply { priority = Thread.NORM_PRIORITY }
     }
     @Volatile private var engineHolder: EngineHolder? = null
+    @Volatile private var verifiedModelIdentity: VerifiedModelIdentity? = null
     @Volatile private var stopping = false
 
     private val binder = object : IAiosRuntimeProvider.Stub() {
@@ -290,9 +302,11 @@ class LiteRtLmRuntimeService : Service() {
             val model = verifiedModelFile(session.artifact)
             Log.i(TAG, "MODEL_VERIFIED id=${session.id} bytes=${model.length()} " +
                 "elapsed_ms=${SystemClock.elapsedRealtime() - startedAt}")
-            val vision = session.request.capability in setOf(
-                "image_understanding", "video_understanding")
             val audio = session.request.capability == "audio_understanding"
+            // The catalog's text and image/video aliases point at the same
+            // multimodal LiteRT-LM package. Keep one vision-capable engine for
+            // those roles instead of destroying it when the role changes.
+            val vision = !audio
             val identity = EngineIdentity(
                 model.absolutePath,
                 session.artifact.modelDigest,
@@ -536,12 +550,41 @@ class LiteRtLmRuntimeService : Service() {
         check(confined && model.isFile) {
             "model path is outside the read-only model directory"
         }
-        check(model.length() == artifact.sizeBytes) { "model size mismatch" }
+        val observed = modelIdentity(model, artifact.modelDigest)
+        check(observed.sizeBytes == artifact.sizeBytes) { "model size mismatch" }
+        if (verifiedModelIdentity == observed) {
+            Log.i(TAG, "MODEL_DIGEST_CACHE_HIT model=${artifact.modelId} " +
+                "bytes=${observed.sizeBytes}")
+            return model
+        }
+        val actualDigest = sha256(model)
+        check(modelIdentity(model, artifact.modelDigest) == observed) {
+            "model changed during digest verification"
+        }
         check(MessageDigest.isEqual(
             artifact.modelDigest.toByteArray(Charsets.US_ASCII),
-            sha256(model).toByteArray(Charsets.US_ASCII),
+            actualDigest.toByteArray(Charsets.US_ASCII),
         )) { "model digest mismatch" }
+        verifiedModelIdentity = observed
+        Log.i(TAG, "MODEL_DIGEST_VERIFIED model=${artifact.modelId} " +
+            "bytes=${observed.sizeBytes}")
         return model
+    }
+
+    private fun modelIdentity(model: File, digest: String): VerifiedModelIdentity {
+        val attributes = Files.readAttributes(
+            model.toPath(),
+            BasicFileAttributes::class.java,
+            LinkOption.NOFOLLOW_LINKS,
+        )
+        check(attributes.isRegularFile) { "model is not a regular file" }
+        return VerifiedModelIdentity(
+            model.absolutePath,
+            digest,
+            attributes.size(),
+            attributes.lastModifiedTime().toMillis(),
+            attributes.fileKey()?.toString() ?: "",
+        )
     }
 
     private fun allowsEmulatorModelFixtures(): Boolean =

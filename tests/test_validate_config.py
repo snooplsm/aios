@@ -633,6 +633,19 @@ class RuntimeCatalogTests(unittest.TestCase):
                                         "coordinate/version mismatch"):
                 validator.validate_runtime_catalog(temporary)
 
+        value = load("runtime_catalog.json")
+        provider = next(item for item in value["providers"]
+                        if item["runtime"] == "litert_lm")
+        provider["implementation_version"] = "0.15.99"
+        with tempfile.TemporaryDirectory() as raw:
+            temporary = Path(raw)
+            (temporary / "config").mkdir()
+            shutil.copy(ROOT / "config" / "model_catalog.json",
+                        temporary / "config" / "model_catalog.json")
+            (temporary / "config" / "runtime_catalog.json").write_text(
+                json.dumps(value), encoding="utf-8")
+            validator.validate_runtime_catalog(temporary)
+
     def test_pixel_9a_npu_cannot_be_enabled_without_evidence(self):
         value = load("runtime_catalog.json")
         tegu = next(profile for profile in value["device_profiles"]

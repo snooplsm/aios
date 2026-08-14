@@ -80,6 +80,15 @@ and size 19,827,303 bytes. Do not use `latest.release`; it makes a release
 impossible to reproduce. The provider build must also lock and verify all
 transitive Maven artifacts, not only the LiteRT-LM AAR.
 
+AIOS provider implementation `0.15.1` keeps one vision-capable engine for the
+catalog's text, image, and video aliases because those aliases resolve to the
+same digest-locked multimodal package. Audio remains a distinct engine mode.
+After one complete SHA-256 pass, the provider may reuse that verification only
+while canonical path, expected digest, size, modification time, and filesystem
+file key all remain identical; it rechecks the identity after hashing to reject
+a concurrent replacement. Cache hits and full verification are logged without
+paths or prompt content.
+
 The provider project is in `runtime/litertlmprovider`. It uses AGP 8.10.1,
 Kotlin 2.2.21, and requires Gradle 8.11.1 plus JDK 17. Its AIDL source sets point
 at the same broker/runtime contracts compiled by Soong. The one-time bootstrap

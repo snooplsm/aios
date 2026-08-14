@@ -16,8 +16,8 @@ android {
         applicationId = "com.aios.runtime.litertlm"
         minSdk = 35
         targetSdk = 36
-        versionCode = 15
-        versionName = "0.15.0"
+        versionCode = 1501
+        versionName = "0.15.1"
         buildConfigField("boolean", "ALLOW_EMULATOR_MODEL_FIXTURES", "false")
     }
 
@@ -169,7 +169,7 @@ tasks.register("writeRuntimeProvenance") {
             "provider_package" to "com.aios.runtime.litertlm",
             "provider_service" to
                 "com.aios.runtime.litertlm.LiteRtLmRuntimeService",
-            "implementation_version" to "0.15.0",
+            "implementation_version" to "0.15.1",
             "source_repository" to "https://github.com/google-ai-edge/LiteRT-LM",
             "source_revision" to "2117fc4314670e00047bc8469783f02a68c33f0c",
             "reproducible_build_command" to

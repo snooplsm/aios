@@ -3716,7 +3716,11 @@ def validate_aosp_overlay(root: Path) -> None:
             "runtime provider must admit only the exact broker UID")
     require("MODEL_DIRECTORY.canonicalFile" in provider_source
             and "MessageDigest.isEqual" in provider_source
-            and "model.length() == artifact.sizeBytes" in provider_source
+            and "observed.sizeBytes == artifact.sizeBytes" in provider_source
+            and "MODEL_DIGEST_CACHE_HIT" in provider_source
+            and "model changed during digest verification" in provider_source
+            and "BasicFileAttributes" in provider_source
+            and "LinkOption.NOFOLLOW_LINKS" in provider_source
             and "BuildConfig.ALLOW_EMULATOR_MODEL_FIXTURES" in provider_source
             and 'Build.HARDWARE.equals("ranchu"' in provider_source
             and 'Build.HARDWARE.equals("goldfish"' in provider_source
@@ -3729,7 +3733,8 @@ def validate_aosp_overlay(root: Path) -> None:
     require('"video_understanding"' in provider_source
             and "Content.ImageBytes(bytes)" in provider_source
             and "chronological 5 by 4 storyboard" in provider_source
-            and "visionBackend" in provider_source,
+            and "visionBackend" in provider_source
+            and "val vision = !audio" in provider_source,
             "LiteRT-LM must process sampled video storyboards through the vision backend")
     require("RuntimeMemoryTrimPolicy.isMemoryPressure(level)" in provider_source
             and "TRIM_MEMORY_RUNNING_LOW" not in provider_source
