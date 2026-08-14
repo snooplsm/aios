@@ -1,6 +1,7 @@
 import hashlib
 import importlib.util
 import json
+import sys
 import tempfile
 import unittest
 import zipfile
@@ -112,6 +113,20 @@ class PixelDevImagePackagingTests(unittest.TestCase):
             evidence["target_files_package"]["sha256"] = "0" * 64
             with self.assertRaisesRegex(packager.PackageError, "does not match"):
                 packager.validate_build_input(self.lane(), evidence, target_files)
+
+    def test_python_releasetool_uses_the_running_interpreter(self):
+        tool = Path("/aosp/build/make/tools/releasetools/img_from_target_files.py")
+        target_files = Path("/evidence/target-files.zip")
+        output = Path("/evidence/images.zip")
+        self.assertEqual(
+            [sys.executable, str(tool), str(target_files), str(output)],
+            packager.image_tool_command(tool, target_files, output),
+        )
+        binary = tool.with_suffix("")
+        self.assertEqual(
+            [str(binary), str(target_files), str(output)],
+            packager.image_tool_command(binary, target_files, output),
+        )
 
 
 if __name__ == "__main__":

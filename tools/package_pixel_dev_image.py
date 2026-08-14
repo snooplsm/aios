@@ -196,6 +196,15 @@ def write_json_atomic(path: Path, value: dict) -> None:
         temporary.unlink(missing_ok=True)
 
 
+def image_tool_command(
+    image_tool: Path, target_files: Path, output: Path
+) -> list[str]:
+    arguments = [str(image_tool), str(target_files), str(output)]
+    if image_tool.suffix.lower() == ".py":
+        return [sys.executable, *arguments]
+    return arguments
+
+
 def package(
     root: Path,
     lane_id: str,
@@ -225,7 +234,7 @@ def package(
     temporary.unlink()
     try:
         completed = subprocess.run(
-            [str(image_tool), str(target_files), str(temporary)],
+            image_tool_command(image_tool, target_files, temporary),
             check=False,
         )
         if completed.returncode != 0 or not temporary.is_file():

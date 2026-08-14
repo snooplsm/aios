@@ -1818,6 +1818,8 @@ def validate_aosp_overlay(root: Path) -> None:
     require("img_from_target_files" in pixel_packager
             and "validate_build_input" in pixel_packager
             and "inspect_fastboot_zip" in pixel_packager
+            and "def image_tool_command(" in pixel_packager
+            and "sys.executable" in pixel_packager
             and "public_android_test_keys_unlocked_bootloader_only" in pixel_packager
             and "version-bootloader" in pixel_packager
             and "version-baseband" in pixel_packager
