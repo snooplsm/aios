@@ -935,7 +935,8 @@ def validate_default_dialer_overlay(root: Path) -> None:
             in debug_resources
             and "os.environ.get" in debug_generator
             and "refusing to overwrite" in debug_generator
-            and "generated/" in (root / ".gitignore").read_text(encoding="utf-8"),
+            and "generated/debugprovisioning/" in
+            (root / ".gitignore").read_text(encoding="utf-8"),
             "Wi-Fi credentials must enter only through a non-overwriting gitignored overlay")
     boot_make = (root / "assets" / "bootanimation" /
                  "Android.mk").read_text(encoding="utf-8")

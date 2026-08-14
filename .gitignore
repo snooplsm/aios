@@ -28,6 +28,7 @@ local.properties
 build-state.json
 generated/modelpack/
 generated/runtimepack/
+generated/debugprovisioning/
 runtime/*/.gradle/
 runtime/*/.kotlin/
 runtime/*/build/
