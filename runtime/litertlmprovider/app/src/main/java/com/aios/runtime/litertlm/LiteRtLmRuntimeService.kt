@@ -36,6 +36,8 @@ import java.security.MessageDigest
 import java.nio.file.Files
 import java.nio.file.LinkOption
 import java.nio.file.attribute.BasicFileAttributes
+import java.util.LinkedHashMap
+import java.util.LinkedHashSet
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
@@ -56,6 +58,7 @@ class LiteRtLmRuntimeService : Service() {
         const val ERROR_BUSY = 3
         const val ERROR_RUNTIME_FAILED = 5
         const val MAX_SESSIONS = 1
+        const val MAX_RESIDENT_ENGINES = 3
         const val MAX_MEDIA_BYTES = 32 * 1024 * 1024
         const val HASH_BUFFER_BYTES = 1024 * 1024
         const val MAX_CALLBACK_MESSAGE_CHARS = 256
@@ -102,8 +105,12 @@ class LiteRtLmRuntimeService : Service() {
     private val runtimeExecutor = Executors.newSingleThreadExecutor { work ->
         Thread(work, "aios-litertlm-runtime").apply { priority = Thread.NORM_PRIORITY }
     }
-    @Volatile private var engineHolder: EngineHolder? = null
-    @Volatile private var verifiedModelIdentity: VerifiedModelIdentity? = null
+    private val engineHolders = LinkedHashMap<EngineIdentity, EngineHolder>(
+        MAX_RESIDENT_ENGINES,
+        0.75f,
+        true,
+    )
+    private val verifiedModelIdentities = LinkedHashSet<VerifiedModelIdentity>()
     @Volatile private var stopping = false
 
     private val binder = object : IAiosRuntimeProvider.Stub() {
@@ -303,10 +310,8 @@ class LiteRtLmRuntimeService : Service() {
             Log.i(TAG, "MODEL_VERIFIED id=${session.id} bytes=${model.length()} " +
                 "elapsed_ms=${SystemClock.elapsedRealtime() - startedAt}")
             val audio = session.request.capability == "audio_understanding"
-            // The catalog's text and image/video aliases point at the same
-            // multimodal LiteRT-LM package. Keep one vision-capable engine for
-            // those roles instead of destroying it when the role changes.
-            val vision = !audio
+            val vision = session.request.capability in setOf(
+                "image_understanding", "video_understanding")
             val identity = EngineIdentity(
                 model.absolutePath,
                 session.artifact.modelDigest,
@@ -342,15 +347,25 @@ class LiteRtLmRuntimeService : Service() {
     }
 
     private fun ensureEngine(identity: EngineIdentity): Engine {
-        engineHolder?.let { current ->
-            if (current.identity == identity && current.engine.isInitialized()) {
+        engineHolders[identity]?.let { current ->
+            if (current.engine.isInitialized()) {
+                Log.i(TAG, "ENGINE_CACHE_HIT backend=${identity.backend} " +
+                    "vision=${identity.vision} audio=${identity.audio}")
                 return current.engine
             }
+            engineHolders.remove(identity)
+            closeEngine(current)
         }
         check(sessions.values.none { item ->
             item.conversation != null && !item.completed.get() && !item.cancelled.get()
-        }) { "cannot switch models while another conversation is active" }
-        closeEngine()
+        }) { "cannot initialize another engine while a conversation is active" }
+        if (engineHolders.size >= MAX_RESIDENT_ENGINES) {
+            val eldest = engineHolders.entries.iterator().next()
+            engineHolders.remove(eldest.key)
+            Log.i(TAG, "ENGINE_CACHE_EVICT backend=${eldest.key.backend} " +
+                "vision=${eldest.key.vision} audio=${eldest.key.audio}")
+            closeEngine(eldest.value)
+        }
         val backend = when (identity.backend) {
             "gpu" -> Backend.GPU()
             "cpu" -> Backend.CPU()
@@ -374,7 +389,7 @@ class LiteRtLmRuntimeService : Service() {
         engine.initialize()
         Log.i(TAG, "ENGINE_INITIALIZE_DONE backend=${identity.backend} " +
             "elapsed_ms=${SystemClock.elapsedRealtime() - initializedAt}")
-        engineHolder = EngineHolder(identity, engine)
+        engineHolders[identity] = EngineHolder(identity, engine)
         return engine
     }
 
@@ -506,8 +521,12 @@ class LiteRtLmRuntimeService : Service() {
     }
 
     private fun closeEngine() {
-        val current = engineHolder ?: return
-        engineHolder = null
+        val current = engineHolders.values.toList()
+        engineHolders.clear()
+        current.forEach(::closeEngine)
+    }
+
+    private fun closeEngine(current: EngineHolder) {
         try {
             current.engine.close()
         } catch (_: RuntimeException) {
@@ -552,7 +571,7 @@ class LiteRtLmRuntimeService : Service() {
         }
         val observed = modelIdentity(model, artifact.modelDigest)
         check(observed.sizeBytes == artifact.sizeBytes) { "model size mismatch" }
-        if (verifiedModelIdentity == observed) {
+        if (verifiedModelIdentities.contains(observed)) {
             Log.i(TAG, "MODEL_DIGEST_CACHE_HIT model=${artifact.modelId} " +
                 "bytes=${observed.sizeBytes}")
             return model
@@ -565,7 +584,7 @@ class LiteRtLmRuntimeService : Service() {
             artifact.modelDigest.toByteArray(Charsets.US_ASCII),
             actualDigest.toByteArray(Charsets.US_ASCII),
         )) { "model digest mismatch" }
-        verifiedModelIdentity = observed
+        verifiedModelIdentities.add(observed)
         Log.i(TAG, "MODEL_DIGEST_VERIFIED model=${artifact.modelId} " +
             "bytes=${observed.sizeBytes}")
         return model

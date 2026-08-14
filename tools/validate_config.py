@@ -3734,7 +3734,11 @@ def validate_aosp_overlay(root: Path) -> None:
             and "Content.ImageBytes(bytes)" in provider_source
             and "chronological 5 by 4 storyboard" in provider_source
             and "visionBackend" in provider_source
-            and "val vision = !audio" in provider_source,
+            and 'val vision = session.request.capability in setOf(' in provider_source
+            and '"image_understanding", "video_understanding")' in provider_source
+            and "MAX_RESIDENT_ENGINES = 3" in provider_source
+            and "ENGINE_CACHE_HIT" in provider_source
+            and "ENGINE_CACHE_EVICT" in provider_source,
             "LiteRT-LM must process sampled video storyboards through the vision backend")
     require("RuntimeMemoryTrimPolicy.isMemoryPressure(level)" in provider_source
             and "TRIM_MEMORY_RUNNING_LOW" not in provider_source
