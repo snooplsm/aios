@@ -561,9 +561,10 @@ public final class ModelAdmissionBenchmarkTest {
                         durationMillis(speech)));
                 firstPartialSourceSpan.add(
                         live.firstPartialSourceSpanOrTimeout());
-                double wer = live.latestChunk.isBlank()
+                String scoredTranscript = live.transcriptForScoring();
+                double wer = scoredTranscript.isBlank()
                         ? 1.0
-                        : BenchmarkMath.wordErrorRate(reference, live.latestChunk);
+                        : BenchmarkMath.wordErrorRate(reference, scoredTranscript);
                 if (language.equals("es")) spanishWer += wer;
                 else englishWer += wer;
 
@@ -1154,6 +1155,8 @@ public final class ModelAdmissionBenchmarkTest {
         volatile String error = "";
         volatile String latestChunk = "";
         volatile String finalChunkLanguage = "";
+        final FinalTranscriptAccumulator finalizedTranscript =
+                new FinalTranscriptAccumulator();
 
         Invocation(String capability, long timeoutMillis) {
             this.capability = capability;
@@ -1182,6 +1185,11 @@ public final class ModelAdmissionBenchmarkTest {
                 }
                 if (chunk != null && chunk.text != null && !chunk.text.isBlank()) {
                     latestChunk = chunk.text;
+                    finalizedTranscript.accept(
+                            chunk.text,
+                            chunk.isFinal,
+                            chunk.sourceStartMillis,
+                            chunk.sourceEndMillis);
                 }
             }
 
@@ -1232,6 +1240,10 @@ public final class ModelAdmissionBenchmarkTest {
 
         boolean succeeded() {
             return result != null && error.isEmpty();
+        }
+
+        String transcriptForScoring() {
+            return finalizedTranscript.valueOr(latestChunk);
         }
 
         long firstLatencyOrTimeout() {
