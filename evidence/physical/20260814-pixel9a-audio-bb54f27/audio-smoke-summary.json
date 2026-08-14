@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "evidence_kind": "pixel_aios_audio_realtime_smoke_summary",
+  "source_commit": "bb54f27",
+  "device_codename": "tegu",
+  "total_ram_mb": 7322,
+  "build_fingerprint_sha256": "54042680a974adb8965a960046130cce5e756a23d021dc5ec74f99b328fb22c6",
+  "completed_at": "2026-08-14T17:04:51Z",
+  "admission_evidence": false,
+  "deployment": {
+    "whisper_implementation_version": "1.9.8",
+    "whisper_provider_apk_sha256": "328f37e92ae372bdd1d2ec97380f55ea7a78b11406cfd4eaf56e340424047824",
+    "model_broker_apk_sha256": "8d646f0e401e79951adb83ff8e4ea689ddd463a83cb276b911c0e16b234f5366",
+    "runtime_catalog_sha256": "e338fed50ab19f1ee0faceaa9ded9172bd8f0e3ee8efc2373a5c1a772ffc2325"
+  },
+  "speech_synthesis": {
+    "model_id": "supertonic3-en-es-int8",
+    "artifact_sha256": "29899176c2cbc6f5910e4a286d280bd5501e45d86ab4f8613d9063c21dc9f1e8",
+    "measured_runs": 2,
+    "invocation_success_rate": 1.0,
+    "crash_count": 0,
+    "p95_time_to_first_audio_ms": 7527,
+    "p95_realtime_factor": 1.520077654451411,
+    "en_output_valid_rate": 1.0,
+    "es_output_valid_rate": 1.0
+  },
+  "streaming_asr": {
+    "model_id": "whisper-base-multilingual-quantized",
+    "artifact_sha256": "422f1ae452ade6f30a004d7e5c6a43195e4433bc370bf23fac9cc591f01a8898",
+    "measured_runs": 4,
+    "invocation_success_rate": 1.0,
+    "crash_count": 0,
+    "live_non_final_partial_rate": 1.0,
+    "live_final_endpoint_rate": 1.0,
+    "en_language_detection_rate": 1.0,
+    "es_language_detection_rate": 1.0,
+    "p95_partial_latency_ms": 3336,
+    "p95_final_latency_ms": 2616,
+    "p95_endpoint_delay_ms": 2258,
+    "p95_first_partial_source_span_ms": 2000,
+    "p95_realtime_factor": 0.5463295626733249,
+    "en_wer": 0.08333333333333333,
+    "es_wer": 0.09090909090909091,
+    "native_audio_context": 256,
+    "native_threads": 4,
+    "native_features": [
+      "NEON",
+      "ARM_FMA",
+      "FP16_VA",
+      "MATMUL_INT8",
+      "DOTPROD",
+      "REPACK"
+    ]
+  }
+}

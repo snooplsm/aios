@@ -148,6 +148,23 @@ latency, endpoint misses, real-time factor, WER for English and Spanish telephon
 cohorts, thermal throttling, and queue lag. Tune windowing only from recorded
 evidence; do not silently drop incoming audio to improve benchmark numbers.
 
+## Pixel 9a measured audio smoke
+
+The 2026-08-14 userdebug run at source commit `bb54f27` is the first physical
+Pixel 9a result in which the selected bilingual Whisper candidate stayed ahead
+of the supplied audio. Across four fixed English/Spanish runs, p95 real-time
+factor was 0.546, p95 partial latency was 3.336 seconds, English WER was 8.3%,
+and Spanish WER was 9.1%, with no provider crash. The result depends on an
+active-session-only important broker binding, ARM dot-product/i8mm kernels, and
+a 256-position short-window encoder context. The checked-in aggregate record is
+`evidence/physical/20260814-pixel9a-audio-bb54f27`.
+
+This is diagnostic evidence, not model admission. The cohort is too small and
+does not yet cover carrier codecs, noisy call acoustics, thermal soak, or long
+stream queue stability. The 3.336-second cold partial also remains above the
+two-second target cadence even though warm native windows were faster than
+their source duration.
+
 ## Deferred video mode
 
 Media Intelligence may request the same `streaming_asr` capability only with the
