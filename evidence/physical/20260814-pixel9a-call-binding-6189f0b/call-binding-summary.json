@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "evidence_kind": "pixel_aios_call_binding_smoke_summary",
+  "source_commit": "6189f0b",
+  "device_codename": "tegu",
+  "build_id": "CP2A.260805.005",
+  "build_incremental": "2026081300",
+  "completed_at": "2026-08-14T20:01:57Z",
+  "admission_evidence": false,
+  "deployment": {
+    "phone_apk_sha256": "273cc48679f08ad16eb29afbd910ddf5d86f3279472796f3d666c101edbb863b",
+    "call_intelligence_apk_sha256": "fddef0f314da19b7855ffa94c0899792d87260c1ccdd0f9e4c61d90bea64f9cc",
+    "model_broker_apk_sha256": "dee5067270145b1b1767dada5e5f1d1d8a51382c1eb35ff93ab88c984a4feea4",
+    "authorized_clients_sha256": "7a36abfbe6f25352418b13d486084919f5d7c01f1970a7d332f99d7cf21f0111",
+    "phone_version_code": 37,
+    "phone_version_name": "17"
+  },
+  "host_tests": {
+    "module": "aios_phone_host_tests",
+    "passed": 53,
+    "failed": 0
+  },
+  "physical_smoke": {
+    "action": "android.intent.action.DIAL",
+    "activity": "com.aios.phone/.ui.MainActivity",
+    "launch_state": "COLD",
+    "total_time_ms": 650,
+    "phone_process_alive": true,
+    "call_intelligence_process_alive": true,
+    "model_broker_process_alive": true,
+    "phone_is_dialer_role_holder": true,
+    "phone_to_call_intelligence_bound": true,
+    "call_intelligence_to_model_broker_bound": true,
+    "fatal_exception_count": 0
+  },
+  "release_gates_proven": false
+}
