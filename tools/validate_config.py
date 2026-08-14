@@ -6036,7 +6036,12 @@ def validate_runtime_catalog(root: Path) -> None:
         artifact = maven_artifact if isinstance(maven_artifact, dict) \
             else binary_artifact
         if isinstance(artifact, dict):
-            require(str(artifact.get("coordinate", "")).endswith(f":{version}"),
+            artifact_version = artifact.get("version", version)
+            require(re.fullmatch(r"[0-9]+(?:\.[0-9]+){1,3}",
+                                 str(artifact_version)) is not None,
+                    f"{runtime}: invalid binary artifact version")
+            require(str(artifact.get("coordinate", "")).endswith(
+                        f":{artifact_version}"),
                     f"{runtime}: binary coordinate/version mismatch")
             require(str(artifact.get("url", artifact.get("repository", ""))).startswith(
                         "https://"),

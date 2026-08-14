@@ -42,7 +42,7 @@ class SherpaTtsRuntimeService : Service() {
         const val TAG = "AiosTtsRuntime"
         const val BROKER_PACKAGE = "com.aios.modelbroker"
         const val RUNTIME_ID = "sherpa_onnx_tts"
-        const val IMPLEMENTATION_VERSION = "1.13.4"
+        const val IMPLEMENTATION_VERSION = "1.13.5"
         const val PROVIDER_API_VERSION = 2
         const val MODEL_ID = "supertonic3-en-es-int8"
         const val SOURCE_ARCHIVE_SHA256 =
@@ -57,7 +57,10 @@ class SherpaTtsRuntimeService : Service() {
         const val HASH_BUFFER_BYTES = 1024 * 1024
         const val PCM_BLOCK_SAMPLES = 4_096
         const val SPEAKER_ID = 0
-        const val NUM_STEPS = 8
+        // The call path favors response latency. Supertonic's own performance
+        // evaluation uses two denoising steps; physical bilingual evidence must
+        // still prove intelligibility before this candidate is admitted.
+        const val CALL_NUM_STEPS = 2
         val CONFIGURATION_DIRECTORY = File("/product/etc/aios")
         val MODEL_DIRECTORY = File(CONFIGURATION_DIRECTORY, "models")
         const val EMULATOR_FIXTURE_DIRECTORY = "emulator-config"
@@ -345,7 +348,7 @@ class SherpaTtsRuntimeService : Service() {
                 val config = GenerationConfig(
                     sid = SPEAKER_ID,
                     speed = 1.0f,
-                    numSteps = NUM_STEPS,
+                    numSteps = CALL_NUM_STEPS,
                     extra = mapOf("lang" to session.request.language),
                 )
                 val callback = PcmStreamingCallback(session, output)
@@ -392,6 +395,8 @@ class SherpaTtsRuntimeService : Service() {
             val files = verifiedBundleFiles(descriptor)
             Log.i(TAG, "ENGINE_INITIALIZE_START model=${artifact.modelId}")
             val threadCount = Runtime.getRuntime().availableProcessors().coerceIn(2, 8)
+            Log.i(TAG, "ENGINE_CONFIGURATION model=${artifact.modelId} " +
+                "threads=$threadCount call_num_steps=$CALL_NUM_STEPS")
             val config = OfflineTtsConfig(
                 model = OfflineTtsModelConfig(
                     supertonic = OfflineTtsSupertonicModelConfig(

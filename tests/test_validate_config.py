@@ -606,6 +606,33 @@ class RuntimeCatalogTests(unittest.TestCase):
     def test_runtime_catalog_is_valid(self):
         validator.validate_runtime_catalog(ROOT)
 
+    def test_provider_version_can_advance_without_relabeling_binary(self):
+        value = load("runtime_catalog.json")
+        provider = next(item for item in value["providers"]
+                        if item["runtime"] == "sherpa_onnx_tts")
+        provider["implementation_version"] = "1.13.99"
+
+        with tempfile.TemporaryDirectory() as raw:
+            temporary = Path(raw)
+            (temporary / "config").mkdir()
+            shutil.copy(ROOT / "config" / "model_catalog.json",
+                        temporary / "config" / "model_catalog.json")
+            (temporary / "config" / "runtime_catalog.json").write_text(
+                json.dumps(value), encoding="utf-8")
+            validator.validate_runtime_catalog(temporary)
+
+        provider["binary_artifact"]["version"] = "1.13.3"
+        with tempfile.TemporaryDirectory() as raw:
+            temporary = Path(raw)
+            (temporary / "config").mkdir()
+            shutil.copy(ROOT / "config" / "model_catalog.json",
+                        temporary / "config" / "model_catalog.json")
+            (temporary / "config" / "runtime_catalog.json").write_text(
+                json.dumps(value), encoding="utf-8")
+            with self.assertRaisesRegex(validator.ValidationError,
+                                        "coordinate/version mismatch"):
+                validator.validate_runtime_catalog(temporary)
+
     def test_pixel_9a_npu_cannot_be_enabled_without_evidence(self):
         value = load("runtime_catalog.json")
         tegu = next(profile for profile in value["device_profiles"]
