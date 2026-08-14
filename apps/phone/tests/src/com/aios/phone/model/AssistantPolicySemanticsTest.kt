@@ -34,6 +34,37 @@ class AssistantPolicySemanticsTest {
     }
 
     @Test
+    fun malformedOrMissingBinderPolicyStringsFailClosed() {
+        assertEquals("off", AssistantPolicySemantics.safeAnswerMode(null))
+        assertEquals("off", AssistantPolicySemantics.safeAnswerMode("future_mode"))
+        assertEquals("all", AssistantPolicySemantics.safeAnswerMode("all"))
+        assertEquals(
+            "fixed_2000_ms",
+            AssistantPolicySemantics.safeDirectDelayMode(null),
+        )
+        assertEquals(
+            "fixed_2000_ms",
+            AssistantPolicySemantics.safeDirectDelayMode("fast"),
+        )
+        assertEquals(
+            "service_unavailable",
+            AssistantPolicySemantics.safeUnavailableReason(null, false),
+        )
+        assertEquals(
+            "service_unavailable",
+            AssistantPolicySemantics.safeUnavailableReason("bad reason!", false),
+        )
+        assertEquals(
+            "caller_uplink_unvalidated",
+            AssistantPolicySemantics.safeUnavailableReason(
+                "caller_uplink_unvalidated",
+                false,
+            ),
+        )
+        assertEquals("", AssistantPolicySemantics.safeUnavailableReason(null, true))
+    }
+
+    @Test
     fun autoAnswerTogglePreservesSelectedScope() {
         assertEquals(
             "missed_only",

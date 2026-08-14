@@ -2850,6 +2850,14 @@ def validate_aosp_overlay(root: Path) -> None:
             and "isKnownAnswerMode" in phone_runtime
             and "isKnownDirectDelayMode" in phone_runtime
             and "clampMissedDelay" in phone_runtime
+            and "safeAnswerMode" in assistant_policy_semantics
+            and "safeDirectDelayMode" in assistant_policy_semantics
+            and "safeUnavailableReason" in assistant_policy_semantics
+            and "AssistantPolicySemantics.safeAnswerMode(answerMode)" in assistant_client
+            and "AssistantPolicySemantics.safeDirectDelayMode(answerDelayMode)"
+            in assistant_client
+            and "malformedOrMissingBinderPolicyStringsFailClosed"
+            in assistant_policy_semantics_test
             and "AssistantPolicySemantics.SELECTABLE_AUTO_ANSWER_MODES"
             in phone_screens
             and '"After I don\'t answer"' in phone_screens

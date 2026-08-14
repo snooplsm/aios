@@ -35,6 +35,20 @@ object AssistantPolicySemantics {
 
     fun isKnownDirectDelayMode(mode: String): Boolean = mode in DIRECT_ANSWER_DELAY_MODES
 
+    fun safeAnswerMode(mode: String?): String =
+        mode?.takeIf(::isKnownAnswerMode) ?: MODE_OFF
+
+    fun safeDirectDelayMode(mode: String?): String =
+        mode?.takeIf(::isKnownDirectDelayMode) ?: "fixed_2000_ms"
+
+    fun safeUnavailableReason(reason: String?, automaticAnswerAvailable: Boolean): String =
+        if (automaticAnswerAvailable) {
+            ""
+        } else {
+            reason?.takeIf { it.matches(Regex("[a-z0-9_]{1,64}")) }
+                ?: "service_unavailable"
+        }
+
     fun modeAfterAutoAnswerToggle(current: String, enabled: Boolean): String = when {
         !enabled -> MODE_OFF
         current in SELECTABLE_AUTO_ANSWER_MODES -> current

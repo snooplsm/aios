@@ -1007,6 +1007,12 @@ class CallAssistantClient(
                 && rawExclusions.distinct().size == rawExclusions.size
                 && rawExclusions.all { it.matches(Regex("[0-9a-f]{64}")) }
         val exclusions = if (exclusionsAreValid) rawExclusions.toSet() else emptySet()
+        val safeAnswerMode = AssistantPolicySemantics.safeAnswerMode(answerMode)
+        val safeDelayMode = AssistantPolicySemantics.safeDirectDelayMode(answerDelayMode)
+        val safeUnavailableReason = AssistantPolicySemantics.safeUnavailableReason(
+            automaticAnswerUnavailableReason,
+            automaticAnswerAvailable,
+        )
         return AssistantPolicyUiState(
             available = true,
             loading = false,
@@ -1017,11 +1023,11 @@ class CallAssistantClient(
             callHistoryEnabled = callHistoryEnabled,
             photoHistoryEnabled = photoHistoryEnabled,
             excludedCallerHistoryAddressHashes = exclusions,
-            answerMode = answerMode,
-            answerDelayMode = answerDelayMode,
-            missedDelayMillis = missedDelayMillis,
+            answerMode = safeAnswerMode,
+            answerDelayMode = safeDelayMode,
+            missedDelayMillis = AssistantPolicySemantics.clampMissedDelay(missedDelayMillis),
             automaticAnswerAvailable = automaticAnswerAvailable,
-            automaticAnswerUnavailableReason = automaticAnswerUnavailableReason,
+            automaticAnswerUnavailableReason = safeUnavailableReason,
             error = null,
         )
     }
