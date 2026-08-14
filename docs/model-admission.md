@@ -50,9 +50,14 @@ endpoint finalization plus delay, then once without pacing to measure decode
 real-time factor. Every ASR request uses `language=und`, matching the production
 provider contract; expected English or Spanish is used only to score the final
 detected language and transcript. The runner
-refuses to start during a live call, samples runtime-process PSS and Android
-thermal status throughout each invocation, and emits measurements without
-pass/fail fields.
+refuses to start during a live call, samples Android thermal status throughout
+each invocation, and emits measurements without pass/fail fields. Android may
+hide cross-UID process PSS from the instrumentation package even on a
+platform-signed userdebug build. The host collector therefore runs the exact
+admission method explicitly and, every 500 ms, conservatively sums RSS for
+Model Broker and every AIOS runtime provider. It writes the highest observed
+sum into each sequential result rather than accepting an unavailable zero PSS
+sample. The evaluator still rejects a missing or zero observation.
 Every benchmark request sets `allowFallback` to false. A measurement is therefore
 evidence for the exact artifact/runtime/backend tuple named by that test, never
 for an unreported lower-tier model selected after activation failure.
@@ -74,6 +79,22 @@ only a SHA-256 of the build fingerprint. `tools/evaluate_model_benchmark.py`
 derives pass/fail decisions from the checked-in thresholds; the measurement
 producer cannot supply its own decisions or gate list. Keep device serials,
 prompts, audio, photos, and raw fingerprints outside the repository.
+
+Before the longer admission suite, run one English invocation per selected role:
+
+```text
+powershell -File scripts/capture-realtime-smoke.ps1 `
+  -Serial <physical-device-serial> `
+  -Mode single `
+  -Output out\pixel-single-model.json
+```
+
+This focused result is never admission evidence. It records 500 ms host RSS
+samples, available/swap memory before and after, provider diagnostics, and
+OOM/fatal/AIOS-low-memory-kill flags. `instrumentation_runtime_pss_available`
+states whether Android exposed the cross-UID PSS values; the host samples remain
+present either way. For TTS, `first_output_ms` is the first PCM byte observed on
+the audio pipe, not a text callback or the request timeout.
 
 `-Measurements C:\safe\measurements.json` remains available for importing the
 same strict raw schema from a separately reviewed runner. The deterministic

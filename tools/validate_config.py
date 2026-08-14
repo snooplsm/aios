@@ -1929,6 +1929,8 @@ def validate_aosp_overlay(root: Path) -> None:
             and '"single_model_diagnostic"' in benchmark_source
             and "DIAGNOSTIC_TIMEOUT_MILLIS = 45_000L" in benchmark_source
             and "AiosModelDiagnostic" in benchmark_source
+            and "ttsFirstAudioMillis" in benchmark_source
+            and "long firstOutput" in benchmark_source
             and "values.get(name).available" in benchmark_source
             and "READINESS_TIMEOUT capability=" in benchmark_source
             and "ADMISSION_RUNS_PER_LANGUAGE = 5" in benchmark_source
@@ -1938,6 +1940,12 @@ def validate_aosp_overlay(root: Path) -> None:
             and 'ValidateSet("full", "audio", "single")' in realtime_capture
             and "diagnostic_log" in realtime_capture
             and "AiosWhisperNative" in realtime_capture
+            and "Get-AiosRuntimeRssSnapshot" in realtime_capture
+            and "peak_total_aios_runtime_rss_mb" in realtime_capture
+            and "instrumentation_runtime_pss_available" in realtime_capture
+            and "contains_aios_low_memory_kill" in realtime_capture
+            and "details.time_to_first_audio_ms" in realtime_capture
+            and "physical realtime smoke refuses QEMU targets" in realtime_capture
             and "admission_evidence = $false" in realtime_capture
             and "#$testMethod" in realtime_capture
             and "runAudioRealtimeSmoke" in realtime_capture
@@ -1998,8 +2006,15 @@ def validate_aosp_overlay(root: Path) -> None:
     require('"config\\model_benchmark_suite.json"' in benchmark_capture
             and "$measurementDocument.suite_version -ne $suite.suite_version"
             in benchmark_capture
-            and "$measurementDocument.suite_version -ne 1" not in benchmark_capture,
-            "device benchmark capture must follow the checked-in suite version")
+            and "$measurementDocument.suite_version -ne 1" not in benchmark_capture
+            and "#runAdmissionBenchmark" in benchmark_capture
+            and "Get-AiosRuntimeRssMb" in benchmark_capture
+            and "$hostPeakRuntimeRssMb" in benchmark_capture
+            and "$result.metrics.peak_rss_mb = [int]$hostPeakRuntimeRssMb"
+            in benchmark_capture
+            and "model admission requires physical hardware" in benchmark_capture
+            and "refusing to overwrite" in benchmark_capture,
+            "device benchmark capture must follow the suite and host-sample runtime RSS")
     phone_manifest = (root / "apps" / "phone" / "AndroidManifest.xml").read_text(
         encoding="utf-8"
     )

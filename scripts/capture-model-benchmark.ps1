@@ -11,9 +11,17 @@ param(
 $ErrorActionPreference = "Stop"
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
 $outputPath = [IO.Path]::GetFullPath($Output)
+if (Test-Path -LiteralPath $outputPath) {
+    throw "refusing to overwrite $outputPath"
+}
 $adbCommand = Get-Command adb -ErrorAction SilentlyContinue
-if ($null -eq $adbCommand) {
-    throw "adb is not available on PATH"
+$adbPath = if ($null -ne $adbCommand) {
+    $adbCommand.Source
+} else {
+    Join-Path $env:LOCALAPPDATA "Android\Sdk\platform-tools\adb.exe"
+}
+if (-not (Test-Path -LiteralPath $adbPath -PathType Leaf)) {
+    throw "adb is not available on PATH or in the standard Android SDK location"
 }
 $adbArguments = @()
 if ($Serial) {
@@ -22,9 +30,9 @@ if ($Serial) {
 
 function Invoke-AiosAdb {
     param([string[]]$Arguments)
-    $value = & $adbCommand.Source @adbArguments @Arguments
+    $value = & $adbPath @adbArguments @Arguments 2>&1
     if ($LASTEXITCODE -ne 0) {
-        throw "adb failed: $($Arguments -join ' ')"
+        throw "adb failed: $($Arguments -join ' '): $($value -join ' ')"
     }
     return $value
 }
@@ -48,6 +56,22 @@ function Get-AiosSha256 {
     }
 }
 
+function Get-AiosRuntimeRssMb {
+    $totalKb = 0L
+    $lines = Invoke-AiosAdb -Arguments @(
+        "shell", "ps", "-A", "-o", "RSS,NAME")
+    foreach ($line in $lines) {
+        $match = [regex]::Match($line, "^\s*(\d+)\s+(\S+)\s*$")
+        if (-not $match.Success) { continue }
+        $name = $match.Groups[2].Value
+        if ($name -eq "com.aios.modelbroker" -or
+            $name -match "^com\.aios\.runtime\.") {
+            $totalKb += [int64]$match.Groups[1].Value
+        }
+    }
+    return [math]::Ceiling($totalKb / 1024.0)
+}
+
 $state = ((Invoke-AiosAdb -Arguments @("get-state")) -join "`n").Trim()
 if ($state -ne "device") {
     throw "adb target is not ready"
@@ -57,6 +81,10 @@ if ((Get-AiosProperty -Name "ro.debuggable") -ne "1") {
 }
 if (-not (Get-AiosProperty -Name "ro.aios.version")) {
     throw "attached target is not an AIOS build"
+}
+if ((Get-AiosProperty -Name "ro.boot.qemu") -eq "1" -or
+    (Get-AiosProperty -Name "ro.kernel.qemu") -eq "1") {
+    throw "model admission requires physical hardware"
 }
 
 $admissionPath = Join-Path $repositoryRoot "config\model_admission.json"
@@ -92,17 +120,61 @@ if ($totalRamMb -lt [int64]$profile[0].min_total_ram_mb -or
 }
 
 $temporaryMeasurementsPath = $null
+$hostPeakRuntimeRssMb = $null
 if ($Measurements) {
     $measurementsPath = (Resolve-Path -LiteralPath $Measurements).Path
 }
 else {
-    $instrumentationOutput = Invoke-AiosAdb -Arguments @(
-        "shell", "am", "instrument", "-w", "-r",
-        "-e", "class",
-        "com.aios.modelbenchmark.ModelAdmissionBenchmarkTest",
-        "com.aios.modelbenchmark.tests/androidx.test.runner.AndroidJUnitRunner"
-    )
-    $instrumentationText = $instrumentationOutput -join "`n"
+    Invoke-AiosAdb -Arguments @("root") | Out-Null
+    Invoke-AiosAdb -Arguments @("wait-for-device") | Out-Null
+    $instrumentationArguments = @($adbArguments) + @(
+        "shell", "am", "instrument", "-w", "-r", "-e", "class",
+        "com.aios.modelbenchmark.ModelAdmissionBenchmarkTest#runAdmissionBenchmark",
+        "com.aios.modelbenchmark.tests/androidx.test.runner.AndroidJUnitRunner")
+    $instrumentationStart = [Diagnostics.ProcessStartInfo]::new()
+    $instrumentationStart.FileName = $adbPath
+    $instrumentationStart.Arguments = $instrumentationArguments -join " "
+    $instrumentationStart.UseShellExecute = $false
+    $instrumentationStart.RedirectStandardOutput = $true
+    $instrumentationStart.RedirectStandardError = $true
+    $instrumentationStart.CreateNoWindow = $true
+    $instrumentationProcess = [Diagnostics.Process]::new()
+    $instrumentationProcess.StartInfo = $instrumentationStart
+    $instrumentationText = ""
+    $instrumentationError = ""
+    $hostPeakRuntimeRssMb = 0
+    try {
+        if (-not $instrumentationProcess.Start()) {
+            throw "could not start model admission instrumentation"
+        }
+        $instrumentationOutputTask =
+            $instrumentationProcess.StandardOutput.ReadToEndAsync()
+        $instrumentationErrorTask =
+            $instrumentationProcess.StandardError.ReadToEndAsync()
+        do {
+            $hostPeakRuntimeRssMb = [math]::Max(
+                $hostPeakRuntimeRssMb, (Get-AiosRuntimeRssMb))
+            $finished = $instrumentationProcess.WaitForExit(500)
+        } while (-not $finished)
+        $instrumentationProcess.WaitForExit()
+        $instrumentationText = $instrumentationOutputTask.Result
+        $instrumentationError = $instrumentationErrorTask.Result
+        if ($instrumentationProcess.ExitCode -ne 0) {
+            throw "model admission instrumentation failed with exit code " +
+                "$($instrumentationProcess.ExitCode): $instrumentationError"
+        }
+    }
+    finally {
+        if ($null -ne $instrumentationProcess -and
+            -not $instrumentationProcess.HasExited) {
+            $instrumentationProcess.Kill()
+            $instrumentationProcess.WaitForExit()
+        }
+    }
+    if ($hostPeakRuntimeRssMb -le 0) {
+        throw "host resource sampler observed no AIOS model runtime memory"
+    }
+    $instrumentationOutput = @($instrumentationText -split "\r?\n")
     $matches = [regex]::Matches(
         $instrumentationText,
         "(?m)^INSTRUMENTATION_(?:STATUS|RESULT): " +
@@ -135,6 +207,18 @@ try {
         $measurementDocument.suite_version -ne $suite.suite_version -or
         $null -eq $measurementDocument.results) {
         throw "measurement input must match the checked-in benchmark suite"
+    }
+    if ($null -ne $hostPeakRuntimeRssMb) {
+        foreach ($result in @($measurementDocument.results)) {
+            if ($null -eq $result.metrics -or
+                $null -eq $result.metrics.PSObject.Properties["peak_rss_mb"]) {
+                throw "benchmark result omitted peak RSS observation"
+            }
+            # Android limits cross-UID ActivityManager PSS visibility. Use the
+            # conservative peak RSS of Broker plus every runtime provider that
+            # the rooted userdebug host sampler observed during the full run.
+            $result.metrics.peak_rss_mb = [int]$hostPeakRuntimeRssMb
+        }
     }
 
     $rawDocument = [ordered]@{

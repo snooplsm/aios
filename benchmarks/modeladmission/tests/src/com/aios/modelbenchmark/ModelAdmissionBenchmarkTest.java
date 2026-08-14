@@ -134,6 +134,9 @@ public final class ModelAdmissionBenchmarkTest {
                         broker, "en", EN_PHRASE, DIAGNOSTIC_TIMEOUT_MILLIS);
                 ttsObservation = sampler.finish();
             }
+            long ttsFirstAudioMillis = tts.firstAudioAt > 0L
+                    ? tts.firstAudioAt - tts.invocation.startedAt
+                    : DIAGNOSTIC_TIMEOUT_MILLIS;
             results.put(diagnosticResult(
                     ttsArtifact,
                     "speech_synthesis",
@@ -141,14 +144,13 @@ public final class ModelAdmissionBenchmarkTest {
                     ttsObservation,
                     ttsMemoryBefore,
                     runtimePssMb(context),
+                    ttsFirstAudioMillis,
                     new JSONObject()
                             .put("input_id", "fixed_plumbing_sentence_en")
                             .put("pcm_bytes", tts.pcm.length)
                             .put("audio_duration_ms",
                                     tts.pcm.length / 2L * 1_000L / TTS_SAMPLE_RATE)
-                            .put("time_to_first_audio_ms", tts.firstAudioAt > 0L
-                                    ? tts.firstAudioAt - tts.invocation.startedAt
-                                    : DIAGNOSTIC_TIMEOUT_MILLIS)));
+                            .put("time_to_first_audio_ms", ttsFirstAudioMillis)));
 
             Artifact asrArtifact = artifacts.require(capabilities.get(
                     "streaming_asr").selectedModelId);
@@ -265,10 +267,30 @@ public final class ModelAdmissionBenchmarkTest {
             int memoryBeforeMb,
             int memoryAfterMb,
             JSONObject details) throws JSONException {
-        long elapsed = Math.max(0L, invocation.completedAt - invocation.startedAt);
         long firstOutput = invocation.firstChunkAt.get() > 0L
                 ? invocation.firstChunkAt.get() - invocation.startedAt
                 : DIAGNOSTIC_TIMEOUT_MILLIS;
+        return diagnosticResult(
+                artifact,
+                capability,
+                invocation,
+                observation,
+                memoryBeforeMb,
+                memoryAfterMb,
+                firstOutput,
+                details);
+    }
+
+    private static JSONObject diagnosticResult(
+            Artifact artifact,
+            String capability,
+            Invocation invocation,
+            ResourceObservation observation,
+            int memoryBeforeMb,
+            int memoryAfterMb,
+            long firstOutput,
+            JSONObject details) throws JSONException {
+        long elapsed = Math.max(0L, invocation.completedAt - invocation.startedAt);
         JSONObject metrics = new JSONObject()
                 .put("succeeded", invocation.succeeded())
                 .put("error", invocation.error)

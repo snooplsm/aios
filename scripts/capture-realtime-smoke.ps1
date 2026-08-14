@@ -14,17 +14,22 @@ if (Test-Path -LiteralPath $outputPath) {
     throw "refusing to overwrite $outputPath"
 }
 $adbCommand = Get-Command adb -ErrorAction SilentlyContinue
-if ($null -eq $adbCommand) {
-    throw "adb is not available on PATH"
+$adbPath = if ($null -ne $adbCommand) {
+    $adbCommand.Source
+} else {
+    Join-Path $env:LOCALAPPDATA "Android\Sdk\platform-tools\adb.exe"
+}
+if (-not (Test-Path -LiteralPath $adbPath -PathType Leaf)) {
+    throw "adb is not available on PATH or in the standard Android SDK location"
 }
 $adbArguments = @()
 if ($Serial) { $adbArguments += @("-s", $Serial) }
 
 function Invoke-AiosAdb {
     param([string[]]$Arguments)
-    $value = & $adbCommand.Source @adbArguments @Arguments
+    $value = & $adbPath @adbArguments @Arguments 2>&1
     if ($LASTEXITCODE -ne 0) {
-        throw "adb failed: $($Arguments -join ' ')"
+        throw "adb failed: $($Arguments -join ' '): $($value -join ' ')"
     }
     return $value
 }
@@ -44,12 +49,52 @@ function Get-AiosSha256 {
     finally { $algorithm.Dispose() }
 }
 
+function Get-AiosMemorySnapshot {
+    $values = [ordered]@{}
+    $lines = Invoke-AiosAdb -Arguments @("shell", "cat", "/proc/meminfo")
+    foreach ($line in $lines) {
+        $match = [regex]::Match(
+            $line, "^(MemAvailable|SwapFree|AnonPages|Cached):\s+(\d+)\s+kB$")
+        if ($match.Success) {
+            $values[$match.Groups[1].Value + "_mb"] =
+                [math]::Round([int64]$match.Groups[2].Value / 1024.0, 1)
+        }
+    }
+    return $values
+}
+
+function Get-AiosRuntimeRssSnapshot {
+    $processes = [ordered]@{}
+    $totalKb = 0L
+    $lines = Invoke-AiosAdb -Arguments @(
+        "shell", "ps", "-A", "-o", "RSS,NAME")
+    foreach ($line in $lines) {
+        $match = [regex]::Match($line, "^\s*(\d+)\s+(\S+)\s*$")
+        if (-not $match.Success) { continue }
+        $name = $match.Groups[2].Value
+        if ($name -ne "com.aios.modelbroker" -and
+            $name -notmatch "^com\.aios\.runtime\.") { continue }
+        $rssKb = [int64]$match.Groups[1].Value
+        $totalKb += $rssKb
+        $processes[$name] = [math]::Round($rssKb / 1024.0, 1)
+    }
+    return [ordered]@{
+        observed_at = [DateTime]::UtcNow.ToString("o")
+        total_rss_mb = [math]::Round($totalKb / 1024.0, 1)
+        processes_rss_mb = $processes
+    }
+}
+
 if (((Invoke-AiosAdb -Arguments @("get-state")) -join "`n").Trim() -ne "device") {
     throw "adb target is not ready"
 }
 if ((Get-AiosProperty -Name "ro.debuggable") -ne "1" -or
     -not (Get-AiosProperty -Name "ro.aios.version")) {
     throw "realtime smoke requires a debuggable AIOS build"
+}
+if ((Get-AiosProperty -Name "ro.boot.qemu") -eq "1" -or
+    (Get-AiosProperty -Name "ro.kernel.qemu") -eq "1") {
+    throw "physical realtime smoke refuses QEMU targets"
 }
 $fingerprint = Get-AiosProperty -Name "ro.build.fingerprint"
 $codename = Get-AiosProperty -Name "ro.product.device"
@@ -89,14 +134,55 @@ $expectedRoles = $modeConfig.ExpectedRoles
 $evidenceKind = $modeConfig.EvidenceKind
 
 # The selected tags contain lifecycle/timing metadata and errors, never prompt text or PCM.
+Invoke-AiosAdb -Arguments @("root") | Out-Null
+Invoke-AiosAdb -Arguments @("wait-for-device") | Out-Null
+$memoryBefore = Get-AiosMemorySnapshot
 Invoke-AiosAdb -Arguments @("logcat", "-b", "all", "-c") | Out-Null
-$instrumentationOutput = Invoke-AiosAdb -Arguments @(
-    "shell", "am", "instrument", "-w", "-r",
-    "-e", "class",
+$instrumentationArguments = @($adbArguments) + @(
+    "shell", "am", "instrument", "-w", "-r", "-e", "class",
     "com.aios.modelbenchmark.ModelAdmissionBenchmarkTest#$testMethod",
-    "com.aios.modelbenchmark.tests/androidx.test.runner.AndroidJUnitRunner"
-)
-$instrumentationText = $instrumentationOutput -join "`n"
+    "com.aios.modelbenchmark.tests/androidx.test.runner.AndroidJUnitRunner")
+$instrumentationStart = [Diagnostics.ProcessStartInfo]::new()
+$instrumentationStart.FileName = $adbPath
+$instrumentationStart.Arguments = $instrumentationArguments -join " "
+$instrumentationStart.UseShellExecute = $false
+$instrumentationStart.RedirectStandardOutput = $true
+$instrumentationStart.RedirectStandardError = $true
+$instrumentationStart.CreateNoWindow = $true
+$instrumentationProcess = [Diagnostics.Process]::new()
+$instrumentationProcess.StartInfo = $instrumentationStart
+$resourceSamples = [Collections.Generic.List[object]]::new()
+$instrumentationText = ""
+$instrumentationError = ""
+try {
+    if (-not $instrumentationProcess.Start()) {
+        throw "could not start model instrumentation"
+    }
+    $instrumentationOutputTask =
+        $instrumentationProcess.StandardOutput.ReadToEndAsync()
+    $instrumentationErrorTask =
+        $instrumentationProcess.StandardError.ReadToEndAsync()
+    do {
+        $resourceSamples.Add((Get-AiosRuntimeRssSnapshot))
+        $finished = $instrumentationProcess.WaitForExit(500)
+    } while (-not $finished)
+    $instrumentationProcess.WaitForExit()
+    $instrumentationText = $instrumentationOutputTask.Result
+    $instrumentationError = $instrumentationErrorTask.Result
+    if ($instrumentationProcess.ExitCode -ne 0) {
+        throw "model instrumentation failed with exit code " +
+            "$($instrumentationProcess.ExitCode): $instrumentationError"
+    }
+}
+finally {
+    if ($null -ne $instrumentationProcess -and
+        -not $instrumentationProcess.HasExited) {
+        $instrumentationProcess.Kill()
+        $instrumentationProcess.WaitForExit()
+    }
+}
+$instrumentationOutput = @($instrumentationText -split "\r?\n")
+$memoryAfter = Get-AiosMemorySnapshot
 $diagnosticPatterns = @(
     "AiosModelDiagnostic",
     "AiosRemoteRuntime",
@@ -132,6 +218,48 @@ if ($measurement.schema_version -ne 1 -or
     throw "realtime smoke payload has an unexpected schema or role count"
 }
 
+if ($Mode -eq "single") {
+    $ttsResults = @($measurement.results | Where-Object {
+        $_.capability -eq "speech_synthesis"
+    })
+    if ($ttsResults.Count -ne 1 -or
+        $null -eq $ttsResults[0].metrics.details.time_to_first_audio_ms) {
+        throw "single-model diagnostic omitted TTS first-audio timing"
+    }
+    $ttsResults[0].metrics.first_output_ms =
+        [int64]$ttsResults[0].metrics.details.time_to_first_audio_ms
+}
+
+$peakTotalRssMb = 0.0
+foreach ($sample in $resourceSamples) {
+    $peakTotalRssMb = [math]::Max(
+        $peakTotalRssMb, [double]$sample["total_rss_mb"])
+}
+if ($resourceSamples.Count -lt 1 -or $peakTotalRssMb -le 0) {
+    throw "host resource sampler observed no AIOS model runtime memory"
+}
+$processPeakRssMb = [ordered]@{}
+foreach ($sample in $resourceSamples) {
+    foreach ($entry in $sample["processes_rss_mb"].GetEnumerator()) {
+        $current = if ($processPeakRssMb.Contains($entry.Key)) {
+            [double]$processPeakRssMb[$entry.Key]
+        } else { 0.0 }
+        $processPeakRssMb[$entry.Key] = [math]::Max($current, [double]$entry.Value)
+    }
+}
+$instrumentationPssValues = @()
+foreach ($result in @($measurement.results)) {
+    foreach ($field in @("aios_runtime_peak_pss_mb", "peak_rss_mb")) {
+        $property = $result.metrics.PSObject.Properties[$field]
+        if ($null -ne $property) {
+            $instrumentationPssValues += [double]$property.Value
+        }
+    }
+}
+$instrumentationPssAvailable = @(
+    $instrumentationPssValues | Where-Object { $_ -gt 0 }).Count -gt 0
+$diagnosticText = @($diagnosticLog) -join "`n"
+
 $record = [ordered]@{
     schema_version = 1
     evidence_kind = $evidenceKind
@@ -141,8 +269,24 @@ $record = [ordered]@{
     build_fingerprint_sha256 = Get-AiosSha256 -Value $fingerprint
     completed_at = [DateTime]::UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
     admission_evidence = $false
+    instrumentation_runtime_pss_available = $instrumentationPssAvailable
+    host_resource_sampling = [ordered]@{
+        interval_ms = 500
+        sample_count = $resourceSamples.Count
+        peak_total_aios_runtime_rss_mb = $peakTotalRssMb
+        process_peak_rss_mb = $processPeakRssMb
+        memory_before = $memoryBefore
+        memory_after = $memoryAfter
+        samples = @($resourceSamples)
+    }
+    contains_aios_low_memory_kill =
+        [bool]($diagnosticText -match "lowmemorykiller: Kill 'com\.aios\.")
+    contains_oom_or_fatal = [bool]($diagnosticText -match
+        "OutOfMemory|out of memory|oom-kill|Fatal signal|FATAL EXCEPTION")
     results = $measurement.results
     diagnostic_log = @($diagnosticLog)
+    instrumentation_stderr = @($instrumentationError -split "\r?\n" |
+        Where-Object { $_ })
 }
 $parent = Split-Path -Parent $outputPath
 if ($parent) { New-Item -ItemType Directory -Force -Path $parent | Out-Null }
