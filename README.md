@@ -402,9 +402,12 @@ device, partition topology, payload hashes, package signature, and payload
 signature without installing anything. Its paired read-only-by-default
 `tools/apply_pixel_ota.py` preflight also refuses same-build, downgrade,
 wrong-device, locked, non-AIOS, and insufficient-space updates before staging
-anything. Development artifacts use public Android
-test keys and require an unlocked bootloader; production signing and an
-update_engine installation gate remain separate release requirements. See
+anything. Its separately authorized execution re-hashes the signed payload
+metadata, requires update engine to report the payload applicable, and requires
+successful Virtual A/B snapshot allocation before it can invoke application.
+Development artifacts use public Android test keys and require an unlocked
+bootloader; production signing and physical update/boot/merge evidence remain
+separate release requirements. See
 `docs/pixel9a-bringup.md` for the guarded commands.
 
 When Google's moving manifest ref changes, refresh its reviewed observation

@@ -155,9 +155,14 @@ device command carries the authorized serial.
 Execution is deliberately separate. It additionally requires `--execute`, an
 outside-tree result path, and the printed serial/build-bound
 `APPLY-<serial>-TO-<incremental>` confirmation. The tool stages only digest-
-named files under `/data/ota_package`, invokes `update_engine_client --follow`
-against the ZIP's verified payload offset/size and headers, removes only those
-exact staged files, and writes an atomic command result. It never reboots. A
+named files under `/data/ota_package`. Before application it extracts the exact
+signed payload-metadata prefix, re-hashes it against release evidence, asks the
+device to verify applicability, and asks update engine to allocate snapshot
+space. Both device messages are parsed explicitly because the AOSP client can
+exit successfully while reporting **not applicable** or **insufficient space**.
+Only then does it invoke `update_engine_client --follow` against the ZIP's
+verified payload offset/size and headers, remove only those exact staged files,
+and write an atomic command result. It never reboots. A
 successful command proves neither the new-slot boot nor Virtual A/B merge; both
 need separately bound post-reboot evidence. Do not execute a same-build test.
 

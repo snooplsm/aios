@@ -1859,6 +1859,11 @@ def validate_aosp_overlay(root: Path) -> None:
     require("verify_ota_input" in pixel_ota_updater
             and "inspect_device" in pixel_ota_updater
             and "ota-property-files" in pixel_ota_updater
+            and "copy_payload_metadata" in pixel_ota_updater
+            and "update_engine_client --verify" in pixel_ota_updater
+            and "update_engine_client --allocate" in pixel_ota_updater
+            and "require_update_engine_applicable" in pixel_ota_updater
+            and "require_update_engine_allocation" in pixel_ota_updater
             and "update_engine_client --update --follow" in pixel_ota_updater
             and "same_build" in pixel_ota_updater
             and "target_not_newer" in pixel_ota_updater
@@ -1867,6 +1872,8 @@ def validate_aosp_overlay(root: Path) -> None:
             and "--execute" in pixel_ota_updater
             and "--preflight-output" in pixel_ota_updater
             and "physical OTA evidence must remain outside source" in pixel_ota_updater
+            and '"payload_applicability_verified": True' in pixel_ota_updater
+            and '"payload_space_allocated": True' in pixel_ota_updater
             and "reboot_performed" in pixel_ota_updater
             and '"proves_post_update_boot": False' in pixel_ota_updater,
             "Pixel OTA application must be evidence-bound, monotonic, explicit, and non-rebooting")
@@ -1905,6 +1912,10 @@ def validate_aosp_overlay(root: Path) -> None:
     require("pixel9a_aios_virtual_ab_post_update_boot" in pixel_update_capture
             and "validate_chain" in pixel_update_capture
             and "expected_target_slot" in pixel_update_capture
+            and 'update.get("payload_applicability_verified") is not True'
+            in pixel_update_capture
+            and 'update.get("payload_space_allocated") is not True'
+            in pixel_update_capture
             and "every_evidenced_product_artifact_verified" in pixel_update_capture
             and '"proves_post_update_boot": True' in pixel_update_capture
             and '"proves_slot_switch": True' in pixel_update_capture

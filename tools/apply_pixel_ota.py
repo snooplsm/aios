@@ -23,7 +23,20 @@ PAYLOAD = "payload.bin"
 PAYLOAD_PROPERTIES = "payload_properties.txt"
 SHA256_PATTERN = re.compile(r"[0-9a-f]{64}")
 SAFE_INCREMENTAL = re.compile(r"[A-Za-z0-9._+-]{1,64}")
-SAFE_REMOTE = re.compile(r"/data/ota_package/aios-[0-9a-f]{16}\.(?:zip|properties)")
+SAFE_REMOTE = re.compile(
+    r"/data/ota_package/aios-[0-9a-f]{16}\.(?:zip|properties|metadata)"
+)
+REQUIRED_UPDATE_ENGINE_FLAGS = (
+    "--allocate",
+    "--follow",
+    "--headers",
+    "--metadata",
+    "--offset",
+    "--payload",
+    "--size",
+    "--update",
+    "--verify",
+)
 
 
 class UpdateError(RuntimeError):
@@ -95,6 +108,44 @@ def zip_data_offset(stream, info: zipfile.ZipInfo) -> int:
     return info.header_offset + 30 + fields[-2] + fields[-1]
 
 
+def copy_payload_metadata(
+    archive: Path,
+    output: Path,
+    size_bytes: int,
+    expected_sha256: str,
+) -> None:
+    if size_bytes <= 0 or SHA256_PATTERN.fullmatch(expected_sha256) is None:
+        raise UpdateError("OTA payload metadata evidence is invalid")
+    digest = hashlib.sha256()
+    remaining = size_bytes
+    try:
+        with zipfile.ZipFile(archive) as ota, ota.open(PAYLOAD) as payload, output.open(
+            "xb"
+        ) as destination:
+            while remaining:
+                chunk = payload.read(min(1024 * 1024, remaining))
+                if not chunk:
+                    raise UpdateError("OTA payload metadata is truncated")
+                destination.write(chunk)
+                digest.update(chunk)
+                remaining -= len(chunk)
+    except (OSError, KeyError, zipfile.BadZipFile) as error:
+        raise UpdateError(f"cannot extract OTA payload metadata: {error}") from error
+    if digest.hexdigest() != expected_sha256:
+        output.unlink(missing_ok=True)
+        raise UpdateError("OTA payload metadata differs from release evidence")
+
+
+def require_update_engine_applicable(output: str) -> None:
+    if "Payload is applicable." not in output or "not applicable" in output.lower():
+        raise UpdateError("update engine rejected payload applicability")
+
+
+def require_update_engine_allocation(output: str) -> None:
+    if "Successfully allocated space for payload." not in output:
+        raise UpdateError("update engine could not allocate payload space")
+
+
 def verify_ota_input(evidence: dict, evidence_path: Path, archive: Path) -> dict:
     archive_record = evidence.get("ota_archive")
     signature = evidence.get("signature_verification")
@@ -156,12 +207,21 @@ def verify_ota_input(evidence: dict, evidence_path: Path, archive: Path) -> dict
     try:
         property_size = int(properties["FILE_SIZE"])
         property_hash = base64.b64decode(properties["FILE_HASH"], validate=True).hex()
+        metadata_size = int(properties["METADATA_SIZE"])
+        metadata_hash = base64.b64decode(
+            properties["METADATA_HASH"], validate=True
+        ).hex()
     except (KeyError, ValueError) as error:
         raise UpdateError("payload properties are incomplete") from error
     if (property_size != payload_info.file_size
             or property_size != payload_record.get("size_bytes")
             or property_hash != payload_record.get("sha256")):
         raise UpdateError("payload properties differ from release evidence")
+    if (metadata_size <= 0
+            or metadata_size > property_size
+            or metadata_size != payload_record.get("metadata_size_bytes")
+            or metadata_hash != payload_record.get("metadata_sha256")):
+        raise UpdateError("payload metadata properties differ from release evidence")
     property_files = parse_property_files(metadata.get("ota-property-files", ""))
     if property_files.get(PAYLOAD) != (payload_offset, payload_info.file_size):
         raise UpdateError("OTA streaming payload range is invalid")
@@ -186,6 +246,8 @@ def verify_ota_input(evidence: dict, evidence_path: Path, archive: Path) -> dict
         "archive_size_bytes": archive_record["size_bytes"],
         "payload_offset_bytes": payload_offset,
         "payload_size_bytes": payload_info.file_size,
+        "payload_metadata_size_bytes": metadata_size,
+        "payload_metadata_sha256": metadata_hash,
         "payload_properties": properties_text.rstrip("\n"),
         "target_fingerprint": metadata["post-build"],
         "target_incremental": incremental,
@@ -276,6 +338,7 @@ def inspect_device(runner, serial: str, ota: dict) -> dict:
         "ro.boot.vbmeta.device_state",
         "ro.virtual_ab.enabled",
         "ro.virtual_ab.compression.enabled",
+        "ro.build.ab_update",
         "ro.aios.version",
     )
     properties = {
@@ -290,6 +353,7 @@ def inspect_device(runner, serial: str, ota: dict) -> dict:
         "ro.boot.vbmeta.device_state": "unlocked",
         "ro.virtual_ab.enabled": "true",
         "ro.virtual_ab.compression.enabled": "true",
+        "ro.build.ab_update": "true",
     }
     for name, expected in exact.items():
         if properties.get(name) != expected:
@@ -303,6 +367,18 @@ def inspect_device(runner, serial: str, ota: dict) -> dict:
     if runner.run(["shell", "command", "-v", "update_engine_client"]) \
             != "/system/bin/update_engine_client":
         raise UpdateError("connected Pixel lacks update_engine_client")
+    update_engine_help = runner.run(
+        ["shell", "update_engine_client", "--help"]
+    )
+    missing_flags = [
+        flag for flag in REQUIRED_UPDATE_ENGINE_FLAGS
+        if flag not in update_engine_help
+    ]
+    if missing_flags:
+        raise UpdateError(
+            "connected Pixel update_engine_client lacks required flags: "
+            + ", ".join(missing_flags)
+        )
     service = runner.run([
         "shell", "service", "check", "android.os.UpdateEngineService",
     ])
@@ -404,20 +480,24 @@ def apply_update(
     stem = f"/data/ota_package/aios-{ota['archive_sha256'][:16]}"
     remote_archive = stem + ".zip"
     remote_properties = stem + ".properties"
+    remote_metadata = stem + ".metadata"
     if (SAFE_REMOTE.fullmatch(remote_archive) is None
-            or SAFE_REMOTE.fullmatch(remote_properties) is None):
+            or SAFE_REMOTE.fullmatch(remote_properties) is None
+            or SAFE_REMOTE.fullmatch(remote_metadata) is None):
         raise UpdateError("refusing unsafe OTA staging paths")
     runner.run(["root"], timeout=60)
     runner.run(["wait-for-device"], timeout=60)
     runner.run(["shell", "mkdir", "-p", "/data/ota_package"])
-    with tempfile.TemporaryDirectory() as raw:
-        properties_path = Path(raw) / "payload_properties.txt"
-        write_text_atomic(properties_path, ota["payload_properties"])
-        runner.run(["push", str(archive.resolve()), remote_archive], timeout=None)
-        runner.run(["push", str(properties_path), remote_properties], timeout=60)
-    runner.run(["shell", "chown", "system:cache", remote_archive, remote_properties])
-    runner.run(["shell", "chmod", "0640", remote_archive, remote_properties])
-    runner.run(["shell", "restorecon", remote_archive, remote_properties])
+    staged_paths = [remote_archive, remote_properties, remote_metadata]
+    verify_command = (
+        "update_engine_client --verify "
+        f"--metadata={remote_metadata}"
+    )
+    allocate_command = (
+        "update_engine_client --allocate "
+        f"--metadata={remote_metadata} "
+        f"--headers=\"$(cat {remote_properties})\""
+    )
     command = (
         "update_engine_client --update --follow "
         f"--payload=file://{remote_archive} "
@@ -426,9 +506,29 @@ def apply_update(
         f"--headers=\"$(cat {remote_properties})\""
     )
     try:
+        with tempfile.TemporaryDirectory() as raw:
+            properties_path = Path(raw) / "payload_properties.txt"
+            metadata_path = Path(raw) / "payload_metadata.bin"
+            write_text_atomic(properties_path, ota["payload_properties"])
+            copy_payload_metadata(
+                archive,
+                metadata_path,
+                ota["payload_metadata_size_bytes"],
+                ota["payload_metadata_sha256"],
+            )
+            runner.run(["push", str(archive.resolve()), remote_archive], timeout=None)
+            runner.run(["push", str(properties_path), remote_properties], timeout=60)
+            runner.run(["push", str(metadata_path), remote_metadata], timeout=60)
+        runner.run(["shell", "chown", "system:cache", *staged_paths])
+        runner.run(["shell", "chmod", "0640", *staged_paths])
+        runner.run(["shell", "restorecon", *staged_paths])
+        verify_output = runner.run(["shell", verify_command], timeout=120)
+        require_update_engine_applicable(verify_output)
+        allocation_output = runner.run(["shell", allocate_command], timeout=120)
+        require_update_engine_allocation(allocation_output)
         output = runner.run(["shell", command], timeout=None)
     finally:
-        runner.run(["shell", "rm", "-f", remote_archive, remote_properties])
+        runner.run(["shell", "rm", "-f", *staged_paths])
     return {
         "schema_version": 1,
         "status": "update_engine_command_passed",
@@ -441,6 +541,10 @@ def apply_update(
         "target_fingerprint": ota["target_fingerprint"],
         "source_slot": device["source_slot"],
         "expected_target_slot": device["expected_target_slot"],
+        "payload_applicability_verified": True,
+        "payload_space_allocated": True,
+        "update_engine_verify_output_sha256": text_sha256(verify_output),
+        "update_engine_allocation_output_sha256": text_sha256(allocation_output),
         "update_engine_output_sha256": text_sha256(output),
         "staging_removed": True,
         "reboot_performed": False,

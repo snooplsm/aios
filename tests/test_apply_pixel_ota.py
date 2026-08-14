@@ -30,15 +30,46 @@ class FakeRunner:
         return self.values[key]
 
 
+class ApplyRunner:
+    def __init__(self, *, verify_output="Payload is applicable.",
+                 allocation_output="Successfully allocated space for payload."):
+        self.verify_output = verify_output
+        self.allocation_output = allocation_output
+        self.calls = []
+
+    def run(self, arguments, **kwargs):
+        self.calls.append((arguments, kwargs))
+        if arguments[:1] in (["root"], ["wait-for-device"], ["push"]):
+            return ""
+        if (arguments[:3] in (
+                ["shell", "mkdir", "-p"],
+                ["shell", "chown", "system:cache"],
+                ["shell", "chmod", "0640"],
+                ["shell", "rm", "-f"],
+            ) or arguments[:2] == ["shell", "restorecon"]):
+            return ""
+        if arguments[0] == "shell" and len(arguments) == 2:
+            command = arguments[1]
+            if "--verify" in command:
+                return self.verify_output
+            if "--allocate" in command:
+                return self.allocation_output
+            if "--update" in command:
+                return "onPayloadApplicationComplete(ErrorCode::kSuccess (0))"
+        raise AssertionError(f"unexpected command: {arguments}")
+
+
 class PixelOtaUpdateTests(unittest.TestCase):
     def make_ota(self, path, *, timestamp=1786646738, incremental="2026081401"):
         payload = b"CrAU" + bytes(range(128)) * 4
         payload_hash = hashlib.sha256(payload).digest()
+        payload_metadata = payload[:16]
+        metadata_hash = hashlib.sha256(payload_metadata).digest()
         properties = (
             f"FILE_HASH={base64.b64encode(payload_hash).decode()}\n"
             f"FILE_SIZE={len(payload)}\n"
-            "METADATA_HASH=" + base64.b64encode(b"m" * 32).decode() + "\n"
-            "METADATA_SIZE=16\n"
+            "METADATA_HASH=" + base64.b64encode(metadata_hash).decode() + "\n"
+            f"METADATA_SIZE={len(payload_metadata)}\n"
         )
         metadata_values = {
             "ota-type": "AB",
@@ -114,6 +145,8 @@ class PixelOtaUpdateTests(unittest.TestCase):
             "payload": {
                 "size_bytes": len(payload),
                 "sha256": payload_hash.hex(),
+                "metadata_size_bytes": len(payload_metadata),
+                "metadata_sha256": metadata_hash.hex(),
             },
             "ota_metadata": metadata_values,
             "ota_metadata_sha256": hashlib.sha256(metadata.encode()).hexdigest(),
@@ -138,12 +171,15 @@ class PixelOtaUpdateTests(unittest.TestCase):
             "ro.boot.vbmeta.device_state": "unlocked",
             "ro.virtual_ab.enabled": "true",
             "ro.virtual_ab.compression.enabled": "true",
+            "ro.build.ab_update": "true",
             "ro.aios.version": "0.1-dev",
         }
         values = {
             ("devices", "-l"): "SERIAL device product:aios_tegu\nemulator-5554 device",
             ("shell", "command", "-v", "update_engine_client"):
                 "/system/bin/update_engine_client",
+            ("shell", "update_engine_client", "--help"):
+                " ".join(updater.REQUIRED_UPDATE_ENGINE_FLAGS),
             ("shell", "service", "check", "android.os.UpdateEngineService"):
                 "Service android.os.UpdateEngineService: found",
             ("shell", "df", "-k", "/data"):
@@ -213,6 +249,109 @@ class PixelOtaUpdateTests(unittest.TestCase):
         updater.require_update_confirmation(
             "SERIAL", "2026081401", "APPLY-SERIAL-TO-2026081401"
         )
+
+    def test_extracts_exact_evidenced_payload_metadata(self):
+        with tempfile.TemporaryDirectory() as raw:
+            archive = Path(raw) / "ota.zip"
+            evidence = self.make_ota(archive)
+            output = Path(raw) / "metadata.bin"
+            updater.copy_payload_metadata(
+                archive,
+                output,
+                evidence["payload"]["metadata_size_bytes"],
+                evidence["payload"]["metadata_sha256"],
+            )
+            with zipfile.ZipFile(archive) as ota, ota.open(updater.PAYLOAD) as payload:
+                expected = payload.read(evidence["payload"]["metadata_size_bytes"])
+            self.assertEqual(expected, output.read_bytes())
+
+    def test_semantic_update_engine_results_fail_closed(self):
+        updater.require_update_engine_applicable("Payload is applicable.")
+        updater.require_update_engine_allocation(
+            "Successfully allocated space for payload."
+        )
+        with self.assertRaisesRegex(updater.UpdateError, "rejected"):
+            updater.require_update_engine_applicable("Payload is not applicable.")
+        with self.assertRaisesRegex(updater.UpdateError, "allocate"):
+            updater.require_update_engine_allocation(
+                "Insufficient space; required 123 bytes."
+            )
+
+    def test_apply_verifies_and_allocates_before_update_then_cleans_staging(self):
+        with tempfile.TemporaryDirectory() as raw:
+            archive = Path(raw) / "ota.zip"
+            evidence = self.make_ota(archive)
+            evidence_path = Path(raw) / "evidence.json"
+            evidence_path.write_text(json.dumps(evidence), encoding="utf-8")
+            ota = updater.verify_ota_input(evidence, evidence_path, archive)
+            device = {
+                "install_eligible": True,
+                "ineligibility_reasons": [],
+                "source_fingerprint": (
+                    "AIOS/aios_tegu/tegu:17/FIXTURE/2026081300:userdebug/test-keys"
+                ),
+                "source_slot": "_a",
+                "expected_target_slot": "_b",
+            }
+            runner = ApplyRunner()
+            result = updater.apply_update(
+                runner,
+                ota,
+                archive,
+                "SERIAL",
+                device,
+                "APPLY-SERIAL-TO-2026081401",
+            )
+            remote_commands = [
+                call[0][1] for call in runner.calls
+                if call[0][0] == "shell" and len(call[0]) == 2
+            ]
+            self.assertLess(
+                next(i for i, command in enumerate(remote_commands)
+                     if "--verify" in command),
+                next(i for i, command in enumerate(remote_commands)
+                     if "--allocate" in command),
+            )
+            self.assertLess(
+                next(i for i, command in enumerate(remote_commands)
+                     if "--allocate" in command),
+                next(i for i, command in enumerate(remote_commands)
+                     if "--update" in command),
+            )
+            self.assertTrue(result["payload_applicability_verified"])
+            self.assertTrue(result["payload_space_allocated"])
+            self.assertTrue(result["staging_removed"])
+            self.assertEqual("rm", runner.calls[-1][0][1])
+
+    def test_apply_rejects_not_applicable_payload_and_cleans_staging(self):
+        with tempfile.TemporaryDirectory() as raw:
+            archive = Path(raw) / "ota.zip"
+            evidence = self.make_ota(archive)
+            evidence_path = Path(raw) / "evidence.json"
+            evidence_path.write_text(json.dumps(evidence), encoding="utf-8")
+            ota = updater.verify_ota_input(evidence, evidence_path, archive)
+            runner = ApplyRunner(verify_output="Payload is not applicable.")
+            with self.assertRaisesRegex(updater.UpdateError, "rejected"):
+                updater.apply_update(
+                    runner,
+                    ota,
+                    archive,
+                    "SERIAL",
+                    {
+                        "install_eligible": True,
+                        "ineligibility_reasons": [],
+                        "source_fingerprint": "source",
+                        "source_slot": "_a",
+                        "expected_target_slot": "_b",
+                    },
+                    "APPLY-SERIAL-TO-2026081401",
+                )
+            self.assertEqual("rm", runner.calls[-1][0][1])
+            self.assertFalse(any(
+                call[0][0] == "shell" and len(call[0]) == 2
+                and "--update" in call[0][1]
+                for call in runner.calls
+            ))
 
     def test_refuses_evidence_inside_source_tree(self):
         with self.assertRaisesRegex(updater.UpdateError, "outside source"):

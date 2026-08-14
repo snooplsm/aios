@@ -81,6 +81,8 @@ def validate_chain(
             or update.get("source_slot") not in {"_a", "_b"}
             or update.get("expected_target_slot") not in {"_a", "_b"}
             or update.get("source_slot") == update.get("expected_target_slot")
+            or update.get("payload_applicability_verified") is not True
+            or update.get("payload_space_allocated") is not True
             or update.get("staging_removed") is not True
             or update.get("reboot_performed") is not False
             or update.get("proves_update_engine_command_passed") is not True

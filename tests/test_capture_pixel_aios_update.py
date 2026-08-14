@@ -144,6 +144,8 @@ class PixelAiosUpdateEvidenceTests(unittest.TestCase):
             "target_fingerprint": TARGET,
             "source_slot": "_a",
             "expected_target_slot": "_b",
+            "payload_applicability_verified": True,
+            "payload_space_allocated": True,
             "staging_removed": True,
             "reboot_performed": False,
             "proves_update_engine_command_passed": True,
