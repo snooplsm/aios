@@ -31,13 +31,15 @@ development-test warning, and Call Intelligence logs
 with the opt-in. This mode is evidence collection, not validation.
 
 ```powershell
-.\scripts\set-call-uplink-test.ps1 -Serial <serial> -Mode enable
+powershell -ExecutionPolicy Bypass -File .\scripts\set-call-uplink-test.ps1 `
+  -Serial <serial> -Mode enable
 ```
 
 Disable it immediately after the controlled test:
 
 ```powershell
-.\scripts\set-call-uplink-test.ps1 -Serial <serial> -Mode disable
+powershell -ExecutionPolicy Bypass -File .\scripts\set-call-uplink-test.ps1 `
+  -Serial <serial> -Mode disable
 ```
 
 ## Data path

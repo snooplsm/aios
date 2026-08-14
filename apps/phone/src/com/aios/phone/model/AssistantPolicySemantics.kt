@@ -49,6 +49,11 @@ object AssistantPolicySemantics {
                 ?: "service_unavailable"
         }
 
+    fun safeDevelopmentUplinkTestActive(
+        reportedActive: Boolean,
+        automaticAnswerAvailable: Boolean,
+    ): Boolean = reportedActive && !automaticAnswerAvailable
+
     fun modeAfterAutoAnswerToggle(current: String, enabled: Boolean): String = when {
         !enabled -> MODE_OFF
         current in SELECTABLE_AUTO_ANSWER_MODES -> current

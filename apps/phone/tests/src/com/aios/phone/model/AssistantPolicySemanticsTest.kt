@@ -62,6 +62,9 @@ class AssistantPolicySemanticsTest {
             ),
         )
         assertEquals("", AssistantPolicySemantics.safeUnavailableReason(null, true))
+        assertTrue(AssistantPolicySemantics.safeDevelopmentUplinkTestActive(true, false))
+        assertFalse(AssistantPolicySemantics.safeDevelopmentUplinkTestActive(true, true))
+        assertFalse(AssistantPolicySemantics.safeDevelopmentUplinkTestActive(false, false))
     }
 
     @Test

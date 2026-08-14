@@ -505,7 +505,7 @@ fun InCallScreen(
                 }
                 if (state.assistantPolicy.developmentUplinkTestActive) {
                     Text(
-                        "Development test mode: manual AI answer is enabled, but automatic answering remains locked.",
+                        "Development caller-audio opt-in is active. Manual AI answer becomes available when the on-device models and telephony route are ready; automatic answering remains locked.",
                         color = MaterialTheme.colorScheme.tertiary,
                         style = MaterialTheme.typography.bodySmall,
                     )
@@ -986,7 +986,7 @@ fun SettingsScreen(
                         policy.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                         if (policy.developmentUplinkTestActive) {
                             Text(
-                                "Development caller-audio test mode is active. Manual AI answer may be used for a controlled carrier test; automatic answering remains locked and no release gate is implied.",
+                                "Development caller-audio test mode is active. Manual AI answer becomes available when English/Spanish models and the telephony route are ready; automatic answering remains locked and no release gate is implied.",
                                 color = MaterialTheme.colorScheme.tertiary,
                             )
                         }

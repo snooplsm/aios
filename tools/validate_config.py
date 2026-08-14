@@ -2517,6 +2517,14 @@ def validate_aosp_overlay(root: Path) -> None:
     assistant_client = (root / "apps" / "phone" / "src" / "com" / "aios" /
                         "phone" / "intelligence" /
                         "CallAssistantClient.kt").read_text(encoding="utf-8")
+    assistant_capability_status_policy = (
+        root / "apps" / "phone" / "src" / "com" / "aios" / "phone" /
+        "intelligence" / "AssistantCapabilityStatusPolicy.kt"
+    ).read_text(encoding="utf-8")
+    assistant_capability_status_test = (
+        root / "apps" / "phone" / "tests" / "src" / "com" / "aios" /
+        "phone" / "intelligence" / "AssistantCapabilityStatusPolicyTest.kt"
+    ).read_text(encoding="utf-8")
     direct_boot_policy = (
         root / "apps" / "phone" / "src" / "com" / "aios" / "phone" /
         "DirectBootPreferencePolicy.kt"
@@ -5035,6 +5043,20 @@ def validate_aosp_overlay(root: Path) -> None:
             and "developmentUplinkTestActive" in call_policy_api
             and "manualAiAnswerAvailable" in call_policy_api
             and "onCallAnsweredForDevelopmentTest" in assistant_client
+            and "AssistantCapabilityStatusPolicy.shouldReload" in assistant_client
+            and all(detail in assistant_capability_status_policy for detail in (
+                "streaming_asr_ready", "streaming_asr_unavailable",
+                "speech_synthesis_ready", "speech_synthesis_unavailable",
+                "receptionist_ready", "receptionist_unavailable"))
+            and "everyCallerInteractionCapabilityRefreshesThePolicy"
+            in assistant_capability_status_test
+            and 'notifyStatus("availability", 3, "streaming_asr_ready")'
+            in call_service
+            and 'notifyStatus("availability", 3, "streaming_asr_unavailable")'
+            in call_service
+            and "safeDevelopmentUplinkTestActive" in assistant_policy_semantics
+            and "AssistantPolicySemantics.safeDevelopmentUplinkTestActive"
+            in assistant_client
             and "developmentUplinkTestActive" in phone_screens
             and "automatic answering remains locked" in phone_screens
             and "beginCapture(\n                callId,\n                ownerUid,\n                true,"

@@ -622,11 +622,13 @@ public final class CallIntelligenceService extends Service {
             @Override
             public void onAsrReady(Object brokerIdentity) {
                 restoreLiveAsrStreams(brokerIdentity);
+                notifyStatus("availability", 3, "streaming_asr_ready");
             }
 
             @Override
             public void onAsrUnavailable(Object brokerIdentity) {
                 detachLostAsrStreams(brokerIdentity);
+                notifyStatus("availability", 3, "streaming_asr_unavailable");
             }
         });
         asr.start();

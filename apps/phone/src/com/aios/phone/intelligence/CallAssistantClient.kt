@@ -173,7 +173,7 @@ class CallAssistantClient(
             }
 
             override fun onServiceStatus(callId: String?, status: Int, detail: String?) {
-                if (callId == "availability" && detail?.startsWith("speech_synthesis_") == true) {
+                if (AssistantCapabilityStatusPolicy.shouldReload(callId, detail)) {
                     main.post { if (isCurrentListener(connection)) loadPolicy() }
                     return
                 }
@@ -1040,8 +1040,11 @@ class CallAssistantClient(
             automaticAnswerUnavailableReason = safeUnavailableReason,
             manualAiAnswerAvailable = manualAiAnswerAvailable,
             manualAiAnswerUnavailableReason = safeManualUnavailableReason,
-            developmentUplinkTestActive = developmentUplinkTestActive
-                && manualAiAnswerAvailable && !automaticAnswerAvailable,
+            developmentUplinkTestActive =
+                AssistantPolicySemantics.safeDevelopmentUplinkTestActive(
+                    developmentUplinkTestActive,
+                    automaticAnswerAvailable,
+                ),
             error = null,
         )
     }

@@ -42,6 +42,7 @@ java_test_host {
         "src/com/aios/phone/DirectBootPreferencePolicy.kt",
         "src/com/aios/phone/notifications/CallNotificationSemantics.kt",
         "src/com/aios/phone/intelligence/PhoneServiceRebindPolicy.kt",
+        "src/com/aios/phone/intelligence/AssistantCapabilityStatusPolicy.kt",
         "src/com/aios/phone/intelligence/ServiceGenerationRevisionGate.kt",
         "src/com/aios/phone/intelligence/EmergencyProcessingGate.kt",
         "src/com/aios/phone/intelligence/PendingAiAnswerGate.kt",
