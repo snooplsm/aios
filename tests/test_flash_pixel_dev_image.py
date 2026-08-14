@@ -1,4 +1,6 @@
 import importlib.util
+import json
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -78,6 +80,20 @@ class PixelDevFlashTests(unittest.TestCase):
             flasher.parse_getvar("Finished.\n", "product")
         with self.assertRaisesRegex(flasher.FlashError, "unambiguous product"):
             flasher.parse_getvar("product: tegu\nproduct: akita\n", "product")
+
+    def test_flash_result_is_atomic_and_serial_is_hashed(self):
+        with tempfile.TemporaryDirectory() as raw:
+            output = Path(raw) / "flash-result.json"
+            value = {
+                "serial_sha256": flasher.text_sha256(SERIAL),
+                "proves_flash_command_passed": True,
+            }
+            flasher.write_json_atomic(output, value)
+            stored = json.loads(output.read_text(encoding="utf-8"))
+            self.assertEqual(64, len(stored["serial_sha256"]))
+            self.assertNotIn(SERIAL, output.read_text(encoding="utf-8"))
+            with self.assertRaisesRegex(flasher.FlashError, "overwrite"):
+                flasher.write_json_atomic(output, value)
 
 
 if __name__ == "__main__":

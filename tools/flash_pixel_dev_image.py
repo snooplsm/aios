@@ -9,6 +9,8 @@ import json
 import re
 import subprocess
 import sys
+import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 
 
@@ -32,6 +34,29 @@ def sha256(path: Path) -> str:
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def text_sha256(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def write_json_atomic(path: Path, value: dict) -> None:
+    path = path.resolve()
+    if path.exists():
+        raise FlashError(f"refusing to overwrite flash result: {path}")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{path.name}.", suffix=".tmp", dir=path.parent
+    )
+    temporary = Path(temporary_name)
+    try:
+        with open(descriptor, "w", encoding="utf-8", newline="\n") as stream:
+            json.dump(value, stream, indent=2, sort_keys=True)
+            stream.write("\n")
+            stream.flush()
+        temporary.replace(path)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 class FastbootRunner:
@@ -168,8 +193,20 @@ def main() -> int:
     parser.add_argument("--serial", required=True)
     parser.add_argument("--execute", action="store_true")
     parser.add_argument("--confirm-wipe")
+    parser.add_argument("--result-output", type=Path)
     arguments = parser.parse_args()
     try:
+        if arguments.execute:
+            if arguments.result_output is None:
+                raise FlashError("--execute requires --result-output")
+            if arguments.result_output.resolve().exists():
+                raise FlashError(
+                    f"refusing to overwrite flash result: "
+                    f"{arguments.result_output.resolve()}"
+                )
+            arguments.result_output.resolve().parent.mkdir(
+                parents=True, exist_ok=True
+            )
         evidence = load(arguments.evidence)
         result = flash(
             FastbootRunner(arguments.fastboot, arguments.serial),
@@ -179,6 +216,21 @@ def main() -> int:
             arguments.execute,
             arguments.confirm_wipe,
         )
+        if arguments.execute:
+            result = {
+                "schema_version": 1,
+                **result,
+                "kind": "pixel9a_aios_development_flash",
+                "completed_at": datetime.now(timezone.utc)
+                .replace(microsecond=0).isoformat(),
+                "serial_sha256": text_sha256(arguments.serial),
+                "release_evidence_sha256": sha256(arguments.evidence),
+                "fastboot_archive_sha256": evidence["fastboot_archive"]["sha256"],
+                "wipe_requested": True,
+                "proves_flash_command_passed": True,
+                "proves_first_boot": False,
+            }
+            write_json_atomic(arguments.result_output, result)
     except (KeyError, OSError, FlashError) as error:
         print(f"Pixel development flash refused: {error}", file=sys.stderr)
         return 1

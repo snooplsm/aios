@@ -1699,7 +1699,11 @@ def validate_aosp_overlay(root: Path) -> None:
             and "is-userspace" in pixel_flasher
             and "ERASE-{serial}-FOR-AIOS" in pixel_flasher
             and '["-w", "update"' in pixel_flasher
-            and "--execute" in pixel_flasher,
+            and "--execute" in pixel_flasher
+            and "--result-output" in pixel_flasher
+            and "release_evidence_sha256" in pixel_flasher
+            and "serial_sha256" in pixel_flasher
+            and "proves_flash_command_passed" in pixel_flasher,
             "Pixel development flashing must fail closed before destructive execution")
 
     common_product = (root / "products" / "aios_common.mk").read_text(

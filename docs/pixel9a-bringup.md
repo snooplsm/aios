@@ -114,6 +114,10 @@ serial, bootloader mode rather than fastbootd, `tegu`, an unlocked bootloader,
 the evidenced bootloader/baseband pair, and an exact archive digest. Destructive
 execution additionally requires the serial-bound confirmation token printed by
 the tool contract; it never disables AVB verification and never guesses a slot.
+An executed flash also requires `--result-output` outside the source tree. The
+atomic result stores only a serial SHA-256 and binds the completed wipe/update
+command to the exact release-evidence and archive digests; it never claims that
+Android booted successfully.
 
 ```text
 vendor/aios/scripts/build-aosp-lane.sh \
