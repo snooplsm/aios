@@ -124,6 +124,17 @@ without discarding the earlier words. Failed model submission drains any speech
 that raced into the queue instead of silently dropping it, and the failed
 current turn remains in bounded conversation history for the next request.
 
+Call prompts use hierarchical rolling memory: one replaceable Whisper partial,
+eight recent exact finalized caller/assistant turns, a revisioned structured
+summary of the older finalized prefix, and separately admitted historical
+communication context. After caller-facing audio has drained and no newer turn
+is queued, the service may request strict-schema `call_summary` work through the
+Broker's `call_background` lane. The result must echo its input summary revision
+and exact source turn IDs. A duplicate, late, malformed, or source-mismatched
+result is discarded. New caller speech cancels an active compaction immediately;
+live RX, TX, receptionist, TTS, and system-pressure policy also preempt it.
+Source transcript artifacts remain authoritative and expire after 24 hours.
+
 The AIDL also exposes a validated owner-policy read/update API for the Dialer
 settings screen. The caller-audio transport is implemented but explicitly
 unvalidated. The checked-in product property

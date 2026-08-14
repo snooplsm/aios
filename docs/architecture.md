@@ -204,11 +204,15 @@ caller speech or a waiting live reply preempts it. Each compaction result names
 its input summary revision and exact finalized-turn range; a late or duplicate
 result cannot replace newer memory. The encrypted source transcript remains the
 rebuild authority for its existing 24-hour artifact lifetime, and the summary
-cannot outlive that artifact. Periodic rebuilds from finalized source turns,
-rather than indefinitely summarizing a summary, bound recursive drift. Until
-the text runtime passes physical latency tests, deterministic bounded history
-remains the fallback and semantic compaction stays disabled rather than blocking
-the call path.
+cannot outlive that artifact. A periodic rebuild from finalized source turns is
+still required before release to bound recursive-summary drift; the current
+userdebug compactor does not claim that release gate. Until
+the `call_summary` capability is admitted, deterministic bounded history remains
+the fallback. When admitted, compaction uses the Broker's `call_background`
+lane, shares the one call-model slot, is rejected under memory or thermal
+pressure, and is cancelled by any live call-model request. The call client also
+cancels it as soon as a newer caller partial arrives, before waiting for another
+model admission boundary.
 
 ### Model Broker
 

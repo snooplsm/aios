@@ -31,6 +31,7 @@ final class SessionCapacityPolicy {
             case CALL_TX:
                 return callAsrStreamCapacity;
             case CALL_AGENT:
+            case CALL_BACKGROUND:
                 return callAgentCapacity;
             case MEDIA_BACKGROUND:
             default:
@@ -39,10 +40,17 @@ final class SessionCapacityPolicy {
     }
 
     boolean sharesActivePool(WorkClass first, WorkClass second) {
-        return (isCallAsr(first) && isCallAsr(second)) || first == second;
+        return (isCallAsr(first) && isCallAsr(second))
+                || (isCallModel(first) && isCallModel(second))
+                || first == second;
     }
 
     private static boolean isCallAsr(WorkClass workClass) {
         return workClass == WorkClass.CALL_RX || workClass == WorkClass.CALL_TX;
+    }
+
+    private static boolean isCallModel(WorkClass workClass) {
+        return workClass == WorkClass.CALL_AGENT
+                || workClass == WorkClass.CALL_BACKGROUND;
     }
 }

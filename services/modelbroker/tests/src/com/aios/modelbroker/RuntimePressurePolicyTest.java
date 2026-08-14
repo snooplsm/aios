@@ -47,6 +47,9 @@ public final class RuntimePressurePolicyTest {
                 RuntimePressurePolicy.decide(
                         WorkClass.MEDIA_BACKGROUND, false, false,
                         RuntimePressurePolicy.THERMAL_STATUS_UNKNOWN));
+        assertEquals(RuntimePressurePolicy.Decision.BLOCK_BACKGROUND,
+                RuntimePressurePolicy.decide(
+                        WorkClass.CALL_BACKGROUND, true, true, 0));
     }
 
     private static VerifiedArtifact artifact(String id, long residentMb) {

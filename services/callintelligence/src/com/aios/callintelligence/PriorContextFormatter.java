@@ -7,7 +7,7 @@ import java.util.Set;
 final class PriorContextFormatter {
     static final int MAX_ITEMS = 8;
     static final int MAX_EXCERPT_CHARS = 512;
-    static final int MAX_JSON_CHARS = 6_144;
+    static final int MAX_JSON_CHARS = 3_072;
 
     private static final Set<String> SOURCES = Set.of(
             "sms", "mms", "call_event", "call_artifact", "contact_note",

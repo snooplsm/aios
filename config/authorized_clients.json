@@ -10,7 +10,7 @@
         "call_summary",
         "speech_synthesis"
       ],
-      "workloads": ["call_rx", "call_tx", "call_agent"],
+      "workloads": ["call_rx", "call_tx", "call_agent", "call_background"],
       "max_sessions": 3,
       "max_output_tokens": 2048,
       "can_control_call_state": true

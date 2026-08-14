@@ -112,13 +112,44 @@ public final class SessionArbiterTest {
         SessionArbiter arbiter = arbiter(3);
         arbiter.submit(1L, 100, WorkClass.CALL_RX, 3);
         arbiter.submit(2L, 200, WorkClass.MEDIA_BACKGROUND, 3);
+        arbiter.submit(3L, 300, WorkClass.CALL_BACKGROUND, 3);
 
         SessionArbiter.Change pressure = arbiter.preemptBackgroundForMemoryPressure();
 
-        assertEquals(1, pressure.cancelled.size());
-        assertEquals(Long.valueOf(2L), pressure.cancelled.get(0));
+        assertEquals(2, pressure.cancelled.size());
+        assertTrue(pressure.cancelled.contains(2L));
+        assertTrue(pressure.cancelled.contains(3L));
         assertTrue(arbiter.isOwner(1L, 100));
         assertEquals(1, arbiter.size());
+    }
+
+    @Test
+    public void liveAgentPreemptsCallCompactionInSharedModelLane() {
+        SessionArbiter arbiter = new SessionArbiter(
+                new SessionCapacityPolicy(3, 2, 1));
+        assertEquals(SessionArbiter.Status.ACTIVE,
+                arbiter.submit(1L, 100, WorkClass.CALL_BACKGROUND, 3).submittedStatus);
+
+        SessionArbiter.Change live =
+                arbiter.submit(2L, 100, WorkClass.CALL_AGENT, 3);
+
+        assertEquals(SessionArbiter.Status.ACTIVE, live.submittedStatus);
+        assertEquals(1, live.cancelled.size());
+        assertEquals(Long.valueOf(1L), live.cancelled.get(0));
+        assertTrue(arbiter.isOwner(2L, 100));
+        assertEquals(1, arbiter.size());
+    }
+
+    @Test
+    public void callLeaseAllowsOnlyItsPreemptibleCompactionClass() {
+        SessionArbiter arbiter = new SessionArbiter(
+                new SessionCapacityPolicy(3, 2, 1));
+        arbiter.setCallActive(true);
+
+        assertEquals(SessionArbiter.Status.ACTIVE,
+                arbiter.submit(1L, 100, WorkClass.CALL_BACKGROUND, 3).submittedStatus);
+        assertEquals(SessionArbiter.Status.QUEUED,
+                arbiter.submit(2L, 200, WorkClass.MEDIA_BACKGROUND, 1).submittedStatus);
     }
 
     @Test

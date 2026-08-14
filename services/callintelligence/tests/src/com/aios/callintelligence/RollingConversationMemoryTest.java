@@ -76,6 +76,22 @@ public final class RollingConversationMemoryTest {
     }
 
     @Test
+    public void compactionInputFitsTheConfiguredModelContextBudget() {
+        RollingConversationMemory memory = new RollingConversationMemory();
+        for (int index = 0; index < 18; index++) {
+            memory.appendFinal("caller", "es", index + ":" + "x".repeat(1_500));
+        }
+
+        RollingConversationMemory.CompactionInput input = memory.prepareCompaction();
+
+        assertNotNull(input);
+        assertTrue(input.finalizedPrefix.length()
+                <= RollingConversationMemory.MAX_COMPACTION_INPUT_CHARS);
+        assertTrue(memory.promptSnapshot().recentExactTurns.length()
+                <= RollingConversationMemory.MAX_RECENT_CHARS);
+    }
+
+    @Test
     public void promptAndFallbackStorageRemainBounded() {
         RollingConversationMemory memory = new RollingConversationMemory();
         for (int index = 0; index < 100; index++) {

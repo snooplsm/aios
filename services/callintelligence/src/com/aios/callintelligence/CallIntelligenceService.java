@@ -1526,6 +1526,9 @@ public final class CallIntelligenceService extends Service {
             completion.closeAudio();
             nextTurn = completion.nextTurn;
         }
+        if (session.isAiHandling()) {
+            receptionist.requestCompaction(callId);
+        }
     }
 
     private void handleModelAssessment(

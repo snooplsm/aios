@@ -16,7 +16,10 @@ public final class SessionCapacityPolicyTest {
         assertEquals(2, policy.activeLimit(WorkClass.CALL_RX));
         assertEquals(2, policy.activeLimit(WorkClass.CALL_TX));
         assertEquals(1, policy.activeLimit(WorkClass.CALL_AGENT));
+        assertEquals(1, policy.activeLimit(WorkClass.CALL_BACKGROUND));
         assertTrue(policy.sharesActivePool(WorkClass.CALL_RX, WorkClass.CALL_TX));
+        assertTrue(policy.sharesActivePool(
+                WorkClass.CALL_AGENT, WorkClass.CALL_BACKGROUND));
         assertFalse(policy.sharesActivePool(WorkClass.CALL_RX, WorkClass.CALL_AGENT));
     }
 

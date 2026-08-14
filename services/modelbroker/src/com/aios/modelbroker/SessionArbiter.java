@@ -75,6 +75,9 @@ final class SessionArbiter {
         if (workClass != WorkClass.MEDIA_BACKGROUND) {
             cancelled.addAll(removeWorkClass(WorkClass.MEDIA_BACKGROUND));
         }
+        if (workClass.priority > WorkClass.CALL_BACKGROUND.priority) {
+            cancelled.addAll(removeWorkClass(WorkClass.CALL_BACKGROUND));
+        }
 
         Lease lease = new Lease(sessionId, ownerUid, workClass, sequence++);
         leases.put(sessionId, lease);
@@ -119,7 +122,10 @@ final class SessionArbiter {
     }
 
     synchronized Change preemptBackgroundForMemoryPressure() {
-        return new Change(null, removeWorkClass(WorkClass.MEDIA_BACKGROUND), List.of());
+        List<Long> cancelled = new ArrayList<>(
+                removeWorkClass(WorkClass.MEDIA_BACKGROUND));
+        cancelled.addAll(removeWorkClass(WorkClass.CALL_BACKGROUND));
+        return new Change(null, cancelled, List.of());
     }
 
     synchronized boolean isOwner(long sessionId, int uid) {

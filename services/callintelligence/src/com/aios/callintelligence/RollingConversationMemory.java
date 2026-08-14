@@ -15,11 +15,12 @@ import java.util.List;
  */
 final class RollingConversationMemory {
     static final int MAX_RECENT_TURNS = 8;
-    static final int MAX_RECENT_CHARS = 6_144;
+    static final int MAX_RECENT_CHARS = 4_096;
     static final int MAX_RETAINED_CHARS = 24_576;
+    static final int MAX_COMPACTION_INPUT_CHARS = 8_192;
     static final int MAX_TURN_CHARS = 2_048;
     static final int MAX_PARTIAL_CHARS = 2_048;
-    static final int MAX_SUMMARY_CHARS = 4_096;
+    static final int MAX_SUMMARY_CHARS = 2_048;
 
     static final class PromptSnapshot {
         final long conversationRevision;
@@ -141,7 +142,18 @@ final class RollingConversationMemory {
                 || finalized.get(0).id != summaryThroughTurnId + 1L) {
             return null;
         }
-        List<Turn> prefix = finalized.subList(0, compactCount);
+        int selected = 0;
+        int selectedCharacters = 0;
+        while (selected < compactCount) {
+            int nextCharacters = finalized.get(selected).render().length();
+            if (selected > 0
+                    && selectedCharacters + nextCharacters > MAX_COMPACTION_INPUT_CHARS) {
+                break;
+            }
+            selectedCharacters += nextCharacters;
+            selected++;
+        }
+        List<Turn> prefix = finalized.subList(0, selected);
         return new CompactionInput(
                 summaryRevision,
                 summaryThroughTurnId,

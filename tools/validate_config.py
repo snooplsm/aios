@@ -3594,6 +3594,12 @@ def validate_aosp_overlay(root: Path) -> None:
     arbiter_source = (broker_source_root / "SessionArbiter.java").read_text(
         encoding="utf-8"
     )
+    work_class_source = (broker_source_root / "WorkClass.java").read_text(
+        encoding="utf-8"
+    )
+    runtime_pressure_source = (
+        broker_source_root / "RuntimePressurePolicy.java"
+    ).read_text(encoding="utf-8")
     capacity_source = (broker_source_root / "SessionCapacityPolicy.java").read_text(
         encoding="utf-8"
     )
@@ -4275,8 +4281,14 @@ def validate_aosp_overlay(root: Path) -> None:
     )
     require("removeWorkClass(WorkClass.MEDIA_BACKGROUND)" in arbiter_source,
             "call work must cancel background media leases")
-    require("preemptBackgroundForMemoryPressure" in arbiter_source,
-            "memory pressure must cancel only preemptible background inference")
+    require("removeWorkClass(WorkClass.CALL_BACKGROUND)" in arbiter_source
+            and "preemptBackgroundForMemoryPressure" in arbiter_source,
+            "foreground calls and memory pressure must cancel preemptible inference")
+    require('case "call_background":' in work_class_source
+            and "return CALL_BACKGROUND;" in work_class_source
+            and "WorkClass.CALL_BACKGROUND" in runtime_pressure_source
+            and "Decision.BLOCK_BACKGROUND" in runtime_pressure_source,
+            "call compaction must have a pressure-blocked preemptible Broker class")
     require("requireOwner(sessionId, ownerUid)" in arbiter_source,
             "session operations must verify UID ownership")
     require("REJECTED_QUOTA" in arbiter_source,
@@ -4875,6 +4887,13 @@ def validate_aosp_overlay(root: Path) -> None:
             and "current_live_partial_json=" in receptionist_source
             and "observeCallerPartial" in receptionist_source
             and "receptionist.observeCallerPartial(" in call_service
+            and 'request.capability = "call_summary"' in receptionist_source
+            and 'request.workload = "call_background"' in receptionist_source
+            and "parseCompaction(result, pending.input)" in receptionist_source
+            and "state.compaction == pending" in receptionist_source
+            and "COMPACTION_PREEMPT reason=caller_partial" in receptionist_source
+            and "COMPACTION_PREEMPT reason=live_reply" in receptionist_source
+            and "receptionist.requestCompaction(callId)" in call_service
             and 'request.capability = "text_generation"' in receptionist_source
             and 'request.workload = "call_agent"' in receptionist_source
             and "request.allowFallback = true" in receptionist_source
@@ -5994,7 +6013,9 @@ def validate_authorized_clients(root: Path) -> None:
     require(isinstance(clients, list) and clients, "authorized clients are required")
     packages = [client["package"] for client in clients]
     require(len(packages) == len(set(packages)), "authorized packages must be unique")
-    allowed_workloads = {"call_rx", "call_tx", "call_agent", "media_background"}
+    allowed_workloads = {
+        "call_rx", "call_tx", "call_agent", "call_background", "media_background"
+    }
     for client in clients:
         require(str(client["package"]).startswith("com.aios."),
                 f"unexpected preauthorized package: {client['package']}")
@@ -6007,6 +6028,9 @@ def validate_authorized_clients(root: Path) -> None:
     by_package = {client["package"]: client for client in clients}
     require("call_rx" in by_package["com.aios.callintelligence"]["workloads"],
             "Call Intelligence must be authorized for call_rx")
+    require("call_background"
+            in by_package["com.aios.callintelligence"]["workloads"],
+            "Call Intelligence needs a preemptible in-call compaction lane")
     require(by_package["com.aios.mediaintelligence"]["workloads"]
             == ["media_background"],
             "Media Intelligence must remain background-only")

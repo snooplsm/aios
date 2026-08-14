@@ -32,6 +32,7 @@ final class RuntimePressurePolicy {
                 || thermalStatus >= THERMAL_STATUS_SEVERE;
         if (!constrained) return Decision.PREFER_QUALITY;
         return workClass == WorkClass.MEDIA_BACKGROUND
+                || workClass == WorkClass.CALL_BACKGROUND
                 ? Decision.BLOCK_BACKGROUND
                 : Decision.PREFER_LOWER_MEMORY;
     }
