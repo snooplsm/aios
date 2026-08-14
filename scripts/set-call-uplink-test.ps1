@@ -9,11 +9,18 @@ param(
 
 $ErrorActionPreference = "Stop"
 $adbCommand = Get-Command adb -ErrorAction SilentlyContinue
-if ($null -eq $adbCommand) { throw "adb is not available on PATH" }
+$adbPath = if ($null -ne $adbCommand) {
+    $adbCommand.Source
+} else {
+    Join-Path $env:LOCALAPPDATA "Android\Sdk\platform-tools\adb.exe"
+}
+if (-not (Test-Path -LiteralPath $adbPath -PathType Leaf)) {
+    throw "adb is not available on PATH or in the standard Android SDK location"
+}
 
 function Invoke-AiosAdb {
     param([string[]]$Arguments)
-    $output = & $adbCommand.Source -s $Serial @Arguments 2>&1
+    $output = & $adbPath -s $Serial @Arguments 2>&1
     if ($LASTEXITCODE -ne 0) {
         throw "adb failed: $($Arguments -join ' '): $($output -join ' ')"
     }

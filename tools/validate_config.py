@@ -5145,6 +5145,7 @@ def validate_aosp_overlay(root: Path) -> None:
         root / "scripts" / "set-call-uplink-test.ps1"
     ).read_text(encoding="utf-8")
     require('ValidateSet("enable", "disable")' in call_uplink_test_script
+            and '"Android\\Sdk\\platform-tools\\adb.exe"' in call_uplink_test_script
             and '"ro.debuggable"' in call_uplink_test_script
             and '"ro.boot.qemu"' in call_uplink_test_script
             and '"persist.aios.debug.call_uplink_test"' in call_uplink_test_script
