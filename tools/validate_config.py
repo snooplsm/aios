@@ -3896,6 +3896,17 @@ def validate_aosp_overlay(root: Path) -> None:
             and 'params.detect_language = std::strcmp(language_chars, "auto") == 0;'
             not in whisper_jni,
             "Whisper auto language selection must transcribe instead of detect-only exit")
+    require("params.single_segment = true;" in whisper_jni
+            and "params.max_tokens = 32;" in whisper_jni
+            and "params.temperature_inc = -1.0f;" in whisper_jni
+            and 'LOG_TAG[] = "AiosWhisperNative"' in whisper_jni
+            and '"DECODE_NATIVE_DONE' in whisper_jni
+            and '"DECODE_NATIVE_FAILED' in whisper_jni,
+            "Whisper live-call decode must be bounded and expose privacy-safe native timing")
+    require("AIOS_ARM64_COMPUTE_TARGETS whisper ggml-base ggml-cpu" in whisper_cmake
+            and 'target_compile_options("${compute_target}" PRIVATE' in whisper_cmake
+            and "-march=armv8.2-a+fp16" in whisper_cmake,
+            "Whisper arm64 optimization flags must reach the actual whisper/ggml compute targets")
     whisper_native_api = (whisper_root / "app" / "src" / "main" / "java" /
                           "com" / "aios" / "runtime" / "whispercpp" /
                           "NativeWhisper.kt").read_text(encoding="utf-8")

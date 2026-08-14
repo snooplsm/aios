@@ -36,7 +36,7 @@ class WhisperRuntimeService : Service() {
         const val TAG = "AiosWhisperRuntime"
         const val BROKER_PACKAGE = "com.aios.modelbroker"
         const val RUNTIME_ID = "whisper_cpp"
-        const val IMPLEMENTATION_VERSION = "1.9.4"
+        const val IMPLEMENTATION_VERSION = "1.9.5"
         const val PROVIDER_API_VERSION = 2
         const val ERROR_INVALID_REQUEST = 2
         const val ERROR_BUSY = 3

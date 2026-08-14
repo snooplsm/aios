@@ -26,6 +26,21 @@ endif()
 
 add_subdirectory("${WHISPER_CPP_DIR}" whisper-cpp EXCLUDE_FROM_ALL)
 
+# The expensive work lives in whisper/ggml, not in the JNI shim. Keep the
+# minimum Pixel generation explicit so a dependency update cannot silently
+# build the kernels with generic arm64 flags again.
+if(ANDROID_ABI STREQUAL "arm64-v8a")
+    set(AIOS_ARM64_COMPUTE_TARGETS whisper ggml-base ggml-cpu)
+    foreach(compute_target IN LISTS AIOS_ARM64_COMPUTE_TARGETS)
+        if(NOT TARGET "${compute_target}")
+            message(FATAL_ERROR "Pinned whisper.cpp is missing target: ${compute_target}")
+        endif()
+        target_compile_options("${compute_target}" PRIVATE
+            -O3
+            -march=armv8.2-a+fp16)
+    endforeach()
+endif()
+
 add_library(aios_whisper_jni SHARED aios_whisper_jni.cpp)
 target_include_directories(aios_whisper_jni PRIVATE "${WHISPER_CPP_DIR}/include")
 target_compile_options(aios_whisper_jni PRIVATE

@@ -1,7 +1,10 @@
 #include <jni.h>
 
+#include <android/log.h>
+
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cstring>
 #include <new>
 #include <string>
@@ -9,6 +12,13 @@
 #include "whisper.h"
 
 namespace {
+
+constexpr char LOG_TAG[] = "AiosWhisperNative";
+
+long long elapsed_millis(std::chrono::steady_clock::time_point started_at) {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - started_at).count();
+}
 
 void throw_java(JNIEnv * env, const char * type, const char * message) {
     jclass klass = env->FindClass(type);
@@ -59,12 +69,19 @@ Java_com_aios_runtime_whispercpp_NativeWhisper_create(
     whisper_context_params params = whisper_context_default_params();
     params.use_gpu = false;
     params.flash_attn = true;
+    const auto started_at = std::chrono::steady_clock::now();
     whisper_context * context = whisper_init_from_file_with_params(path, params);
     env->ReleaseStringUTFChars(model_path, path);
     if (context == nullptr) {
+        __android_log_print(ANDROID_LOG_ERROR, LOG_TAG,
+                "MODEL_INITIALIZE_NATIVE_FAILED elapsed_ms=%lld",
+                elapsed_millis(started_at));
         throw_java(env, "java/lang/IllegalStateException", "whisper model initialization failed");
         return 0;
     }
+    __android_log_print(ANDROID_LOG_INFO, LOG_TAG,
+            "MODEL_INITIALIZE_NATIVE_DONE elapsed_ms=%lld system=%s",
+            elapsed_millis(started_at), whisper_print_system_info());
     return reinterpret_cast<jlong>(context);
 }
 
@@ -132,7 +149,12 @@ Java_com_aios_runtime_whispercpp_NativeWhisper_transcribe(
     params.translate = false;
     params.no_context = true;
     params.no_timestamps = true;
-    params.single_segment = false;
+    // AIOS supplies short VAD/windowed call audio. Bound each invocation like
+    // whisper.cpp's streaming example instead of permitting an offline decode
+    // to emit unlimited tokens or retry at increasing temperatures.
+    params.single_segment = true;
+    params.max_tokens = 32;
+    params.temperature_inc = -1.0f;
     params.print_special = false;
     params.print_progress = false;
     params.print_realtime = false;
@@ -147,17 +169,26 @@ Java_com_aios_runtime_whispercpp_NativeWhisper_transcribe(
     params.abort_callback = abort_decode;
     params.abort_callback_user_data = cancellation;
 
+    const auto started_at = std::chrono::steady_clock::now();
     const int status = whisper_full(context, params, pcm, sample_count);
     env->ReleaseFloatArrayElements(samples, pcm, JNI_ABORT);
     env->ReleaseStringUTFChars(language, language_chars);
     if (status != 0) {
-        if (cancellation->cancelled.load(std::memory_order_acquire)) return nullptr;
+        const bool cancelled = cancellation->cancelled.load(std::memory_order_acquire);
+        __android_log_print(cancelled ? ANDROID_LOG_INFO : ANDROID_LOG_ERROR, LOG_TAG,
+                "DECODE_NATIVE_FAILED status=%d cancelled=%d samples=%d threads=%d elapsed_ms=%lld",
+                status, cancelled ? 1 : 0, sample_count, params.n_threads,
+                elapsed_millis(started_at));
+        if (cancelled) return nullptr;
         throw_java(env, "java/lang/IllegalStateException", "whisper decode failed");
         return nullptr;
     }
 
     std::string transcript;
     const int segment_count = whisper_full_n_segments(context);
+    __android_log_print(ANDROID_LOG_INFO, LOG_TAG,
+            "DECODE_NATIVE_DONE samples=%d threads=%d segments=%d elapsed_ms=%lld",
+            sample_count, params.n_threads, segment_count, elapsed_millis(started_at));
     for (int index = 0; index < segment_count; ++index) {
         const char * text = whisper_full_get_segment_text(context, index);
         if (text != nullptr) transcript.append(text);

@@ -44,7 +44,7 @@
       "package": "com.aios.runtime.whispercpp",
       "service_class": "com.aios.runtime.whispercpp.WhisperRuntimeService",
       "action": "com.aios.model.RUNTIME_PROVIDER",
-      "implementation_version": "1.9.4",
+      "implementation_version": "1.9.5",
       "source_repository": "https://github.com/ggml-org/whisper.cpp",
       "source_tag": "v1.9.2",
       "source_revision": "306c88f4d1286aec1bf96e544632897886af5501",
