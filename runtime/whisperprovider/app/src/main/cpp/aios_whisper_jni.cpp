@@ -14,10 +14,28 @@
 namespace {
 
 constexpr char LOG_TAG[] = "AiosWhisperNative";
+constexpr int MEL_HOP_SAMPLES = 160;
+constexpr int ENCODER_DOWNSAMPLE = 2;
+constexpr int AUDIO_CONTEXT_QUANTUM = 64;
+constexpr int MIN_AUDIO_CONTEXT = 64;
 
 long long elapsed_millis(std::chrono::steady_clock::time_point started_at) {
     return std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::now() - started_at).count();
+}
+
+int bounded_audio_context(whisper_context * context, int sample_count) {
+    // Whisper's default 1500 encoder positions represent 30 seconds. AIOS
+    // windows are 0.5-4 seconds, so building the full graph wastes most of the
+    // call latency on zero padding. Round up far enough to retain the complete
+    // mel sequence while keeping stable graph sizes across nearby windows.
+    const int samples_per_context = MEL_HOP_SAMPLES * ENCODER_DOWNSAMPLE;
+    const int required = (sample_count + samples_per_context - 1)
+            / samples_per_context;
+    const int rounded = ((required + AUDIO_CONTEXT_QUANTUM - 1)
+            / AUDIO_CONTEXT_QUANTUM) * AUDIO_CONTEXT_QUANTUM;
+    return std::min(whisper_model_n_audio_ctx(context),
+            std::max(MIN_AUDIO_CONTEXT, rounded));
 }
 
 void throw_java(JNIEnv * env, const char * type, const char * message) {
@@ -155,6 +173,7 @@ Java_com_aios_runtime_whispercpp_NativeWhisper_transcribe(
     params.single_segment = true;
     params.max_tokens = 32;
     params.temperature_inc = -1.0f;
+    params.audio_ctx = bounded_audio_context(context, sample_count);
     params.print_special = false;
     params.print_progress = false;
     params.print_realtime = false;
@@ -176,8 +195,8 @@ Java_com_aios_runtime_whispercpp_NativeWhisper_transcribe(
     if (status != 0) {
         const bool cancelled = cancellation->cancelled.load(std::memory_order_acquire);
         __android_log_print(cancelled ? ANDROID_LOG_INFO : ANDROID_LOG_ERROR, LOG_TAG,
-                "DECODE_NATIVE_FAILED status=%d cancelled=%d samples=%d threads=%d elapsed_ms=%lld",
-                status, cancelled ? 1 : 0, sample_count, params.n_threads,
+                "DECODE_NATIVE_FAILED status=%d cancelled=%d samples=%d threads=%d audio_ctx=%d elapsed_ms=%lld",
+                status, cancelled ? 1 : 0, sample_count, params.n_threads, params.audio_ctx,
                 elapsed_millis(started_at));
         if (cancelled) return nullptr;
         throw_java(env, "java/lang/IllegalStateException", "whisper decode failed");
@@ -187,8 +206,9 @@ Java_com_aios_runtime_whispercpp_NativeWhisper_transcribe(
     std::string transcript;
     const int segment_count = whisper_full_n_segments(context);
     __android_log_print(ANDROID_LOG_INFO, LOG_TAG,
-            "DECODE_NATIVE_DONE samples=%d threads=%d segments=%d elapsed_ms=%lld",
-            sample_count, params.n_threads, segment_count, elapsed_millis(started_at));
+            "DECODE_NATIVE_DONE samples=%d threads=%d audio_ctx=%d segments=%d elapsed_ms=%lld",
+            sample_count, params.n_threads, params.audio_ctx, segment_count,
+            elapsed_millis(started_at));
     for (int index = 0; index < segment_count; ++index) {
         const char * text = whisper_full_get_segment_text(context, index);
         if (text != nullptr) transcript.append(text);

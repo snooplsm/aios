@@ -3906,10 +3906,17 @@ def validate_aosp_overlay(root: Path) -> None:
     require("params.single_segment = true;" in whisper_jni
             and "params.max_tokens = 32;" in whisper_jni
             and "params.temperature_inc = -1.0f;" in whisper_jni
+            and "params.audio_ctx = bounded_audio_context(context, sample_count);"
+            in whisper_jni
+            and "MEL_HOP_SAMPLES = 160" in whisper_jni
+            and "ENCODER_DOWNSAMPLE = 2" in whisper_jni
+            and "AUDIO_CONTEXT_QUANTUM = 64" in whisper_jni
+            and "whisper_model_n_audio_ctx(context)" in whisper_jni
+            and "audio_ctx=%d" in whisper_jni
             and 'LOG_TAG[] = "AiosWhisperNative"' in whisper_jni
             and '"DECODE_NATIVE_DONE' in whisper_jni
             and '"DECODE_NATIVE_FAILED' in whisper_jni,
-            "Whisper live-call decode must be bounded and expose privacy-safe native timing")
+            "Whisper live-call decode must bound tokens, retries, and short-window encoder context with privacy-safe native timing")
     require("AIOS_ARM64_COMPUTE_TARGETS whisper ggml-base ggml-cpu" in whisper_cmake
             and 'target_compile_options("${compute_target}" PRIVATE' in whisper_cmake
             and "-march=armv8.6-a+fp16+dotprod+i8mm" in whisper_cmake,
