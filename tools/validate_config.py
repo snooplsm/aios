@@ -1665,6 +1665,8 @@ def validate_aosp_overlay(root: Path) -> None:
     build_evidence_source = (root / "tools" /
                              "capture_build_evidence.py").read_text(encoding="utf-8")
     require("installed-files-product.json" in build_evidence_source
+            and "target_files_image_record" in build_evidence_source
+            and "target_files_package" in build_evidence_source
             and "require_manifest_membership" in build_evidence_source
             and "installed_files_product_sha256" in build_evidence_source
             and "patch_queue_record" in build_evidence_source

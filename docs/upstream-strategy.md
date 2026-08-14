@@ -51,9 +51,10 @@ applies only digest-verified patches at their exact bases, records the Soong log
 and installed artifact digests, and reverses the staged patch transaction on
 exit. Evidence capture requires every core AIOS application to be non-empty and
 to match its size and SHA-256 entry in the current build's installed-file
-manifest (`installed-files-product.json` for full products or
-`installed-files-system.json` for GSI); a stale APK left in `out/` cannot satisfy
-a new build. The evidence also records the installed-file manifest digest. A rebase
+manifest (`installed-files-product.json` for partition products,
+`installed-files-system.json` for older GSIs, or the target-files archive for a
+full physical-device build); a stale APK left in `out/` cannot satisfy a new
+build. The evidence also records the inventory source digest. A rebase
 conflict therefore stops before a build instead of becoming an unreviewed merge.
 Build-evidence schema version 2 embeds the canonical review-complete queue and
 its SHA-256 after independently rehashing every payload. Together with the clean

@@ -5,6 +5,7 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 
 
@@ -136,6 +137,19 @@ class BuildEvidenceTests(unittest.TestCase):
         )
         for image in lane["required_images"]:
             (product_out / image).write_bytes(f"fixture:{image}".encode())
+        if lane["artifact_layout"] == "full_device_target_files":
+            target_files = (product_out / "obj" / "PACKAGING" /
+                            "target_files_intermediates" /
+                            f"{product}-target_files.zip")
+            target_files.parent.mkdir(parents=True)
+            with zipfile.ZipFile(target_files, "w") as archive:
+                for relative in expected_artifacts:
+                    archive.write(
+                        product_out / relative,
+                        "PRODUCT/" + relative.removeprefix("product/"),
+                    )
+                for image in lane["required_images"]:
+                    archive.write(product_out / image, f"IMAGES/{image}")
         log = base / "soong-build.log"
         log.write_text("build completed successfully\n", encoding="utf-8")
         return aios, manifest, manifest_lock, out, log, product_out
@@ -243,7 +257,7 @@ class BuildEvidenceTests(unittest.TestCase):
                 aios, "pixel9a_tegu_hardware", manifest, lock, out, log
             )
             self.assertEqual("full_device_target_files", value["artifact_layout"])
-            self.assertEqual("installed-files-product.json",
+            self.assertEqual("aios_tegu-target_files.zip",
                              value["installed_files_manifest"])
             self.assertEqual(
                 ["boot.img", "product.img", "system.img", "vendor.img",
@@ -257,6 +271,46 @@ class BuildEvidenceTests(unittest.TestCase):
             self.assertEqual(1, support["file_count"])
             self.assertRegex(support["tree_sha256"], r"^[0-9a-f]{64}$")
             self.assertRegex(support["state_sha256"], r"^[0-9a-f]{64}$")
+            self.assertEqual(
+                "target/product/tegu/obj/PACKAGING/target_files_intermediates/"
+                "aios_tegu-target_files.zip",
+                value["target_files_package"]["path"],
+            )
+            self.assertRegex(
+                value["target_files_package"]["sha256"], r"^[0-9a-f]{64}$"
+            )
+            image_paths = {
+                item["path"] for item in value["artifacts"]
+                if item["path"].startswith("IMAGES/")
+            }
+            self.assertEqual(
+                {f"IMAGES/{name}" for name in value["deployable_images"]},
+                image_paths,
+            )
+
+    def test_rejects_full_pixel_archive_missing_required_image(self):
+        with tempfile.TemporaryDirectory() as raw:
+            aios, manifest, lock, out, log, product_out = self.create_fixture(
+                raw,
+                lane_id="pixel9a_tegu_hardware",
+                product="aios_tegu",
+                target_device="tegu",
+            )
+            archive_path = (product_out / "obj" / "PACKAGING" /
+                            "target_files_intermediates" /
+                            "aios_tegu-target_files.zip")
+            replacement = archive_path.with_suffix(".replacement")
+            with zipfile.ZipFile(archive_path) as source, \
+                    zipfile.ZipFile(replacement, "w") as destination:
+                for member in source.infolist():
+                    if member.filename != "IMAGES/vendor_boot.img":
+                        destination.writestr(member, source.read(member))
+            replacement.replace(archive_path)
+            with self.assertRaisesRegex(
+                    evidence.BuildEvidenceError, "missing required image.*vendor_boot"):
+                evidence.capture(
+                    aios, "pixel9a_tegu_hardware", manifest, lock, out, log
+                )
 
     def test_accepts_android_17_combined_gsi_installed_manifest(self):
         with tempfile.TemporaryDirectory() as raw:

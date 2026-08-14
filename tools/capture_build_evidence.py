@@ -12,6 +12,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -194,9 +195,55 @@ def artifact_record(product_out: Path, relative: str) -> dict:
 def installed_partition_records(
     product_out: Path, lane: dict
 ) -> tuple[Path, dict[str, dict]]:
+    if lane.get("artifact_layout") == "full_device_target_files":
+        candidates = sorted(
+            (product_out / "obj" / "PACKAGING" /
+             "target_files_intermediates").glob("*target_files*.zip")
+        )
+        if len(candidates) != 1:
+            raise BuildEvidenceError(
+                "full-device build must contain exactly one target-files archive"
+            )
+        archive = candidates[0]
+        records: dict[str, dict] = {}
+        try:
+            with zipfile.ZipFile(archive) as target_files:
+                for member in target_files.infolist():
+                    if member.is_dir():
+                        continue
+                    if member.filename.startswith("PRODUCT/"):
+                        normalized = (
+                            "product/" + member.filename.removeprefix("PRODUCT/")
+                        )
+                    elif member.filename.startswith("IMAGES/"):
+                        normalized = member.filename
+                    else:
+                        continue
+                    if normalized in records:
+                        raise BuildEvidenceError(
+                            f"duplicate target-files member: {normalized}"
+                        )
+                    digest = hashlib.sha256()
+                    with target_files.open(member) as stream:
+                        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                            digest.update(chunk)
+                    records[normalized] = {
+                        "Name": normalized,
+                        "Size": member.file_size,
+                        "SHA256": digest.hexdigest(),
+                    }
+        except (OSError, zipfile.BadZipFile) as error:
+            raise BuildEvidenceError(
+                f"cannot inspect target-files archive: {error}"
+            ) from error
+        if not records:
+            raise BuildEvidenceError(
+                "target-files archive contains no product or image files"
+            )
+        return archive, records
+
     manifests = {
         "product_partition": ("installed-files-product.json",),
-        "full_device_target_files": ("installed-files-product.json",),
         # Android 17's Soong-defined GSI writes the combined system filesystem
         # inventory as installed-files.json. Older Kati-defined GSI builds used
         # installed-files-system.json. Prefer the partition-specific legacy
@@ -242,6 +289,24 @@ def installed_partition_records(
                 f"installed-file manifest has an invalid path: {name}")
         records[normalized] = record
     return manifest, records
+
+
+def target_files_image_record(
+    records: dict[str, dict], image: str
+) -> dict:
+    member = f"IMAGES/{image}"
+    record = records.get(member)
+    if record is None:
+        raise BuildEvidenceError(
+            f"missing required image from target-files archive: {image}"
+        )
+    if record["Size"] <= 0:
+        raise BuildEvidenceError(f"empty target-files image: {image}")
+    return {
+        "path": member,
+        "size_bytes": record["Size"],
+        "sha256": record["SHA256"],
+    }
 
 
 def require_manifest_membership(
@@ -567,8 +632,12 @@ def capture(
                    for image in required_images)):
         raise BuildEvidenceError("lane lacks required build images")
     for image in required_images:
-        artifacts.append(artifact_record(product_out, image))
+        if lane["artifact_layout"] == "full_device_target_files":
+            artifacts.append(target_files_image_record(installed_records, image))
+        else:
+            artifacts.append(artifact_record(product_out, image))
 
+    inventory_sha256 = sha256(installed_manifest)
     value = {
         "schema_version": 2,
         "status": "passed",
@@ -588,7 +657,7 @@ def capture(
         "manifest_lock_sha256": sha256(manifest_lock),
         "build_log_sha256": sha256(build_log),
         "installed_files_manifest": installed_manifest.name,
-        "installed_files_sha256": sha256(installed_manifest),
+        "installed_files_sha256": inventory_sha256,
         "patch_series_file": patch_series_file,
         "patch_series_sha256": sha256(root / "patches" / patch_series_file),
         "patch_queue_sha256": patch_queue_digest,
@@ -607,11 +676,15 @@ def capture(
         value["generated_payloads"] = generated_payloads
     if generated_device_support is not None:
         value["generated_device_support"] = generated_device_support
-    if lane["artifact_layout"] in {
-            "product_partition", "full_device_target_files"}:
+        value["target_files_package"] = {
+            "path": installed_manifest.relative_to(out_dir.resolve()).as_posix(),
+            "size_bytes": installed_manifest.stat().st_size,
+            "sha256": inventory_sha256,
+        }
+    if lane["artifact_layout"] == "product_partition":
         # Preserve the schema-2 field consumed by existing checked-in build
         # evidence while exposing a partition-neutral field for GSI records.
-        value["installed_files_product_sha256"] = sha256(installed_manifest)
+        value["installed_files_product_sha256"] = inventory_sha256
     if output is not None:
         write_json_atomic(output, value)
     return value

@@ -90,8 +90,11 @@ files, and signing-key identity must be captured together for every candidate.
 Build the latest-integration lane first. The wrapper captures the immutable
 manifest, validates the lane, transactionally stages the exact patch queue,
 runs the full product build, verifies each required AIOS APK against AOSP's
-current `installed-files-product.json`, digests that manifest plus the installed
-artifacts and images, and then restores the upstream projects:
+current installed-file inventory for partition products. For the physical Pixel
+lane, Android 17 does not emit the legacy `installed-files-product.json`; the
+gate instead verifies the staged AIOS files and every required partition image
+against the completed target-files archive, then digests that archive and
+restores the upstream projects:
 
 ```text
 vendor/aios/scripts/build-aosp-lane.sh \
