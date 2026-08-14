@@ -95,7 +95,8 @@ fi
 set +e
 build_targets=()
 if [[ "$lane" == "pixel9a_tegu_hardware" ]]; then
-  build_targets=(target-files-package img_from_target_files)
+  build_targets=(target-files-package img_from_target_files ota_from_target_files \
+    check_ota_package_signature)
 fi
 m -j "$jobs" "${build_targets[@]}" 2>&1 | tee "$build_log"
 build_status="${PIPESTATUS[0]}"

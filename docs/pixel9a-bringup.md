@@ -108,9 +108,40 @@ result, requires `tegu` plus explicit bootloader/baseband versions, verifies the
 full partition set and model/runtime inventory, and emits a hash-bound release
 record. Test-key packages are never suitable for a locked bootloader or release.
 The physical lane wrapper builds both `target-files-package` and the hermetic
-`out/host/linux-x86/bin/img_from_target_files`; pass that generated executable to
-the packager. Do not depend on a host `python` alias or an unbuilt source-tree
-releasetools script.
+`out/host/linux-x86/bin/img_from_target_files` and
+`out/host/linux-x86/bin/ota_from_target_files`, and the official
+`out/host/linux-x86/bin/check_ota_package_signature`; pass those generated
+executables to the corresponding packagers. Do not depend on a host `python`
+alias or an unbuilt source-tree releasetools script.
+
+For a non-wiping development update artifact, run
+`tools/package_pixel_ota.py` against the same evidenced target-files archive.
+It accepts only a full AIOS Pixel lane with the exact model/runtime inventory,
+then requires A/B updates, dynamic partitions, Virtual A/B compression, AVB,
+the lane's complete partition set, and the public Android test key. After the
+hermetic releasetool returns, it streams `payload.bin` once to verify
+`FILE_SIZE`, `FILE_HASH`, `METADATA_SIZE`, and `METADATA_HASH`; it also binds the
+OTA metadata to `tegu`, the exact build fingerprint, incremental version, and
+security patch. The atomic evidence record hashes the source build evidence,
+target-files archive, OTA archive, payload, payload metadata, package metadata,
+Android whole-file signature footer, hermetic OTA generator, official AOSP
+signature checker, development certificate, and the checkout's pinned JDK 21
+runtime. The official checker cryptographically verifies both the whole package
+and A/B payload signature. Packaging never installs the OTA and does not prove
+that update_engine accepted it. Test-key OTAs require the unlocked development
+device and are not production releases.
+
+```text
+python3 vendor/aios/tools/package_pixel_ota.py \
+  --aosp-root /absolute/aosp \
+  --lane pixel9a_tegu_hardware \
+  --build-evidence /safe/release-artifacts/pixel9a-build-id/soong-build-evidence.json \
+  --target-files /absolute/aosp/out/target/product/tegu/obj/PACKAGING/target_files_intermediates/aios_tegu-target_files.zip \
+  --ota-from-target-files /absolute/aosp/out/host/linux-x86/bin/ota_from_target_files \
+  --check-ota-package-signature /absolute/aosp/out/host/linux-x86/bin/check_ota_package_signature \
+  --output /safe/release-artifacts/pixel9a-build-id/ota/aios_tegu-full-ota.zip \
+  --evidence-output /safe/release-artifacts/pixel9a-build-id/ota/full-ota-evidence.json
+```
 
 Use `tools/flash_pixel_dev_image.py` for both the host preflight and execution.
 Without `--execute` it is read-only. It requires exactly the named fastboot

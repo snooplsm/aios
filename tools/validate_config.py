@@ -968,6 +968,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "tools/refresh_aosp_tracking.py",
         "tools/capture_build_evidence.py",
         "tools/package_pixel_dev_image.py",
+        "tools/package_pixel_ota.py",
         "tools/flash_pixel_dev_image.py",
         "tools/capture_pixel_aios_boot.py",
         "tools/capture_cuttlefish_boot_evidence.py",
@@ -1797,6 +1798,8 @@ def validate_aosp_overlay(root: Path) -> None:
             and '--series "$patch_series"' in build_script
             and "target-files-package" in build_script
             and "img_from_target_files" in build_script
+            and "ota_from_target_files" in build_script
+            and "check_ota_package_signature" in build_script
             and 'build_status="${PIPESTATUS[0]}"' in build_script,
             "lane builds must be locked, patch-transactional, logged, and evidence-bound")
     build_evidence_source = (root / "tools" /
@@ -1826,6 +1829,22 @@ def validate_aosp_overlay(root: Path) -> None:
             and "version-baseband" in pixel_packager
             and "contains_required_model_payloads" in pixel_packager,
             "Pixel development packaging must be evidence-bound and device-guarded")
+    pixel_ota_packager = (root / "tools" /
+                          "package_pixel_ota.py").read_text(encoding="utf-8")
+    require("ota_from_target_files" in pixel_ota_packager
+            and "inspect_target_files" in pixel_ota_packager
+            and "inspect_ota_zip" in pixel_ota_packager
+            and "inspect_whole_file_signature_footer" in pixel_ota_packager
+            and "virtual_ab_compression" in pixel_ota_packager
+            and "payload FILE_HASH" in pixel_ota_packager
+            and "payload METADATA_HASH" in pixel_ota_packager
+            and "post-security-patch-level" in pixel_ota_packager
+            and "prebuilts" in pixel_ota_packager
+            and "jdk21" in pixel_ota_packager
+            and "whole_file_and_payload_verified" in pixel_ota_packager
+            and "public_android_test_keys_unlocked_bootloader_only" in pixel_ota_packager
+            and '"installation_performed": False' in pixel_ota_packager,
+            "Pixel OTA packaging must be A/B, payload-, build-, and device-bound")
     pixel_flasher = (root / "tools" /
                      "flash_pixel_dev_image.py").read_text(encoding="utf-8")
     require("verify_release_input" in pixel_flasher
