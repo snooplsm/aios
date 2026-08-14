@@ -15,6 +15,7 @@ final class DebugInstantProvisioner {
     private static final String SETUP_WIZARD_PACKAGE = "app.grapheneos.setupwizard";
     private static final String NETWORK_LOCATION_SETTING = "network_location";
     private static final String GEOCODER_SETTING = "geocoder";
+    private static final String WIFI_SCAN_ALWAYS_SETTING = "wifi_scan_always_enabled";
     private static final int PRIVACY_PROVIDER = 2;
 
     private DebugInstantProvisioner() {}
@@ -38,7 +39,7 @@ final class DebugInstantProvisioner {
         boolean geocoder = Settings.Global.putInt(
                 context.getContentResolver(), GEOCODER_SETTING, PRIVACY_PROVIDER);
         boolean wifiScanning = Settings.Global.putInt(
-                context.getContentResolver(), Settings.Global.WIFI_SCAN_ALWAYS_AVAILABLE, 1);
+                context.getContentResolver(), WIFI_SCAN_ALWAYS_SETTING, 1);
 
         LocationManager locationManager = context.getSystemService(LocationManager.class);
         if (locationManager != null) {

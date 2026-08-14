@@ -22,7 +22,7 @@ public final class DeveloperDefaultsReceiver extends BroadcastReceiver {
         boolean productFlagEnabled = metadata != null
                 && metadata.getBoolean(ENABLED_METADATA, false);
         boolean developerDefaultsAllowed = DeveloperDefaultsPolicy.shouldApply(
-                Build.IS_DEBUGGABLE, productFlagEnabled);
+                Build.TYPE, productFlagEnabled);
         if (!developerDefaultsAllowed) {
             return;
         }

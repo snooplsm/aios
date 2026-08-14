@@ -4,7 +4,8 @@ package com.aios.developerdefaults;
 final class DeveloperDefaultsPolicy {
     private DeveloperDefaultsPolicy() {}
 
-    static boolean shouldApply(boolean debuggable, boolean productFlagEnabled) {
-        return debuggable && productFlagEnabled;
+    static boolean shouldApply(String buildType, boolean productFlagEnabled) {
+        return ("eng".equals(buildType) || "userdebug".equals(buildType))
+                && productFlagEnabled;
     }
 }

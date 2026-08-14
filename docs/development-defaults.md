@@ -16,7 +16,7 @@ defaults.
 When enabled, the product includes the platform-signed
 `AiosDeveloperDefaults` direct-boot receiver and publishes
 `ro.aios.developer_defaults=true`. At locked boot and normal boot, the receiver
-requires both `Build.IS_DEBUGGABLE` and the product property before setting
+requires an `eng`/`userdebug` `Build.TYPE` and the product property before setting
 `Settings.Global.DEVELOPMENT_SETTINGS_ENABLED` and `Settings.Global.ADB_ENABLED`
 to `1`. Either missing condition is a no-op.
 

@@ -900,12 +900,13 @@ def validate_default_dialer_overlay(root: Path) -> None:
             and "android.permission.WRITE_SECURE_SETTINGS" in developer_manifest
             and 'android:directBootAware="true"' in developer_manifest
             and 'android:name="com.aios.developer_defaults"' in developer_manifest
-            and "Build.IS_DEBUGGABLE" in developer_receiver
+            and "Build.TYPE" in developer_receiver
             and "ENABLED_METADATA" in developer_receiver
             and "getBoolean(ENABLED_METADATA, false)" in developer_receiver
             and "Settings.Global.DEVELOPMENT_SETTINGS_ENABLED" in developer_receiver
             and "Settings.Global.ADB_ENABLED" in developer_receiver
-            and "return debuggable && productFlagEnabled" in developer_policy
+            and '"userdebug".equals(buildType)' in developer_policy
+            and '"eng".equals(buildType)' in developer_policy
             and "requiresDebuggableBuildAndExplicitProductFlag" in developer_test,
             "developer defaults app must double-gate secure settings at runtime and in tests")
     require("AIOS_ENABLE_INSTANT_PROVISIONING ?=" in common_product
@@ -922,6 +923,8 @@ def validate_default_dialer_overlay(root: Path) -> None:
             and "setLocationEnabledForUser(true" in debug_provisioner
             and 'NETWORK_LOCATION_SETTING = "network_location"' in debug_provisioner
             and 'GEOCODER_SETTING = "geocoder"' in debug_provisioner
+            and 'WIFI_SCAN_ALWAYS_SETTING = "wifi_scan_always_enabled"'
+            in debug_provisioner
             and "WifiManager.AddNetworkResult" in debug_provisioner
             and "addNetworkPrivileged" in debug_provisioner
             and "DebugProvisioningPolicy.shouldApply" in debug_provisioner

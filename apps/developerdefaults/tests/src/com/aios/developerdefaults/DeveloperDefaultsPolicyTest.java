@@ -8,9 +8,10 @@ import org.junit.Test;
 public final class DeveloperDefaultsPolicyTest {
     @Test
     public void requiresDebuggableBuildAndExplicitProductFlag() {
-        assertTrue(DeveloperDefaultsPolicy.shouldApply(true, true));
-        assertFalse(DeveloperDefaultsPolicy.shouldApply(false, true));
-        assertFalse(DeveloperDefaultsPolicy.shouldApply(true, false));
-        assertFalse(DeveloperDefaultsPolicy.shouldApply(false, false));
+        assertTrue(DeveloperDefaultsPolicy.shouldApply("eng", true));
+        assertTrue(DeveloperDefaultsPolicy.shouldApply("userdebug", true));
+        assertFalse(DeveloperDefaultsPolicy.shouldApply("user", true));
+        assertFalse(DeveloperDefaultsPolicy.shouldApply("userdebug", false));
+        assertFalse(DeveloperDefaultsPolicy.shouldApply(null, true));
     }
 }
