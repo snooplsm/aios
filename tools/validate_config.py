@@ -1922,6 +1922,8 @@ def validate_aosp_overlay(root: Path) -> None:
             and '"single_model_diagnostic"' in benchmark_source
             and "DIAGNOSTIC_TIMEOUT_MILLIS = 45_000L" in benchmark_source
             and "AiosModelDiagnostic" in benchmark_source
+            and "values.get(name).available" in benchmark_source
+            and "READINESS_TIMEOUT capability=" in benchmark_source
             and "ADMISSION_RUNS_PER_LANGUAGE = 5" in benchmark_source
             and "pixel_aios_realtime_model_smoke" in realtime_capture
             and "pixel_aios_audio_realtime_smoke" in realtime_capture

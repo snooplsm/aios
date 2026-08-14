@@ -859,11 +859,21 @@ public final class ModelAdmissionBenchmarkTest {
             latest = values;
             if (List.of("text_generation", "image_understanding", "video_understanding",
                     "speech_synthesis", "streaming_asr").stream()
-                    .allMatch(values::containsKey)) {
+                    .allMatch(name -> values.containsKey(name)
+                            && values.get(name).available)) {
+                Log.i(TAG, "All selected model runtime adapters are active");
                 return values;
             }
             Thread.sleep(500L);
         } while (SystemClock.elapsedRealtime() < deadline);
+        for (String name : List.of(
+                "text_generation", "image_understanding", "video_understanding",
+                "speech_synthesis", "streaming_asr")) {
+            ModelCapability value = latest.get(name);
+            Log.e(TAG, "READINESS_TIMEOUT capability=" + name
+                    + " present=" + (value != null)
+                    + " available=" + (value != null && value.available));
+        }
         return latest;
     }
 
@@ -875,6 +885,8 @@ public final class ModelAdmissionBenchmarkTest {
             assertNotNull("missing benchmark capability " + capability, value);
             assertTrue("selected model ID is absent for " + capability,
                     value.selectedModelId != null && !value.selectedModelId.isBlank());
+            assertTrue("runtime adapter is unavailable for " + capability,
+                    value.available);
         }
     }
 
