@@ -35,6 +35,8 @@
 
     <!-- Installed only by the eng/userdebug developer-defaults build flag. -->
     <privapp-permissions package="com.aios.developerdefaults">
+        <permission name="android.permission.CHANGE_COMPONENT_ENABLED_STATE" />
+        <permission name="android.permission.NETWORK_SETTINGS" />
         <permission name="android.permission.WRITE_SECURE_SETTINGS" />
     </privapp-permissions>
 </permissions>

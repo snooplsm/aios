@@ -871,6 +871,19 @@ def validate_default_dialer_overlay(root: Path) -> None:
                       "DeveloperDefaultsPolicyTest.java").read_text(encoding="utf-8")
     developer_build = (root / "apps" / "developerdefaults" /
                        "Android.bp").read_text(encoding="utf-8")
+    debug_provisioner = (root / "apps" / "developerdefaults" / "src" / "com" /
+                         "aios" / "developerdefaults" /
+                         "DebugInstantProvisioner.java").read_text(encoding="utf-8")
+    debug_policy = (root / "apps" / "developerdefaults" / "src" / "com" /
+                    "aios" / "developerdefaults" /
+                    "DebugProvisioningPolicy.java").read_text(encoding="utf-8")
+    debug_test = (root / "apps" / "developerdefaults" / "tests" / "src" / "com" /
+                  "aios" / "developerdefaults" /
+                  "DebugProvisioningPolicyTest.java").read_text(encoding="utf-8")
+    debug_resources = (root / "apps" / "developerdefaults" / "res" / "values" /
+                       "config.xml").read_text(encoding="utf-8")
+    debug_generator = (root / "tools" /
+                       "configure_debug_provisioning.py").read_text(encoding="utf-8")
     require("AIOS_ENABLE_DEVELOPER_DEFAULTS ?=" in common_product
             and "$(filter userdebug eng,$(TARGET_BUILD_VARIANT))" in common_product
             and "AIOS_ENABLE_DEVELOPER_DEFAULTS=true is forbidden" in common_product
@@ -895,6 +908,35 @@ def validate_default_dialer_overlay(root: Path) -> None:
             and "return debuggable && productFlagEnabled" in developer_policy
             and "requiresDebuggableBuildAndExplicitProductFlag" in developer_test,
             "developer defaults app must double-gate secure settings at runtime and in tests")
+    require("AIOS_ENABLE_INSTANT_PROVISIONING ?=" in common_product
+            and "generated/debugprovisioning/Android.bp" in common_product
+            and "AIOS_ENABLE_INSTANT_PROVISIONING=true is forbidden" in common_product
+            and "PRODUCT_PACKAGES += AiosDebugProvisioningOverlay" in common_product
+            and "ro.aios.instant_provisioning=true" in common_product
+            and "ro.aios.instant_provisioning=false" in common_product,
+            "instant provisioning must require a generated debug-only resource overlay")
+    require("android.permission.NETWORK_SETTINGS" in developer_manifest
+            and "android.permission.CHANGE_COMPONENT_ENABLED_STATE" in developer_manifest
+            and "Settings.Global.DEVICE_PROVISIONED" in debug_provisioner
+            and "Settings.Secure.USER_SETUP_COMPLETE" in debug_provisioner
+            and "setLocationEnabledForUser(true" in debug_provisioner
+            and 'NETWORK_LOCATION_SETTING = "network_location"' in debug_provisioner
+            and 'GEOCODER_SETTING = "geocoder"' in debug_provisioner
+            and "WifiManager.AddNetworkResult" in debug_provisioner
+            and "addNetworkPrivileged" in debug_provisioner
+            and "DebugProvisioningPolicy.shouldApply" in debug_provisioner
+            and "developerDefaultsAllowed" in debug_policy
+            and "requiresEveryDebugAndCredentialGate" in debug_test,
+            "debug provisioning must gate onboarding, location, and privileged Wi-Fi seeding")
+    require('<bool name="debug_instant_provisioning">false</bool>' in debug_resources
+            and '<string name="debug_wifi_ssid" translatable="false"></string>'
+            in debug_resources
+            and '<string name="debug_wifi_psk" translatable="false"></string>'
+            in debug_resources
+            and "os.environ.get" in debug_generator
+            and "refusing to overwrite" in debug_generator
+            and "generated/" in (root / ".gitignore").read_text(encoding="utf-8"),
+            "Wi-Fi credentials must enter only through a non-overwriting gitignored overlay")
     boot_make = (root / "assets" / "bootanimation" /
                  "Android.mk").read_text(encoding="utf-8")
     boot_builder = (root / "tools" /
@@ -942,8 +984,12 @@ def validate_aosp_overlay(root: Path) -> None:
         "permissions/privapp-permissions-aios.xml",
         "apps/developerdefaults/Android.bp",
         "apps/developerdefaults/AndroidManifest.xml",
+        "apps/developerdefaults/res/values/config.xml",
+        "apps/developerdefaults/src/com/aios/developerdefaults/DebugInstantProvisioner.java",
+        "apps/developerdefaults/src/com/aios/developerdefaults/DebugProvisioningPolicy.java",
         "apps/developerdefaults/src/com/aios/developerdefaults/DeveloperDefaultsPolicy.java",
         "apps/developerdefaults/src/com/aios/developerdefaults/DeveloperDefaultsReceiver.java",
+        "apps/developerdefaults/tests/src/com/aios/developerdefaults/DebugProvisioningPolicyTest.java",
         "apps/developerdefaults/tests/src/com/aios/developerdefaults/DeveloperDefaultsPolicyTest.java",
         "assets/branding/README.md",
         "assets/branding/aios-boot-emblem-master.png",
@@ -952,7 +998,9 @@ def validate_aosp_overlay(root: Path) -> None:
         "assets/bootanimation/Android.mk",
         "assets/bootanimation/bootanimation.zip",
         "tools/build_boot_animation.py",
+        "tools/configure_debug_provisioning.py",
         "tests/test_boot_animation.py",
+        "tests/test_configure_debug_provisioning.py",
         "docs/development-defaults.md",
         "docs/boot-animation.md",
         "docs/visual-branding.md",

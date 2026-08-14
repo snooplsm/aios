@@ -21,7 +21,9 @@ public final class DeveloperDefaultsReceiver extends BroadcastReceiver {
         Bundle metadata = context.getApplicationInfo().metaData;
         boolean productFlagEnabled = metadata != null
                 && metadata.getBoolean(ENABLED_METADATA, false);
-        if (!DeveloperDefaultsPolicy.shouldApply(Build.IS_DEBUGGABLE, productFlagEnabled)) {
+        boolean developerDefaultsAllowed = DeveloperDefaultsPolicy.shouldApply(
+                Build.IS_DEBUGGABLE, productFlagEnabled);
+        if (!developerDefaultsAllowed) {
             return;
         }
         String action = intent.getAction();
@@ -40,5 +42,6 @@ public final class DeveloperDefaultsReceiver extends BroadcastReceiver {
         if (!development || !adb) {
             Log.e(TAG, "Could not apply opted-in development defaults");
         }
+        DebugInstantProvisioner.apply(context, developerDefaultsAllowed);
     }
 }

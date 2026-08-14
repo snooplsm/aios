@@ -15,6 +15,22 @@ else
 PRODUCT_PRODUCT_PROPERTIES += ro.aios.developer_defaults=false
 endif
 
+# A credential-bearing local RRO opts debug images into one-shot provisioning.
+# The generated directory is gitignored, so Wi-Fi secrets never enter source.
+AIOS_ENABLE_INSTANT_PROVISIONING ?= $(if $(and $(filter userdebug eng,$(TARGET_BUILD_VARIANT)),$(wildcard vendor/aios/generated/debugprovisioning/Android.bp)),true,false)
+ifeq ($(AIOS_ENABLE_INSTANT_PROVISIONING),true)
+ifeq ($(filter userdebug eng,$(TARGET_BUILD_VARIANT)),)
+$(error AIOS_ENABLE_INSTANT_PROVISIONING=true is forbidden for a production user build)
+endif
+ifeq ($(wildcard vendor/aios/generated/debugprovisioning/Android.bp),)
+$(error AIOS_ENABLE_INSTANT_PROVISIONING=true requires the local generated debug-provisioning overlay)
+endif
+PRODUCT_PACKAGES += AiosDebugProvisioningOverlay
+PRODUCT_PRODUCT_PROPERTIES += ro.aios.instant_provisioning=true
+else
+PRODUCT_PRODUCT_PROPERTIES += ro.aios.instant_provisioning=false
+endif
+
 # Original AIOS artwork is optional and additive to the upstream device product.
 AIOS_ENABLE_BOOT_ANIMATION ?= true
 ifeq ($(AIOS_ENABLE_BOOT_ANIMATION),true)

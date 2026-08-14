@@ -98,6 +98,9 @@ flag for authenticated ADB plus visible Developer options, an optional original
 1080x2424 AIOS boot animation, and visual-only Pixel-lane overlays for AIOS
 branding in Setup Wizard, Settings, and framework notices. Production `user`
 builds reject attempted developer-default enablement.
+When a gitignored local credential overlay is present, debug builds can also
+skip OS onboarding, enable GPS/network location/geocoding, and seed a private
+Wi-Fi network without committing its passphrase.
 The call path also has a digest-locked, arm64 Sherpa-ONNX/Supertonic 3 provider
 that streams native 44.1 kHz English/Spanish receptionist speech through the broker.
 The owner-facing phone application is now an original Kotlin/Jetpack Compose

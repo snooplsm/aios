@@ -15,6 +15,7 @@ android_app {
 java_test_host {
     name: "aios_developerdefaults_host_tests",
     srcs: [
+        "src/com/aios/developerdefaults/DebugProvisioningPolicy.java",
         "src/com/aios/developerdefaults/DeveloperDefaultsPolicy.java",
         "tests/src/**/*.java",
     ],

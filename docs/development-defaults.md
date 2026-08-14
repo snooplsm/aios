@@ -25,3 +25,22 @@ production image, and does not bypass the host-key authorization dialog. It is
 intended for personally owned unlocked development Pixels, not a shipping
 consumer default. Changing the flag requires rebuilding and reflashing; it does
 not mutate an already installed image.
+
+## Local instant provisioning
+
+An optional second debug gate skips OS onboarding, enables GPS, Wi-Fi scanning,
+the pinned privacy-proxy network-location provider, and the pinned geocoder,
+then seeds a local WPA-PSK network. Its Wi-Fi passphrase is never stored in this
+public repository. Generate the ignored resource overlay in the Android checkout:
+
+```text
+export AIOS_DEBUG_WIFI_PSK='<local passphrase>'
+python3 vendor/aios/tools/configure_debug_provisioning.py \
+  --ssid '<local SSID>' \
+  --output vendor/aios/generated/debugprovisioning
+```
+
+When that overlay exists, `AIOS_ENABLE_INSTANT_PROVISIONING` defaults to `true`
+for `eng` and `userdebug`; otherwise it defaults to `false`. Forcing it on in a
+`user` build is a hard error. The generated overlay is embedded in the image, so
+debug images containing it must not be published or shared.
