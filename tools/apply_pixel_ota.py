@@ -366,6 +366,9 @@ def write_text_atomic(path: Path, value: str) -> None:
 
 
 def write_json_atomic(path: Path, value: dict) -> None:
+    root = ROOT.resolve()
+    if path == root or root in path.parents:
+        raise UpdateError("physical OTA evidence must remain outside source")
     if path.exists():
         raise UpdateError(f"refusing to overwrite OTA result: {path}")
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -457,6 +460,7 @@ def main() -> int:
     parser.add_argument("--execute", action="store_true")
     parser.add_argument("--confirm-update")
     parser.add_argument("--result-output", type=Path)
+    parser.add_argument("--preflight-output", type=Path)
     arguments = parser.parse_args()
     try:
         evidence_path = arguments.evidence.resolve()
@@ -466,7 +470,12 @@ def main() -> int:
         device = inspect_device(runner, arguments.serial, ota)
         if not arguments.execute:
             result = {
+                "schema_version": 1,
                 "status": "preflight_passed",
+                "kind": "pixel9a_aios_virtual_ab_preflight",
+                "captured_at": datetime.now(timezone.utc)
+                .replace(microsecond=0).isoformat(),
+                "serial_sha256": text_sha256(arguments.serial),
                 "updated": False,
                 "ota": {
                     "target_fingerprint": ota["target_fingerprint"],
@@ -476,7 +485,11 @@ def main() -> int:
                 },
                 "device": device,
             }
+            if arguments.preflight_output is not None:
+                write_json_atomic(arguments.preflight_output.resolve(), result)
         else:
+            if arguments.preflight_output is not None:
+                raise UpdateError("--execute cannot use --preflight-output")
             if arguments.result_output is None:
                 raise UpdateError("--execute requires --result-output")
             result_path = arguments.result_output.resolve()

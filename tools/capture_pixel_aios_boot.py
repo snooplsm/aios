@@ -169,9 +169,9 @@ def collect(
     serial: str,
 ) -> dict:
     serials = connected_serials(runner.run(["devices", "-l"], serial=False))
-    if serials != [serial]:
+    if serial not in serials:
         raise BootEvidenceError(
-            f"expected exactly authorized ADB device {serial}, found {serials}"
+            f"authorized ADB device {serial} is not connected, found {serials}"
         )
     properties = {
         name: runner.run(["shell", "getprop", name])

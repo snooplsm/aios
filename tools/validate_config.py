@@ -971,6 +971,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "tools/package_pixel_ota.py",
         "tools/apply_pixel_ota.py",
         "tools/validate_build_version.py",
+        "tools/capture_pixel_aios_update.py",
         "tools/flash_pixel_dev_image.py",
         "tools/capture_pixel_aios_boot.py",
         "tools/capture_cuttlefish_boot_evidence.py",
@@ -1864,6 +1865,8 @@ def validate_aosp_overlay(root: Path) -> None:
             and "security_patch_downgrade" in pixel_ota_updater
             and "APPLY-" in pixel_ota_updater
             and "--execute" in pixel_ota_updater
+            and "--preflight-output" in pixel_ota_updater
+            and "physical OTA evidence must remain outside source" in pixel_ota_updater
             and "reboot_performed" in pixel_ota_updater
             and '"proves_post_update_boot": False' in pixel_ota_updater,
             "Pixel OTA application must be evidence-bound, monotonic, explicit, and non-rebooting")
@@ -1897,6 +1900,17 @@ def validate_aosp_overlay(root: Path) -> None:
             and '"proves_telephony_gate": False' in pixel_boot_capture
             and '"proves_model_inference": False' in pixel_boot_capture,
             "Pixel first-boot capture must bind the wiped flash without overclaiming runtime gates")
+    pixel_update_capture = (root / "tools" /
+                            "capture_pixel_aios_update.py").read_text(encoding="utf-8")
+    require("pixel9a_aios_virtual_ab_post_update_boot" in pixel_update_capture
+            and "validate_chain" in pixel_update_capture
+            and "expected_target_slot" in pixel_update_capture
+            and "every_evidenced_product_artifact_verified" in pixel_update_capture
+            and '"proves_post_update_boot": True' in pixel_update_capture
+            and '"proves_slot_switch": True' in pixel_update_capture
+            and '"proves_merge_completed": False' in pixel_update_capture
+            and '"proves_telephony_gate": False' in pixel_update_capture,
+            "Pixel OTA boot capture must bind the exact slot and payload without overclaiming merge or runtime gates")
 
     common_product = (root / "products" / "aios_common.mk").read_text(
         encoding="utf-8"

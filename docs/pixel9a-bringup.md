@@ -166,7 +166,30 @@ python3 vendor/aios/tools/apply_pixel_ota.py \
   --adb /absolute/path/to/adb \
   --evidence /safe/release-artifacts/pixel9a-build-id/ota/full-ota-evidence.json \
   --archive /safe/release-artifacts/pixel9a-build-id/ota/aios_tegu-full-ota.zip \
-  --serial <adb-serial>
+  --serial <adb-serial> \
+  --preflight-output /safe/release-artifacts/pixel9a-build-id/ota/device-preflight.json
+```
+
+After an authorized update command passes, reboot only as a separately observed
+step, unlock the owner profile, and run `tools/capture_pixel_aios_update.py` with
+the exact build, OTA, and update-result records. It requires the expected
+inactive slot to have become active, the new fingerprint/incremental/timestamp,
+Virtual A/B, encryption and unlocked test-key state, the sole AIOS dialer role,
+all required packages, and the size/SHA-256 of every evidenced `/product`
+artifact including model and runtime payloads. Other attached ADB devices are
+safe because all device reads use the explicit serial. This proves update-engine
+acceptance, post-update boot, slot switch, and installed payloads only. It
+deliberately leaves snapshot merge, rollback, telephony, model inference, and
+media gates false until separately observed.
+
+```text
+python3 vendor/aios/tools/capture_pixel_aios_update.py \
+  --adb /absolute/path/to/adb \
+  --serial <adb-serial> \
+  --build-evidence /safe/release-artifacts/new-build/soong-build-evidence.json \
+  --ota-evidence /safe/release-artifacts/new-build/ota/full-ota-evidence.json \
+  --update-result /safe/release-artifacts/new-build/ota/update-result.json \
+  --output /safe/release-artifacts/new-build/ota/post-update-boot.json
 ```
 
 Use `tools/flash_pixel_dev_image.py` for both the host preflight and execution.

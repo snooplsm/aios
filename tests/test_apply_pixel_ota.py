@@ -214,6 +214,10 @@ class PixelOtaUpdateTests(unittest.TestCase):
             "SERIAL", "2026081401", "APPLY-SERIAL-TO-2026081401"
         )
 
+    def test_refuses_evidence_inside_source_tree(self):
+        with self.assertRaisesRegex(updater.UpdateError, "outside source"):
+            updater.write_json_atomic(ROOT / "never-write-ota-evidence.json", {})
+
 
 if __name__ == "__main__":
     unittest.main()
