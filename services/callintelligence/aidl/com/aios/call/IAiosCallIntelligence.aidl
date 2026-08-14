@@ -27,6 +27,13 @@ interface IAiosCallIntelligence {
 
     void onCallAnswered(String callId, boolean answeredByAi, boolean processingAllowed);
 
+    /**
+     * Userdebug-only manual AI answer. The service rejects this unless the
+     * explicit development caller-uplink opt-in is active. Automatic answering
+     * never uses this path.
+     */
+    void onCallAnsweredForDevelopmentTest(String callId, boolean processingAllowed);
+
     /** Restore optional processing after this service was rebound; never replay a greeting. */
     void onCallResumed(
         String callId,

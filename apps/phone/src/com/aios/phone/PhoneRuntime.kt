@@ -271,7 +271,7 @@ object PhoneRuntime {
             }
 
             override fun onAiAnswerRequested(callId: String) {
-                answerWithAi(callId)
+                answerWithAi(callId, developmentManualTest = false)
             }
 
             override fun onTakeOverResult(callId: String, succeeded: Boolean) {
@@ -415,11 +415,14 @@ object PhoneRuntime {
             }
             is PhoneAction.AnswerWithAi -> {
                 val policy = mutableState.value.assistantPolicy
-                if (!policy.automaticAnswerAvailable
+                if (!policy.manualAiAnswerAvailable
                     || !policy.processingEnabled) {
                     showMessage("AI answering is locked until on-device processing and caller audio are ready")
                 } else {
-                    answerWithAi(action.callId)
+                    answerWithAi(
+                        action.callId,
+                        developmentManualTest = policy.developmentUplinkTestActive,
+                    )
                 }
             }
             is PhoneAction.TakeOver -> assistant.takeOver(action.callId)
@@ -644,7 +647,7 @@ object PhoneRuntime {
     }
 
     @Suppress("DEPRECATION")
-    private fun answerWithAi(callId: String) {
+    private fun answerWithAi(callId: String, developmentManualTest: Boolean) {
         val call = calls.call(callId) ?: return
         if (call.details.state != Call.STATE_RINGING) return
         val details = call.details
@@ -666,7 +669,7 @@ object PhoneRuntime {
             showMessage("AI answering is unavailable during emergency handling")
             return
         }
-        assistant.markAiAnswered(callId)
+        assistant.markAiAnswered(callId, developmentManualTest)
         call.answer(VideoProfile.STATE_AUDIO_ONLY)
     }
 

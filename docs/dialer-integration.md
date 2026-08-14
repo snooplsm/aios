@@ -247,13 +247,17 @@ with `AudioTrack.getRoutedDevice()`; a preferred-device request alone is not
 treated as proof.
 
 Implementation is not release evidence. `ro.aios.call_uplink_validated` remains
-`false`, so both automatic policy answers and the manual **AI** button stay
-locked. The property may become true for a device product only after a physical
-carrier call proves that a remote test endpoint heard the complete synthesized
-AI response, capture began immediately after answer, teardown stopped audio, and
-speaker/Bluetooth/handset endpoint changes remained correct. Compatible
-English/Spanish `streaming_asr`, `text_generation`, and `speech_synthesis`
-runtimes must also be packaged and ready.
+`false`, so automatic policy answers stay locked. On debuggable builds only,
+root ADB may explicitly set `persist.aios.debug.call_uplink_test=1` to expose a
+visibly marked manual **AI** answer path for controlled evidence collection; it
+uses a separate Binder transaction, is ignored by production builds, and cannot
+unlock automatic answering. The immutable validation property may become true
+for a device product only after a physical carrier call proves that a remote
+test endpoint heard the complete synthesized AI response, capture began
+immediately after answer, teardown stopped audio, and speaker/Bluetooth/handset
+endpoint changes remained correct. Compatible English/Spanish `streaming_asr`,
+`text_generation`, and `speech_synthesis` runtimes must also be packaged and
+ready.
 See `caller-audio-uplink.md` for the gate and evidence contract.
 
 ## Open-source survey decision

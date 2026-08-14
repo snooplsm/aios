@@ -7,4 +7,12 @@ final class CallProductProperties {
     static boolean callerUplinkValidated() {
         return false;
     }
+
+    static boolean developmentUplinkTestActive() {
+        return false;
+    }
+
+    static boolean manualCallerUplinkAllowed() {
+        return false;
+    }
 }

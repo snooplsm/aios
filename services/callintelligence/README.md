@@ -138,9 +138,12 @@ Source transcript artifacts remain authoritative and expire after 24 hours.
 The AIDL also exposes a validated owner-policy read/update API for the Dialer
 settings screen. The caller-audio transport is implemented but explicitly
 unvalidated. The checked-in product property
-`ro.aios.call_uplink_validated=false` therefore keeps automatic and manual AI
-answering locked until a physical Pixel carrier-call test proves complete remote
-audibility. English/Spanish TTS availability and a live telephony-route probe
+`ro.aios.call_uplink_validated=false` keeps automatic AI answering locked until
+a physical Pixel carrier-call test proves complete remote audibility. A separate
+Binder transaction may unlock only manual AI answer on a debuggable build after
+root ADB explicitly sets `persist.aios.debug.call_uplink_test=1`; production
+builds ignore it, Phone displays a development warning, and it never satisfies a
+release gate. English/Spanish TTS availability and a live telephony-route probe
 remain additional runtime gates.
 
 The Soong host-test target explicitly lists every Android-free production source

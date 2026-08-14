@@ -205,6 +205,12 @@ fun PhoneHomeScreen(
                             color = MaterialTheme.colorScheme.error,
                         )
                     }
+                    if (state.assistantPolicy.developmentUplinkTestActive) {
+                        Text(
+                            "Manual AI answer: development caller-audio test mode",
+                            color = MaterialTheme.colorScheme.tertiary,
+                        )
+                    }
                 }
             }
         }
@@ -488,7 +494,7 @@ fun InCallScreen(
                     ) { Text("Answer") }
                     Button(
                         onClick = { dispatch(PhoneAction.AnswerWithAi(selected.id)) },
-                        enabled = state.assistantPolicy.automaticAnswerAvailable
+                        enabled = state.assistantPolicy.manualAiAnswerAvailable
                                 && state.assistantPolicy.processingEnabled,
                         colors = ButtonDefaults.buttonColors(
                             containerColor = MaterialTheme.colorScheme.tertiary,
@@ -497,7 +503,13 @@ fun InCallScreen(
                         modifier = Modifier.weight(1f),
                     ) { Text("AI") }
                 }
-                if (!state.assistantPolicy.automaticAnswerAvailable) {
+                if (state.assistantPolicy.developmentUplinkTestActive) {
+                    Text(
+                        "Development test mode: manual AI answer is enabled, but automatic answering remains locked.",
+                        color = MaterialTheme.colorScheme.tertiary,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                } else if (!state.assistantPolicy.manualAiAnswerAvailable) {
                     Text(
                         "AI answering unlocks after caller-audio output passes device validation.",
                         color = MaterialTheme.colorScheme.error,
@@ -972,6 +984,12 @@ fun SettingsScreen(
                         val policy = state.assistantPolicy
                         if (policy.loading) Text("Loading assistant settings…")
                         policy.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                        if (policy.developmentUplinkTestActive) {
+                            Text(
+                                "Development caller-audio test mode is active. Manual AI answer may be used for a controlled carrier test; automatic answering remains locked and no release gate is implied.",
+                                color = MaterialTheme.colorScheme.tertiary,
+                            )
+                        }
                         SettingSwitch(
                             title = "Process and transcribe calls",
                             detail = "English and Spanish run on device. Artifacts expire after 24 hours.",

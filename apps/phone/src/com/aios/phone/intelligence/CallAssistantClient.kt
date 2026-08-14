@@ -71,6 +71,7 @@ class CallAssistantClient(
         var knownContact: Boolean? = null,
         var decisionRequested: Boolean = false,
         var answeredByAi: Boolean = false,
+        var developmentManualAiTest: Boolean = false,
         var answeredNotified: Boolean = false,
         val riskRevisions: ServiceGenerationRevisionGate = ServiceGenerationRevisionGate(),
         val assistantRevisions: ServiceGenerationRevisionGate = ServiceGenerationRevisionGate(),
@@ -347,11 +348,12 @@ class CallAssistantClient(
         }
     }
 
-    fun markAiAnswered(callId: String) {
+    fun markAiAnswered(callId: String, developmentManualTest: Boolean) {
         check(Looper.myLooper() == Looper.getMainLooper())
         sessions[callId]?.let { session ->
             cancelDelayedAnswer(session)
             session.answeredByAi = true
+            session.developmentManualAiTest = developmentManualTest
         }
     }
 
@@ -666,7 +668,11 @@ class CallAssistantClient(
         session.answeredNotified = true
         worker.execute {
             try {
-                service.onCallAnswered(session.callId, session.answeredByAi, processing)
+                if (session.developmentManualAiTest) {
+                    service.onCallAnsweredForDevelopmentTest(session.callId, processing)
+                } else {
+                    service.onCallAnswered(session.callId, session.answeredByAi, processing)
+                }
             } catch (error: Exception) {
                 main.post {
                     if (sessions[session.callId] === session && remote === service) {
@@ -1013,6 +1019,10 @@ class CallAssistantClient(
             automaticAnswerUnavailableReason,
             automaticAnswerAvailable,
         )
+        val safeManualUnavailableReason = AssistantPolicySemantics.safeUnavailableReason(
+            manualAiAnswerUnavailableReason,
+            manualAiAnswerAvailable,
+        )
         return AssistantPolicyUiState(
             available = true,
             loading = false,
@@ -1028,6 +1038,10 @@ class CallAssistantClient(
             missedDelayMillis = AssistantPolicySemantics.clampMissedDelay(missedDelayMillis),
             automaticAnswerAvailable = automaticAnswerAvailable,
             automaticAnswerUnavailableReason = safeUnavailableReason,
+            manualAiAnswerAvailable = manualAiAnswerAvailable,
+            manualAiAnswerUnavailableReason = safeManualUnavailableReason,
+            developmentUplinkTestActive = developmentUplinkTestActive
+                && manualAiAnswerAvailable && !automaticAnswerAvailable,
             error = null,
         )
     }

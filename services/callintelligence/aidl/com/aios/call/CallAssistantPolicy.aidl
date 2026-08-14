@@ -15,4 +15,7 @@ parcelable CallAssistantPolicy {
     // Read-only service capability fields; ignored on update.
     boolean automaticAnswerAvailable;
     String automaticAnswerUnavailableReason;
+    boolean manualAiAnswerAvailable;
+    String manualAiAnswerUnavailableReason;
+    boolean developmentUplinkTestActive;
 }

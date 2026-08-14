@@ -18,6 +18,28 @@ The checked-in common product sets that immutable property to `false`. An
 emulator, a loopback recording, an audio-policy XML route, or
 `setPreferredDevice()` returning true is insufficient evidence.
 
+### Userdebug manual test mode
+
+An unlocked, debuggable AIOS build has a narrower escape hatch for collecting
+the physical evidence needed to validate the transport. A root ADB session may
+set `persist.aios.debug.call_uplink_test=1`. This enables only the manually
+pressed **AI** answer button through a separate Binder transaction; automatic
+answer decisions continue to require `ro.aios.call_uplink_validated=true`.
+Production builds ignore the persistent property. The Phone UI displays a
+development-test warning, and Call Intelligence logs
+`DEVELOPMENT_CALL_UPLINK_TEST_ACTIVE automatic_answer_locked=true` when started
+with the opt-in. This mode is evidence collection, not validation.
+
+```powershell
+.\scripts\set-call-uplink-test.ps1 -Serial <serial> -Mode enable
+```
+
+Disable it immediately after the controlled test:
+
+```powershell
+.\scripts\set-call-uplink-test.ps1 -Serial <serial> -Mode disable
+```
+
 ## Data path
 
 ```text
@@ -47,7 +69,9 @@ image, modem/firmware set, carrier, and call transport being admitted. Record
 timestamps and retain logs without call content.
 
 1. Keep the product property false and confirm Auto AI answer and the manual AI
-   action are unavailable.
+   action are unavailable before the explicit userdebug test opt-in. Enable the
+   opt-in and confirm only manual AI answer becomes available with the visible
+   development warning.
 2. Package a digest-verified bilingual TTS provider and verify that broker death,
    provider death, and an empty output pipe fail only the AI response path.
 3. On real cellular calls to independently recorded remote endpoints, generate

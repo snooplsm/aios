@@ -16,6 +16,9 @@ data class AssistantPolicyUiState(
     val missedDelayMillis: Long = 15_000L,
     val automaticAnswerAvailable: Boolean = false,
     val automaticAnswerUnavailableReason: String = "service_unavailable",
+    val manualAiAnswerAvailable: Boolean = false,
+    val manualAiAnswerUnavailableReason: String = "service_unavailable",
+    val developmentUplinkTestActive: Boolean = false,
     val error: String? = null,
 ) {
     val autoAnswerEnabled: Boolean get() = answerMode != "off"

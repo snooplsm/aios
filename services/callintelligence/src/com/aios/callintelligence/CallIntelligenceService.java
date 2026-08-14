@@ -8,6 +8,7 @@ import android.os.IBinder;
 import android.os.Looper;
 import android.os.RemoteCallbackList;
 import android.os.RemoteException;
+import android.util.Log;
 
 import com.aios.call.CallHandlingDecision;
 import com.aios.call.CallAssistantPolicy;
@@ -29,6 +30,7 @@ import java.util.Map;
 import java.util.Set;
 
 public final class CallIntelligenceService extends Service {
+    private static final String TAG = "AiosCallIntelligence";
     private static final String PERMISSION_CONTROL =
             "com.aios.permission.CONTROL_CALL_INTELLIGENCE";
     private static final long DEFAULT_MISSED_DELAY_MILLIS = 15_000L;
@@ -166,7 +168,7 @@ public final class CallIntelligenceService extends Service {
             }
             CallHandlingDecision decision = currentPolicy().evaluate(context);
             if (decision.aiMayAnswer && !AutomaticAnswerGate.mayAnswer(
-                    decision.aiMayAnswer, callerInteractionTransportReady())) {
+                    decision.aiMayAnswer, automaticCallerInteractionTransportReady())) {
                 decision = deniedAutomaticAnswerDecision(
                         decision.processingAllowed, automaticAnswerUnavailableReason());
             }
@@ -265,7 +267,14 @@ public final class CallIntelligenceService extends Service {
         public void onCallAnswered(
                 String callId, boolean answeredByAi, boolean processingAllowed) {
             handleConnectedCall(
-                    callId, answeredByAi, processingAllowed, false, false);
+                    callId, answeredByAi, processingAllowed, false, false, false);
+        }
+
+        @Override
+        public void onCallAnsweredForDevelopmentTest(
+                String callId, boolean processingAllowed) {
+            handleConnectedCall(
+                    callId, true, processingAllowed, false, false, true);
         }
 
         @Override
@@ -275,7 +284,7 @@ public final class CallIntelligenceService extends Service {
                 boolean processingAllowed,
                 boolean knownContact) {
             handleConnectedCall(
-                    callId, aiHandling, processingAllowed, true, knownContact);
+                    callId, aiHandling, processingAllowed, true, knownContact, false);
         }
 
         @Override
@@ -492,7 +501,8 @@ public final class CallIntelligenceService extends Service {
             boolean answeredByAi,
             boolean processingAllowed,
             boolean resumedAfterServiceLoss,
-            boolean resumedKnownContact) {
+            boolean resumedKnownContact,
+            boolean developmentManualTest) {
         enforceControlPermission();
         int ownerUid = android.os.Binder.getCallingUid();
         if (callId == null || callId.isEmpty() || callId.length() > 128) {
@@ -545,8 +555,13 @@ public final class CallIntelligenceService extends Service {
             return;
         }
 
-        if (!callerInteractionTransportReady()) {
-            notifyStatus(callId, -4, automaticAnswerUnavailableReason());
+        boolean interactionReady = developmentManualTest
+                ? manualCallerInteractionTransportReady()
+                : automaticCallerInteractionTransportReady();
+        if (!interactionReady) {
+            notifyStatus(callId, -4, developmentManualTest
+                    ? manualAiAnswerUnavailableReason()
+                    : automaticAnswerUnavailableReason());
             return;
         }
         beginCapture(
@@ -560,6 +575,9 @@ public final class CallIntelligenceService extends Service {
     @Override
     public void onCreate() {
         super.onCreate();
+        if (CallProductProperties.developmentUplinkTestActive()) {
+            Log.w(TAG, "DEVELOPMENT_CALL_UPLINK_TEST_ACTIVE automatic_answer_locked=true");
+        }
         mainHandler = new Handler(Looper.getMainLooper());
         artifactStore = new CallArtifactStore(this);
         artifactStore.cleanup(System.currentTimeMillis());
@@ -741,9 +759,14 @@ public final class CallIntelligenceService extends Service {
                         value.messageHistoryEnabled,
                         value.callHistoryEnabled,
                         value.photoHistoryEnabled);
-        value.automaticAnswerAvailable = callerInteractionTransportReady();
+        value.automaticAnswerAvailable = automaticCallerInteractionTransportReady();
         value.automaticAnswerUnavailableReason = value.automaticAnswerAvailable
                 ? "" : automaticAnswerUnavailableReason();
+        value.manualAiAnswerAvailable = manualCallerInteractionTransportReady();
+        value.manualAiAnswerUnavailableReason = value.manualAiAnswerAvailable
+                ? "" : manualAiAnswerUnavailableReason();
+        value.developmentUplinkTestActive =
+                CallProductProperties.developmentUplinkTestActive();
         return value;
     }
 
@@ -754,9 +777,19 @@ public final class CallIntelligenceService extends Service {
                 preferences.getBoolean("photo_history_enabled", true));
     }
 
-    private boolean callerInteractionTransportReady() {
-        return CallProductProperties.callerUplinkValidated()
-                && asr != null
+    private boolean automaticCallerInteractionTransportReady() {
+        return CallerUplinkAdmission.automaticAnswerAllowed(
+                CallProductProperties.callerUplinkValidated())
+                && callerInteractionDependenciesReady();
+    }
+
+    private boolean manualCallerInteractionTransportReady() {
+        return CallProductProperties.manualCallerUplinkAllowed()
+                && callerInteractionDependenciesReady();
+    }
+
+    private boolean callerInteractionDependenciesReady() {
+        return asr != null
                 && asr.isAvailable()
                 && callerAudio != null
                 && callerAudio.probe().available
@@ -772,6 +805,17 @@ public final class CallIntelligenceService extends Service {
         if (!CallProductProperties.callerUplinkValidated()) {
             return "caller_audio_injection_requires_physical_validation";
         }
+        return callerInteractionDependencyUnavailableReason();
+    }
+
+    private String manualAiAnswerUnavailableReason() {
+        if (!CallProductProperties.manualCallerUplinkAllowed()) {
+            return "manual_ai_requires_validation_or_debug_opt_in";
+        }
+        return callerInteractionDependencyUnavailableReason();
+    }
+
+    private String callerInteractionDependencyUnavailableReason() {
         if (asr == null || !asr.isAvailable()) {
             return "streaming_asr_unavailable";
         }

@@ -2477,6 +2477,10 @@ def validate_aosp_overlay(root: Path) -> None:
     phone_contract = (root / "apps" / "phone" / "src" / "com" / "aios" /
                       "phone" / "model" / "PhoneContract.kt").read_text(
                           encoding="utf-8")
+    assistant_policy_ui_state = (
+        root / "apps" / "phone" / "src" / "com" / "aios" / "phone" /
+        "model" / "AssistantPolicyUiState.kt"
+    ).read_text(encoding="utf-8")
     transcript_reducer = (
         root / "apps" / "phone" / "src" / "com" / "aios" / "phone" /
         "model" / "TranscriptTimelineReducer.kt"
@@ -2873,18 +2877,19 @@ def validate_aosp_overlay(root: Path) -> None:
             and '"src/com/aios/phone/model/AssistantPolicySemantics.kt"'
             in phone_build,
             "Phone settings must expose every supported AI-answer scope with distinct delay semantics")
-    require("callerHistoryEnabled: Boolean = false" in phone_contract
-            and "messageHistoryEnabled: Boolean = true" in phone_contract
-            and "callHistoryEnabled: Boolean = true" in phone_contract
-            and "photoHistoryEnabled: Boolean = true" in phone_contract
+    require("callerHistoryEnabled: Boolean = false" in assistant_policy_ui_state
+            and "messageHistoryEnabled: Boolean = true" in assistant_policy_ui_state
+            and "callHistoryEnabled: Boolean = true" in assistant_policy_ui_state
+            and "photoHistoryEnabled: Boolean = true" in assistant_policy_ui_state
             and "ChangeCallerHistoryEnabled" in phone_contract
             and "ChangeMessageHistoryEnabled" in phone_contract
             and "ChangeCallHistoryEnabled" in phone_contract
             and "ChangePhotoHistoryEnabled" in phone_contract
             and "ChangeConversationHistory" in phone_contract
-            and "excludedCallerHistoryAddressHashes: Set<String>" in phone_contract
-            and "withCallerHistoryEnabled" in phone_contract
-            and "withoutEmptyCallerHistory" in phone_contract
+            and "excludedCallerHistoryAddressHashes: Set<String>"
+            in assistant_policy_ui_state
+            and "withCallerHistoryEnabled" in assistant_policy_ui_state
+            and "withoutEmptyCallerHistory" in assistant_policy_ui_state
             and "callerHistoryScopeCannotRemainEnabledWithoutSources"
             in assistant_policy_semantics_test
             and "ownerCallerHistoryEnabled == true" in assistant_client
@@ -4367,6 +4372,13 @@ def validate_aosp_overlay(root: Path) -> None:
     call_product_properties = (
         call_source_root / "CallProductProperties.java"
     ).read_text(encoding="utf-8")
+    caller_uplink_admission = (
+        call_source_root / "CallerUplinkAdmission.java"
+    ).read_text(encoding="utf-8")
+    caller_uplink_admission_test = (
+        root / "services" / "callintelligence" / "tests" / "src" / "com" /
+        "aios" / "callintelligence" / "CallerUplinkAdmissionTest.java"
+    ).read_text(encoding="utf-8")
     telephony_capture = (call_source_root / "TelephonyAudioCapture.java").read_text(
         encoding="utf-8")
     call_manifest = (
@@ -4527,9 +4539,12 @@ def validate_aosp_overlay(root: Path) -> None:
             and '../../services/modelbroker/aidl' in call_service_compile_build
             and 'android.os.SystemProperties' in call_product_properties
             and '"ro.aios.call_uplink_validated"' in call_product_properties
+            and '"persist.aios.debug.call_uplink_test"' in call_product_properties
+            and '"ro.debuggable"' in call_product_properties
             and "return false;" in call_compile_properties
             and "SystemProperties" not in call_compile_properties
             and "CallProductProperties.callerUplinkValidated()" in call_service
+            and "CallProductProperties.developmentUplinkTestActive()" in call_service
             and "SystemProperties" not in call_service
             and 'disable += "ProtectedPermissions"' in call_service_compile_build
             and 'disable += "MissingPermission"' not in call_service_compile_build
@@ -5004,12 +5019,27 @@ def validate_aosp_overlay(root: Path) -> None:
             "busy receptionist work must preserve bounded finalized speech and drain submission races")
     require("CallProductProperties.callerUplinkValidated()" in call_service
             and "CALL_UPLINK_VALIDATION_PROPERTY" in call_product_properties
-            and "callerInteractionTransportReady()" in call_service
+            and "automaticCallerInteractionTransportReady()" in call_service
+            and "manualCallerInteractionTransportReady()" in call_service
             and "caller_audio_injection_requires_physical_validation" in call_service
             and "AutomaticAnswerGate.mayAnswer" in call_service
+            and "void onCallAnsweredForDevelopmentTest" in call_api
+            and "developmentManualTest" in call_service
+            and "manualCallerUplinkAllowed()" in call_product_properties
+            and "developmentTestActive" in caller_uplink_admission
+            and "automaticAnswerAllowed" in caller_uplink_admission
+            and "explicitDebugOptInUnlocksOnlyManualTesting"
+            in caller_uplink_admission_test
+            and "productionAndMissingOptInFailClosed"
+            in caller_uplink_admission_test
+            and "developmentUplinkTestActive" in call_policy_api
+            and "manualAiAnswerAvailable" in call_policy_api
+            and "onCallAnsweredForDevelopmentTest" in assistant_client
+            and "developmentUplinkTestActive" in phone_screens
+            and "automatic answering remains locked" in phone_screens
             and "beginCapture(\n                callId,\n                ownerUid,\n                true,"
             in call_service,
-            "AI answer must start capture directly but retain the physical caller-audio gate")
+            "AI answer must retain release validation while exposing only an explicit userdebug manual test path")
     require("ownsPresentTelecomCall(ownerUid, context.callId)" in call_service
             and "ownsPresentTelecomCall(ownerUid, callId)" in call_service
             and "session.ownedBy(ownerUid)" in call_service
@@ -5111,6 +5141,16 @@ def validate_aosp_overlay(root: Path) -> None:
     common_product = (root / "products" / "aios_common.mk").read_text(encoding="utf-8")
     require("ro.aios.call_uplink_validated=false" in common_product,
             "caller uplink must remain disabled in source until physical validation")
+    call_uplink_test_script = (
+        root / "scripts" / "set-call-uplink-test.ps1"
+    ).read_text(encoding="utf-8")
+    require('ValidateSet("enable", "disable")' in call_uplink_test_script
+            and '"ro.debuggable"' in call_uplink_test_script
+            and '"ro.boot.qemu"' in call_uplink_test_script
+            and '"persist.aios.debug.call_uplink_test"' in call_uplink_test_script
+            and '"am", "force-stop", "com.aios.phone"' in call_uplink_test_script
+            and "automatic answering remains locked" in call_uplink_test_script,
+            "the development caller-uplink toggle must be explicit, physical-only, reversible, and restart both clients")
 
     retention_source = (call_source_root / "CallArtifactRetention.java").read_text(
         encoding="utf-8"
