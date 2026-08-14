@@ -183,6 +183,33 @@ playback. A per-device read-only property remains false until a physical
 carrier-call test proves remote audibility; static audio-policy inspection and
 emulator playback cannot unlock automatic answering.
 
+The call-local prompt design is **rolling conversation memory**, also called
+hierarchical context compaction. It has four deliberately separate layers:
+
+1. one replaceable live ASR hypothesis, used for immediate risk hints but never
+   summarized or made durable;
+2. a bounded verbatim window of recent finalized caller turns and assistant
+   replies;
+3. a versioned structured summary of the finalized prefix, preserving intent,
+   people, business names, callback details, requested work, timing,
+   commitments, open questions, and risk signals; and
+4. separately ranked historical RAG snippets admitted through the opaque
+   communication identity.
+
+The receptionist prompt orders those layers as policy and owner profile,
+structured compacted summary, recent exact turns, current finalized turn, then
+bounded historical snippets. Compaction is background work only after a final
+turn and after any live receptionist response has released the text model. New
+caller speech or a waiting live reply preempts it. Each compaction result names
+its input summary revision and exact finalized-turn range; a late or duplicate
+result cannot replace newer memory. The encrypted source transcript remains the
+rebuild authority for its existing 24-hour artifact lifetime, and the summary
+cannot outlive that artifact. Periodic rebuilds from finalized source turns,
+rather than indefinitely summarizing a summary, bound recursive drift. Until
+the text runtime passes physical latency tests, deterministic bounded history
+remains the fallback and semantic compaction stays disabled rather than blocking
+the call path.
+
 ### Model Broker
 
 The Model Broker is a signature-protected Binder service. It:
