@@ -8,11 +8,11 @@ message was captured. It is not used for a mandatory recording disclosure.
 ## Locked implementation
 
 The provider in `runtime/ttsprovider` embeds the official Sherpa-ONNX Android
-runtime at version `1.13.4`; AIOS provider implementation `1.13.5` uses the int8
-Supertonic 3 model bundle. Call synthesis uses the upstream-evaluated two-step
-low-latency mode. This is a candidate setting until physical bilingual listening
-and intelligibility gates pass; it is not inferred to preserve the quality of
-the upstream eight-step default.
+runtime at version `1.13.4`; AIOS provider implementation `1.13.6` uses the int8
+Supertonic 3 model bundle. Call synthesis uses the pinned integration's
+five-denoising-step default rather than the upstream model's higher-quality
+eight-step default. This is a candidate setting until physical bilingual
+listening and intelligibility gates pass.
 The runtime AAR, source revision, file size, SHA-256, ONNX Runtime version, and
 packaged license texts are locked in `config/runtime_catalog.json`. The model
 archive and every member's size and SHA-256 are separately locked in

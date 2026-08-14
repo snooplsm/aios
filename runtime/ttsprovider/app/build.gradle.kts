@@ -18,8 +18,8 @@ android {
         applicationId = "com.aios.runtime.sherpatts"
         minSdk = 35
         targetSdk = 36
-        versionCode = 11305
-        versionName = "1.13.5"
+        versionCode = 11306
+        versionName = "1.13.6"
         buildConfigField("boolean", "ALLOW_EMULATOR_MODEL_FIXTURES", "false")
     }
 
@@ -137,7 +137,7 @@ tasks.register("writeRuntimeProvenance") {
             "provider_package" to "com.aios.runtime.sherpatts",
             "provider_service" to
                 "com.aios.runtime.sherpatts.SherpaTtsRuntimeService",
-            "implementation_version" to "1.13.5",
+            "implementation_version" to "1.13.6",
             "source_repository" to "https://github.com/k2-fsa/sherpa-onnx",
             "source_revision" to "142807252687d81b40d6315f23470a1512a00de3",
             "reproducible_build_command" to

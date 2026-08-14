@@ -72,7 +72,7 @@
       "package": "com.aios.runtime.sherpatts",
       "service_class": "com.aios.runtime.sherpatts.SherpaTtsRuntimeService",
       "action": "com.aios.model.RUNTIME_PROVIDER",
-      "implementation_version": "1.13.5",
+      "implementation_version": "1.13.6",
       "source_repository": "https://github.com/k2-fsa/sherpa-onnx",
       "source_tag": "v1.13.4",
       "source_revision": "142807252687d81b40d6315f23470a1512a00de3",

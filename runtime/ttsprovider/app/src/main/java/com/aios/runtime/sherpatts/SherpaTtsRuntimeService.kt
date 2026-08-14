@@ -42,7 +42,7 @@ class SherpaTtsRuntimeService : Service() {
         const val TAG = "AiosTtsRuntime"
         const val BROKER_PACKAGE = "com.aios.modelbroker"
         const val RUNTIME_ID = "sherpa_onnx_tts"
-        const val IMPLEMENTATION_VERSION = "1.13.5"
+        const val IMPLEMENTATION_VERSION = "1.13.6"
         const val PROVIDER_API_VERSION = 2
         const val MODEL_ID = "supertonic3-en-es-int8"
         const val SOURCE_ARCHIVE_SHA256 =
@@ -57,10 +57,9 @@ class SherpaTtsRuntimeService : Service() {
         const val HASH_BUFFER_BYTES = 1024 * 1024
         const val PCM_BLOCK_SAMPLES = 4_096
         const val SPEAKER_ID = 0
-        // The call path favors response latency. Supertonic's own performance
-        // evaluation uses two denoising steps; physical bilingual evidence must
-        // still prove intelligibility before this candidate is admitted.
-        const val CALL_NUM_STEPS = 2
+        // The call path favors response latency without dropping below the
+        // pinned Sherpa integration's default Supertonic denoising depth.
+        const val CALL_NUM_STEPS = 5
         val CONFIGURATION_DIRECTORY = File("/product/etc/aios")
         val MODEL_DIRECTORY = File(CONFIGURATION_DIRECTORY, "models")
         const val EMULATOR_FIXTURE_DIRECTORY = "emulator-config"
