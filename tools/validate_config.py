@@ -875,6 +875,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "tools/refresh_aosp_tracking.py",
         "tools/capture_build_evidence.py",
         "tools/package_pixel_dev_image.py",
+        "tools/flash_pixel_dev_image.py",
         "tools/capture_cuttlefish_boot_evidence.py",
         "tools/capture_avd_boot_evidence.py",
         "tools/check_gsi_preflight.py",
@@ -1688,6 +1689,18 @@ def validate_aosp_overlay(root: Path) -> None:
             and "version-baseband" in pixel_packager
             and "contains_required_model_payloads" in pixel_packager,
             "Pixel development packaging must be evidence-bound and device-guarded")
+    pixel_flasher = (root / "tools" /
+                     "flash_pixel_dev_image.py").read_text(encoding="utf-8")
+    require("verify_release_input" in pixel_flasher
+            and "expected exactly fastboot device" in pixel_flasher
+            and "development image requires an unlocked bootloader" in pixel_flasher
+            and "version-bootloader" in pixel_flasher
+            and "version-baseband" in pixel_flasher
+            and "is-userspace" in pixel_flasher
+            and "ERASE-{serial}-FOR-AIOS" in pixel_flasher
+            and '["-w", "update"' in pixel_flasher
+            and "--execute" in pixel_flasher,
+            "Pixel development flashing must fail closed before destructive execution")
 
     common_product = (root / "products" / "aios_common.mk").read_text(
         encoding="utf-8"

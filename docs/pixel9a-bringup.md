@@ -108,6 +108,13 @@ result, requires `tegu` plus explicit bootloader/baseband versions, verifies the
 full partition set and model/runtime inventory, and emits a hash-bound release
 record. Test-key packages are never suitable for a locked bootloader or release.
 
+Use `tools/flash_pixel_dev_image.py` for both the host preflight and execution.
+Without `--execute` it is read-only. It requires exactly the named fastboot
+serial, bootloader mode rather than fastbootd, `tegu`, an unlocked bootloader,
+the evidenced bootloader/baseband pair, and an exact archive digest. Destructive
+execution additionally requires the serial-bound confirmation token printed by
+the tool contract; it never disables AVB verification and never guesses a slot.
+
 ```text
 vendor/aios/scripts/build-aosp-lane.sh \
   /absolute/path/to/aosp-latest \
