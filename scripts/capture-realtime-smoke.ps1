@@ -103,6 +103,7 @@ $diagnosticPatterns = @(
     "AiosLiteRtLmRuntime",
     "AiosTtsRuntime",
     "AiosWhisperRuntime",
+    "AiosWhisperNative",
     "lowmemorykiller",
     "lmkd",
     "OutOfMemory",

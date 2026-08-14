@@ -16,8 +16,8 @@ android {
         applicationId = "com.aios.runtime.whispercpp"
         minSdk = 35
         targetSdk = 36
-        versionCode = 10904
-        versionName = "1.9.5"
+        versionCode = 10906
+        versionName = "1.9.6"
         buildConfigField("boolean", "ALLOW_EMULATOR_MODEL_FIXTURES", "false")
         externalNativeBuild {
             cmake { cppFlags += listOf("-std=c++17") }
@@ -117,7 +117,7 @@ tasks.register("writeRuntimeProvenance") {
             "runtime" to "whisper_cpp",
             "provider_package" to "com.aios.runtime.whispercpp",
             "provider_service" to "com.aios.runtime.whispercpp.WhisperRuntimeService",
-            "implementation_version" to "1.9.5",
+            "implementation_version" to "1.9.6",
             "source_repository" to "https://github.com/ggml-org/whisper.cpp",
             "source_revision" to "306c88f4d1286aec1bf96e544632897886af5501",
             "reproducible_build_command" to

@@ -37,7 +37,7 @@ if(ANDROID_ABI STREQUAL "arm64-v8a")
         endif()
         target_compile_options("${compute_target}" PRIVATE
             -O3
-            -march=armv8.2-a+fp16)
+            -march=armv8.6-a+fp16+dotprod+i8mm)
     endforeach()
 endif()
 
@@ -50,7 +50,8 @@ target_compile_options(aios_whisper_jni PRIVATE
     -ffunction-sections
     -fdata-sections)
 if(ANDROID_ABI STREQUAL "arm64-v8a")
-    target_compile_options(aios_whisper_jni PRIVATE -march=armv8.2-a+fp16)
+    target_compile_options(aios_whisper_jni PRIVATE
+        -march=armv8.6-a+fp16+dotprod+i8mm)
 elseif(NOT ANDROID_ABI STREQUAL "x86_64")
     message(FATAL_ERROR "Unsupported AIOS whisper.cpp ABI: ${ANDROID_ABI}")
 endif()

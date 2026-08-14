@@ -1930,6 +1930,7 @@ def validate_aosp_overlay(root: Path) -> None:
             and "pixel_aios_single_model_diagnostic" in realtime_capture
             and 'ValidateSet("full", "audio", "single")' in realtime_capture
             and "diagnostic_log" in realtime_capture
+            and "AiosWhisperNative" in realtime_capture
             and "admission_evidence = $false" in realtime_capture
             and "#$testMethod" in realtime_capture
             and "runAudioRealtimeSmoke" in realtime_capture
@@ -3574,6 +3575,12 @@ def validate_aosp_overlay(root: Path) -> None:
             and "armConnectionTimeout" in remote_runtime
             and "provider == current" in remote_runtime,
             "runtime bindings must recover from terminal death and missing callbacks, while session opens reject provider races")
+    require("Context.BIND_AUTO_CREATE | Context.BIND_IMPORTANT" in remote_runtime
+            and "acquirePriorityBinding" in remote_runtime
+            and "releasePriorityOnce" in remote_runtime
+            and '"PRIORITY_ACQUIRED runtime="' in remote_runtime
+            and '"PRIORITY_RELEASED runtime="' in remote_runtime,
+            "active inference must temporarily leave Android's restricted CPU set")
     require('TAG = "AiosRemoteRuntime"' in remote_runtime
             and '"OPEN runtime="' in remote_runtime
             and '"FIRST_CHUNK runtime="' in remote_runtime
@@ -3844,7 +3851,7 @@ def validate_aosp_overlay(root: Path) -> None:
             and 'if(ANDROID_ABI STREQUAL "x86_64")' in whisper_cmake
             and "add_compile_options(-O3)" in whisper_cmake
             and 'if(ANDROID_ABI STREQUAL "arm64-v8a")' in whisper_cmake
-            and "armv8.2-a+fp16" in whisper_cmake
+            and "armv8.6-a+fp16+dotprod+i8mm" in whisper_cmake
             and 'message(FATAL_ERROR "Unsupported AIOS whisper.cpp ABI:'
             in whisper_cmake
             and "WHISPER_BUILD_TESTS OFF" in whisper_cmake
@@ -3905,7 +3912,7 @@ def validate_aosp_overlay(root: Path) -> None:
             "Whisper live-call decode must be bounded and expose privacy-safe native timing")
     require("AIOS_ARM64_COMPUTE_TARGETS whisper ggml-base ggml-cpu" in whisper_cmake
             and 'target_compile_options("${compute_target}" PRIVATE' in whisper_cmake
-            and "-march=armv8.2-a+fp16" in whisper_cmake,
+            and "-march=armv8.6-a+fp16+dotprod+i8mm" in whisper_cmake,
             "Whisper arm64 optimization flags must reach the actual whisper/ggml compute targets")
     whisper_native_api = (whisper_root / "app" / "src" / "main" / "java" /
                           "com" / "aios" / "runtime" / "whispercpp" /

@@ -71,6 +71,19 @@ final class RemoteRuntimeAdapter implements RuntimeAdapter {
     private IAiosRuntimeProvider provider;
     private Set<String> providerBackends = Set.of();
     private ProviderConnection activeConnection;
+    private final ServiceConnection priorityConnection = new ServiceConnection() {
+        @Override
+        public void onServiceConnected(ComponentName name, IBinder binder) {
+            Log.i(TAG, "PRIORITY_CONNECTED runtime=" + spec.runtimeId);
+        }
+
+        @Override
+        public void onServiceDisconnected(ComponentName name) {
+            // The verified connection owns provider death and session failure.
+        }
+    };
+    private int priorityLeases;
+    private boolean priorityBound;
     private boolean binding;
     private boolean closed;
 
@@ -181,25 +194,30 @@ final class RemoteRuntimeAdapter implements RuntimeAdapter {
                 + " model=" + artifact.modelId
                 + " backend=" + artifact.backend
                 + " request=" + request.requestId);
+        acquirePriorityBinding();
         RemoteSession session = new RemoteSession(
                 current, callback, request.capability, artifact.modelId, request.requestId);
-        long providerSessionId = current.createSession(transport, request, session.transport);
-        if (providerSessionId <= 0L) {
-            throw new IOException("runtime provider rejected the session");
-        }
-        session.attach(providerSessionId);
-        boolean accepted;
-        synchronized (this) {
-            accepted = !closed && provider == current && !session.closed;
-            if (accepted) {
-                sessions.add(session);
+        try {
+            long providerSessionId = current.createSession(transport, request, session.transport);
+            if (providerSessionId <= 0L) {
+                throw new IOException("runtime provider rejected the session");
             }
-        }
-        if (!accepted) {
+            session.attach(providerSessionId);
+            boolean accepted;
+            synchronized (this) {
+                accepted = !closed && provider == current && !session.closed;
+                if (accepted) {
+                    sessions.add(session);
+                }
+            }
+            if (!accepted) {
+                throw new IOException("runtime provider changed while opening the session");
+            }
+            return session;
+        } catch (IOException | RemoteException | RuntimeException error) {
             session.close();
-            throw new IOException("runtime provider changed while opening the session");
+            throw error;
         }
-        return session;
     }
 
     @Override
@@ -373,7 +391,55 @@ final class RemoteRuntimeAdapter implements RuntimeAdapter {
         }
     }
 
-    private void unbindQuietly(ProviderConnection connection) {
+    /**
+     * Adds a second binding only while inference is active. BIND_IMPORTANT
+     * moves the provider out of Android's restricted/background CPU set, while
+     * the ordinary verified binding can remain cheap and connected when idle.
+     */
+    private synchronized void acquirePriorityBinding() throws IOException {
+        if (closed || provider == null) {
+            throw new IOException("runtime provider closed before priority acquisition");
+        }
+        if (priorityLeases == 0) {
+            Intent intent = new Intent(spec.action)
+                    .setComponent(new ComponentName(spec.packageName, spec.serviceClass));
+            boolean didBind;
+            try {
+                didBind = context.bindService(
+                        intent,
+                        priorityConnection,
+                        Context.BIND_AUTO_CREATE | Context.BIND_IMPORTANT);
+            } catch (RuntimeException error) {
+                throw new IOException("runtime priority bind failed", error);
+            }
+            if (!didBind) {
+                throw new IOException("runtime priority bind was rejected");
+            }
+            priorityBound = true;
+            Log.i(TAG, "PRIORITY_ACQUIRED runtime=" + spec.runtimeId);
+        }
+        priorityLeases++;
+    }
+
+    private void releasePriorityBinding() {
+        boolean release = false;
+        synchronized (this) {
+            if (priorityLeases <= 0) {
+                return;
+            }
+            priorityLeases--;
+            if (priorityLeases == 0 && priorityBound) {
+                priorityBound = false;
+                release = true;
+            }
+        }
+        if (release) {
+            unbindQuietly(priorityConnection);
+            Log.i(TAG, "PRIORITY_RELEASED runtime=" + spec.runtimeId);
+        }
+    }
+
+    private void unbindQuietly(ServiceConnection connection) {
         if (connection == null) {
             return;
         }
@@ -400,6 +466,7 @@ final class RemoteRuntimeAdapter implements RuntimeAdapter {
         private final String requestId;
         private final long createdAt = SystemClock.elapsedRealtime();
         private final AtomicBoolean firstChunkLogged = new AtomicBoolean(false);
+        private final AtomicBoolean priorityReleased = new AtomicBoolean(false);
         private long id = -1L;
         private volatile boolean closed;
 
@@ -541,6 +608,7 @@ final class RemoteRuntimeAdapter implements RuntimeAdapter {
                     // Provider already died.
                 }
             }
+            releasePriorityOnce();
         }
 
         void fail(String message) {
@@ -559,6 +627,13 @@ final class RemoteRuntimeAdapter implements RuntimeAdapter {
             }
             synchronized (RemoteRuntimeAdapter.this) {
                 sessions.remove(this);
+            }
+            releasePriorityOnce();
+        }
+
+        private void releasePriorityOnce() {
+            if (priorityReleased.compareAndSet(false, true)) {
+                releasePriorityBinding();
             }
         }
 
