@@ -68,7 +68,7 @@ import java.util.concurrent.atomic.AtomicLong;
  */
 @RunWith(AndroidJUnit4.class)
 public final class ModelAdmissionBenchmarkTest {
-    private static final int RUNS_PER_LANGUAGE = 5;
+    private static final int ADMISSION_RUNS_PER_LANGUAGE = 5;
     private static final int PCM_16_BIT = AudioFormat.ENCODING_PCM_16BIT;
     private static final int TTS_SAMPLE_RATE = 44_100;
     private static final int ASR_SAMPLE_RATE = 16_000;
@@ -87,6 +87,17 @@ public final class ModelAdmissionBenchmarkTest {
 
     @Test
     public void runAdmissionBenchmark() throws Exception {
+        runBenchmark(ADMISSION_RUNS_PER_LANGUAGE, true, null);
+    }
+
+    /** Short physical-device diagnostic; it is evidence, never model admission. */
+    @Test
+    public void runRealtimeSmoke() throws Exception {
+        runBenchmark(1, false, "realtime_smoke");
+    }
+
+    private static void runBenchmark(
+            int runsPerLanguage, boolean includeMedia, String mode) throws Exception {
         Instrumentation instrumentation = InstrumentationRegistry.getInstrumentation();
         Context context = instrumentation.getTargetContext();
         assertTrue("benchmark requires an eng/userdebug build",
@@ -106,27 +117,31 @@ public final class ModelAdmissionBenchmarkTest {
                     capabilities.get("video_understanding").selectedModelId);
 
             JSONArray results = new JSONArray();
-            results.put(benchmarkMedia(
-                    context, broker, artifacts.require(capabilities.get(
-                            "image_understanding").selectedModelId)));
+            if (includeMedia) {
+                results.put(benchmarkMedia(
+                        context, broker, artifacts.require(capabilities.get(
+                                "image_understanding").selectedModelId), runsPerLanguage));
+            }
             results.put(benchmarkText(
                     context, broker, artifacts.require(capabilities.get(
-                            "text_generation").selectedModelId)));
+                            "text_generation").selectedModelId), runsPerLanguage));
             TtsOutput tts = benchmarkTts(
                     context, broker, artifacts.require(capabilities.get(
-                            "speech_synthesis").selectedModelId));
+                            "speech_synthesis").selectedModelId), runsPerLanguage);
             results.put(tts.result);
             results.put(benchmarkAsr(
                     context,
                     broker,
                     artifacts.require(capabilities.get("streaming_asr").selectedModelId),
                     tts.englishPcm,
-                    tts.spanishPcm));
+                    tts.spanishPcm,
+                    runsPerLanguage));
 
             JSONObject measurements = new JSONObject()
                     .put("schema_version", 1)
                     .put("suite_version", 4)
                     .put("results", results);
+            if (mode != null) measurements.put("mode", mode);
             Bundle output = new Bundle();
             output.putString(
                     "aios_measurements_base64",
@@ -138,7 +153,8 @@ public final class ModelAdmissionBenchmarkTest {
     }
 
     private static JSONObject benchmarkText(
-            Context context, IAiosModelService broker, Artifact artifact) throws Exception {
+            Context context, IAiosModelService broker, Artifact artifact,
+            int runsPerLanguage) throws Exception {
         Aggregate aggregate = new Aggregate();
         List<Long> firstTokenMillis = new ArrayList<>();
         List<Double> throughput = new ArrayList<>();
@@ -146,7 +162,7 @@ public final class ModelAdmissionBenchmarkTest {
         int englishKnown = 0;
         int spanishKnown = 0;
         for (String language : List.of("en", "es")) {
-            for (int run = 0; run < RUNS_PER_LANGUAGE; run++) {
+            for (int run = 0; run < runsPerLanguage; run++) {
                 String prompt = language.equals("es")
                         ? "Responde solo con la palabra azul: ¿de qué color es un cielo despejado de día?"
                         : "Reply with only the word blue: what color is a clear daytime sky?";
@@ -177,14 +193,15 @@ public final class ModelAdmissionBenchmarkTest {
                 .put("p50_output_tokens_per_second",
                         BenchmarkMath.percentileDouble(throughput, 0.5))
                 .put("en_known_answer_rate",
-                        BenchmarkMath.rate(englishKnown, RUNS_PER_LANGUAGE))
+                        BenchmarkMath.rate(englishKnown, runsPerLanguage))
                 .put("es_known_answer_rate",
-                        BenchmarkMath.rate(spanishKnown, RUNS_PER_LANGUAGE));
+                        BenchmarkMath.rate(spanishKnown, runsPerLanguage));
         return result(artifact, metrics);
     }
 
     private static JSONObject benchmarkMedia(
-            Context context, IAiosModelService broker, Artifact artifact) throws Exception {
+            Context context, IAiosModelService broker, Artifact artifact,
+            int runsPerLanguage) throws Exception {
         Aggregate aggregate = new Aggregate();
         List<Long> imageLatency = new ArrayList<>();
         List<Long> videoLatency = new ArrayList<>();
@@ -198,7 +215,7 @@ public final class ModelAdmissionBenchmarkTest {
         for (String capability : List.of(
                 "image_understanding", "video_understanding")) {
             for (String language : List.of("en", "es")) {
-                for (int run = 0; run < RUNS_PER_LANGUAGE; run++) {
+                for (int run = 0; run < runsPerLanguage; run++) {
                     Invocation invocation;
                     try (ResourceSampler sampler = new ResourceSampler(context)) {
                         invocation = invokeMedia(broker, capability, language, redJpeg);
@@ -241,14 +258,15 @@ public final class ModelAdmissionBenchmarkTest {
                 .put("p95_video_storyboard_inference_ms",
                         BenchmarkMath.percentileLong(videoLatency, 0.95))
                 .put("en_known_answer_rate",
-                        BenchmarkMath.rate(englishKnown, RUNS_PER_LANGUAGE * 2))
+                        BenchmarkMath.rate(englishKnown, runsPerLanguage * 2))
                 .put("es_known_answer_rate",
-                        BenchmarkMath.rate(spanishKnown, RUNS_PER_LANGUAGE * 2));
+                        BenchmarkMath.rate(spanishKnown, runsPerLanguage * 2));
         return result(artifact, metrics);
     }
 
     private static TtsOutput benchmarkTts(
-            Context context, IAiosModelService broker, Artifact artifact) throws Exception {
+            Context context, IAiosModelService broker, Artifact artifact,
+            int runsPerLanguage) throws Exception {
         Aggregate aggregate = new Aggregate();
         List<Long> firstAudioMillis = new ArrayList<>();
         List<Double> realtimeFactors = new ArrayList<>();
@@ -258,7 +276,7 @@ public final class ModelAdmissionBenchmarkTest {
         byte[] spanishFixture = null;
         for (String language : List.of("en", "es")) {
             String phrase = language.equals("es") ? ES_PHRASE : EN_PHRASE;
-            for (int run = 0; run < RUNS_PER_LANGUAGE; run++) {
+            for (int run = 0; run < runsPerLanguage; run++) {
                 AudioInvocation audio;
                 try (ResourceSampler sampler = new ResourceSampler(context)) {
                     audio = invokeTts(broker, language, phrase);
@@ -290,9 +308,9 @@ public final class ModelAdmissionBenchmarkTest {
                 .put("p95_realtime_factor",
                         BenchmarkMath.percentileDouble(realtimeFactors, 0.95))
                 .put("en_output_valid_rate",
-                        BenchmarkMath.rate(englishValid, RUNS_PER_LANGUAGE))
+                        BenchmarkMath.rate(englishValid, runsPerLanguage))
                 .put("es_output_valid_rate",
-                        BenchmarkMath.rate(spanishValid, RUNS_PER_LANGUAGE));
+                        BenchmarkMath.rate(spanishValid, runsPerLanguage));
         if (englishFixture == null) englishFixture = new byte[ASR_SAMPLE_RATE * 2];
         if (spanishFixture == null) spanishFixture = new byte[ASR_SAMPLE_RATE * 2];
         return new TtsOutput(
@@ -306,7 +324,8 @@ public final class ModelAdmissionBenchmarkTest {
             IAiosModelService broker,
             Artifact artifact,
             byte[] englishPcm,
-            byte[] spanishPcm) throws Exception {
+            byte[] spanishPcm,
+            int runsPerLanguage) throws Exception {
         Aggregate aggregate = new Aggregate();
         List<Long> partialLatency = new ArrayList<>();
         List<Long> finalLatency = new ArrayList<>();
@@ -325,7 +344,7 @@ public final class ModelAdmissionBenchmarkTest {
             byte[] withEndpointSilence = appendSilence(
                     speech, ASR_ENDPOINT_SILENCE_MILLIS);
             String reference = language.equals("es") ? ES_PHRASE : EN_PHRASE;
-            for (int run = 0; run < RUNS_PER_LANGUAGE; run++) {
+            for (int run = 0; run < runsPerLanguage; run++) {
                 Invocation live;
                 try (ResourceSampler sampler = new ResourceSampler(context)) {
                     live = invokeAsr(broker, withEndpointSilence, true);
@@ -367,9 +386,9 @@ public final class ModelAdmissionBenchmarkTest {
                 .put("live_final_endpoint_rate",
                         BenchmarkMath.rate(liveFinalSuccesses, liveAttempts))
                 .put("en_language_detection_rate",
-                        BenchmarkMath.rate(englishLanguageDetections, RUNS_PER_LANGUAGE))
+                        BenchmarkMath.rate(englishLanguageDetections, runsPerLanguage))
                 .put("es_language_detection_rate",
-                        BenchmarkMath.rate(spanishLanguageDetections, RUNS_PER_LANGUAGE))
+                        BenchmarkMath.rate(spanishLanguageDetections, runsPerLanguage))
                 .put("p95_partial_latency_ms",
                         BenchmarkMath.percentileLong(partialLatency, 0.95))
                 .put("p95_final_latency_ms",
@@ -380,8 +399,8 @@ public final class ModelAdmissionBenchmarkTest {
                         BenchmarkMath.percentileLong(firstPartialSourceSpan, 0.95))
                 .put("p95_realtime_factor",
                         BenchmarkMath.percentileDouble(realtimeFactors, 0.95))
-                .put("en_wer", englishWer / RUNS_PER_LANGUAGE)
-                .put("es_wer", spanishWer / RUNS_PER_LANGUAGE);
+                .put("en_wer", englishWer / runsPerLanguage)
+                .put("es_wer", spanishWer / runsPerLanguage);
         return result(artifact, metrics);
     }
 

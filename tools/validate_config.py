@@ -982,6 +982,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "scripts/pixel9a-gsi-preflight.ps1",
         "scripts/start-pixel9a-dsu.ps1",
         "scripts/capture-pixel9a-gsi-boot.ps1",
+        "scripts/capture-realtime-smoke.ps1",
         "docs/cuttlefish-bringup.md",
         "docs/emulator-bringup.md",
         "docs/gsi-bringup.md",
@@ -1908,8 +1909,18 @@ def validate_aosp_overlay(root: Path) -> None:
     benchmark_manifest = (root / "benchmarks" / "modeladmission" / "app" /
                           "AndroidManifest.xml").read_text(encoding="utf-8")
     benchmark_source = (root / "benchmarks" / "modeladmission" / "tests" / "src" /
-                        "com" / "aios" / "modelbenchmark" /
-                        "ModelAdmissionBenchmarkTest.java").read_text(encoding="utf-8")
+                          "com" / "aios" / "modelbenchmark" /
+                          "ModelAdmissionBenchmarkTest.java").read_text(encoding="utf-8")
+    realtime_capture = (root / "scripts" /
+                        "capture-realtime-smoke.ps1").read_text(encoding="utf-8")
+    require("runRealtimeSmoke" in benchmark_source
+            and "runBenchmark(1, false" in benchmark_source
+            and "ADMISSION_RUNS_PER_LANGUAGE = 5" in benchmark_source
+            and "pixel_aios_realtime_model_smoke" in realtime_capture
+            and "admission_evidence = $false" in realtime_capture
+            and "#runRealtimeSmoke" in realtime_capture
+            and "refusing to overwrite" in realtime_capture,
+            "physical realtime smoke must be focused, non-overwriting, and non-admission")
     require('android:testOnly="true"' in benchmark_manifest
             and '"userdebug".equals(Build.TYPE)' in benchmark_source
             and "telecom.isInCall()" in benchmark_source
