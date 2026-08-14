@@ -119,6 +119,14 @@ atomic result stores only a serial SHA-256 and binds the completed wipe/update
 command to the exact release-evidence and archive digests; it never claims that
 Android booted successfully.
 
+After the wiped device completes setup, enable and authorize ADB and run
+`tools/capture_pixel_aios_boot.py` with the build, release, and flash-result
+records. It verifies the full-device fingerprint (not a GSI), orange unlocked
+test-key state, credential unlock, sole default-dialer role, all six AIOS core
+packages, all three runtime providers, and every evidenced `/product` artifact
+by size and SHA-256. This proves first boot and payload installation only; it
+does not claim carrier telephony, inference latency, media behavior, or restore.
+
 ```text
 vendor/aios/scripts/build-aosp-lane.sh \
   /absolute/path/to/aosp-latest \

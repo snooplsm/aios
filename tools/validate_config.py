@@ -876,6 +876,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "tools/capture_build_evidence.py",
         "tools/package_pixel_dev_image.py",
         "tools/flash_pixel_dev_image.py",
+        "tools/capture_pixel_aios_boot.py",
         "tools/capture_cuttlefish_boot_evidence.py",
         "tools/capture_avd_boot_evidence.py",
         "tools/check_gsi_preflight.py",
@@ -1705,6 +1706,19 @@ def validate_aosp_overlay(root: Path) -> None:
             and "serial_sha256" in pixel_flasher
             and "proves_flash_command_passed" in pixel_flasher,
             "Pixel development flashing must fail closed before destructive execution")
+    pixel_boot_capture = (root / "tools" /
+                          "capture_pixel_aios_boot.py").read_text(encoding="utf-8")
+    require("pixel9a_aios_full_device_first_boot" in pixel_boot_capture
+            and "validate_chain" in pixel_boot_capture
+            and "ro.gsid.image_running" in pixel_boot_capture
+            and "ro.boot.verifiedbootstate" in pixel_boot_capture
+            and "ro.boot.vbmeta.device_state" in pixel_boot_capture
+            and "android.app.role.DIALER" in pixel_boot_capture
+            and "every_evidenced_product_artifact_verified" in pixel_boot_capture
+            and "proves_physical_full_device_boot" in pixel_boot_capture
+            and '"proves_telephony_gate": False' in pixel_boot_capture
+            and '"proves_model_inference": False' in pixel_boot_capture,
+            "Pixel first-boot capture must bind the wiped flash without overclaiming runtime gates")
 
     common_product = (root / "products" / "aios_common.mk").read_text(
         encoding="utf-8"
