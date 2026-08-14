@@ -150,5 +150,22 @@ compatible port can collect evidence through the production GPU/CPU paths.
 Their NPU remains disabled, and runtime eligibility must not be confused with a
 build lane, release model admission, or tested device support.
 
+## Pixel 9a shared-engine result
+
+Provider `0.15.1` was tested twice on a physical Pixel 9a with the catalog's
+2,588,147,712-byte Gemma E2B package. A clean cold run verified the digest in
+3.379 seconds, initialized one vision-capable GPU engine in 5.665 seconds, and
+completed the bounded text request in 12.626 seconds. The immediately following
+image request reused both the verified digest and the same engine: identity was
+ready in 3 ms, first image output arrived in 2.972 seconds, and no second engine
+was initialized or evicted.
+
+Both runs completed without OOM, fatal signal, or AIOS runtime failure. Android
+did kill low-priority cached/background processes during model initialization,
+so this evidence supports sharing the multimodal engine but does not justify
+pinning it indefinitely on an 8 GB device. Broker memory-pressure handling and
+live-call preemption remain required. The checked-in non-admission summary is
+in `evidence/physical/20260814-pixel9a-multimodal-b1cbca9`.
+
 Android binding lifecycle contract:
 [`ServiceConnection`](https://developer.android.com/reference/android/content/ServiceConnection).

@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "evidence_kind": "pixel_aios_single_model_diagnostic_summary",
+  "source_commit": "b1cbca9",
+  "device_codename": "tegu",
+  "total_ram_mb": 7322,
+  "completed_at": "2026-08-14T18:59:17Z",
+  "admission_evidence": false,
+  "deployment": {
+    "litert_lm_implementation_version": "0.15.1",
+    "litert_lm_provider_apk_sha256": "c586cbe1e13ebc0e61817dae863ace7a3e90c014ce562f4487dfc7c72247ea67",
+    "litert_lm_runtime_manifest_sha256": "afc39446729cde19b7c5b6f6418e1b5ae8fe5a480c9983be476d4623250b13e6",
+    "runtime_catalog_sha256": "0983f941d4629d8d617ab574ccb70f24fcd0de3fa3db8772dbfea58a130b29e3"
+  },
+  "gemma": {
+    "artifact_sha256": "181938105e0eefd105961417e8da75903eacda102c4fce9ce90f50b97139a63c",
+    "artifact_size_bytes": 2588147712,
+    "backend": "gpu",
+    "engine_vision": true,
+    "engine_audio": false,
+    "cold_text_elapsed_ms": 12626,
+    "cold_text_first_output_ms": 12547,
+    "cold_digest_verification_ms": 3379,
+    "cold_engine_initialization_ms": 5665,
+    "warm_image_elapsed_ms": 13362,
+    "warm_image_first_output_ms": 2972,
+    "warm_identity_ready_ms": 3,
+    "engine_initializations": 1,
+    "engine_cache_hits": 1,
+    "engine_evictions": 0,
+    "digest_full_verifications": 1,
+    "digest_cache_hits": 1,
+    "invocation_success_rate": 1.0
+  },
+  "memory_observation": {
+    "low_memory_kills_during_clean_run": 12,
+    "aios_runtime_kills": 0,
+    "oom_count": 0,
+    "fatal_signal_count": 0,
+    "post_run_litert_lm_pss_kb": 154562,
+    "post_run_litert_lm_rss_kb": 185708,
+    "post_run_litert_lm_swap_pss_kb": 118080,
+    "post_run_snapshot_is_not_peak": true,
+    "benchmark_cross_process_pss_valid": false
+  },
+  "other_roles": {
+    "speech_synthesis_elapsed_ms": 8097,
+    "speech_synthesis_time_to_first_audio_ms": 4667,
+    "streaming_asr_elapsed_ms": 4903,
+    "streaming_asr_first_output_ms": 2972
+  }
+}
