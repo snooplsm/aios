@@ -983,6 +983,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "scripts/start-pixel9a-dsu.ps1",
         "scripts/capture-pixel9a-gsi-boot.ps1",
         "scripts/capture-realtime-smoke.ps1",
+        "scripts/capture-physical-call.ps1",
         "docs/cuttlefish-bringup.md",
         "docs/emulator-bringup.md",
         "docs/gsi-bringup.md",
@@ -1310,6 +1311,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/callintelligence/src/com/aios/callintelligence/CallCommunicationContextClient.java",
         "services/callintelligence/src/com/aios/callintelligence/ResilientCommunicationContextBinding.java",
         "services/callintelligence/src/com/aios/callintelligence/CallContextAccumulator.java",
+        "services/callintelligence/src/com/aios/callintelligence/CallStatusLogPolicy.java",
         "services/callintelligence/src/com/aios/callintelligence/IncrementalCallerTranscript.java",
         "services/callintelligence/src/com/aios/callintelligence/TranscriptRevisionGate.java",
         "services/callintelligence/src/com/aios/callintelligence/TranscriptContextRecovery.java",
@@ -1354,6 +1356,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/callintelligence/tests/src/com/aios/callintelligence/AnswerDelayPolicyTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/CallArtifactRetentionTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/CallContextAccumulatorTest.java",
+        "services/callintelligence/tests/src/com/aios/callintelligence/CallStatusLogPolicyTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/IncrementalCallerTranscriptTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/TranscriptRevisionGateTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/TranscriptContextRecoveryTest.java",
@@ -1915,6 +1918,8 @@ def validate_aosp_overlay(root: Path) -> None:
                           "ModelAdmissionBenchmarkTest.java").read_text(encoding="utf-8")
     realtime_capture = (root / "scripts" /
                         "capture-realtime-smoke.ps1").read_text(encoding="utf-8")
+    physical_call_capture = (root / "scripts" /
+                             "capture-physical-call.ps1").read_text(encoding="utf-8")
     require("runRealtimeSmoke" in benchmark_source
             and 'runBenchmark(1, false, true, "realtime_smoke")' in benchmark_source
             and "runAudioRealtimeSmoke" in benchmark_source
@@ -1938,6 +1943,30 @@ def validate_aosp_overlay(root: Path) -> None:
             and "runAudioRealtimeSmoke" in realtime_capture
             and "refusing to overwrite" in realtime_capture,
             "physical realtime smoke must be focused, non-overwriting, and non-admission")
+    require("physical call capture refuses emulator serials" in physical_call_capture
+            and '"ro.boot.qemu"' in physical_call_capture
+            and '"ro.kernel.qemu"' in physical_call_capture
+            and '"persist.aios.debug.call_uplink_test"' in physical_call_capture
+            and '"ro.aios.call_uplink_validated"' in physical_call_capture
+            and "AiosWhisperRuntime:I" in physical_call_capture
+            and "AiosLiteRtLmRuntime:I" in physical_call_capture
+            and "AiosTtsRuntime:I" in physical_call_capture
+            and "lowmemorykiller:I" in physical_call_capture
+            and "OutOfMemory" in physical_call_capture
+            and "post-thermal.txt" in physical_call_capture
+            and "memory-samples.log" in physical_call_capture
+            and 'Save-AiosFilteredAdb -Name "pre-processes.txt"'
+            in physical_call_capture
+            and 'Save-AiosFilteredAdb -Name "post-processes.txt"'
+            in physical_call_capture
+            and 'Save-AiosFilteredAdb -Name "post-cpuinfo.txt"'
+            in physical_call_capture
+            and '-Pattern "com\\.aios\\."' in physical_call_capture
+            and "build_fingerprint_sha256" in physical_call_capture
+            and "serial_sha256" in physical_call_capture
+            and "admission_evidence = $false" in physical_call_capture
+            and "refusing to overwrite" in physical_call_capture,
+            "physical call capture must be guarded, privacy-minimized, and diagnose latency/OOM")
     require('android:testOnly="true"' in benchmark_manifest
             and '"userdebug".equals(Build.TYPE)' in benchmark_source
             and "telecom.isInCall()" in benchmark_source
@@ -4596,6 +4625,13 @@ def validate_aosp_overlay(root: Path) -> None:
         root / "services" / "callintelligence" / "tests" / "src" / "com" /
         "aios" / "callintelligence" / "CallContextAccumulatorTest.java"
     ).read_text(encoding="utf-8")
+    call_status_log_policy = (
+        call_source_root / "CallStatusLogPolicy.java"
+    ).read_text(encoding="utf-8")
+    call_status_log_policy_test = (
+        root / "services" / "callintelligence" / "tests" / "src" / "com" /
+        "aios" / "callintelligence" / "CallStatusLogPolicyTest.java"
+    ).read_text(encoding="utf-8")
     prior_context_formatter_test = (
         root / "services" / "callintelligence" / "tests" / "src" / "com" /
         "aios" / "callintelligence" / "PriorContextFormatterTest.java"
@@ -4717,6 +4753,19 @@ def validate_aosp_overlay(root: Path) -> None:
             and "exclusionsRemoveSourcesBeforeContextQuery"
             in caller_history_source_test,
             "call-context bounds and prompt serialization must remain host-tested")
+    require("class CallStatusLogPolicy" in call_status_log_policy
+            and 'scope = "availability"' in call_status_log_policy
+            and 'scope = "call"' in call_status_log_policy
+            and 'safeDetail = detail != null && DETAIL.matcher(detail).matches()'
+            in call_status_log_policy
+            and "Log.i(TAG, CallStatusLogPolicy.format(callId, status, detail))"
+            in call_service
+            and "markerNeverContainsCallIdentity" in call_status_log_policy_test
+            and "unexpectedOrContentBearingDetailFailsClosed"
+            in call_status_log_policy_test
+            and '"src/com/aios/callintelligence/CallStatusLogPolicy.java"'
+            in call_host_test,
+            "physical call status logging must be content-free, bounded, and host-tested")
     context_extraction_domains = {
         "root", "file", "database", "sharedpref", "external", "device_root",
         "device_file", "device_database", "device_sharedpref",

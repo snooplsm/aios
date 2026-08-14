@@ -42,6 +42,7 @@ java_test_host {
         "src/com/aios/callintelligence/SpeechSynthesisStatusPolicy.java",
         "src/com/aios/callintelligence/SpeechTerminalGate.java",
         "src/com/aios/callintelligence/CallContextAccumulator.java",
+        "src/com/aios/callintelligence/CallStatusLogPolicy.java",
         "src/com/aios/callintelligence/RollingConversationMemory.java",
         "src/com/aios/callintelligence/IncrementalCallerTranscript.java",
         "src/com/aios/callintelligence/TranscriptRevisionGate.java",

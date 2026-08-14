@@ -70,6 +70,26 @@ Run this independently for every supported Pixel product and the exact release
 image, modem/firmware set, carrier, and call transport being admitted. Record
 timestamps and retain logs without call content.
 
+Start one focused capture immediately before the remote endpoint places the
+call. The helper refuses emulators and non-debuggable/non-AIOS builds, hashes the
+serial and build fingerprint, records only content-free AIOS lifecycle/timing
+tags, samples AIOS process RSS plus available/swap memory, and captures thermal,
+battery, lmkd/OOM, fatal-signal, tombstone-list, and post-run process evidence.
+It never marks the result as release/admission evidence by itself.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\capture-physical-call.ps1 `
+  -Serial <serial> `
+  -Output .\out\physical-call-<label> `
+  -DurationSeconds 180
+```
+
+Use `-DryRun -DurationSeconds 10` to verify collection without placing a call.
+Every output directory is non-overwriting. `summary.json` contains parsed ASR
+decode, broker first-chunk, LLM first-token/completion, and TTS first-audio/
+completion timings; `runtime.log` and `diagnostics.log` retain the corresponding
+content-free markers for audit.
+
 1. Keep the product property false and confirm Auto AI answer and the manual AI
    action are unavailable before the explicit userdebug test opt-in. Enable the
    opt-in and confirm only manual AI answer becomes available with the visible

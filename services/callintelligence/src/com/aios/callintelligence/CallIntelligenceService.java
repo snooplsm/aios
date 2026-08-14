@@ -1176,6 +1176,7 @@ public final class CallIntelligenceService extends Service {
     }
 
     private void notifyStatus(String callId, int status, String detail) {
+        Log.i(TAG, CallStatusLogPolicy.format(callId, status, detail));
         synchronized (listenerBroadcastLock) {
             int count = listeners.beginBroadcast();
             try {
