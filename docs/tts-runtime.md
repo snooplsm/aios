@@ -8,11 +8,13 @@ message was captured. It is not used for a mandatory recording disclosure.
 ## Locked implementation
 
 The provider in `runtime/ttsprovider` embeds the official Sherpa-ONNX Android
-runtime at version `1.13.4`; AIOS provider implementation `1.13.6` uses the int8
+runtime at version `1.13.4`; AIOS provider implementation `1.13.7` uses the int8
 Supertonic 3 model bundle. Call synthesis uses the pinned integration's
 five-denoising-step default rather than the upstream model's higher-quality
-eight-step default. This is a candidate setting until physical bilingual
-listening and intelligibility gates pass.
+eight-step default. It also limits a native synthesis chunk to 64 Unicode code
+points so the first short sentence can reach call playback before the rest of a
+multi-sentence response finishes. Both are candidate settings until physical
+bilingual listening, intelligibility, and playback-continuity gates pass.
 The runtime AAR, source revision, file size, SHA-256, ONNX Runtime version, and
 packaged license texts are locked in `config/runtime_catalog.json`. The model
 archive and every member's size and SHA-256 are separately locked in
@@ -40,9 +42,12 @@ Primary upstream references:
 The signature-protected Model Broker is the only accepted caller. It creates a
 `speech_synthesis` / `call_agent` session, attaches exactly one 44.1 kHz mono
 PCM16 pipe, and submits one bounded final text request in English or Spanish.
-The provider streams PCM chunks into the pipe as they are generated, so pipe
-backpressure bounds queued audio instead of accumulating an entire utterance in
-Binder or Java memory.
+The provider streams each native PCM chunk into the pipe as it is generated and
+logs its ordinal, elapsed time, and sample count without logging the response
+text. Pipe backpressure bounds queued audio instead of accumulating an entire
+utterance in Binder or Java memory. The current direct writer deliberately
+provides bounded behavior; physical tests must measure whether playback
+backpressure creates a gap between native chunks before this candidate ships.
 Caller playback converts that native 44.1 kHz mono stream directly to Telecom's
 48 kHz stereo uplink, avoiding a redundant intermediate resample.
 

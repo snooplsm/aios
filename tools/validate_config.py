@@ -4027,7 +4027,9 @@ def validate_aosp_overlay(root: Path) -> None:
             and "packages.size != 1" in tts_source,
             "TTS runtime provider must admit only the exact broker UID")
     require("generateWithConfigAndCallback" in tts_source
-            and 'extra = mapOf("lang" to session.request.language)' in tts_source
+            and '"lang" to session.request.language' in tts_source
+            and '"max_len" to CALL_MAX_CHUNK_CODEPOINTS.toString()' in tts_source
+            and "CALL_MAX_CHUNK_CODEPOINTS = 64" in tts_source
             and 'request.language in setOf("en", "es")' in tts_source
             and "private inner class PcmStreamingCallback" in tts_source
             and ": Function1<FloatArray, Int>" in tts_source
@@ -4044,6 +4046,7 @@ def validate_aosp_overlay(root: Path) -> None:
     require('TAG = "AiosTtsRuntime"' in tts_source
             and '"ENGINE_INITIALIZE_START' in tts_source
             and '"FIRST_AUDIO' in tts_source
+            and '"AUDIO_CHUNK' in tts_source
             and '"SYNTHESIS_FAILED' in tts_source
             and '"SYNTHESIS_DONE' in tts_source,
             "TTS runtime must expose privacy-safe engine and synthesis diagnostics")

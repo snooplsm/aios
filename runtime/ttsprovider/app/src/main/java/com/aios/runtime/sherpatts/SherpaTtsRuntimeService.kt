@@ -42,7 +42,7 @@ class SherpaTtsRuntimeService : Service() {
         const val TAG = "AiosTtsRuntime"
         const val BROKER_PACKAGE = "com.aios.modelbroker"
         const val RUNTIME_ID = "sherpa_onnx_tts"
-        const val IMPLEMENTATION_VERSION = "1.13.6"
+        const val IMPLEMENTATION_VERSION = "1.13.7"
         const val PROVIDER_API_VERSION = 2
         const val MODEL_ID = "supertonic3-en-es-int8"
         const val SOURCE_ARCHIVE_SHA256 =
@@ -60,6 +60,9 @@ class SherpaTtsRuntimeService : Service() {
         // The call path favors response latency without dropping below the
         // pinned Sherpa integration's default Supertonic denoising depth.
         const val CALL_NUM_STEPS = 5
+        // Keep the first native callback short enough to begin call playback
+        // before a complete multi-sentence response has been synthesized.
+        const val CALL_MAX_CHUNK_CODEPOINTS = 64
         val CONFIGURATION_DIRECTORY = File("/product/etc/aios")
         val MODEL_DIRECTORY = File(CONFIGURATION_DIRECTORY, "models")
         const val EMULATOR_FIXTURE_DIRECTORY = "emulator-config"
@@ -303,6 +306,7 @@ class SherpaTtsRuntimeService : Service() {
         var failure: IOException? = null
             private set
         private var firstBlockLogged = false
+        private var chunkCount = 0
 
         override fun invoke(samples: FloatArray): Int {
             if (session.cancelled.get() || session.completed.get()
@@ -312,6 +316,10 @@ class SherpaTtsRuntimeService : Service() {
             }
             return try {
                 writePcm16(output, samples)
+                chunkCount += 1
+                Log.i(TAG, "AUDIO_CHUNK id=${session.id} chunk=$chunkCount elapsed_ms=" +
+                    (SystemClock.elapsedRealtime() - session.createdAtElapsed) +
+                    " samples=${samples.size}")
                 if (!firstBlockLogged) {
                     firstBlockLogged = true
                     Log.i(TAG, "FIRST_AUDIO id=${session.id} elapsed_ms=" +
@@ -348,7 +356,10 @@ class SherpaTtsRuntimeService : Service() {
                     sid = SPEAKER_ID,
                     speed = 1.0f,
                     numSteps = CALL_NUM_STEPS,
-                    extra = mapOf("lang" to session.request.language),
+                    extra = mapOf(
+                        "lang" to session.request.language,
+                        "max_len" to CALL_MAX_CHUNK_CODEPOINTS.toString(),
+                    ),
                 )
                 val callback = PcmStreamingCallback(session, output)
                 val audio = tts.generateWithConfigAndCallback(text, config, callback)
@@ -395,7 +406,8 @@ class SherpaTtsRuntimeService : Service() {
             Log.i(TAG, "ENGINE_INITIALIZE_START model=${artifact.modelId}")
             val threadCount = Runtime.getRuntime().availableProcessors().coerceIn(2, 8)
             Log.i(TAG, "ENGINE_CONFIGURATION model=${artifact.modelId} " +
-                "threads=$threadCount call_num_steps=$CALL_NUM_STEPS")
+                "threads=$threadCount call_num_steps=$CALL_NUM_STEPS " +
+                "call_max_chunk_codepoints=$CALL_MAX_CHUNK_CODEPOINTS")
             val config = OfflineTtsConfig(
                 model = OfflineTtsModelConfig(
                     supertonic = OfflineTtsSupertonicModelConfig(
