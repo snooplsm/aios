@@ -58,7 +58,7 @@ class LiteRtLmRuntimeService : Service() {
         const val ERROR_BUSY = 3
         const val ERROR_RUNTIME_FAILED = 5
         const val MAX_SESSIONS = 1
-        const val MAX_RESIDENT_ENGINES = 3
+        const val MAX_RESIDENT_ENGINES = 2
         const val MAX_MEDIA_BYTES = 32 * 1024 * 1024
         const val HASH_BUFFER_BYTES = 1024 * 1024
         const val MAX_CALLBACK_MESSAGE_CHARS = 256
@@ -310,8 +310,10 @@ class LiteRtLmRuntimeService : Service() {
             Log.i(TAG, "MODEL_VERIFIED id=${session.id} bytes=${model.length()} " +
                 "elapsed_ms=${SystemClock.elapsedRealtime() - startedAt}")
             val audio = session.request.capability == "audio_understanding"
-            val vision = session.request.capability in setOf(
-                "image_understanding", "video_understanding")
+            // The catalog's text and vision roles resolve to the same complete
+            // multimodal package. One vision-capable engine avoids a second
+            // native initialization and duplicate resident model state.
+            val vision = !audio
             val identity = EngineIdentity(
                 model.absolutePath,
                 session.artifact.modelDigest,
