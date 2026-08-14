@@ -1914,11 +1914,16 @@ def validate_aosp_overlay(root: Path) -> None:
     realtime_capture = (root / "scripts" /
                         "capture-realtime-smoke.ps1").read_text(encoding="utf-8")
     require("runRealtimeSmoke" in benchmark_source
-            and "runBenchmark(1, false" in benchmark_source
+            and 'runBenchmark(1, false, true, "realtime_smoke")' in benchmark_source
+            and "runAudioRealtimeSmoke" in benchmark_source
+            and 'runBenchmark(1, false, false, "audio_realtime_smoke")'
+            in benchmark_source
             and "ADMISSION_RUNS_PER_LANGUAGE = 5" in benchmark_source
             and "pixel_aios_realtime_model_smoke" in realtime_capture
+            and "pixel_aios_audio_realtime_smoke" in realtime_capture
             and "admission_evidence = $false" in realtime_capture
-            and "#runRealtimeSmoke" in realtime_capture
+            and "#$testMethod" in realtime_capture
+            and "runAudioRealtimeSmoke" in realtime_capture
             and "refusing to overwrite" in realtime_capture,
             "physical realtime smoke must be focused, non-overwriting, and non-admission")
     require('android:testOnly="true"' in benchmark_manifest

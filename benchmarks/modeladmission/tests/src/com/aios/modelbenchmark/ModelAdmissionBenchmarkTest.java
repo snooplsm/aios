@@ -87,17 +87,26 @@ public final class ModelAdmissionBenchmarkTest {
 
     @Test
     public void runAdmissionBenchmark() throws Exception {
-        runBenchmark(ADMISSION_RUNS_PER_LANGUAGE, true, null);
+        runBenchmark(ADMISSION_RUNS_PER_LANGUAGE, true, true, null);
     }
 
     /** Short physical-device diagnostic; it is evidence, never model admission. */
     @Test
     public void runRealtimeSmoke() throws Exception {
-        runBenchmark(1, false, "realtime_smoke");
+        runBenchmark(1, false, true, "realtime_smoke");
+    }
+
+    /** Isolates speech synthesis/transcription when the text runtime is unhealthy. */
+    @Test
+    public void runAudioRealtimeSmoke() throws Exception {
+        runBenchmark(1, false, false, "audio_realtime_smoke");
     }
 
     private static void runBenchmark(
-            int runsPerLanguage, boolean includeMedia, String mode) throws Exception {
+            int runsPerLanguage,
+            boolean includeMedia,
+            boolean includeText,
+            String mode) throws Exception {
         Instrumentation instrumentation = InstrumentationRegistry.getInstrumentation();
         Context context = instrumentation.getTargetContext();
         assertTrue("benchmark requires an eng/userdebug build",
@@ -122,9 +131,11 @@ public final class ModelAdmissionBenchmarkTest {
                         context, broker, artifacts.require(capabilities.get(
                                 "image_understanding").selectedModelId), runsPerLanguage));
             }
-            results.put(benchmarkText(
-                    context, broker, artifacts.require(capabilities.get(
-                            "text_generation").selectedModelId), runsPerLanguage));
+            if (includeText) {
+                results.put(benchmarkText(
+                        context, broker, artifacts.require(capabilities.get(
+                                "text_generation").selectedModelId), runsPerLanguage));
+            }
             TtsOutput tts = benchmarkTts(
                     context, broker, artifacts.require(capabilities.get(
                             "speech_synthesis").selectedModelId), runsPerLanguage);

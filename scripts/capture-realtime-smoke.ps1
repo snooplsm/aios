@@ -2,7 +2,10 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$Output,
 
-    [string]$Serial = ""
+    [string]$Serial = "",
+
+    [ValidateSet("full", "audio")]
+    [string]$Mode = "full"
 )
 
 $ErrorActionPreference = "Stop"
@@ -54,10 +57,18 @@ $memoryText = (Invoke-AiosAdb -Arguments @("shell", "cat", "/proc/meminfo")) -jo
 $memoryMatch = [regex]::Match($memoryText, "(?m)^MemTotal:\s+(\d+)\s+kB\s*$")
 if (-not $memoryMatch.Success) { throw "cannot read device total RAM" }
 
+$testMethod = if ($Mode -eq "audio") { "runAudioRealtimeSmoke" } else { "runRealtimeSmoke" }
+$expectedMode = if ($Mode -eq "audio") { "audio_realtime_smoke" } else { "realtime_smoke" }
+$expectedRoles = if ($Mode -eq "audio") { 2 } else { 3 }
+$evidenceKind = if ($Mode -eq "audio") {
+    "pixel_aios_audio_realtime_smoke"
+} else {
+    "pixel_aios_realtime_model_smoke"
+}
 $instrumentationOutput = Invoke-AiosAdb -Arguments @(
     "shell", "am", "instrument", "-w", "-r",
     "-e", "class",
-    "com.aios.modelbenchmark.ModelAdmissionBenchmarkTest#runRealtimeSmoke",
+    "com.aios.modelbenchmark.ModelAdmissionBenchmarkTest#$testMethod",
     "com.aios.modelbenchmark.tests/androidx.test.runner.AndroidJUnitRunner"
 )
 $instrumentationText = $instrumentationOutput -join "`n"
@@ -75,14 +86,14 @@ $measurementJson = [Text.Encoding]::UTF8.GetString(
 $measurement = $measurementJson | ConvertFrom-Json
 if ($measurement.schema_version -ne 1 -or
     $measurement.suite_version -ne 4 -or
-    $measurement.mode -ne "realtime_smoke" -or
-    @($measurement.results).Count -ne 3) {
+    $measurement.mode -ne $expectedMode -or
+    @($measurement.results).Count -ne $expectedRoles) {
     throw "realtime smoke payload has an unexpected schema or role count"
 }
 
 $record = [ordered]@{
     schema_version = 1
-    evidence_kind = "pixel_aios_realtime_model_smoke"
+    evidence_kind = $evidenceKind
     suite_version = [int]$measurement.suite_version
     device_codename = $codename
     total_ram_mb = [math]::Floor([int64]$memoryMatch.Groups[1].Value / 1024)
