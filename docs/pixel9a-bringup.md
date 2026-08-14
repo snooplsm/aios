@@ -107,6 +107,10 @@ with `tools/package_pixel_dev_image.py`. It invokes the pinned
 result, requires `tegu` plus explicit bootloader/baseband versions, verifies the
 full partition set and model/runtime inventory, and emits a hash-bound release
 record. Test-key packages are never suitable for a locked bootloader or release.
+The physical lane wrapper builds both `target-files-package` and the hermetic
+`out/host/linux-x86/bin/img_from_target_files`; pass that generated executable to
+the packager. Do not depend on a host `python` alias or an unbuilt source-tree
+releasetools script.
 
 Use `tools/flash_pixel_dev_image.py` for both the host preflight and execution.
 Without `--execute` it is read-only. It requires exactly the named fastboot

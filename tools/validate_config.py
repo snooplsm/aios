@@ -1796,6 +1796,7 @@ def validate_aosp_overlay(root: Path) -> None:
             and "pixel9a-series.json" in build_script
             and '--series "$patch_series"' in build_script
             and "target-files-package" in build_script
+            and "img_from_target_files" in build_script
             and 'build_status="${PIPESTATUS[0]}"' in build_script,
             "lane builds must be locked, patch-transactional, logged, and evidence-bound")
     build_evidence_source = (root / "tools" /
@@ -6860,7 +6861,7 @@ def validate_release_configuration(root: Path) -> None:
                 "litert_lm", "sherpa_onnx_tts", "whisper_cpp",
             ]
             and hardware.get("compatibility_status")
-            == "full_model_inclusive_build_passed_awaiting_physical_first_boot"
+            == "full_model_inclusive_build_and_flash_passed_awaiting_exact_first_boot_evidence"
             and hardware.get("generated_device_path")
             == "vendor/google_devices/tegu"
             and hardware.get("device_generation_command")

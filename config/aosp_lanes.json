@@ -100,7 +100,7 @@
         "sherpa_onnx_tts",
         "whisper_cpp"
       ],
-      "compatibility_status": "full_model_inclusive_build_passed_awaiting_physical_first_boot",
+      "compatibility_status": "full_model_inclusive_build_and_flash_passed_awaiting_exact_first_boot_evidence",
       "allow_cross_release_device_tree": false,
       "physical_gate_evidence": true
     }

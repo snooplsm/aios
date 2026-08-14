@@ -261,9 +261,14 @@ physical `aios_tegu` release from a verified, pinned GrapheneOS manifest plus it
 generated Pixel device/vendor support. The current physical base is signed tag
 `2026080500`. The full sync, AIOS patch rebase, `tegu` device generation,
 model/runtime packaging, model-inclusive target-files build, and guarded
-fastboot development archive completed on 2026-08-14. The exact archive has not
-yet been flashed and clean-booted on the Pixel, so no physical feature gate is
-claimed. An
+fastboot development archive completed on 2026-08-14. That development archive
+passed the serial-bound flash command and the Pixel subsequently booted the
+matching full `aios_tegu` fingerprint with AIOS Phone as default dialer and all
+six core packages under `/product`. Formal byte-for-byte first-boot evidence was
+not captured before later test-only `/product` updates, so no physical first-boot
+gate is claimed retroactively. A newer target-files/archive candidate now binds
+those physically tested Phone, Call Intelligence, Model Broker, and runtime
+provider bytes; it still requires its own explicit flash and clean-boot record. An
 exact-base Android 17 Dialer lifecycle patch exists and has built on the Linux
 integration lane; the generated dependency-locked runtime providers are in the
 ARM Pixel image but still need physical-device inference and performance
