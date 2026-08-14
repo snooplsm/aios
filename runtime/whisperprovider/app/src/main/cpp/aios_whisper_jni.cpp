@@ -17,7 +17,7 @@ constexpr char LOG_TAG[] = "AiosWhisperNative";
 constexpr int MEL_HOP_SAMPLES = 160;
 constexpr int ENCODER_DOWNSAMPLE = 2;
 constexpr int AUDIO_CONTEXT_QUANTUM = 64;
-constexpr int MIN_AUDIO_CONTEXT = 64;
+constexpr int MIN_AUDIO_CONTEXT = 256;
 
 long long elapsed_millis(std::chrono::steady_clock::time_point started_at) {
     return std::chrono::duration_cast<std::chrono::milliseconds>(

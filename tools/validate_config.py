@@ -3911,6 +3911,7 @@ def validate_aosp_overlay(root: Path) -> None:
             and "MEL_HOP_SAMPLES = 160" in whisper_jni
             and "ENCODER_DOWNSAMPLE = 2" in whisper_jni
             and "AUDIO_CONTEXT_QUANTUM = 64" in whisper_jni
+            and "MIN_AUDIO_CONTEXT = 256" in whisper_jni
             and "whisper_model_n_audio_ctx(context)" in whisper_jni
             and "audio_ctx=%d" in whisper_jni
             and 'LOG_TAG[] = "AiosWhisperNative"' in whisper_jni
