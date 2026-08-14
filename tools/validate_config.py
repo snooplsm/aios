@@ -6294,8 +6294,17 @@ def validate_release_configuration(root: Path) -> None:
                 "boot.img", "product.img", "system.img", "vendor.img",
                 "vendor_boot.img", "vendor_kernel_boot.img", "vbmeta.img",
             ]
+            and hardware.get("required_model_ids") == [
+                "gemma4-e2b-mobile-text",
+                "gemma4-e2b-mobile-multimodal",
+                "whisper-base-multilingual-quantized",
+                "supertonic3-en-es-int8",
+            ]
+            and hardware.get("required_runtime_ids") == [
+                "litert_lm", "sherpa_onnx_tts", "whisper_cpp",
+            ]
             and hardware.get("compatibility_status")
-            == "pinned_base_selected_awaiting_aios_product_port_and_full_build"
+            == "full_model_inclusive_build_passed_awaiting_physical_first_boot"
             and hardware.get("generated_device_path")
             == "vendor/google_devices/tegu"
             and hardware.get("device_generation_command")

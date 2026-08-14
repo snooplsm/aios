@@ -489,6 +489,45 @@ def capture_generated_payloads(
     return artifacts, summaries
 
 
+def require_lane_generated_payloads(lane: dict, summaries: dict) -> None:
+    required_models = lane.get("required_model_ids", [])
+    required_runtimes = lane.get("required_runtime_ids", [])
+    for label, values in (
+        ("model", required_models), ("runtime", required_runtimes)
+    ):
+        if (not isinstance(values, list)
+                or any(not isinstance(value, str) or not value for value in values)
+                or len(values) != len(set(values))):
+            raise BuildEvidenceError(
+                f"lane contains invalid required {label} identifiers"
+            )
+    if required_models:
+        model_pack = summaries.get("model_pack")
+        actual_models = (
+            model_pack.get("models") if isinstance(model_pack, dict) else None
+        )
+        if (not isinstance(actual_models, list)
+                or set(actual_models) != set(required_models)
+                or len(actual_models) != len(required_models)):
+            raise BuildEvidenceError(
+                "built image does not contain the lane's exact required model set"
+            )
+    if required_runtimes:
+        runtime_packs = summaries.get("runtime_packs")
+        actual_runtimes = (
+            [item.get("runtime") for item in runtime_packs]
+            if isinstance(runtime_packs, list)
+            and all(isinstance(item, dict) for item in runtime_packs)
+            else None
+        )
+        if (not isinstance(actual_runtimes, list)
+                or set(actual_runtimes) != set(required_runtimes)
+                or len(actual_runtimes) != len(required_runtimes)):
+            raise BuildEvidenceError(
+                "built image does not contain the lane's exact required runtime set"
+            )
+
+
 def find_system_build_prop(product_out: Path) -> Path:
     candidates = [
         product_out / "system" / "build.prop",
@@ -625,6 +664,7 @@ def capture(
     generated_artifacts, generated_payloads = capture_generated_payloads(
         root, product_out, lane, installed_records
     )
+    require_lane_generated_payloads(lane, generated_payloads)
     artifacts.extend(generated_artifacts)
     required_images = lane.get("required_images")
     if (not isinstance(required_images, list) or not required_images

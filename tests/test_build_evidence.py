@@ -103,6 +103,7 @@ class BuildEvidenceTests(unittest.TestCase):
             evidence.installed_artifact_path(lane, relative)
             for relative in lanes["expected_product_artifacts"]
         ]
+        generated_artifacts = []
         product_root = (product_out / "system" / "product"
                         if lane["artifact_layout"] == "gsi_system_product"
                         else product_out / "product")
@@ -129,6 +130,75 @@ class BuildEvidenceTests(unittest.TestCase):
                 "Size": target.stat().st_size,
                 "SHA256": hashlib.sha256(target.read_bytes()).hexdigest(),
             })
+        if lane["artifact_layout"] == "full_device_target_files":
+            (aios / ".git" / "info" / "exclude").write_text(
+                "generated/\n", encoding="utf-8"
+            )
+
+            def stage_generated(relative, payload):
+                target = product_out / relative
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(payload)
+                generated_artifacts.append(relative)
+                installed.append({
+                    "Name": "/" + relative,
+                    "Size": target.stat().st_size,
+                    "SHA256": hashlib.sha256(payload).hexdigest(),
+                })
+
+            model_pack = aios / "generated" / "modelpack"
+            declarations = []
+            for model_id in lane["required_model_ids"]:
+                relative = f"models/{model_id}.bin"
+                payload = f"fixture model:{model_id}".encode()
+                source = model_pack / "assets" / relative.removeprefix("models/")
+                source.parent.mkdir(parents=True, exist_ok=True)
+                source.write_bytes(payload)
+                declarations.append({
+                    "model_id": model_id,
+                    "relative_path": relative,
+                    "size_bytes": len(payload),
+                    "sha256": hashlib.sha256(payload).hexdigest(),
+                })
+                stage_generated(f"product/etc/aios/{relative}", payload)
+            model_manifest = json.dumps({
+                "schema_version": 1,
+                "artifacts": declarations,
+            }, sort_keys=True).encode()
+            (model_pack / "model_artifacts.json").write_bytes(model_manifest)
+            stage_generated(
+                "product/etc/aios/model_artifacts.json", model_manifest
+            )
+
+            for runtime in lane["required_runtime_ids"]:
+                runtime_pack = aios / "generated" / "runtimepack" / runtime
+                unsigned = f"unsigned provider:{runtime}".encode()
+                unsigned_name = f"aios-runtime-{runtime}.apk"
+                unsigned_source = runtime_pack / "assets" / unsigned_name
+                unsigned_source.parent.mkdir(parents=True, exist_ok=True)
+                unsigned_source.write_bytes(unsigned)
+                runtime_manifest = json.dumps({
+                    "schema_version": 1,
+                    "runtime": runtime,
+                    "source_revision": "a" * 40,
+                    "provider_apk": {
+                        "relative_path": f"runtime/{unsigned_name}",
+                        "size_bytes": len(unsigned),
+                        "sha256": hashlib.sha256(unsigned).hexdigest(),
+                    },
+                }, sort_keys=True).encode()
+                (runtime_pack / "runtime_artifacts.json").write_bytes(
+                    runtime_manifest
+                )
+                stage_generated(
+                    f"product/etc/aios/runtime_artifacts-{runtime}.json",
+                    runtime_manifest,
+                )
+                module = f"AiosRuntimeProvider_{runtime}"
+                stage_generated(
+                    f"product/priv-app/{module}/{module}.apk",
+                    f"platform signed provider:{runtime}".encode(),
+                )
         manifest_name = ("installed-files-system.json"
                          if lane["artifact_layout"] == "gsi_system_product"
                          else "installed-files-product.json")
@@ -143,7 +213,7 @@ class BuildEvidenceTests(unittest.TestCase):
                             f"{product}-target_files.zip")
             target_files.parent.mkdir(parents=True)
             with zipfile.ZipFile(target_files, "w") as archive:
-                for relative in expected_artifacts:
+                for relative in [*expected_artifacts, *generated_artifacts]:
                     archive.write(
                         product_out / relative,
                         "PRODUCT/" + relative.removeprefix("product/"),
@@ -279,6 +349,22 @@ class BuildEvidenceTests(unittest.TestCase):
             self.assertRegex(
                 value["target_files_package"]["sha256"], r"^[0-9a-f]{64}$"
             )
+            self.assertEqual(
+                {
+                    "gemma4-e2b-mobile-text",
+                    "gemma4-e2b-mobile-multimodal",
+                    "whisper-base-multilingual-quantized",
+                    "supertonic3-en-es-int8",
+                },
+                set(value["generated_payloads"]["model_pack"]["models"]),
+            )
+            self.assertEqual(
+                {"litert_lm", "sherpa_onnx_tts", "whisper_cpp"},
+                {
+                    item["runtime"]
+                    for item in value["generated_payloads"]["runtime_packs"]
+                },
+            )
             image_paths = {
                 item["path"] for item in value["artifacts"]
                 if item["path"].startswith("IMAGES/")
@@ -311,6 +397,26 @@ class BuildEvidenceTests(unittest.TestCase):
                 evidence.capture(
                     aios, "pixel9a_tegu_hardware", manifest, lock, out, log
                 )
+
+    def test_lane_payload_contract_rejects_incomplete_sets(self):
+        lane = {
+            "required_model_ids": ["model-a", "model-b"],
+            "required_runtime_ids": ["runtime-a", "runtime-b"],
+        }
+        with self.assertRaisesRegex(
+                evidence.BuildEvidenceError, "exact required model set"):
+            evidence.require_lane_generated_payloads(lane, {
+                "model_pack": {"models": ["model-a"]},
+                "runtime_packs": [
+                    {"runtime": "runtime-a"}, {"runtime": "runtime-b"}
+                ],
+            })
+        with self.assertRaisesRegex(
+                evidence.BuildEvidenceError, "exact required runtime set"):
+            evidence.require_lane_generated_payloads(lane, {
+                "model_pack": {"models": ["model-a", "model-b"]},
+                "runtime_packs": [{"runtime": "runtime-a"}],
+            })
 
     def test_accepts_android_17_combined_gsi_installed_manifest(self):
         with tempfile.TemporaryDirectory() as raw:

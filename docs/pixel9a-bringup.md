@@ -96,6 +96,11 @@ gate instead verifies the staged AIOS files and every required partition image
 against the completed target-files archive, then digests that archive and
 restores the upstream projects:
 
+The physical lane also requires the exact four-model Pixel 9a pack and the
+LiteRT-LM, Whisper.cpp, and TTS runtime providers. A model-free image, a partial
+pack, or an undeclared extra payload now fails evidence capture even when the
+Android build itself succeeds.
+
 ```text
 vendor/aios/scripts/build-aosp-lane.sh \
   /absolute/path/to/aosp-latest \

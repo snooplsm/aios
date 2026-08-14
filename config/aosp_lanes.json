@@ -89,7 +89,18 @@
       ],
       "generated_device_path": "vendor/google_devices/tegu",
       "device_generation_command": "adevtool generate-all -d tegu",
-      "compatibility_status": "pinned_base_selected_awaiting_aios_product_port_and_full_build",
+      "required_model_ids": [
+        "gemma4-e2b-mobile-text",
+        "gemma4-e2b-mobile-multimodal",
+        "whisper-base-multilingual-quantized",
+        "supertonic3-en-es-int8"
+      ],
+      "required_runtime_ids": [
+        "litert_lm",
+        "sherpa_onnx_tts",
+        "whisper_cpp"
+      ],
+      "compatibility_status": "full_model_inclusive_build_passed_awaiting_physical_first_boot",
       "allow_cross_release_device_tree": false,
       "physical_gate_evidence": true
     }
