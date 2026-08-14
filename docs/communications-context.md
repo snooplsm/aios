@@ -120,6 +120,17 @@ limit, so a disabled category cannot consume the result budget or reach the
 receptionist prompt. An empty or unknown scope fails closed rather than becoming
 an unfiltered query.
 
+Phone Recents also lets the owner exclude or re-allow one presented
+conversation. Phone normalizes the displayed number and converts it to the same
+per-install salted 64-character address hash already used for call identity;
+only that opaque hash enters the assistant policy. The bounded exclusion set
+holds at most 256 unique hashes. Call Intelligence validates the complete set on
+every update, stores no number, independently checks the hash before retrieval,
+and disables caller-history retrieval if durable exclusion state is malformed.
+For an excluded caller, Phone withholds the transient address at its own process
+boundary as well. Any exclusion-set change revokes pending and prepared context
+from live receptionist sessions before the new scope is used.
+
 Turning caller history off invalidates pending retrieval generations, discards
 prepared context, clears prior context from active receptionist state, and stops
 new raw caller addresses at the Phone boundary. Transcription and AI answering
@@ -228,7 +239,5 @@ lifecycle gates.
   hardware before passing `context.photo_metadata_lifecycle`;
 - exercise call-event reconciliation across deletion, reboot, role loss, and
   clock changes on Pixel hardware before passing `context.call_source_lifecycle`;
-- add per-conversation exclusions beyond Phone's global and per-source caller-
-  history controls; and
 - run SMS/MMS, reboot, restore, deletion, lock-screen notification, and emergency
   interaction tests on the Pixel hardware lane.

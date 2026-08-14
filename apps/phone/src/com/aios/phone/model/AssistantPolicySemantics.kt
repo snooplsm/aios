@@ -2,6 +2,7 @@ package com.aios.phone.model
 
 /** Shared UI/controller contract for the Call Intelligence policy surface. */
 object AssistantPolicySemantics {
+    const val MAX_EXCLUDED_CONVERSATIONS = 256
     const val MODE_OFF = "off"
     const val MODE_MISSED_ONLY = "missed_only"
     const val MODE_UNKNOWN_ONLY = "unknown_only"
@@ -41,4 +42,19 @@ object AssistantPolicySemantics {
     }
 
     fun clampMissedDelay(millis: Long): Long = millis.coerceIn(3_000L, 60_000L)
+
+    fun withConversationHistory(
+        policy: AssistantPolicyUiState,
+        addressHash: String,
+        enabled: Boolean,
+    ): AssistantPolicyUiState {
+        if (!addressHash.matches(Regex("[0-9a-f]{64}"))) return policy
+        val changed = policy.excludedCallerHistoryAddressHashes.toMutableSet()
+        if (enabled) {
+            changed.remove(addressHash)
+        } else if (changed.size < MAX_EXCLUDED_CONVERSATIONS || addressHash in changed) {
+            changed.add(addressHash)
+        }
+        return policy.copy(excludedCallerHistoryAddressHashes = changed)
+    }
 }

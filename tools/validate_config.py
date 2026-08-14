@@ -1190,6 +1190,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/callintelligence/src/com/aios/callintelligence/PcmTranscriptTimeline.java",
         "services/callintelligence/src/com/aios/callintelligence/CallRequestIdentityTracker.java",
         "services/callintelligence/src/com/aios/callintelligence/CallerHistoryPolicy.java",
+        "services/callintelligence/src/com/aios/callintelligence/CallerHistoryConversationPolicy.java",
         "services/callintelligence/src/com/aios/callintelligence/CallerHistorySourcePolicy.java",
         "services/callintelligence/src/com/aios/callintelligence/CallArtifactRetention.java",
         "services/callintelligence/src/com/aios/callintelligence/CallArtifactStore.java",
@@ -1232,6 +1233,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/callintelligence/tests/src/com/aios/callintelligence/PcmTranscriptTimelineTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/CallRequestIdentityTrackerTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/CallerHistoryPolicyTest.java",
+        "services/callintelligence/tests/src/com/aios/callintelligence/CallerHistoryConversationPolicyTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/CallerHistorySourcePolicyTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/Pcm16MonoToStereo48kTest.java",
         "services/callintelligence/tests/src/com/aios/callintelligence/SpeechSynthesisStatusPolicyTest.java",
@@ -2681,6 +2683,8 @@ def validate_aosp_overlay(root: Path) -> None:
             and "ChangeMessageHistoryEnabled" in phone_contract
             and "ChangeCallHistoryEnabled" in phone_contract
             and "ChangePhotoHistoryEnabled" in phone_contract
+            and "ChangeConversationHistory" in phone_contract
+            and "excludedCallerHistoryAddressHashes: Set<String>" in phone_contract
             and "withCallerHistoryEnabled" in phone_contract
             and "withoutEmptyCallerHistory" in phone_contract
             and "callerHistoryScopeCannotRemainEnabledWithoutSources"
@@ -2690,11 +2694,22 @@ def validate_aosp_overlay(root: Path) -> None:
             and "messageHistoryEnabled = value.messageHistoryEnabled" in assistant_client
             and "callHistoryEnabled = value.callHistoryEnabled" in assistant_client
             and "photoHistoryEnabled = value.photoHistoryEnabled" in assistant_client
+            and "excludedCallerHistoryAddressHashes.sorted().toTypedArray()"
+            in assistant_client
+            and "ownerCallerHistoryExcludedHashes?.contains(normalizedAddressHash) == false"
+            in assistant_client
+            and "saveConversationHistory" in assistant_client
+            and "decorateRecentCalls" in assistant_client
             and 'title = "Use caller history"' in phone_screens
             and 'title = "Messages"' in phone_screens
             and 'title = "Previous calls"' in phone_screens
             and 'title = "Sent photo descriptions"' in phone_screens,
             "Phone must expose default-off, non-empty source-scoped caller history and withhold raw identity when disabled")
+    require('"Exclude AI history"' in phone_screens
+            and '"Allow AI history"' in phone_screens
+            and "conversationExclusionsUseOnlyBoundedOpaqueHashes"
+            in assistant_policy_semantics_test,
+            "Phone Recents must expose per-conversation AI-history exclusion without storing raw numbers")
     require("data class MessageNumber" in phone_contract
             and "Intent.ACTION_SENDTO" in phone_runtime
             and '"smsto"' in phone_runtime
@@ -4063,6 +4078,13 @@ def validate_aosp_overlay(root: Path) -> None:
     caller_history_source_policy = (
         call_source_root / "CallerHistorySourcePolicy.java"
     ).read_text(encoding="utf-8")
+    caller_history_conversation_policy = (
+        call_source_root / "CallerHistoryConversationPolicy.java"
+    ).read_text(encoding="utf-8")
+    caller_history_conversation_test = (
+        root / "services" / "callintelligence" / "tests" / "src" / "com" /
+        "aios" / "callintelligence" / "CallerHistoryConversationPolicyTest.java"
+    ).read_text(encoding="utf-8")
     caller_history_source_test = (
         root / "services" / "callintelligence" / "tests" / "src" / "com" /
         "aios" / "callintelligence" / "CallerHistorySourcePolicyTest.java"
@@ -4165,6 +4187,8 @@ def validate_aosp_overlay(root: Path) -> None:
             in call_host_test
             and '"src/com/aios/callintelligence/CallerHistoryPolicy.java"'
             in call_host_test
+            and '"src/com/aios/callintelligence/CallerHistoryConversationPolicy.java"'
+            in call_host_test
             and '"src/com/aios/callintelligence/CallerHistorySourcePolicy.java"'
             in call_host_test
             and '"src/com/aios/callintelligence/AssistantGreetingPolicy.java"'
@@ -4179,6 +4203,7 @@ def validate_aosp_overlay(root: Path) -> None:
             and "boolean messageHistoryEnabled" in call_policy_api
             and "boolean callHistoryEnabled" in call_policy_api
             and "boolean photoHistoryEnabled" in call_policy_api
+            and "String[] excludedCallerHistoryAddressHashes" in call_policy_api
             and '"caller_history_enabled", false' in call_service
             and '"message_history_enabled", true' in call_service
             and '"call_history_enabled", true' in call_service
@@ -4188,6 +4213,9 @@ def validate_aosp_overlay(root: Path) -> None:
             and "callerHistorySources(preferences)" in call_service
             and "callerHistorySources(latestPreferences)" in call_service
             and "historyScopeChanged" in call_service
+            and "CallerHistoryConversationPolicy.isAllowed(" in call_service
+            and "PREF_EXCLUDED_CALLER_HISTORY_HASHES" in call_service
+            and "new HashSet<>(requestedExclusions)" in call_service
             and "staleRequest" in call_service
             and "session.isAiHandling() && receptionist != null" in call_service
             and "receptionist.updatePriorContext(callId, prepared.priorContextJson)"
@@ -4204,6 +4232,15 @@ def validate_aosp_overlay(root: Path) -> None:
             and "admitsOnlyExplicitlyEnabledEligibleCalls" in caller_history_test
             and "rejectsEmergencyAndMissingAddresses" in caller_history_test,
             "caller-history retrieval must be default-off, source-scoped, emergency-safe, revocable, and host-tested")
+    require("MAX_EXCLUDED_CONVERSATIONS = 256" in caller_history_conversation_policy
+            and 'Pattern.compile("[0-9a-f]{64}")' in caller_history_conversation_policy
+            and "validateRequested" in caller_history_conversation_policy
+            and "validateStored" in caller_history_conversation_policy
+            and "validOpaqueExclusionsAreBoundedAndSorted"
+            in caller_history_conversation_test
+            and "invalidRequestedOrStoredIdentitiesFailClosed"
+            in caller_history_conversation_test,
+            "per-conversation caller-history exclusions must be opaque, bounded, durable, and fail closed")
     require("resumedAfterServiceLoss && resumedKnownContact" in call_service
             and "AssistantGreetingPolicy.shouldGreet" in call_service
             and "answeredByAi && !resumedAfterServiceLoss"

@@ -22,9 +22,11 @@ import com.aios.model.GenerationChunk;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 public final class CallIntelligenceService extends Service {
     private static final String PERMISSION_CONTROL =
@@ -33,6 +35,8 @@ public final class CallIntelligenceService extends Service {
     private static final int MAX_TELECOM_LIFECYCLE_TOKENS = 4;
     private static final int MAX_CALLS_PER_LIFECYCLE_TOKEN = 8;
     private static final int MAX_CONTEXT_CALLS = 64;
+    private static final String PREF_EXCLUDED_CALLER_HISTORY_HASHES =
+            "excluded_caller_history_address_hashes";
 
     private static final class PendingIncomingCall {
         final int ownerUid;
@@ -87,6 +91,10 @@ public final class CallIntelligenceService extends Service {
         @Override
         public synchronized CallAssistantPolicy updatePolicy(CallAssistantPolicy requested) {
             enforceControlPermission();
+            Set<String> requestedExclusions = requested == null
+                    ? null
+                    : CallerHistoryConversationPolicy.validateRequested(
+                            requested.excludedCallerHistoryAddressHashes);
             if (requested == null || !CallPolicyEngine.isKnownMode(requested.answerMode)
                     || !AnswerDelayPolicy.isKnownMode(requested.answerDelayMode)
                     || requested.missedDelayMillis < 3_000L
@@ -107,6 +115,8 @@ public final class CallIntelligenceService extends Service {
                     "call_history_enabled", true);
             boolean photoHistoryWasEnabled = preferences.getBoolean(
                     "photo_history_enabled", true);
+            Set<String> previousExclusions = CallerHistoryConversationPolicy.validateStored(
+                    preferences.getStringSet(PREF_EXCLUDED_CALLER_HISTORY_HASHES, Set.of()));
             SharedPreferences.Editor editor = preferences.edit()
                     .putString("answer_mode", requested.answerMode)
                     .putString("answer_delay_mode", requested.answerDelayMode)
@@ -115,14 +125,19 @@ public final class CallIntelligenceService extends Service {
                     .putBoolean("caller_history_enabled", requested.callerHistoryEnabled)
                     .putBoolean("message_history_enabled", requested.messageHistoryEnabled)
                     .putBoolean("call_history_enabled", requested.callHistoryEnabled)
-                    .putBoolean("photo_history_enabled", requested.photoHistoryEnabled);
+                    .putBoolean("photo_history_enabled", requested.photoHistoryEnabled)
+                    .putStringSet(
+                            PREF_EXCLUDED_CALLER_HISTORY_HASHES,
+                            new HashSet<>(requestedExclusions));
             if (!editor.commit()) {
                 throw new IllegalStateException("call-assistant policy could not be saved");
             }
             boolean historyScopeChanged =
                     messageHistoryWasEnabled != requested.messageHistoryEnabled
                     || callHistoryWasEnabled != requested.callHistoryEnabled
-                    || photoHistoryWasEnabled != requested.photoHistoryEnabled;
+                    || photoHistoryWasEnabled != requested.photoHistoryEnabled
+                    || previousExclusions == null
+                    || !previousExclusions.equals(requestedExclusions);
             if (callerHistoryWasEnabled
                     && (!requested.callerHistoryEnabled || historyScopeChanged)) {
                 revokeCallerHistory();
@@ -157,12 +172,16 @@ public final class CallIntelligenceService extends Service {
             }
             SharedPreferences preferences = ownerPreferences();
             String[] callerHistorySources = callerHistorySources(preferences);
+            boolean conversationAllowed = CallerHistoryConversationPolicy.isAllowed(
+                    context.normalizedAddressHash,
+                    preferences.getStringSet(PREF_EXCLUDED_CALLER_HISTORY_HASHES, Set.of()));
             boolean prepareContext = CallerHistoryPolicy.shouldPrepare(
                     preferences.getBoolean("caller_history_enabled", false)
                             && callerHistorySources.length > 0,
                     context.emergency,
                     context.emergencyCallbackMode,
                     decision.processingAllowed,
+                    conversationAllowed,
                     context.transientAddress);
             Object contextRequestIdentity = prepareContext ? new Object() : null;
             synchronized (telecomPresenceLock) {
@@ -189,7 +208,12 @@ public final class CallIntelligenceService extends Service {
                         SharedPreferences latestPreferences = ownerPreferences();
                         String[] latestSources = callerHistorySources(latestPreferences);
                         if (!latestPreferences.getBoolean("caller_history_enabled", false)
-                                || latestSources.length == 0) {
+                                || latestSources.length == 0
+                                || !CallerHistoryConversationPolicy.isAllowed(
+                                        context.normalizedAddressHash,
+                                        latestPreferences.getStringSet(
+                                                PREF_EXCLUDED_CALLER_HISTORY_HASHES,
+                                                Set.of()))) {
                             prepareContext = false;
                         } else {
                             callerHistorySources = latestSources;
@@ -705,8 +729,14 @@ public final class CallIntelligenceService extends Service {
                 "call_history_enabled", true);
         value.photoHistoryEnabled = preferences.getBoolean(
                 "photo_history_enabled", true);
+        Set<String> exclusions = CallerHistoryConversationPolicy.validateStored(
+                preferences.getStringSet(PREF_EXCLUDED_CALLER_HISTORY_HASHES, Set.of()));
+        value.excludedCallerHistoryAddressHashes = exclusions == null
+                ? new String[0]
+                : CallerHistoryConversationPolicy.sortedArray(exclusions);
         value.callerHistoryEnabled = preferences.getBoolean(
                 "caller_history_enabled", false)
+                && exclusions != null
                 && CallerHistorySourcePolicy.anyEnabled(
                         value.messageHistoryEnabled,
                         value.callHistoryEnabled,

@@ -9,6 +9,8 @@ parcelable CallAssistantPolicy {
     boolean messageHistoryEnabled;
     boolean callHistoryEnabled;
     boolean photoHistoryEnabled;
+    // Per-install salted address hashes. Raw phone numbers are never persisted here.
+    String[] excludedCallerHistoryAddressHashes;
 
     // Read-only service capability fields; ignored on update.
     boolean automaticAnswerAvailable;

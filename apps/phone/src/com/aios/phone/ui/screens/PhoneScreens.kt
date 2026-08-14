@@ -337,6 +337,22 @@ private fun RecentCalls(state: PhoneUiState, dispatch: (PhoneAction) -> Unit) {
                             OutlinedButton(
                                 onClick = { dispatch(PhoneAction.MessageNumber(recent.number)) },
                             ) { Text("Message") }
+                            OutlinedButton(
+                                onClick = {
+                                    dispatch(PhoneAction.ChangeConversationHistory(
+                                        recent.number,
+                                        enabled = recent.callerHistoryExcluded,
+                                    ))
+                                },
+                                enabled = state.assistantPolicy.available
+                                    && !state.assistantPolicy.saving,
+                            ) {
+                                Text(if (recent.callerHistoryExcluded) {
+                                    "Allow AI history"
+                                } else {
+                                    "Exclude AI history"
+                                })
+                            }
                         }
                     }
                 }

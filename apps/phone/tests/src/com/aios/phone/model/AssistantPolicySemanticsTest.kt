@@ -74,4 +74,33 @@ class AssistantPolicySemanticsTest {
         assertTrue(restored.callHistoryEnabled)
         assertTrue(restored.photoHistoryEnabled)
     }
+
+    @Test
+    fun conversationExclusionsUseOnlyBoundedOpaqueHashes() {
+        val hash = "a".repeat(64)
+        val original = AssistantPolicyUiState(callerHistoryEnabled = true)
+        val excluded = AssistantPolicySemantics.withConversationHistory(
+            original,
+            hash,
+            enabled = false,
+        )
+
+        assertEquals(setOf(hash), excluded.excludedCallerHistoryAddressHashes)
+        assertEquals(
+            emptySet<String>(),
+            AssistantPolicySemantics.withConversationHistory(
+                excluded,
+                hash,
+                enabled = true,
+            ).excludedCallerHistoryAddressHashes,
+        )
+        assertEquals(
+            original,
+            AssistantPolicySemantics.withConversationHistory(
+                original,
+                "+15555550182",
+                enabled = false,
+            ),
+        )
+    }
 }

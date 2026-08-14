@@ -187,6 +187,7 @@ public final class EmulatorCallAssistantService extends Service {
         policy.messageHistoryEnabled = false;
         policy.callHistoryEnabled = false;
         policy.photoHistoryEnabled = false;
+        policy.excludedCallerHistoryAddressHashes = new String[0];
         policy.automaticAnswerAvailable = isAvailable();
         policy.automaticAnswerUnavailableReason = policy.automaticAnswerAvailable
                 ? "" : "emulator_transport_unavailable";

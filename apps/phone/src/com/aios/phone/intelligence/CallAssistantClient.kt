@@ -30,11 +30,13 @@ import com.aios.call.IncomingCallContext
 import com.aios.call.TranscriptSegment
 import com.aios.phone.model.CallUiState
 import com.aios.phone.model.AssistantPolicyUiState
+import com.aios.phone.model.AssistantPolicySemantics
 import com.aios.phone.model.AssistantCallUiState
 import com.aios.phone.model.CallRiskLabel
 import com.aios.phone.model.CallRiskSemantics
 import com.aios.phone.model.CallRiskSource
 import com.aios.phone.model.RiskUiState
+import com.aios.phone.model.RecentCallUiState
 import com.aios.phone.model.TranscriptUiState
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
@@ -98,6 +100,8 @@ class CallAssistantClient(
     private var started = false
     private var ownerProcessingEnabled: Boolean? = null
     private var ownerCallerHistoryEnabled: Boolean? = null
+    private var ownerCallerHistoryExcludedHashes: Set<String>? = null
+    @Volatile private var cachedInstallSalt: ByteArray? = null
 
     private fun createListener(connection: AssistantServiceConnection) =
         object : ICallIntelligenceListener.Stub() {
@@ -211,6 +215,7 @@ class CallAssistantClient(
         if (started) return
         started = true
         rebindPolicy = PhoneServiceRebindPolicy()
+        worker.execute { installSalt() }
         scheduleRebind(immediate = true)
     }
 
@@ -242,6 +247,7 @@ class CallAssistantClient(
         connectionReady = false
         ownerProcessingEnabled = null
         ownerCallerHistoryEnabled = null
+        ownerCallerHistoryExcludedHashes = null
         cancelBindingWatchdog()
         rebindTask?.let(main::removeCallbacks)
         rebindTask = null
@@ -392,9 +398,12 @@ class CallAssistantClient(
                 val policy = service.policy
                 main.post {
                     if (isCurrentLease(lease)) {
+                        val uiPolicy = policy.toUi()
                         ownerProcessingEnabled = policy.processingEnabled
-                        ownerCallerHistoryEnabled = policy.callerHistoryEnabled
-                        callbacks.onPolicyChanged(policy.toUi())
+                        ownerCallerHistoryEnabled = uiPolicy.callerHistoryEnabled
+                        ownerCallerHistoryExcludedHashes =
+                            uiPolicy.excludedCallerHistoryAddressHashes
+                        callbacks.onPolicyChanged(uiPolicy)
                     }
                 }
             } catch (error: Exception) {
@@ -433,13 +442,18 @@ class CallAssistantClient(
                     messageHistoryEnabled = value.messageHistoryEnabled
                     callHistoryEnabled = value.callHistoryEnabled
                     photoHistoryEnabled = value.photoHistoryEnabled
+                    excludedCallerHistoryAddressHashes =
+                        value.excludedCallerHistoryAddressHashes.sorted().toTypedArray()
                 }
                 val saved = service.updatePolicy(requested)
                 main.post {
                     if (isCurrentLease(lease)) {
+                        val uiPolicy = saved.toUi()
                         ownerProcessingEnabled = saved.processingEnabled
-                        ownerCallerHistoryEnabled = saved.callerHistoryEnabled
-                        callbacks.onPolicyChanged(saved.toUi())
+                        ownerCallerHistoryEnabled = uiPolicy.callerHistoryEnabled
+                        ownerCallerHistoryExcludedHashes =
+                            uiPolicy.excludedCallerHistoryAddressHashes
+                        callbacks.onPolicyChanged(uiPolicy)
                     }
                 }
             } catch (error: Exception) {
@@ -457,6 +471,44 @@ class CallAssistantClient(
         }
     }
 
+    fun decorateRecentCalls(
+        values: List<RecentCallUiState>,
+        policy: AssistantPolicyUiState,
+    ): List<RecentCallUiState> = values.map { recent ->
+        val hash = addressHash(recent.number)
+        recent.copy(
+            callerHistoryExcluded = hash.isNotEmpty()
+                && hash in policy.excludedCallerHistoryAddressHashes,
+        )
+    }
+
+    fun saveConversationHistory(
+        number: String,
+        enabled: Boolean,
+        policy: AssistantPolicyUiState,
+    ) {
+        check(Looper.myLooper() == Looper.getMainLooper())
+        if (policy.saving) return
+        callbacks.onPolicyChanged(policy.copy(saving = true, error = null))
+        worker.execute {
+            val hash = addressHash(number)
+            main.post {
+                if (hash.isEmpty()) {
+                    callbacks.onPolicyChanged(policy.copy(
+                        saving = false,
+                        error = "This caller has no reusable conversation identity",
+                    ))
+                } else {
+                    savePolicy(AssistantPolicySemantics.withConversationHistory(
+                        policy,
+                        hash,
+                        enabled,
+                    ))
+                }
+            }
+        }
+    }
+
     private fun requestIncomingDecision(session: Session) {
         val lease = currentServiceLease() ?: return
         val service = lease.service
@@ -469,15 +521,18 @@ class CallAssistantClient(
             session.emergency.completeNumberCheck(numberCheck, numberEmergency)
             val emergency = numberEmergency || session.emergency.isEmergencyCall()
             val emergencyCallbackMode = session.emergency.isEmergencyCallbackMode()
+            val normalizedAddressHash = addressHash(session.address)
             val contextAddress = session.address.takeIf {
                 ownerProcessingEnabled == true
                     && ownerCallerHistoryEnabled == true
+                    && normalizedAddressHash.isNotEmpty()
+                    && ownerCallerHistoryExcludedHashes?.contains(normalizedAddressHash) == false
                     && !emergency
                     && !emergencyCallbackMode
             }.orEmpty()
             val contextValue = IncomingCallContext().apply {
                 callId = session.callId
-                normalizedAddressHash = addressHash(session.address)
+                this.normalizedAddressHash = normalizedAddressHash
                 transientAddress = contextAddress
                 countryIso = if (contextAddress.isEmpty()) {
                     ""
@@ -675,7 +730,6 @@ class CallAssistantClient(
                     service.registerListener(connection.listener)
                     val policy = service.policy
                     val processing = policy.processingEnabled
-                    val callerHistory = policy.callerHistoryEnabled
                     main.post {
                         if (started && activeConnection === connection &&
                             remote === service
@@ -683,10 +737,13 @@ class CallAssistantClient(
                             connectionReady = true
                             cancelBindingWatchdog()
                             rebindPolicy.connected()
+                            val uiPolicy = policy.toUi()
                             ownerProcessingEnabled = processing
-                            ownerCallerHistoryEnabled = callerHistory
+                            ownerCallerHistoryEnabled = uiPolicy.callerHistoryEnabled
+                            ownerCallerHistoryExcludedHashes =
+                                uiPolicy.excludedCallerHistoryAddressHashes
                             callbacks.onAssistantConnectionChanged(true)
-                            callbacks.onPolicyChanged(policy.toUi())
+                            callbacks.onPolicyChanged(uiPolicy)
                             announceEveryPresentCall(service)
                             sessions.values.forEach { session ->
                                 if (session.emergency.isProtected()) {
@@ -790,6 +847,7 @@ class CallAssistantClient(
         connectionReady = false
         ownerProcessingEnabled = null
         ownerCallerHistoryEnabled = null
+        ownerCallerHistoryExcludedHashes = null
         sessions.values.forEach { session ->
             cancelDelayedAnswer(session)
             session.riskRevisions.nextGeneration()
@@ -919,29 +977,46 @@ class CallAssistantClient(
 
     @SuppressLint("ApplySharedPref")
     private fun installSalt(): ByteArray {
-        val preferences = context.getSharedPreferences(SALT_PREFS, Context.MODE_PRIVATE)
-        preferences.getString(SALT_KEY, null)?.let { encoded ->
-            runCatching { Base64.decode(encoded, Base64.NO_WRAP) }.getOrNull()?.let { return it }
+        cachedInstallSalt?.let { return it }
+        return synchronized(this) {
+            cachedInstallSalt?.let { return@synchronized it }
+            val preferences = context.getSharedPreferences(SALT_PREFS, Context.MODE_PRIVATE)
+            preferences.getString(SALT_KEY, null)?.let { encoded ->
+                runCatching { Base64.decode(encoded, Base64.NO_WRAP) }.getOrNull()
+                    ?.takeIf { it.size == 32 }
+                    ?.let {
+                        cachedInstallSalt = it
+                        return@synchronized it
+                    }
+            }
+            val value = ByteArray(32).also(SecureRandom()::nextBytes)
+            // The first digest must not race an asynchronous salt write; a changed
+            // salt would break the privacy-preserving per-install caller identity.
+            preferences.edit(commit = true) {
+                putString(SALT_KEY, Base64.encodeToString(value, Base64.NO_WRAP))
+            }
+            cachedInstallSalt = value
+            value
         }
-        val value = ByteArray(32).also(SecureRandom()::nextBytes)
-        // The first digest must not race an asynchronous salt write; a changed
-        // salt would break the privacy-preserving per-install caller identity.
-        preferences.edit(commit = true) {
-            putString(SALT_KEY, Base64.encodeToString(value, Base64.NO_WRAP))
-        }
-        return value
     }
 
-    private fun CallAssistantPolicy.toUi(): AssistantPolicyUiState =
-        AssistantPolicyUiState(
+    private fun CallAssistantPolicy.toUi(): AssistantPolicyUiState {
+        val rawExclusions = excludedCallerHistoryAddressHashes?.toList().orEmpty()
+        val exclusionsAreValid =
+            rawExclusions.size <= AssistantPolicySemantics.MAX_EXCLUDED_CONVERSATIONS
+                && rawExclusions.distinct().size == rawExclusions.size
+                && rawExclusions.all { it.matches(Regex("[0-9a-f]{64}")) }
+        val exclusions = if (exclusionsAreValid) rawExclusions.toSet() else emptySet()
+        return AssistantPolicyUiState(
             available = true,
             loading = false,
             saving = false,
             processingEnabled = processingEnabled,
-            callerHistoryEnabled = callerHistoryEnabled,
+            callerHistoryEnabled = callerHistoryEnabled && exclusionsAreValid,
             messageHistoryEnabled = messageHistoryEnabled,
             callHistoryEnabled = callHistoryEnabled,
             photoHistoryEnabled = photoHistoryEnabled,
+            excludedCallerHistoryAddressHashes = exclusions,
             answerMode = answerMode,
             answerDelayMode = answerDelayMode,
             missedDelayMillis = missedDelayMillis,
@@ -949,6 +1024,7 @@ class CallAssistantClient(
             automaticAnswerUnavailableReason = automaticAnswerUnavailableReason,
             error = null,
         )
+    }
 
     private companion object {
         const val MAX_CALL_ID_CHARS = 128

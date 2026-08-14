@@ -208,6 +208,12 @@ messages, previous-call/contact context, and carrier-confirmed sent-photo
 descriptions. Disabled categories are excluded by the context-service query
 before its eight-result limit. Narrowing a category also clears any already-
 prepared prompt context immediately.
+Recents provides a separate **Exclude AI history** action for each presented
+conversation. The exclusion is a bounded per-install salted address hash, not a
+stored number. Phone withholds the raw address for excluded callers, Call
+Intelligence checks the opaque hash independently, and any exclusion-set change
+immediately revokes already prepared context. **Allow AI history** removes the
+hash without overriding the global or per-source switches.
 
 Emergency protection is direction-independent. AIOS Phone latches the network
 emergency property, emergency callback mode, and the platform emergency-number

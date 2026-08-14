@@ -148,7 +148,10 @@ object PhoneRuntime {
                 onSuccess = { recentCalls ->
                     reduce {
                         it.copy(
-                            recentCalls = recentCalls,
+                            recentCalls = assistant.decorateRecentCalls(
+                                recentCalls,
+                                it.assistantPolicy,
+                            ),
                             recentCallsLoading = false,
                             recentCallsError = null,
                         )
@@ -294,7 +297,15 @@ object PhoneRuntime {
             }
 
             override fun onPolicyChanged(policy: AssistantPolicyUiState) {
-                reduce { it.copy(assistantPolicy = policy) }
+                reduce {
+                    it.copy(
+                        assistantPolicy = policy,
+                        recentCalls = assistant.decorateRecentCalls(
+                            it.recentCalls,
+                            policy,
+                        ),
+                    )
+                }
             }
         })
         initialized = true
@@ -512,6 +523,11 @@ object PhoneRuntime {
                 it.copy(photoHistoryEnabled = action.enabled, error = null)
                     .withoutEmptyCallerHistory()
             }
+            is PhoneAction.ChangeConversationHistory -> assistant.saveConversationHistory(
+                action.number,
+                action.enabled,
+                mutableState.value.assistantPolicy,
+            )
             is PhoneAction.ChangeAutoAnswerEnabled -> updatePolicyDraft {
                 it.copy(
                     answerMode = AssistantPolicySemantics.modeAfterAutoAnswerToggle(

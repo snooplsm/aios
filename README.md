@@ -82,8 +82,8 @@ thermal benchmark gates pass on the exact device/build/backend combination.
 > modem, camera, ARM inference, carrier, TPU/GPU, or near-real-time performance.
 > A complete catalog-pinned Pixel 9a model pack (Gemma 4 E2B, Whisper base, and
 > Supertonic 3) has also passed host packaging and deduplication verification
-> without committing its weights. Pixel 9a flashing, provider packaging,
-> native inference, and physical model/call/media gates remain pending.
+> without committing its weights. Pixel 9a flashing, native inference on the
+> Pixel, and physical model/call/media gates remain pending.
 
 ## Current state
 
@@ -224,6 +224,9 @@ at most eight identifier-free historical snippets without delaying Telecom, and
 the owner can independently admit messages, previous-call/contact context, and
 sent-photo descriptions; the context service applies that allowlist before
 ranking and the result limit, while scope narrowing clears prepared prompts.
+Recents can also exclude one conversation using only a bounded per-install
+salted address hash. Phone withholds the raw address for excluded callers and
+Call Intelligence independently enforces the exclusion before retrieval.
 The normal teardown publishes a final-only bounded call summary with the existing
 artifact's 24-hour expiry. The client replaces failed, null, terminal, and
 stalled context-service bindings and replays bounded preparation or final-index
@@ -247,11 +250,15 @@ continuously compile on Cuttlefish with
 `aios_gsi_arm64` single-system image for generic integration only, and build the
 physical `aios_tegu` release from a verified, pinned GrapheneOS manifest plus its
 generated Pixel device/vendor support. The current physical base is signed tag
-`2026080500`; the full sync, AIOS patch rebase, device generation, and build are
-still in progress. An
+`2026080500`. The full sync, AIOS patch rebase, `tegu` device generation,
+model/runtime packaging, model-inclusive target-files build, and guarded
+fastboot development archive completed on 2026-08-14. The exact archive has not
+yet been flashed and clean-booted on the Pixel, so no physical feature gate is
+claimed. An
 exact-base Android 17 Dialer lifecycle patch exists and has built on the Linux
-integration lane; the generated dependency-locked runtime providers still need
-ARM Pixel packaging and physical-device performance evidence.
+integration lane; the generated dependency-locked runtime providers are in the
+ARM Pixel image but still need physical-device inference and performance
+evidence.
 Build evidence now rejects stale or empty outputs by matching every core AIOS APK
 to the size and digest in AOSP's current partition-specific installed-file
 manifest.

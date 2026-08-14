@@ -9,22 +9,24 @@ public final class CallerHistoryPolicyTest {
     @Test
     public void admitsOnlyExplicitlyEnabledEligibleCalls() {
         assertTrue(CallerHistoryPolicy.shouldPrepare(
-                true, false, false, true, "+15555550182"));
+                true, false, false, true, true, "+15555550182"));
         assertFalse(CallerHistoryPolicy.shouldPrepare(
-                false, false, false, true, "+15555550182"));
+                false, false, false, true, true, "+15555550182"));
         assertFalse(CallerHistoryPolicy.shouldPrepare(
-                true, false, false, false, "+15555550182"));
+                true, false, false, false, true, "+15555550182"));
+        assertFalse(CallerHistoryPolicy.shouldPrepare(
+                true, false, false, true, false, "+15555550182"));
     }
 
     @Test
     public void rejectsEmergencyAndMissingAddresses() {
         assertFalse(CallerHistoryPolicy.shouldPrepare(
-                true, true, false, true, "+15555550182"));
+                true, true, false, true, true, "+15555550182"));
         assertFalse(CallerHistoryPolicy.shouldPrepare(
-                true, false, true, true, "+15555550182"));
+                true, false, true, true, true, "+15555550182"));
         assertFalse(CallerHistoryPolicy.shouldPrepare(
-                true, false, false, true, null));
+                true, false, false, true, true, null));
         assertFalse(CallerHistoryPolicy.shouldPrepare(
-                true, false, false, true, "  "));
+                true, false, false, true, true, "  "));
     }
 }

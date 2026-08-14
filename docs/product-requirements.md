@@ -249,6 +249,11 @@ previous call/contact history, and sent-photo descriptions. Source filtering
 must occur inside the context query before ranking and its result limit;
 unknown, duplicate, or empty source scopes must fail closed. Narrowing the
 scope must revoke context already prepared for an active receptionist.
+The owner must also be able to exclude or re-allow an individual presented
+conversation. Only a bounded per-install salted address hash may be persisted;
+an excluded caller's raw address must stop at the Phone process boundary and the
+service must independently enforce the exclusion before retrieval. Changing the
+exclusion set must revoke already prepared live-call context.
 
 ## Model platform
 

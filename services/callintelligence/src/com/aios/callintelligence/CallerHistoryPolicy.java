@@ -9,11 +9,13 @@ final class CallerHistoryPolicy {
             boolean emergency,
             boolean emergencyCallbackMode,
             boolean processingAllowed,
+            boolean conversationAllowed,
             String transientAddress) {
         return enabled
                 && !emergency
                 && !emergencyCallbackMode
                 && processingAllowed
+                && conversationAllowed
                 && transientAddress != null
                 && !transientAddress.isBlank();
     }

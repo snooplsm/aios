@@ -50,6 +50,7 @@ data class AssistantPolicyUiState(
     val messageHistoryEnabled: Boolean = true,
     val callHistoryEnabled: Boolean = true,
     val photoHistoryEnabled: Boolean = true,
+    val excludedCallerHistoryAddressHashes: Set<String> = emptySet(),
     val answerMode: String = "off",
     val answerDelayMode: String = "fixed_2000_ms",
     val missedDelayMillis: Long = 15_000L,
@@ -100,6 +101,7 @@ data class RecentCallUiState(
     val type: Int,
     val timestampMillis: Long,
     val durationSeconds: Long,
+    val callerHistoryExcluded: Boolean = false,
 )
 
 data class VoicemailUiState(
@@ -249,6 +251,7 @@ sealed interface PhoneAction {
     data class ChangeMessageHistoryEnabled(val enabled: Boolean) : PhoneAction
     data class ChangeCallHistoryEnabled(val enabled: Boolean) : PhoneAction
     data class ChangePhotoHistoryEnabled(val enabled: Boolean) : PhoneAction
+    data class ChangeConversationHistory(val number: String, val enabled: Boolean) : PhoneAction
     data class ChangeAutoAnswerEnabled(val enabled: Boolean) : PhoneAction
     data class ChangeAnswerMode(val mode: String) : PhoneAction
     data class ChangeAnswerDelayMode(val mode: String) : PhoneAction
