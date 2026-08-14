@@ -969,6 +969,8 @@ def validate_aosp_overlay(root: Path) -> None:
         "tools/capture_build_evidence.py",
         "tools/package_pixel_dev_image.py",
         "tools/package_pixel_ota.py",
+        "tools/apply_pixel_ota.py",
+        "tools/validate_build_version.py",
         "tools/flash_pixel_dev_image.py",
         "tools/capture_pixel_aios_boot.py",
         "tools/capture_cuttlefish_boot_evidence.py",
@@ -1800,6 +1802,10 @@ def validate_aosp_overlay(root: Path) -> None:
             and "img_from_target_files" in build_script
             and "ota_from_target_files" in build_script
             and "check_ota_package_signature" in build_script
+            and "validate_build_version.py" in build_script
+            and 'export BUILD_NUMBER="$build_number"' in build_script
+            and 'export BUILD_DATETIME="$build_datetime"' in build_script
+            and 'build_datetime_file="$out_dir/build_date.txt"' in build_script
             and 'build_status="${PIPESTATUS[0]}"' in build_script,
             "lane builds must be locked, patch-transactional, logged, and evidence-bound")
     build_evidence_source = (root / "tools" /
@@ -1815,6 +1821,8 @@ def validate_aosp_overlay(root: Path) -> None:
             and "vendor/state/tegu.json" in build_evidence_source
             and "def digest_tree(" in build_evidence_source
             and '"schema_version": 2' in build_evidence_source
+            and '"build_incremental": build_incremental' in build_evidence_source
+            and '"build_timestamp": build_timestamp' in build_evidence_source
             and "empty installed product artifact" in build_evidence_source,
             "build evidence must bind product artifacts and the review-complete patch queue")
     pixel_packager = (root / "tools" /
@@ -1845,6 +1853,20 @@ def validate_aosp_overlay(root: Path) -> None:
             and "public_android_test_keys_unlocked_bootloader_only" in pixel_ota_packager
             and '"installation_performed": False' in pixel_ota_packager,
             "Pixel OTA packaging must be A/B, payload-, build-, and device-bound")
+    pixel_ota_updater = (root / "tools" /
+                         "apply_pixel_ota.py").read_text(encoding="utf-8")
+    require("verify_ota_input" in pixel_ota_updater
+            and "inspect_device" in pixel_ota_updater
+            and "ota-property-files" in pixel_ota_updater
+            and "update_engine_client --update --follow" in pixel_ota_updater
+            and "same_build" in pixel_ota_updater
+            and "target_not_newer" in pixel_ota_updater
+            and "security_patch_downgrade" in pixel_ota_updater
+            and "APPLY-" in pixel_ota_updater
+            and "--execute" in pixel_ota_updater
+            and "reboot_performed" in pixel_ota_updater
+            and '"proves_post_update_boot": False' in pixel_ota_updater,
+            "Pixel OTA application must be evidence-bound, monotonic, explicit, and non-rebooting")
     pixel_flasher = (root / "tools" /
                      "flash_pixel_dev_image.py").read_text(encoding="utf-8")
     require("verify_release_input" in pixel_flasher
@@ -6879,6 +6901,11 @@ def validate_release_configuration(root: Path) -> None:
             and hardware.get("required_runtime_ids") == [
                 "litert_lm", "sherpa_onnx_tts", "whisper_cpp",
             ]
+            and hardware.get("build_version_policy") == {
+                "format": "utc_date_sequence_yyyyMMddNN",
+                "minimum_build_number_exclusive": "2026081300",
+                "minimum_build_timestamp_exclusive": 1786646737,
+            }
             and hardware.get("compatibility_status")
             == "full_model_inclusive_build_and_flash_passed_awaiting_exact_first_boot_evidence"
             and hardware.get("generated_device_path")

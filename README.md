@@ -399,7 +399,10 @@ The physical build wrapper also emits the hermetic fastboot, full Virtual A/B
 OTA, and official OTA-signature-checker host tools. The evidence-bound
 `tools/package_pixel_ota.py` path verifies the exact model-inclusive build,
 device, partition topology, payload hashes, package signature, and payload
-signature without installing anything. Development artifacts use public Android
+signature without installing anything. Its paired read-only-by-default
+`tools/apply_pixel_ota.py` preflight also refuses same-build, downgrade,
+wrong-device, locked, non-AIOS, and insufficient-space updates before staging
+anything. Development artifacts use public Android
 test keys and require an unlocked bootloader; production signing and an
 update_engine installation gate remain separate release requirements. See
 `docs/pixel9a-bringup.md` for the guarded commands.

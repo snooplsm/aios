@@ -100,6 +100,11 @@
         "sherpa_onnx_tts",
         "whisper_cpp"
       ],
+      "build_version_policy": {
+        "format": "utc_date_sequence_yyyyMMddNN",
+        "minimum_build_number_exclusive": "2026081300",
+        "minimum_build_timestamp_exclusive": 1786646737
+      },
       "compatibility_status": "full_model_inclusive_build_and_flash_passed_awaiting_exact_first_boot_evidence",
       "allow_cross_release_device_tree": false,
       "physical_gate_evidence": true

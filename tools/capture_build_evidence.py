@@ -651,6 +651,32 @@ def capture(
                    or product_properties.get("ro.product.build.fingerprint"))
     if not fingerprint:
         raise BuildEvidenceError("built product does not expose a build fingerprint")
+    build_incremental = system_properties.get("ro.build.version.incremental")
+    build_timestamp_text = system_properties.get("ro.build.date.utc")
+    build_timestamp = None
+    if build_timestamp_text:
+        try:
+            build_timestamp = int(build_timestamp_text)
+        except ValueError as error:
+            raise BuildEvidenceError("built product has invalid build timestamp") from error
+    version_policy = lane.get("build_version_policy")
+    if isinstance(version_policy, dict):
+        fingerprint_match = re.fullmatch(
+            r"[^:]+:[^/]+/[^/]+/([^:]+):[^/]+/.+", fingerprint
+        )
+        if (fingerprint_match is None
+                or not re.fullmatch(r"[0-9]{10}", str(build_incremental or ""))
+                or fingerprint_match.group(1) != build_incremental
+                or build_timestamp is None
+                or datetime.fromtimestamp(build_timestamp, timezone.utc)
+                .strftime("%Y%m%d") != build_incremental[:8]
+                or build_timestamp
+                <= int(version_policy.get("minimum_build_timestamp_exclusive", 0))
+                or int(build_incremental)
+                <= int(version_policy.get("minimum_build_number_exclusive", 0))):
+            raise BuildEvidenceError(
+                "physical build does not satisfy the explicit monotonic version policy"
+            )
 
     installed_manifest, installed_records = installed_partition_records(
         product_out, lane
@@ -689,6 +715,8 @@ def capture(
         "artifact_layout": lane["artifact_layout"],
         "deployable_images": required_images,
         "build_fingerprint": fingerprint,
+        "build_incremental": build_incremental,
+        "build_timestamp": build_timestamp,
         "android_release": system_properties.get("ro.build.version.release"),
         "security_patch": system_properties.get("ro.build.version.security_patch"),
         "aios_revision": head,

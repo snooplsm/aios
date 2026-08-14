@@ -112,8 +112,14 @@ class BuildEvidenceTests(unittest.TestCase):
         (product_root / "etc" / "build.prop").write_text(
             "ro.aios.version=0.1-dev\n", encoding="utf-8"
         )
+        fingerprint = ("AIOS/aios_tegu/tegu:17/FIXTURE/"
+                       "2026081401:userdebug/test-keys"
+                       if lane_id == "pixel9a_tegu_hardware"
+                       else "aios/test/fingerprint")
         (product_out / "system" / "build.prop").write_text(
-            "ro.build.fingerprint=aios/test/fingerprint\n"
+            f"ro.build.fingerprint={fingerprint}\n"
+            "ro.build.version.incremental=2026081401\n"
+            "ro.build.date.utc=1786749300\n"
             "ro.build.version.release=17\n"
             "ro.build.version.security_patch=2026-06-05\n",
             encoding="utf-8",
@@ -327,6 +333,8 @@ class BuildEvidenceTests(unittest.TestCase):
                 aios, "pixel9a_tegu_hardware", manifest, lock, out, log
             )
             self.assertEqual("full_device_target_files", value["artifact_layout"])
+            self.assertEqual("2026081401", value["build_incremental"])
+            self.assertEqual(1786749300, value["build_timestamp"])
             self.assertEqual("aios_tegu-target_files.zip",
                              value["installed_files_manifest"])
             self.assertEqual(
@@ -394,6 +402,26 @@ class BuildEvidenceTests(unittest.TestCase):
             replacement.replace(archive_path)
             with self.assertRaisesRegex(
                     evidence.BuildEvidenceError, "missing required image.*vendor_boot"):
+                evidence.capture(
+                    aios, "pixel9a_tegu_hardware", manifest, lock, out, log
+                )
+
+    def test_rejects_physical_build_timestamp_date_mismatch(self):
+        with tempfile.TemporaryDirectory() as raw:
+            aios, manifest, lock, out, log, product_out = self.create_fixture(
+                raw,
+                lane_id="pixel9a_tegu_hardware",
+                product="aios_tegu",
+                target_device="tegu",
+            )
+            build_prop = product_out / "system" / "build.prop"
+            value = build_prop.read_text(encoding="utf-8").replace(
+                "ro.build.date.utc=1786749300",
+                "ro.build.date.utc=1786835700",
+            )
+            build_prop.write_text(value, encoding="utf-8")
+            with self.assertRaisesRegex(
+                    evidence.BuildEvidenceError, "monotonic version policy"):
                 evidence.capture(
                     aios, "pixel9a_tegu_hardware", manifest, lock, out, log
                 )

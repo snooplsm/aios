@@ -5,8 +5,8 @@ if [[ "$(uname -s)" != "Linux" ]]; then
   echo "AIOS Soong builds require the Linux build host." >&2
   exit 2
 fi
-if [[ $# -lt 3 || $# -gt 4 ]]; then
-  echo "Usage: $0 /absolute/aosp-root LANE /absolute/evidence-directory [jobs]" >&2
+if [[ $# -lt 3 || $# -gt 6 ]]; then
+  echo "Usage: $0 /absolute/aosp-root LANE /absolute/evidence-directory [jobs] [build-number build-datetime]" >&2
   exit 2
 fi
 
@@ -14,6 +14,8 @@ aosp_root="$1"
 lane="$2"
 evidence_dir="$3"
 jobs="${4:-4}"
+build_number="${5:-}"
+build_datetime="${6:-}"
 for path in "$aosp_root" "$evidence_dir"; do
   case "$path" in
     /*) ;;
@@ -34,6 +36,19 @@ aios_root="$(cd "$script_dir/.." && pwd -P)"
 expected_aios_root="$(cd "$aosp_root" && pwd -P)/vendor/aios"
 if [[ "$aios_root" != "$expected_aios_root" ]]; then
   echo "AIOS must be checked out at $expected_aios_root, found $aios_root" >&2
+  exit 2
+fi
+
+if [[ "$lane" == "pixel9a_tegu_hardware" ]]; then
+  if [[ -z "$build_number" || -z "$build_datetime" ]]; then
+    echo "Pixel hardware builds require explicit build-number and build-datetime values" >&2
+    exit 2
+  fi
+  python3 "$aios_root/tools/validate_build_version.py" \
+    --root "$aios_root" --lane "$lane" \
+    --build-number "$build_number" --build-datetime "$build_datetime"
+elif [[ -n "$build_number" || -n "$build_datetime" ]]; then
+  echo "Explicit build versions are accepted only by the Pixel hardware lane" >&2
   exit 2
 fi
 
@@ -86,10 +101,24 @@ esac
 cd "$aosp_root"
 # shellcheck disable=SC1091
 source build/envsetup.sh
+if [[ "$lane" == "pixel9a_tegu_hardware" ]]; then
+  export BUILD_NUMBER="$build_number"
+  export BUILD_DATETIME="$build_datetime"
+fi
 lunch "$lunch_target"
 if [[ "${TARGET_PRODUCT:-}" != "${lunch_target%%-*}" ]]; then
   echo "Lunch selected unexpected TARGET_PRODUCT=${TARGET_PRODUCT:-unset}" >&2
   exit 2
+fi
+if [[ "$lane" == "pixel9a_tegu_hardware" ]]; then
+  resolved_build_number="$(get_build_var BUILD_NUMBER)"
+  build_datetime_file="$out_dir/build_date.txt"
+  if [[ "$resolved_build_number" != "$build_number" || \
+        ! -f "$build_datetime_file" || \
+        "$(<"$build_datetime_file")" != "$build_datetime" ]]; then
+    echo "AOSP did not retain the explicit AIOS build version" >&2
+    exit 2
+  fi
 fi
 
 set +e

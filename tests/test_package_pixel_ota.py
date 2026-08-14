@@ -37,8 +37,10 @@ class PixelOtaPackagingTests(unittest.TestCase):
                 "sha256": digest,
             },
             "build_fingerprint": (
-                "AIOS/aios_tegu/tegu:17/FIXTURE/2026081300:userdebug/test-keys"
+                "AIOS/aios_tegu/tegu:17/FIXTURE/2026081401:userdebug/test-keys"
             ),
+            "build_incremental": "2026081401",
+            "build_timestamp": 1786749300,
             "security_patch": "2026-08-05",
             "generated_payloads": {
                 "model_pack": {"models": list(lane["required_model_ids"])},
@@ -84,7 +86,7 @@ class PixelOtaPackagingTests(unittest.TestCase):
             f"ota-type={ota_type}\n"
             "pre-device=tegu\n"
             f"post-build={evidence['build_fingerprint']}\n"
-            "post-build-incremental=2026081300\n"
+            "post-build-incremental=2026081401\n"
             f"post-security-patch-level={evidence['security_patch']}\n"
         )
         entries = {

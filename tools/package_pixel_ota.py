@@ -99,6 +99,17 @@ def validate_build_input(lane: dict, build_evidence: dict, target_files: Path) -
             or set(runtimes) != set(lane.get("required_runtime_ids", []))
             or len(runtimes) != len(lane.get("required_runtime_ids", []))):
         raise PackageError("build evidence lacks the exact required runtime set")
+    version_policy = lane.get("build_version_policy")
+    if isinstance(version_policy, dict):
+        incremental = str(build_evidence.get("build_incremental", ""))
+        timestamp = build_evidence.get("build_timestamp")
+        if (re.fullmatch(r"[0-9]{10}", incremental) is None
+                or not isinstance(timestamp, int)
+                or int(incremental)
+                <= int(version_policy.get("minimum_build_number_exclusive", 0))
+                or timestamp
+                <= int(version_policy.get("minimum_build_timestamp_exclusive", 0))):
+            raise PackageError("build evidence lacks an eligible monotonic OTA version")
 
 
 def parse_key_values(

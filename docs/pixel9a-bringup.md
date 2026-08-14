@@ -143,6 +143,32 @@ python3 vendor/aios/tools/package_pixel_ota.py \
   --evidence-output /safe/release-artifacts/pixel9a-build-id/ota/full-ota-evidence.json
 ```
 
+Before applying a later build, run `tools/apply_pixel_ota.py` without
+`--execute`. The read-only preflight re-hashes the OTA, revalidates its streaming
+payload offset and signed metadata, targets only the explicit ADB serial, and
+requires a booted full AIOS `tegu` with an unlocked test-key state, Virtual A/B,
+compression, update engine, sufficient staging space, a non-decreasing security
+patch, and a strictly newer timestamp. An exact or older build is reported but
+is never install-eligible. Other connected emulators are ignored because every
+device command carries the authorized serial.
+
+Execution is deliberately separate. It additionally requires `--execute`, an
+outside-tree result path, and the printed serial/build-bound
+`APPLY-<serial>-TO-<incremental>` confirmation. The tool stages only digest-
+named files under `/data/ota_package`, invokes `update_engine_client --follow`
+against the ZIP's verified payload offset/size and headers, removes only those
+exact staged files, and writes an atomic command result. It never reboots. A
+successful command proves neither the new-slot boot nor Virtual A/B merge; both
+need separately bound post-reboot evidence. Do not execute a same-build test.
+
+```text
+python3 vendor/aios/tools/apply_pixel_ota.py \
+  --adb /absolute/path/to/adb \
+  --evidence /safe/release-artifacts/pixel9a-build-id/ota/full-ota-evidence.json \
+  --archive /safe/release-artifacts/pixel9a-build-id/ota/aios_tegu-full-ota.zip \
+  --serial <adb-serial>
+```
+
 Use `tools/flash_pixel_dev_image.py` for both the host preflight and execution.
 Without `--execute` it is read-only. It requires exactly the named fastboot
 serial, bootloader mode rather than fastbootd, `tegu`, an unlocked bootloader,
@@ -201,8 +227,19 @@ vendor/aios/scripts/build-aosp-lane.sh \
   /home/ryan/grapheneos-aios \
   pixel9a_tegu_hardware \
   /safe/release-artifacts/pixel9a-build-id \
-  <safe-job-count>
+  <safe-job-count> \
+  <YYYYMMDDNN-build-number> \
+  <matching-UTC-Unix-build-timestamp>
 ```
+
+The two final arguments are mandatory for the physical lane. They override the
+pinned upstream release's otherwise-reused `BUILD_NUMBER` and
+`BUILD_DATETIME`. The numeric build number must have the form `YYYYMMDDNN`, its
+date must match the UTC date of the explicit Unix timestamp, and both values
+must be strictly newer than the lane's recorded base. The wrapper verifies that
+Soong retained both inputs, and build evidence binds the resulting incremental,
+timestamp, and fingerprint. Reusing `2026081300`/`1786646737` would create an OTA
+that is indistinguishable from the installed build and is therefore refused.
 
 Before flashing, run the host validator and confirm no model or vendor artifacts
 are tracked. Model-enabled images additionally require a signed artifact manifest
