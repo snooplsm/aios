@@ -4,7 +4,7 @@
   "tracking_revision": "android-latest-release",
   "observed_release_branch": "android17-release",
   "observed_release_manifest_commit": "ad156f32caaa06dae91c02d443f6a8fe210eaa54",
-  "observed_on": "2026-08-10",
+  "observed_on": "2026-08-15",
   "release_manifest_lock": null,
   "public_physical_target_policy": {
     "changed_with_android": 16,
