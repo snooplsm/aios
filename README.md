@@ -103,6 +103,10 @@ skip OS onboarding, enable GPS/network location/geocoding, and seed a private
 Wi-Fi network without committing its passphrase.
 The call path also has a digest-locked, arm64 Sherpa-ONNX/Supertonic 3 provider
 that streams native 44.1 kHz English/Spanish receptionist speech through the broker.
+Automatic AI answers prepare the exact greeting during the ring delay, then use
+the greeting session's completion to prepare Gemma with no synthetic prompt
+while the caller begins speaking. Both preparations remain call-scoped and are
+revoked on owner answer/takeover, emergency transition, call end, or service loss.
 The owner-facing phone application is now an original Kotlin/Jetpack Compose
 `InCallService` using immutable UDF state, typed actions, and a multi-call
 Telecom registry; it includes system/light/dark themes, bounded recents and

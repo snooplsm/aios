@@ -229,6 +229,16 @@ schedules or performs a Telecom answer. If readiness disappears after that
 decision, `onCallAnswered` checks it again before starting receptionist audio.
 This closes both the pre-answer admission window and the post-answer race.
 
+The exact automatic-answer greeting is prepared during the ringing delay. Once
+its provider completes synthesis and releases the call-agent lease, Call
+Intelligence starts a no-input Gemma preparation session while the caller hears
+buffered greeting audio and begins speaking. The higher-priority downlink and
+uplink ASR sessions remain active. A finalized caller turn cancels the exact
+preparation identity before creating the real 15-second generation request, so
+the runtime may reuse its resident engine without treating preparation as a
+conversation turn. Preparation failures remain non-terminal advisory status;
+they never complete an assistant turn or disconnect the carrier call.
+
 Owner intent wins over every delayed automatic-answer callback. AIOS Phone
 revokes the per-call reservation synchronously before its **Answer** or
 **Decline** Telecom mutation; manual **AI** consumes the same pending timer. For

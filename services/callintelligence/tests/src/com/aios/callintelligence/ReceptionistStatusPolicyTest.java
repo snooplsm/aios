@@ -29,4 +29,12 @@ public final class ReceptionistStatusPolicyTest {
         assertFalse(ReceptionistStatusPolicy.completesAssistantOperation(
                 "call-1", null));
     }
+
+    @Test
+    public void prewarmLifecycleNeverCompletesACallTurn() {
+        assertFalse(ReceptionistStatusPolicy.completesAssistantOperation(
+                "call-1", "receptionist_prewarming"));
+        assertFalse(ReceptionistStatusPolicy.completesAssistantOperation(
+                "call-1", "receptionist_prewarm_error_4"));
+    }
 }

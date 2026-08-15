@@ -63,6 +63,19 @@ authority and leaves the call ringing for the owner. Runtime diagnostics report
 both session-relative and post-text first-audio timing so hidden pre-answer work
 cannot make connected-call latency ambiguous.
 
+When the prepared greeting provider reports synthesis complete, its Broker lease
+has been released even though already-buffered PCM may still be draining to the
+caller. Call Intelligence uses that exact transition to open a no-input,
+call-scoped Gemma text-generation session. The two live ASR streams retain their
+higher-priority slots and the configured three-active-session ceiling is not
+raised. When the caller's first finalized turn arrives, Call Intelligence
+cancels the preparation session before opening the real, independently bounded
+15-second receptionist request. LiteRT-LM serializes that cancellation with the
+new session, so completed or in-progress engine initialization is reused without
+submitting synthetic text, generating a hidden response, or adding anything to
+conversation memory. Call end, owner takeover, emergency transition, Broker
+replacement, and service teardown all revoke the preparation identity.
+
 The provider repeats all security checks before native initialization:
 
 - the descriptor is confined beneath `/product/etc/aios/models`;

@@ -36,6 +36,7 @@ java_test_host {
         "src/com/aios/callintelligence/AutomaticAnswerGate.java",
         "src/com/aios/callintelligence/AssistantHandlingTracker.java",
         "src/com/aios/callintelligence/AssistantGreetingPolicy.java",
+        "src/com/aios/callintelligence/AssistantGreetingPrewarmPolicy.java",
         "src/com/aios/callintelligence/AssistantAudioIdentityGate.java",
         "src/com/aios/callintelligence/AssistantTurnQueue.java",
         "src/com/aios/callintelligence/ServiceRebindPolicy.java",

@@ -1556,6 +1556,16 @@ public final class CallIntelligenceService extends Service {
             SpeechSynthesisBrokerClient.Speech expectedSpeech,
             String detail) {
         notifyStatus(callId == null ? requestId : callId, 5, detail);
+        if (AssistantGreetingPrewarmPolicy.shouldPrewarmReceptionist(
+                callId, requestId, detail)) {
+            ActiveSession active;
+            synchronized (sessions) {
+                active = sessions.get(callId);
+            }
+            if (active != null && active.isAiHandling()) {
+                receptionist.prewarmCall(callId, greetingLanguage());
+            }
+        }
         if (callId == null || expectedSpeech == null
                 || !SpeechSynthesisStatusPolicy.terminatesCallerAudio(detail)) {
             return;

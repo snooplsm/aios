@@ -53,6 +53,7 @@ final class ReceptionistDialogueClient implements AutoCloseable {
 
     private static final long REQUEST_DEADLINE_MILLIS = 15_000L;
     private static final long COMPACTION_DEADLINE_MILLIS = 30_000L;
+    private static final long PREWARM_DEADLINE_MILLIS = 120_000L;
     private static final int MAX_OUTPUT_TOKENS = 256;
     private static final int MAX_COMPACTION_OUTPUT_TOKENS = 384;
     private static final int MAX_TURN_CHARS = 2_048;
@@ -67,12 +68,33 @@ final class ReceptionistDialogueClient implements AutoCloseable {
         String priorContextJson;
         boolean ended;
         long sessionId = -1L;
+        Warmup warmup;
         PendingRequest pending;
         PendingCompaction compaction;
 
         CallState(boolean knownContact, String priorContextJson) {
             this.knownContact = knownContact;
             this.priorContextJson = safePriorContext(priorContextJson);
+        }
+    }
+
+    private static final class Warmup {
+        final String callId;
+        final CallState owner;
+        final long requestSerial;
+        final String language;
+        IAiosModelService broker;
+        long sessionId = -1L;
+
+        Warmup(
+                String callId,
+                CallState owner,
+                long requestSerial,
+                String language) {
+            this.callId = callId;
+            this.owner = owner;
+            this.requestSerial = requestSerial;
+            this.language = language;
         }
     }
 
@@ -190,6 +212,24 @@ final class ReceptionistDialogueClient implements AutoCloseable {
         }
     }
 
+    boolean prewarmCall(String callId, String language) {
+        Warmup warmup;
+        synchronized (this) {
+            CallState state = calls.get(callId);
+            if (closed || state == null || state.ended || state.pending != null
+                    || state.compaction != null || state.sessionId > 0L
+                    || state.warmup != null || service == null || !available
+                    || !languages.contains(language)
+                    || nextRequestSerial == Long.MAX_VALUE) {
+                return false;
+            }
+            warmup = new Warmup(callId, state, ++nextRequestSerial, language);
+            state.warmup = warmup;
+        }
+        worker.execute(() -> dispatchWarmup(warmup));
+        return true;
+    }
+
     void observeCallerPartial(
             String callId, String language, String text, long transcriptRevision) {
         IAiosModelService broker = null;
@@ -211,6 +251,7 @@ final class ReceptionistDialogueClient implements AutoCloseable {
 
     boolean requestReply(String callId, String language, String callerTurn) {
         PendingRequest pending;
+        Warmup preemptedWarmup = null;
         IAiosModelService preemptedBroker = null;
         long preemptedSessionId = -1L;
         synchronized (this) {
@@ -247,12 +288,15 @@ final class ReceptionistDialogueClient implements AutoCloseable {
                             language,
                             state.priorContextJson,
                             memory));
+            preemptedWarmup = state.warmup;
+            state.warmup = null;
             state.pending = pending;
         }
         if (preemptedSessionId > 0L) {
             Log.i(TAG, "COMPACTION_PREEMPT reason=live_reply");
         }
         cancel(preemptedBroker, preemptedSessionId);
+        cancelWarmup(preemptedWarmup);
         scheduleTimeout(pending);
         worker.execute(() -> dispatch(pending));
         return true;
@@ -265,6 +309,7 @@ final class ReceptionistDialogueClient implements AutoCloseable {
             if (closed || state == null || state.ended || !summaryAvailable
                     || state.pending != null || state.requests.isActive()
                     || state.compaction != null || state.sessionId > 0L
+                    || state.warmup != null
                     || nextRequestSerial == Long.MAX_VALUE) {
                 return false;
             }
@@ -299,6 +344,7 @@ final class ReceptionistDialogueClient implements AutoCloseable {
     void endCall(String callId) {
         IAiosModelService broker;
         long sessionId;
+        Warmup warmup;
         synchronized (this) {
             CallState state = calls.remove(callId);
             if (state == null) return;
@@ -306,16 +352,20 @@ final class ReceptionistDialogueClient implements AutoCloseable {
             state.requests.close();
             state.pending = null;
             state.compaction = null;
+            warmup = state.warmup;
+            state.warmup = null;
             broker = service;
             sessionId = state.sessionId;
             state.sessionId = -1L;
         }
         cancel(broker, sessionId);
+        cancelWarmup(warmup);
     }
 
     @Override
     public void close() {
         ArrayList<Long> sessionIds = new ArrayList<>();
+        ArrayList<Warmup> warmups = new ArrayList<>();
         IAiosModelService broker;
         synchronized (this) {
             if (closed) return;
@@ -326,6 +376,8 @@ final class ReceptionistDialogueClient implements AutoCloseable {
                 state.requests.close();
                 state.pending = null;
                 state.compaction = null;
+                if (state.warmup != null) warmups.add(state.warmup);
+                state.warmup = null;
                 if (state.sessionId > 0L) sessionIds.add(state.sessionId);
             }
             calls.clear();
@@ -335,8 +387,69 @@ final class ReceptionistDialogueClient implements AutoCloseable {
             languages.clear();
         }
         for (long sessionId : sessionIds) cancel(broker, sessionId);
+        for (Warmup warmup : warmups) cancelWarmup(warmup);
         binding.close();
         worker.shutdownNow();
+    }
+
+    private void dispatchWarmup(Warmup warmup) {
+        IAiosModelService broker;
+        synchronized (this) {
+            CallState state = calls.get(warmup.callId);
+            if (closed || state != warmup.owner || state.ended
+                    || state.warmup != warmup || state.pending != null
+                    || state.compaction != null || state.sessionId > 0L) {
+                return;
+            }
+            broker = service;
+            if (broker == null || !available || !languages.contains(warmup.language)) {
+                state.warmup = null;
+                return;
+            }
+        }
+        long sessionId = -1L;
+        try {
+            ModelRequest request = new ModelRequest();
+            request.requestId = warmup.callId + ":prewarm:" + warmup.requestSerial;
+            request.capability = "text_generation";
+            request.workload = "call_agent";
+            request.language = warmup.language;
+            request.maxOutputTokens = MAX_OUTPUT_TOKENS;
+            request.deadlineElapsedRealtimeMillis =
+                    SystemClock.elapsedRealtime() + PREWARM_DEADLINE_MILLIS;
+            request.allowFallback = true;
+            sessionId = broker.createSession(request, warmupCallback(warmup));
+            if (sessionId <= 0L) {
+                finishWarmup(warmup, "receptionist_prewarm_rejected");
+                return;
+            }
+            boolean attached;
+            synchronized (this) {
+                CallState state = calls.get(warmup.callId);
+                attached = state == warmup.owner && !state.ended
+                        && state.warmup == warmup && state.pending == null
+                        && state.compaction == null && state.sessionId <= 0L
+                        && service == broker;
+                if (attached) {
+                    warmup.broker = broker;
+                    warmup.sessionId = sessionId;
+                }
+            }
+            if (!attached) {
+                cancel(broker, sessionId);
+                return;
+            }
+            Log.i(TAG, "PREWARM_START serial=" + warmup.requestSerial
+                    + " language=" + warmup.language);
+            listener.onStatus(warmup.callId, "receptionist_prewarming");
+        } catch (RemoteException error) {
+            cancel(broker, sessionId);
+            finishWarmup(warmup, "receptionist_prewarm_broker_failed");
+            binding.invalidate(broker);
+        } catch (RuntimeException error) {
+            cancel(broker, sessionId);
+            finishWarmup(warmup, "receptionist_prewarm_failed");
+        }
     }
 
     private void dispatch(PendingRequest pending) {
@@ -496,6 +609,37 @@ final class ReceptionistDialogueClient implements AutoCloseable {
                 completeFailure(pending, "receptionist_error_" + code);
             }
         };
+    }
+
+    private IModelCallback warmupCallback(Warmup warmup) {
+        return new IModelCallback.Stub() {
+            @Override
+            public void onChunk(GenerationChunk chunk) {
+                // A prewarm session never submits input and therefore cannot emit text.
+            }
+
+            @Override
+            public void onCompleted(InferenceResult result) {
+                finishWarmup(warmup, "receptionist_prewarm_unexpected_completion");
+            }
+
+            @Override
+            public void onError(int code, String message) {
+                finishWarmup(warmup, "receptionist_prewarm_error_" + code);
+            }
+        };
+    }
+
+    private void finishWarmup(Warmup warmup, String detail) {
+        boolean current;
+        synchronized (this) {
+            CallState state = calls.get(warmup.callId);
+            current = state == warmup.owner && !state.ended && state.warmup == warmup;
+            if (current) state.warmup = null;
+        }
+        if (!current) return;
+        Log.i(TAG, "PREWARM_END serial=" + warmup.requestSerial + " detail=" + detail);
+        listener.onStatus(warmup.callId, detail);
     }
 
     private IModelCallback compactionCallback(PendingCompaction pending) {
@@ -670,6 +814,7 @@ final class ReceptionistDialogueClient implements AutoCloseable {
             languages.clear();
             for (Map.Entry<String, CallState> item : calls.entrySet()) {
                 CallState state = item.getValue();
+                state.warmup = null;
                 if (state.compaction != null) {
                     Log.i(TAG, "COMPACTION_DROP serial="
                             + state.compaction.requestSerial + " reason=broker_disconnect");
@@ -854,5 +999,10 @@ final class ReceptionistDialogueClient implements AutoCloseable {
         } catch (RemoteException | RuntimeException ignored) {
             // Broker death already releases the runtime lease.
         }
+    }
+
+    private static void cancelWarmup(Warmup warmup) {
+        if (warmup == null) return;
+        cancel(warmup.broker, warmup.sessionId);
     }
 }

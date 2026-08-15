@@ -9,6 +9,7 @@ final class ReceptionistStatusPolicy {
                 && !"availability".equals(callId)
                 && detail != null
                 && !"receptionist_ready".equals(detail)
-                && !"receptionist_broker_recovering".equals(detail);
+                && !"receptionist_broker_recovering".equals(detail)
+                && !detail.startsWith("receptionist_prewarm");
     }
 }
