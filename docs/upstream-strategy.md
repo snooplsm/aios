@@ -61,6 +61,12 @@ its SHA-256 after independently rehashing every payload. Together with the clean
 AIOS revision and raw series-file digest, that binds every owner, base, test,
 note, removal condition, payload digest, and footprint to the built image.
 
+Developer-only module iterations use `scripts/build-aosp-modules.sh`. It resolves
+the checked-in lane configuration and wraps the same apply/revert transaction in
+an exit trap, preventing a direct `m` invocation from accidentally compiling an
+unpatched tree. It does not capture a manifest lock or artifact inventory and is
+therefore never accepted as build or release evidence.
+
 The moving manifest ref is itself tracked, not merely the projects emitted by
 `repo manifest -r`. `scripts/refresh-aosp-integration.sh` reruns `repo init`
 against Google's official manifest repository and atomically updates the

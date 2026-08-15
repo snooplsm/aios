@@ -983,6 +983,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "scripts/refresh-aosp-integration.sh",
         "scripts/capture-aosp-lock.sh",
         "scripts/build-aosp-lane.sh",
+        "scripts/build-aosp-modules.sh",
         "scripts/install-cuttlefish-host.sh",
         "scripts/device-inventory.ps1",
         "scripts/pixel9a-gsi-preflight.ps1",
@@ -1830,6 +1831,19 @@ def validate_aosp_overlay(root: Path) -> None:
             and 'build_datetime_file="$out_dir/build_date.txt"' in build_script
             and 'build_status="${PIPESTATUS[0]}"' in build_script,
             "lane builds must be locked, patch-transactional, logged, and evidence-bound")
+    module_build_script = (root / "scripts" / "build-aosp-modules.sh").read_text(
+        encoding="utf-8"
+    )
+    require("aosp_lanes.json" in module_build_script
+            and "pixel9a_tegu_hardware" in module_build_script
+            and "pixel9a-series.json" in module_build_script
+            and "verify_patch_series.py" in module_build_script
+            and "--apply" in module_build_script
+            and "--revert" in module_build_script
+            and "trap cleanup EXIT INT TERM" in module_build_script
+            and 'm -j "$jobs" "${targets[@]}"' in module_build_script
+            and "not release evidence" in module_build_script,
+            "focused Soong builds must resolve lanes and transact the same patch queue")
     build_evidence_source = (root / "tools" /
                              "capture_build_evidence.py").read_text(encoding="utf-8")
     require("installed-files-product.json" in build_evidence_source

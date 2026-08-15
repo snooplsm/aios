@@ -343,6 +343,17 @@ python vendor/aios/tools/verify_patch_series.py --aosp-root /absolute/path/to/ao
 vendor/aios/scripts/build-aosp-lane.sh /absolute/path/to/aosp android_latest_integration /safe/evidence/build-id 4
 ```
 
+For a fast developer iteration on named modules, use the focused wrapper rather
+than invoking `m` directly. It resolves the lane's lunch target, applies the same
+digest-pinned patch transaction, and restores the upstream projects on success,
+failure, or interruption. It deliberately produces no release evidence:
+
+```text
+vendor/aios/scripts/build-aosp-modules.sh \
+  /absolute/path/to/aosp pixel9a_tegu_hardware 12 \
+  AiosModelBroker AiosContextIntelligence
+```
+
 After the Cuttlefish image boots, bind its identity, privileged AIOS packages,
 and exported core services to that exact build record:
 
