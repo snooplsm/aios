@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "suite_version": 1,
+  "source_evidence_kind": "pixel_aios_single_model_diagnostic",
+  "source_suite_version": 4,
+  "supported_device_codenames": [
+    "tegu"
+  ],
+  "required_cold_initializations": {
+    "sherpa_onnx_tts": 1,
+    "litert_lm": 1,
+    "whisper_cpp": 1
+  },
+  "required_warm_cache_hits": {
+    "sherpa_onnx_tts": 1,
+    "litert_lm": 2,
+    "whisper_cpp": 1
+  },
+  "health_gates": {
+    "max_release_or_eviction_events": 0,
+    "max_aios_low_memory_kills": 0,
+    "max_background_low_memory_kills": 0,
+    "max_oom_events": 0,
+    "max_fatal_events": 0,
+    "max_thermal_status": 2,
+    "min_available_memory_mb": 512
+  },
+  "latency_gates_ms": {
+    "speech_synthesis": 1500,
+    "streaming_asr": 2000,
+    "text_generation": 1000,
+    "image_understanding": 5000
+  }
+}

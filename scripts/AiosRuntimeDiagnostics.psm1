@@ -61,8 +61,33 @@ function ConvertFrom-AiosRuntimeDiagnosticLog {
     $ttsEngineEvents = [Collections.Generic.List[object]]::new()
     $liteRtEngineEvents = [Collections.Generic.List[object]]::new()
     $whisperModelEvents = [Collections.Generic.List[object]]::new()
+    $residencyEvents = [Collections.Generic.List[object]]::new()
+    $lowMemoryEventCount = 0
+    $lowMemoryKillCount = 0
+    $aiosLowMemoryKillCount = 0
+    $backgroundLowMemoryKillCount = 0
+    $oomEventCount = 0
+    $fatalEventCount = 0
+    $maxRuntimeThermalStatus = -1
 
     foreach ($line in $Lines) {
+        if ($line -match "(?i)OutOfMemory|out of memory|oom-kill") {
+            $oomEventCount++
+        }
+        if ($line -match "(?i)Fatal signal|FATAL EXCEPTION") {
+            $fatalEventCount++
+        }
+        if ($line -match "(?i)(?:lmkd|lowmemorykiller)") {
+            $lowMemoryEventCount++
+            if ($line -match "(?i)\bkill(?:ed|ing)?\b") {
+                $lowMemoryKillCount++
+                if ($line -match "(?i)com\.aios\.") {
+                    $aiosLowMemoryKillCount++
+                } else {
+                    $backgroundLowMemoryKillCount++
+                }
+            }
+        }
         if ($line -match "AiosReceptionist.*PREWARM_START serial=(\d+) language=(\S+) elapsed_ms=(\d+)") {
             $event = Get-AiosRuntimeSession -Sessions $receptionistPrewarm `
                 -SessionId ([long]$Matches[1]) -Runtime "receptionist_prewarm"
@@ -148,6 +173,36 @@ function ConvertFrom-AiosRuntimeDiagnosticLog {
             })
             continue
         }
+        if ($line -match "AiosTtsRuntime.*ENGINE_CACHE_HIT model=(\S+)") {
+            $residencyEvents.Add([pscustomobject][ordered]@{
+                runtime = "sherpa_onnx_tts"
+                action = "cache_hit"
+                model_id = $Matches[1]
+            })
+            continue
+        }
+        if ($line -match "AiosTtsRuntime.*ENGINE_RELEASE_REQUEST reason=(\S+)") {
+            $reason = $Matches[1]
+            $residencyEvents.Add([pscustomobject][ordered]@{
+                runtime = "sherpa_onnx_tts"
+                action = "release_requested"
+                reason = $reason
+            })
+            if ($reason -match "^thermal_status_(\d+)$") {
+                $maxRuntimeThermalStatus = [math]::Max(
+                    $maxRuntimeThermalStatus, [int]$Matches[1])
+            }
+            continue
+        }
+        if ($line -match "AiosTtsRuntime.*ENGINE_RELEASE reason=(\S+) count=(\d+)") {
+            $residencyEvents.Add([pscustomobject][ordered]@{
+                runtime = "sherpa_onnx_tts"
+                action = "released"
+                reason = $Matches[1]
+                count = [int]$Matches[2]
+            })
+            continue
+        }
 
         if ($line -match "AiosLiteRtLmRuntime.*SESSION_CREATED id=(\d+) capability=(\S+) model=(\S+) backend=(\S+)") {
             $session = Get-AiosRuntimeSession -Sessions $liteRt `
@@ -213,6 +268,48 @@ function ConvertFrom-AiosRuntimeDiagnosticLog {
             })
             continue
         }
+        if ($line -match "AiosLiteRtLmRuntime.*ENGINE_CACHE_HIT backend=(\S+) vision=(\S+) audio=(\S+)") {
+            $residencyEvents.Add([pscustomobject][ordered]@{
+                runtime = "litert_lm"
+                action = "cache_hit"
+                backend = $Matches[1]
+                vision = [bool]::Parse($Matches[2])
+                audio = [bool]::Parse($Matches[3])
+            })
+            continue
+        }
+        if ($line -match "AiosLiteRtLmRuntime.*ENGINE_CACHE_EVICT backend=(\S+) vision=(\S+) audio=(\S+)") {
+            $residencyEvents.Add([pscustomobject][ordered]@{
+                runtime = "litert_lm"
+                action = "cache_evicted"
+                backend = $Matches[1]
+                vision = [bool]::Parse($Matches[2])
+                audio = [bool]::Parse($Matches[3])
+            })
+            continue
+        }
+        if ($line -match "AiosLiteRtLmRuntime.*ENGINE_RELEASE_REQUEST reason=(\S+)") {
+            $reason = $Matches[1]
+            $residencyEvents.Add([pscustomobject][ordered]@{
+                runtime = "litert_lm"
+                action = "release_requested"
+                reason = $reason
+            })
+            if ($reason -match "^thermal_status_(\d+)$") {
+                $maxRuntimeThermalStatus = [math]::Max(
+                    $maxRuntimeThermalStatus, [int]$Matches[1])
+            }
+            continue
+        }
+        if ($line -match "AiosLiteRtLmRuntime.*ENGINE_RELEASE reason=(\S+) count=(\d+)") {
+            $residencyEvents.Add([pscustomobject][ordered]@{
+                runtime = "litert_lm"
+                action = "released"
+                reason = $Matches[1]
+                count = [int]$Matches[2]
+            })
+            continue
+        }
 
         if ($line -match "AiosWhisperRuntime.*SESSION_CREATED id=(\d+) model=(\S+) workload=(\S+) backend=(\S+)") {
             $session = Get-AiosRuntimeSession -Sessions $whisper `
@@ -259,6 +356,37 @@ function ConvertFrom-AiosRuntimeDiagnosticLog {
                 model_id = $Matches[1]
                 initialize_elapsed_ms = [long]$Matches[2]
             })
+            continue
+        }
+        if ($line -match "AiosWhisperRuntime.*MODEL_CACHE_HIT model=(\S+)") {
+            $residencyEvents.Add([pscustomobject][ordered]@{
+                runtime = "whisper_cpp"
+                action = "cache_hit"
+                model_id = $Matches[1]
+            })
+            continue
+        }
+        if ($line -match "AiosWhisperRuntime.*MODEL_RELEASE_REQUEST reason=(\S+)") {
+            $reason = $Matches[1]
+            $residencyEvents.Add([pscustomobject][ordered]@{
+                runtime = "whisper_cpp"
+                action = "release_requested"
+                reason = $reason
+            })
+            if ($reason -match "^thermal_status_(\d+)$") {
+                $maxRuntimeThermalStatus = [math]::Max(
+                    $maxRuntimeThermalStatus, [int]$Matches[1])
+            }
+            continue
+        }
+        if ($line -match "AiosWhisperRuntime.*MODEL_RELEASE reason=(\S+) count=(\d+)") {
+            $residencyEvents.Add([pscustomobject][ordered]@{
+                runtime = "whisper_cpp"
+                action = "released"
+                reason = $Matches[1]
+                count = [int]$Matches[2]
+            })
+            continue
         }
     }
 
@@ -270,7 +398,7 @@ function ConvertFrom-AiosRuntimeDiagnosticLog {
     }
 
     return [pscustomobject][ordered]@{
-        schema_version = 1
+        schema_version = 2
         receptionist_prewarm_events = ConvertTo-AiosRuntimeSessionArray `
             -Sessions $receptionistPrewarm
         tts_sessions = ConvertTo-AiosRuntimeSessionArray -Sessions $tts
@@ -279,6 +407,16 @@ function ConvertFrom-AiosRuntimeDiagnosticLog {
         litert_lm_engine_events = @($liteRtEngineEvents)
         whisper_sessions = ConvertTo-AiosRuntimeSessionArray -Sessions $whisper
         whisper_model_events = @($whisperModelEvents)
+        residency_events = @($residencyEvents)
+        system_health = [pscustomobject][ordered]@{
+            low_memory_event_count = $lowMemoryEventCount
+            low_memory_kill_count = $lowMemoryKillCount
+            aios_low_memory_kill_count = $aiosLowMemoryKillCount
+            background_low_memory_kill_count = $backgroundLowMemoryKillCount
+            oom_event_count = $oomEventCount
+            fatal_event_count = $fatalEventCount
+            max_runtime_thermal_status = $maxRuntimeThermalStatus
+        }
     }
 }
 

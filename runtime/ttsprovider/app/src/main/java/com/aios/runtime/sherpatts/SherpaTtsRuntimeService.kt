@@ -441,7 +441,10 @@ class SherpaTtsRuntimeService : Service() {
         val identity = EngineIdentity(descriptor.absolutePath, artifact.modelDigest)
         synchronized(engineLock) {
             engineHolder?.let { holder ->
-                if (holder.identity == identity) return holder.tts
+                if (holder.identity == identity) {
+                    Log.i(TAG, "ENGINE_CACHE_HIT model=${artifact.modelId}")
+                    return holder.tts
+                }
             }
             check(sessions.values.none { session ->
                 session.textSubmitted.get() && !session.completed.get()

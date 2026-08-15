@@ -612,7 +612,10 @@ class WhisperRuntimeService : Service() {
         val model = verifiedModelFile(artifact)
         val identity = ModelIdentity(model.absolutePath, artifact.modelDigest)
         currentModel?.let { holder ->
-            if (holder.identity == identity && holder.nativeContext != 0L) return holder
+            if (holder.identity == identity && holder.nativeContext != 0L) {
+                Log.i(TAG, "MODEL_CACHE_HIT model=${artifact.modelId}")
+                return holder
+            }
         }
         check(sessions.values.none { it.decodedWindows.get() > 0
             && !it.completed.get() && it.artifact.modelDigest != artifact.modelDigest }) {

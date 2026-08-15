@@ -101,6 +101,28 @@ first-token generation, and Whisper model initialization from per-window decode
 time. Raw lifecycle logs remain attached for diagnosis but contain no prompts,
 transcripts, PCM, photos, phone numbers, or serials.
 
+To prove that the second pass actually reuses resident engines, run the
+build/device-bound cold/warm harness after obtaining the expected serial and
+build-fingerprint hashes from an authorized physical-device preflight:
+
+```text
+powershell -File scripts/capture-warm-retention.ps1 `
+  -Serial <authorized-physical-device-serial> `
+  -ExpectedSerialSha256 <authorized-serial-sha256> `
+  -ExpectedBuildFingerprintSha256 <authorized-fingerprint-sha256> `
+  -OutputDirectory out\pixel-warm-retention
+```
+
+The harness force-stops only Broker and its model providers, captures one cold
+and one immediately following warm invocation of each selected role, and then
+evaluates `config/warm_retention_benchmark.json`. A valid warm pass requires
+explicit TTS, Whisper, and Gemma cache-hit logs, no warm reinitialization or
+release/eviction request, no low-memory kill, OOM, or fatal event, thermal status
+below severe, at least 512 MB available-memory headroom, and the checked-in
+first-output targets. Cold and warm source files must have the same hashed
+serial and build fingerprint. The derived `evaluation.json` intentionally omits
+diagnostic logs, transcripts, responses, PCM, and image content.
+
 `-Measurements C:\safe\measurements.json` remains available for importing the
 same strict raw schema from a separately reviewed runner. The deterministic
 TTS-to-ASR loop is not representative human-speech proof. Before either

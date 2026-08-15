@@ -986,6 +986,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "tools/capture_cuttlefish_boot_evidence.py",
         "tools/capture_avd_boot_evidence.py",
         "tools/check_gsi_preflight.py",
+        "tools/evaluate_warm_retention.py",
         "tools/validate_pixel9a_gsi_boot_evidence.py",
         "scripts/refresh-aosp-integration.sh",
         "scripts/capture-aosp-lock.sh",
@@ -998,9 +999,12 @@ def validate_aosp_overlay(root: Path) -> None:
         "scripts/start-pixel9a-dsu.ps1",
         "scripts/capture-pixel9a-gsi-boot.ps1",
         "scripts/capture-realtime-smoke.ps1",
+        "scripts/capture-warm-retention.ps1",
         "scripts/AiosRuntimeDiagnostics.psm1",
         "scripts/test-runtime-diagnostic-parser.ps1",
         "scripts/capture-physical-call.ps1",
+        "config/warm_retention_benchmark.json",
+        "tests/test_warm_retention.py",
         "docs/cuttlefish-bringup.md",
         "docs/emulator-bringup.md",
         "docs/gsi-bringup.md",
@@ -2094,6 +2098,14 @@ def validate_aosp_overlay(root: Path) -> None:
     runtime_diagnostic_test = (root / "scripts" /
                                "test-runtime-diagnostic-parser.ps1").read_text(
                                    encoding="utf-8")
+    warm_retention_capture = (root / "scripts" /
+                              "capture-warm-retention.ps1").read_text(
+                                  encoding="utf-8")
+    warm_retention_evaluator = (root / "tools" /
+                                "evaluate_warm_retention.py").read_text(
+                                    encoding="utf-8")
+    warm_retention_suite = load_json(
+        root / "config" / "warm_retention_benchmark.json")
     physical_call_capture = (root / "scripts" /
                              "capture-physical-call.ps1").read_text(encoding="utf-8")
     require("runRealtimeSmoke" in benchmark_source
@@ -2128,6 +2140,7 @@ def validate_aosp_overlay(root: Path) -> None:
             and "details.dimensions -ne 256" in realtime_capture
             and "details.cross_language_ordering_valid" in realtime_capture
             and "physical realtime smoke refuses QEMU targets" in realtime_capture
+            and "serial_sha256" in realtime_capture
             and "admission_evidence = $false" in realtime_capture
             and "#$testMethod" in realtime_capture
             and "runAudioRealtimeSmoke" in realtime_capture
@@ -2137,10 +2150,37 @@ def validate_aosp_overlay(root: Path) -> None:
             and "first_audio_after_text_ms" in runtime_diagnostic_parser
             and "first_token_after_ready_ms" in runtime_diagnostic_parser
             and "decode_elapsed_total_ms" in runtime_diagnostic_parser
+            and "residency_events" in runtime_diagnostic_parser
+            and "system_health" in runtime_diagnostic_parser
+            and "background_low_memory_kill_count" in runtime_diagnostic_parser
             and "Export-ModuleMember" in runtime_diagnostic_parser
             and "Runtime diagnostic parser test passed" in runtime_diagnostic_test
             and "first_audio_after_engine_ready_ms" in runtime_diagnostic_test,
             "physical diagnostics must parse TTS, Gemma, and Whisper phases reproducibly")
+    require("ExpectedSerialSha256" in warm_retention_capture
+            and "ExpectedBuildFingerprintSha256" in warm_retention_capture
+            and "physical hardware" in warm_retention_capture
+            and "capture-realtime-smoke.ps1" in warm_retention_capture
+            and "evaluate_warm_retention.py" in warm_retention_capture
+            and "refusing to overwrite" in warm_retention_capture
+            and "same build/device" in warm_retention_evaluator
+            and "warm_cache_hit:" in warm_retention_evaluator
+            and "background_low_memory_kills" in warm_retention_evaluator
+            and "first_output:" in warm_retention_evaluator
+            and '"transcript"' not in warm_retention_evaluator,
+            "warm-retention evidence must be physical, build-bound, fail-closed, and content-free")
+    require(warm_retention_suite.get("schema_version") == 1
+            and warm_retention_suite.get("source_evidence_kind")
+            == "pixel_aios_single_model_diagnostic"
+            and warm_retention_suite.get("source_suite_version") == 4
+            and warm_retention_suite.get("supported_device_codenames") == ["tegu"]
+            and warm_retention_suite.get("required_warm_cache_hits") == {
+                "sherpa_onnx_tts": 1, "litert_lm": 2, "whisper_cpp": 1}
+            and warm_retention_suite.get("health_gates", {}).get(
+                "max_release_or_eviction_events") == 0
+            and warm_retention_suite.get("health_gates", {}).get(
+                "min_available_memory_mb") == 512,
+            "Pixel 9a warm-retention policy must require every runtime cache and preserve headroom")
     require('include("com/aios/modelbenchmark/**/*.java")'
             in benchmark_compile_check
             and 'include(":modelbenchmarkcheck")' in benchmark_preview_settings
@@ -4271,6 +4311,7 @@ def validate_aosp_overlay(root: Path) -> None:
             "ASR runtime must reverify model confinement, size, and digest")
     require('TAG = "AiosWhisperRuntime"' in whisper_source
             and '"MODEL_INITIALIZE_START' in whisper_source
+            and '"MODEL_CACHE_HIT' in whisper_source
             and '"DECODE_START' in whisper_source
             and '"DECODE_FAILED' in whisper_source
             and '"SESSION_DONE' in whisper_source,
@@ -4499,6 +4540,7 @@ def validate_aosp_overlay(root: Path) -> None:
             "TTS runtime must support cancellation, deadlines, and idle pressure cleanup")
     require('TAG = "AiosTtsRuntime"' in tts_source
             and '"ENGINE_INITIALIZE_START' in tts_source
+            and '"ENGINE_CACHE_HIT' in tts_source
             and '"FIRST_AUDIO' in tts_source
             and '"AUDIO_CHUNK' in tts_source
             and '"SYNTHESIS_FAILED' in tts_source

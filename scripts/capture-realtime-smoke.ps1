@@ -90,6 +90,10 @@ function Get-AiosRuntimeRssSnapshot {
 if (((Invoke-AiosAdb -Arguments @("get-state")) -join "`n").Trim() -ne "device") {
     throw "adb target is not ready"
 }
+$deviceSerial = ((Invoke-AiosAdb -Arguments @("get-serialno")) -join "`n").Trim()
+if (-not $deviceSerial -or $deviceSerial -eq "unknown") {
+    throw "adb target has no stable serial identity"
+}
 if ((Get-AiosProperty -Name "ro.debuggable") -ne "1" -or
     -not (Get-AiosProperty -Name "ro.aios.version")) {
     throw "realtime smoke requires a debuggable AIOS build"
@@ -279,7 +283,6 @@ foreach ($result in @($measurement.results)) {
 }
 $instrumentationPssAvailable = @(
     $instrumentationPssValues | Where-Object { $_ -gt 0 }).Count -gt 0
-$diagnosticText = @($diagnosticLog) -join "`n"
 $runtimePhaseDiagnostics = ConvertFrom-AiosRuntimeDiagnosticLog `
     -Lines @($diagnosticLog)
 
@@ -288,6 +291,7 @@ $record = [ordered]@{
     evidence_kind = $evidenceKind
     suite_version = [int]$measurement.suite_version
     device_codename = $codename
+    serial_sha256 = Get-AiosSha256 -Value $deviceSerial
     total_ram_mb = [math]::Floor([int64]$memoryMatch.Groups[1].Value / 1024)
     build_fingerprint_sha256 = Get-AiosSha256 -Value $fingerprint
     completed_at = [DateTime]::UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
@@ -303,9 +307,10 @@ $record = [ordered]@{
         samples = @($resourceSamples)
     }
     contains_aios_low_memory_kill =
-        [bool]($diagnosticText -match "lowmemorykiller: Kill 'com\.aios\.")
-    contains_oom_or_fatal = [bool]($diagnosticText -match
-        "OutOfMemory|out of memory|oom-kill|Fatal signal|FATAL EXCEPTION")
+        $runtimePhaseDiagnostics.system_health.aios_low_memory_kill_count -gt 0
+    contains_oom_or_fatal =
+        $runtimePhaseDiagnostics.system_health.oom_event_count -gt 0 -or
+        $runtimePhaseDiagnostics.system_health.fatal_event_count -gt 0
     runtime_phase_diagnostics = $runtimePhaseDiagnostics
     results = $measurement.results
     diagnostic_log = @($diagnosticLog)
