@@ -409,6 +409,9 @@ Development artifacts use public Android test keys and require an unlocked
 bootloader; production signing and physical update/boot/merge evidence remain
 separate release requirements. See
 `docs/pixel9a-bringup.md` for the guarded commands.
+Post-update merge capture is read-only and requires both Snapshot Manager and
+Boot Control to report no remaining Virtual A/B state for the exact evidenced
+target slot.
 
 When Google's moving manifest ref changes, refresh its reviewed observation
 before syncing projects:

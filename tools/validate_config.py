@@ -972,6 +972,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "tools/apply_pixel_ota.py",
         "tools/validate_build_version.py",
         "tools/capture_pixel_aios_update.py",
+        "tools/capture_pixel_aios_merge.py",
         "tools/flash_pixel_dev_image.py",
         "tools/capture_pixel_aios_boot.py",
         "tools/capture_cuttlefish_boot_evidence.py",
@@ -1922,6 +1923,21 @@ def validate_aosp_overlay(root: Path) -> None:
             and '"proves_merge_completed": False' in pixel_update_capture
             and '"proves_telephony_gate": False' in pixel_update_capture,
             "Pixel OTA boot capture must bind the exact slot and payload without overclaiming merge or runtime gates")
+    pixel_merge_capture = (root / "tools" /
+                           "capture_pixel_aios_merge.py").read_text(encoding="utf-8")
+    require("pixel9a_aios_virtual_ab_merge" in pixel_merge_capture
+            and "validate_post_update" in pixel_merge_capture
+            and "snapshotctl" in pixel_merge_capture
+            and "bootctl" in pixel_merge_capture
+            and 'snapshot["update_state"] != "none"' in pixel_merge_capture
+            and 'snapshot["snapshot_count"] != 0' in pixel_merge_capture
+            and 'boot_merge_status != "none"' in pixel_merge_capture
+            and "is-slot-marked-successful" in pixel_merge_capture
+            and "physical merge evidence must remain outside source" in pixel_merge_capture
+            and '"proves_merge_completed": True' in pixel_merge_capture
+            and '"proves_rollback": False' in pixel_merge_capture
+            and '"proves_telephony_gate": False' in pixel_merge_capture,
+            "Pixel merge capture must bind the post-update slot and prove all snapshot state is gone")
 
     common_product = (root / "products" / "aios_common.mk").read_text(
         encoding="utf-8"

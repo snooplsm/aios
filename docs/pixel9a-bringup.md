@@ -197,6 +197,29 @@ python3 vendor/aios/tools/capture_pixel_aios_update.py \
   --output /safe/release-artifacts/new-build/ota/post-update-boot.json
 ```
 
+Virtual A/B merge is a separate asynchronous stage after the first target-slot
+boot. Leave the updated phone powered and allow Android to finish its automatic
+cleanup, then run `tools/capture_pixel_aios_merge.py`. The capture is read-only:
+it never invokes `snapshotctl merge`, `update_engine_client --merge`, or a slot
+mutation. It binds the exact post-update record and running fingerprint, requires
+the evidenced target slot to remain both current and active and to be marked
+successful, then independently requires `snapshotctl` state `none`, zero
+snapshot records, no merge/rollback indicators or stale source fingerprint, and
+Boot Control merge status `none`. If Android is still merging, the command fails
+closed; wait and rerun it rather than cancelling or forcing snapshot state.
+
+```text
+python3 vendor/aios/tools/capture_pixel_aios_merge.py \
+  --adb /absolute/path/to/adb \
+  --serial <adb-serial> \
+  --post-update-evidence /safe/release-artifacts/new-build/ota/post-update-boot.json \
+  --output /safe/release-artifacts/new-build/ota/merge-evidence.json
+```
+
+This proves that the exact update's target slot is durable without remaining
+Virtual A/B snapshot state. It does not prove rollback, carrier telephony, model
+latency, or media behavior.
+
 Use `tools/flash_pixel_dev_image.py` for both the host preflight and execution.
 Without `--execute` it is read-only. It requires exactly the named fastboot
 serial, bootloader mode rather than fastbootd, `tegu`, an unlocked bootloader,
