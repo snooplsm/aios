@@ -73,6 +73,7 @@ if ($existing) {
 }
 $installed = $false
 $passed = $false
+$completedLog = ""
 
 try {
     Invoke-Adb install $apkPath | Out-Null
@@ -91,12 +92,31 @@ try {
         }
         if ($log -match 'AIOS_CONTEXT_LIFECYCLE_SMOKE_OK') {
             $passed = $true
+            $completedLog = $log
             break
         }
         Start-Sleep -Milliseconds 500
     } while ([DateTime]::UtcNow -lt $deadline)
     if (-not $passed) {
         throw "Timed out waiting for Communication Context smoke completion"
+    }
+    $metricsMatches = [regex]::Matches(
+        $completedLog,
+        'AIOS_CONTEXT_LIFECYCLE_SMOKE_OK metrics_base64=([A-Za-z0-9+/=]+)')
+    if ($metricsMatches.Count -ne 1) {
+        throw "Communication Context smoke emitted no unique retrieval metrics"
+    }
+    $metricsJson = [Text.Encoding]::UTF8.GetString(
+        [Convert]::FromBase64String($metricsMatches[0].Groups[1].Value))
+    $metrics = $metricsJson | ConvertFrom-Json
+    if ($metrics.schema_version -ne 1 -or
+        $metrics.documents -ne 640 -or
+        $metrics.embedded_documents -ne 512 -or
+        $metrics.measured_queries -ne 25 -or
+        $metrics.hybrid_candidate_limit -ne 512 -or
+        $metrics.fts_p95_ms -lt 0 -or
+        $metrics.hybrid_p95_ms -lt 0) {
+        throw "Communication Context retrieval metrics are incomplete"
     }
 
     $privateFiles = (Invoke-Adb shell run-as $package find . -type f) -join "`n"
@@ -107,7 +127,7 @@ try {
     New-Item -ItemType Directory -Force -Path $EvidenceDirectory | Out-Null
     $evidencePath = Join-Path $EvidenceDirectory "aios-emulator-context-lifecycle-smoke.json"
     $evidence = [ordered]@{
-        schema_version = 1
+        schema_version = 2
         gate = "integration.emulator_context_lifecycle"
         aios_revision = $sourceRevision
         tracked_source_clean = $true
@@ -129,6 +149,7 @@ try {
         call_artifact_binder_tombstone_verified = $true
         call_artifact_24h_expiry_verified = $true
         raw_address_absent_from_database = $true
+        retrieval_benchmark = $metrics
         private_context_state_remaining = 0
         physical_gate_evidence = $false
         captured_at = [DateTime]::UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")

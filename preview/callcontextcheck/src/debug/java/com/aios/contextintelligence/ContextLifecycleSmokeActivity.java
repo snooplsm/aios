@@ -10,6 +10,8 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
+import android.os.SystemClock;
+import android.util.Base64;
 import android.util.Log;
 
 import com.aios.context.ContextDocument;
@@ -22,6 +24,8 @@ import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
+import org.json.JSONObject;
+
 /** Exercises the production Binder, SQLite/FTS, revision, and retention path on Android. */
 public final class ContextLifecycleSmokeActivity extends Activity {
     private static final String TAG = "AiosContextSmoke";
@@ -30,9 +34,14 @@ public final class ContextLifecycleSmokeActivity extends Activity {
     private static final String EMBEDDING_MODEL = "embeddinggemma-300m-q4";
     private static final String EMBEDDING_BUNDLE_SHA256 =
             "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    private static final int BENCHMARK_DOCUMENTS = 640;
+    private static final int BENCHMARK_EMBEDDINGS = 512;
+    private static final int BENCHMARK_WARMUPS = 3;
+    private static final int BENCHMARK_QUERIES = 25;
 
     private boolean bound;
     private Throwable result;
+    private String metricsBase64 = "";
 
     private final ServiceConnection connection = new ServiceConnection() {
         @Override
@@ -260,9 +269,133 @@ public final class ContextLifecycleSmokeActivity extends Activity {
                     "context fixture left retrievable documents behind");
             require(store.nextExpiryElapsedRealtimeMillis() == Long.MAX_VALUE,
                     "empty context store retained an expiry deadline");
+            metricsBase64 = benchmarkRetrieval(store, identity, now);
         } finally {
             store.close();
         }
+    }
+
+    private static String benchmarkRetrieval(
+            ContextStore store, ConversationIdentity identity, long now) throws Exception {
+        long writeStarted = SystemClock.elapsedRealtimeNanos();
+        for (int index = 0; index < BENCHMARK_DOCUMENTS; index++) {
+            String detail = index == 0
+                    ? "legacy rarefault customer note"
+                    : "customer copper pipe estimate job";
+            store.upsert(document(
+                    ContextPolicy.SMS,
+                    "benchmark-sms-" + index,
+                    11L,
+                    identity,
+                    now - BENCHMARK_DOCUMENTS + index,
+                    detail + " sequence " + index));
+        }
+        long writeNanos = SystemClock.elapsedRealtimeNanos() - writeStarted;
+
+        QuantizedEmbedding embedding = QuantizedEmbedding.quantize(fixtureEmbeddingVector());
+        int embedded = 0;
+        long embeddingCommitStarted = SystemClock.elapsedRealtimeNanos();
+        while (embedded < BENCHMARK_EMBEDDINGS) {
+            List<EmbeddingWorkItem> work = store.pendingEmbeddings(
+                    EMBEDDING_MODEL, EMBEDDING_BUNDLE_SHA256, 16, now);
+            require(!work.isEmpty(), "benchmark embedding work ended early");
+            for (EmbeddingWorkItem item : work) {
+                require(item.sourceId.startsWith("benchmark-sms-"),
+                        "benchmark selected an unrelated embedding row");
+                require(store.commitEmbedding(
+                                item.sourceType,
+                                item.sourceId,
+                                item.revision,
+                                EMBEDDING_MODEL,
+                                EMBEDDING_BUNDLE_SHA256,
+                                embedding,
+                                now),
+                        "benchmark embedding commit was rejected");
+                embedded++;
+                if (embedded == BENCHMARK_EMBEDDINGS) break;
+            }
+        }
+        long embeddingCommitNanos = SystemClock.elapsedRealtimeNanos()
+                - embeddingCommitStarted;
+
+        String[] smsOnly = {ContextPolicy.SMS};
+        for (int index = 0; index < BENCHMARK_WARMUPS; index++) {
+            store.query(identity, smsOnly, "copper pipe", 8, now);
+            store.queryHybrid(
+                    identity,
+                    smsOnly,
+                    "copper pipe",
+                    8,
+                    now,
+                    EMBEDDING_MODEL,
+                    EMBEDDING_BUNDLE_SHA256,
+                    fixtureEmbeddingVector());
+        }
+        long[] lexicalNanos = new long[BENCHMARK_QUERIES];
+        long[] hybridNanos = new long[BENCHMARK_QUERIES];
+        for (int index = 0; index < BENCHMARK_QUERIES; index++) {
+            long started = SystemClock.elapsedRealtimeNanos();
+            List<ContextSnippet> lexical = store.query(
+                    identity, smsOnly, "copper pipe", 8, now);
+            lexicalNanos[index] = SystemClock.elapsedRealtimeNanos() - started;
+            require(lexical.size() == 8, "benchmark FTS retrieval was incomplete");
+
+            started = SystemClock.elapsedRealtimeNanos();
+            List<ContextSnippet> hybrid = store.queryHybrid(
+                    identity,
+                    smsOnly,
+                    "copper pipe",
+                    8,
+                    now,
+                    EMBEDDING_MODEL,
+                    EMBEDDING_BUNDLE_SHA256,
+                    fixtureEmbeddingVector());
+            hybridNanos[index] = SystemClock.elapsedRealtimeNanos() - started;
+            require(hybrid.size() == 8, "benchmark hybrid retrieval was incomplete");
+        }
+        List<ContextSnippet> oldLexical = store.queryHybrid(
+                identity,
+                smsOnly,
+                "legacy rarefault",
+                8,
+                now,
+                EMBEDDING_MODEL,
+                EMBEDDING_BUNDLE_SHA256,
+                fixtureEmbeddingVector());
+        require(!oldLexical.isEmpty(),
+                "hybrid candidate cap discarded older lexical matches");
+
+        JSONObject metrics = new JSONObject();
+        metrics.put("schema_version", 1);
+        metrics.put("documents", BENCHMARK_DOCUMENTS);
+        metrics.put("embedded_documents", BENCHMARK_EMBEDDINGS);
+        metrics.put("warmup_queries", BENCHMARK_WARMUPS);
+        metrics.put("measured_queries", BENCHMARK_QUERIES);
+        metrics.put("write_total_ms", milliseconds(writeNanos));
+        metrics.put("embedding_commit_total_ms", milliseconds(embeddingCommitNanos));
+        metrics.put("fts_p50_ms", percentileMilliseconds(lexicalNanos, 50));
+        metrics.put("fts_p95_ms", percentileMilliseconds(lexicalNanos, 95));
+        metrics.put("hybrid_p50_ms", percentileMilliseconds(hybridNanos, 50));
+        metrics.put("hybrid_p95_ms", percentileMilliseconds(hybridNanos, 95));
+        metrics.put("hybrid_candidate_limit", HybridRetrievalRanker.MAX_CANDIDATES);
+
+        store.deleteSourceType(ContextPolicy.SMS, 12L);
+        require(store.query(identity, smsOnly, "", 8, now).isEmpty(),
+                "retrieval benchmark rows survived cleanup");
+        return Base64.encodeToString(
+                metrics.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                Base64.NO_WRAP);
+    }
+
+    private static double percentileMilliseconds(long[] values, int percentile) {
+        long[] sorted = values.clone();
+        java.util.Arrays.sort(sorted);
+        int index = (int) Math.ceil((percentile / 100.0) * sorted.length) - 1;
+        return milliseconds(sorted[Math.max(0, Math.min(index, sorted.length - 1))]);
+    }
+
+    private static double milliseconds(long nanoseconds) {
+        return Math.round((nanoseconds / 1_000_000.0) * 1_000.0) / 1_000.0;
     }
 
     private static ContextDocument document(
@@ -385,7 +518,8 @@ public final class ContextLifecycleSmokeActivity extends Activity {
                 result = new IllegalStateException("opaque identity secret survived fixture cleanup");
             }
             if (result == null) {
-                Log.i(TAG, "AIOS_CONTEXT_LIFECYCLE_SMOKE_OK");
+                Log.i(TAG, "AIOS_CONTEXT_LIFECYCLE_SMOKE_OK metrics_base64="
+                        + metricsBase64);
             } else {
                 Log.e(TAG, "AIOS_CONTEXT_LIFECYCLE_SMOKE_FAILED", result);
             }
