@@ -196,6 +196,13 @@ def validate_product(policy: dict[str, Any]) -> None:
             "model broker must be signature protected")
     require(broker["preempt_background_on_call"] is True,
             "calls must preempt background inference")
+    require(broker.get("warm_retention") == {
+                "mode": "resident_after_first_use",
+                "boot_prewarm_all_models": False,
+                "release_idle_on_memory_pressure": True,
+                "release_idle_on_thermal_status_at_least": 3,
+            },
+            "models must stay warm after first use but yield to memory or severe thermal pressure")
     require(broker.get("global_session_capacity") == 3
             and broker.get("call_asr_stream_capacity") == 2
             and broker.get("call_agent_capacity") == 1,
@@ -1245,6 +1252,8 @@ def validate_aosp_overlay(root: Path) -> None:
         "runtime/common/Android.bp",
         "runtime/common/src/main/java/com/aios/runtime/common/RuntimeMemoryTrimPolicy.java",
         "runtime/common/tests/src/com/aios/runtime/common/RuntimeMemoryTrimPolicyTest.java",
+        "runtime/common/src/main/java/com/aios/runtime/common/RuntimeThermalTrimPolicy.java",
+        "runtime/common/tests/src/com/aios/runtime/common/RuntimeThermalTrimPolicyTest.java",
         "preview/runtimecommoncheck/build.gradle.kts",
         "preview/runtimeprovidercheck/build.gradle.kts",
         "preview/runtimeprovidercheck/src/main/AndroidManifest.xml",
@@ -4025,7 +4034,12 @@ def validate_aosp_overlay(root: Path) -> None:
             and "new SessionController(state.runtimes(), 3)" not in service
             and "PolicyFileReader.readUtf8" in capacity_loader
             and "value instanceof Integer" in capacity_loader
-            and "value instanceof Boolean" in capacity_loader,
+            and "value instanceof Boolean" in capacity_loader
+            and 'getJSONObject("warm_retention")' in capacity_loader
+            and '"resident_after_first_use"' in capacity_loader
+            and '"boot_prewarm_all_models"' in capacity_loader
+            and '"release_idle_on_memory_pressure"' in capacity_loader
+            and '"release_idle_on_thermal_status_at_least"' in capacity_loader,
             "broker session capacities must load fail closed from product policy")
     require("callAsrStreamCapacity" in capacity_source
             and "callAgentCapacity" in capacity_source
@@ -4063,6 +4077,14 @@ def validate_aosp_overlay(root: Path) -> None:
         root / "runtime" / "common" / "tests" / "src" / "com" / "aios" /
         "runtime" / "common" / "RuntimeMemoryTrimPolicyTest.java"
     ).read_text(encoding="utf-8")
+    runtime_thermal_policy = (
+        root / "runtime" / "common" / "src" / "main" / "java" / "com" /
+        "aios" / "runtime" / "common" / "RuntimeThermalTrimPolicy.java"
+    ).read_text(encoding="utf-8")
+    runtime_thermal_test = (
+        root / "runtime" / "common" / "tests" / "src" / "com" / "aios" /
+        "runtime" / "common" / "RuntimeThermalTrimPolicyTest.java"
+    ).read_text(encoding="utf-8")
     runtime_common_bp = (root / "runtime" / "common" / "Android.bp").read_text(
         encoding="utf-8")
     runtime_common_preview = (
@@ -4073,6 +4095,10 @@ def validate_aosp_overlay(root: Path) -> None:
             and "level >= BACKGROUND" in runtime_trim_policy
             and "moderateRunningAndUiHiddenCallbacksKeepWarmModels"
             in runtime_trim_test
+            and "status >= THERMAL_STATUS_SEVERE" in runtime_thermal_policy
+            and "status <= THERMAL_STATUS_SHUTDOWN" in runtime_thermal_policy
+            and "severeThroughShutdownReleaseIdleModels" in runtime_thermal_test
+            and "normalThroughModerateKeepWarmModels" in runtime_thermal_test
             and 'name: "aios_runtime_common"' in runtime_common_bp
             and "host_supported: true" in runtime_common_bp
             and 'name: "aios_runtime_common_host_tests"' in runtime_common_bp
@@ -4148,10 +4174,14 @@ def validate_aosp_overlay(root: Path) -> None:
             and "ENGINE_CACHE_EVICT" in provider_source,
             "LiteRT-LM must process sampled video storyboards through the vision backend")
     require("RuntimeMemoryTrimPolicy.isMemoryPressure(level)" in provider_source
+            and "RuntimeThermalTrimPolicy.isThermalPressure(status)" in provider_source
+            and "addThermalStatusListener" in provider_source
+            and "removeThermalStatusListener" in provider_source
+            and "pendingIdleReleaseReason" in provider_source
             and "TRIM_MEMORY_RUNNING_LOW" not in provider_source
-            and "sessions.isEmpty()" in provider_source
-            and "closeEngine()" in provider_source,
-            "LiteRT-LM must release an idle engine under Android memory pressure")
+            and "sessions.isNotEmpty()" in provider_source
+            and "releaseIdleIfRequested()" in provider_source,
+            "LiteRT-LM must retain warm engines until idle memory or thermal pressure")
     require('TAG = "AiosLiteRtLmRuntime"' in provider_source
             and '"ENGINE_INITIALIZE_START' in provider_source
             and '"FIRST_TOKEN' in provider_source
@@ -4227,10 +4257,14 @@ def validate_aosp_overlay(root: Path) -> None:
             and '"ASR fell behind real time"' in whisper_source,
             "ASR runtime must prioritize incoming windows and bound live/offline lag")
     require("RuntimeMemoryTrimPolicy.isMemoryPressure(level)" in whisper_source
+            and "RuntimeThermalTrimPolicy.isThermalPressure(status)" in whisper_source
+            and "addThermalStatusListener" in whisper_source
+            and "removeThermalStatusListener" in whisper_source
+            and "pendingIdleReleaseReason" in whisper_source
             and "TRIM_MEMORY_RUNNING_LOW" not in whisper_source
             and "synchronized(modelLock)" in whisper_source
-            and "closeModelLocked()" in whisper_source,
-            "ASR runtime must safely release an idle model under memory pressure")
+            and "releaseIdleIfRequested()" in whisper_source,
+            "ASR runtime must retain its warm model until idle memory or thermal pressure")
     require("MODEL_DIRECTORY.canonicalFile" in whisper_source
             and "MessageDigest.isEqual" in whisper_source
             and "model.length() == artifact.sizeBytes" in whisper_source,
@@ -4456,9 +4490,13 @@ def validate_aosp_overlay(root: Path) -> None:
     require("session.cancelled.get()" in tts_source
             and "deadlineElapsedRealtimeMillis" in tts_source
             and "RuntimeMemoryTrimPolicy.isMemoryPressure(level)" in tts_source
+            and "RuntimeThermalTrimPolicy.isThermalPressure(status)" in tts_source
+            and "addThermalStatusListener" in tts_source
+            and "removeThermalStatusListener" in tts_source
+            and "pendingIdleReleaseReason" in tts_source
             and "TRIM_MEMORY_RUNNING_LOW" not in tts_source
-            and "if (sessions.isEmpty()) closeEngine()" in tts_source,
-            "TTS runtime must support cancellation, deadlines, and pressure cleanup")
+            and "releaseIdleIfRequested()" in tts_source,
+            "TTS runtime must support cancellation, deadlines, and idle pressure cleanup")
     require('TAG = "AiosTtsRuntime"' in tts_source
             and '"ENGINE_INITIALIZE_START' in tts_source
             and '"FIRST_AUDIO' in tts_source

@@ -107,6 +107,11 @@ Automatic AI answers prepare the exact greeting during the ring delay, then use
 the greeting session's completion to prepare Gemma with no synthetic prompt
 while the caller begins speaking. Both preparations remain call-scoped and are
 revoked on owner answer/takeover, emergency transition, call end, or service loss.
+Initialized Whisper, TTS, and Gemma engines remain warm after first use instead
+of being reloaded for every turn. They are not pinned at boot: idle engines yield
+on Android low-memory callbacks or severe-and-higher thermal status, and a
+pressure request that arrives during inference is completed as soon as the final
+session becomes idle.
 The owner-facing phone application is now an original Kotlin/Jetpack Compose
 `InCallService` using immutable UDF state, typed actions, and a multi-call
 Telecom registry; it includes system/light/dark themes, bounded recents and

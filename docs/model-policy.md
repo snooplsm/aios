@@ -118,6 +118,24 @@ the `RUNNING_LOW`, `RUNNING_CRITICAL`, and legacy background-or-stronger levels.
 `UI_HIDDEN` is intentionally not treated as memory pressure because Android's
 trim-level families are not one monotonic severity scale.
 
+## Warm-engine retention
+
+The AVB-protected product policy selects `resident_after_first_use`. Each runtime
+therefore keeps its verified native engine after a session closes, allowing the
+next call turn to use the measured warm path. AIOS deliberately does not preload
+every model at boot: the Pixel 9a physical smoke observed roughly 4.1 GB of
+combined AIOS runtime RSS with all selected engines resident, dominated by the
+Gemma provider. Call-time TTS and Gemma preparation hide cold initialization
+without permanently forcing that footprint into every boot.
+
+An idle warm engine is released on Android running-low/critical or legacy
+background-or-stronger memory callbacks and at thermal status `SEVERE` (3) or
+higher. If pressure arrives while inference is active, the provider latches the
+release request and unloads only after its final session and queued ASR window
+finish. Normal, light, moderate, and `UI_HIDDEN` callbacks keep the warm engine.
+The broker validates these exact retention fields from `product_policy.json` at
+startup; an unsupported or weakened policy makes inference fail closed.
+
 ## Sources
 
 - Gemma 4 model card and license:

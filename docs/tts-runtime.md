@@ -76,6 +76,12 @@ submitting synthetic text, generating a hidden response, or adding anything to
 conversation memory. Call end, owner takeover, emergency transition, Broker
 replacement, and service teardown all revoke the preparation identity.
 
+After a synthesis or dialogue session closes, the provider retains its verified
+native engine for the next turn. This is warm retention, not an immortal active
+session and not boot-time preloading. Memory-trim or severe thermal pressure is
+latched while work is active and unloads the engine immediately after the final
+session becomes idle; normal conditions preserve the cache.
+
 The provider repeats all security checks before native initialization:
 
 - the descriptor is confined beneath `/product/etc/aios/models`;

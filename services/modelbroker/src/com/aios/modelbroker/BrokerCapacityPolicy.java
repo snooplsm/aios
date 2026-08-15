@@ -17,8 +17,17 @@ final class BrokerCapacityPolicy {
                 throw new IOException("unsupported product-policy schema");
             }
             JSONObject broker = root.getJSONObject("broker");
+            JSONObject warmRetention = broker.getJSONObject("warm_retention");
             if (!"signature_permission".equals(requiredString(broker, "access"))
                     || !requiredBoolean(broker, "preempt_background_on_call")
+                    || !"resident_after_first_use".equals(
+                            requiredString(warmRetention, "mode"))
+                    || requiredBoolean(warmRetention, "boot_prewarm_all_models")
+                    || !requiredBoolean(
+                            warmRetention, "release_idle_on_memory_pressure")
+                    || requiredInt(
+                            warmRetention,
+                            "release_idle_on_thermal_status_at_least") != 3
                     || requiredBoolean(broker, "raw_model_file_access")
                     || !"evidence_bound_fail_closed".equals(
                             requiredString(broker, "release_model_admission"))

@@ -6,6 +6,7 @@ import android.os.Binder
 import android.os.Build
 import android.os.IBinder
 import android.os.ParcelFileDescriptor
+import android.os.PowerManager
 import android.os.RemoteException
 import android.os.SystemClock
 import android.util.Log
@@ -17,6 +18,7 @@ import com.aios.model.ModelRequest
 import com.aios.runtime.IAiosRuntimeProvider
 import com.aios.runtime.RuntimeArtifact
 import com.aios.runtime.common.RuntimeMemoryTrimPolicy
+import com.aios.runtime.common.RuntimeThermalTrimPolicy
 import com.google.ai.edge.litertlm.Backend
 import com.google.ai.edge.litertlm.Content
 import com.google.ai.edge.litertlm.Contents
@@ -40,8 +42,10 @@ import java.util.LinkedHashMap
 import java.util.LinkedHashSet
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
+import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Crash-isolated LiteRT-LM provider. The public Model Broker remains the only
@@ -111,7 +115,14 @@ class LiteRtLmRuntimeService : Service() {
         true,
     )
     private val verifiedModelIdentities = LinkedHashSet<VerifiedModelIdentity>()
+    private val pendingIdleReleaseReason = AtomicReference<String?>(null)
     @Volatile private var stopping = false
+    private var powerManager: PowerManager? = null
+    private val thermalListener = PowerManager.OnThermalStatusChangedListener { status ->
+        if (RuntimeThermalTrimPolicy.isThermalPressure(status) && !stopping) {
+            requestIdleRelease("thermal_status_$status")
+        }
+    }
 
     private val binder = object : IAiosRuntimeProvider.Stub() {
         override fun getProviderApiVersion(): Int {
@@ -282,11 +293,20 @@ class LiteRtLmRuntimeService : Service() {
 
     override fun onBind(intent: Intent?): IBinder = binder
 
+    override fun onCreate() {
+        super.onCreate()
+        powerManager = getSystemService(PowerManager::class.java)?.also { manager ->
+            manager.addThermalStatusListener(mainExecutor, thermalListener)
+        }
+    }
+
     override fun onDestroy() {
+        powerManager?.removeThermalStatusListener(thermalListener)
+        powerManager = null
         stopping = true
         sessions.keys.toList().forEach(::cancelInternal)
         runtimeExecutor.execute {
-            closeEngine()
+            closeEngine("service_destroyed")
         }
         runtimeExecutor.shutdown()
         super.onDestroy()
@@ -294,10 +314,8 @@ class LiteRtLmRuntimeService : Service() {
 
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
-        if (RuntimeMemoryTrimPolicy.isMemoryPressure(level) && sessions.isEmpty()) {
-            runtimeExecutor.execute {
-                if (sessions.isEmpty()) closeEngine()
-            }
+        if (RuntimeMemoryTrimPolicy.isMemoryPressure(level)) {
+            requestIdleRelease("memory_trim_$level")
         }
     }
 
@@ -475,7 +493,10 @@ class LiteRtLmRuntimeService : Service() {
             } catch (_: RemoteException) {
                 // Broker/client teardown already owns cleanup.
             } finally {
-                runtimeExecutor.execute { closeConversation(session) }
+                runtimeExecutor.execute {
+                    closeConversation(session)
+                    releaseIdleIfRequested()
+                }
             }
         }
 
@@ -492,7 +513,10 @@ class LiteRtLmRuntimeService : Service() {
         sessions.remove(session.id, session)
         session.callback.asBinder().unlinkToDeath(session.deathRecipient, 0)
         notifyError(session.callback, code, message)
-        runtimeExecutor.execute { closeConversation(session) }
+        runtimeExecutor.execute {
+            closeConversation(session)
+            releaseIdleIfRequested()
+        }
     }
 
     private fun cancelInternal(sessionId: Long) {
@@ -509,6 +533,29 @@ class LiteRtLmRuntimeService : Service() {
                 // Cancellation is best effort after native failure.
             }
             closeConversation(session)
+            releaseIdleIfRequested()
+        }
+    }
+
+    private fun requestIdleRelease(reason: String) {
+        pendingIdleReleaseReason.set(reason)
+        Log.i(TAG, "ENGINE_RELEASE_REQUEST reason=$reason")
+        scheduleIdleRelease()
+    }
+
+    private fun scheduleIdleRelease() {
+        try {
+            runtimeExecutor.execute(::releaseIdleIfRequested)
+        } catch (_: RejectedExecutionException) {
+            // Service teardown owns the final native-engine release.
+        }
+    }
+
+    private fun releaseIdleIfRequested() {
+        val reason = pendingIdleReleaseReason.get() ?: return
+        if (sessions.isNotEmpty()) return
+        if (pendingIdleReleaseReason.compareAndSet(reason, null)) {
+            closeEngine(reason)
         }
     }
 
@@ -522,9 +569,12 @@ class LiteRtLmRuntimeService : Service() {
         }
     }
 
-    private fun closeEngine() {
+    private fun closeEngine(reason: String) {
         val current = engineHolders.values.toList()
         engineHolders.clear()
+        if (current.isNotEmpty()) {
+            Log.i(TAG, "ENGINE_RELEASE reason=$reason count=${current.size}")
+        }
         current.forEach(::closeEngine)
     }
 

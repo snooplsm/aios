@@ -169,6 +169,12 @@ stream queue stability. The 3.336-second cold partial also remains above the
 two-second target cadence even though warm native windows were faster than
 their source duration.
 
+The Whisper provider retains its initialized model after the last stream closes,
+so later calls normally take the warm path. It does not hold an artificial ASR
+session open. Android memory pressure or severe thermal status records a pending
+release; if a stream or decode window is still active, unloading waits until
+both the session set and priority queue are empty.
+
 ## Deferred video mode
 
 Media Intelligence may request the same `streaming_asr` capability only with the

@@ -146,6 +146,20 @@ class ProductPolicyTests(unittest.TestCase):
         with self.assertRaisesRegex(validator.ValidationError, "opt-in"):
             validator.validate_product(policy)
 
+    def test_all_models_cannot_be_pinned_at_boot(self):
+        policy = load("product_policy.json")
+        policy["broker"]["warm_retention"]["boot_prewarm_all_models"] = True
+        with self.assertRaisesRegex(validator.ValidationError, "stay warm"):
+            validator.validate_product(policy)
+
+    def test_warm_models_must_yield_at_severe_thermal_status(self):
+        policy = load("product_policy.json")
+        policy["broker"]["warm_retention"][
+            "release_idle_on_thermal_status_at_least"
+        ] = 4
+        with self.assertRaisesRegex(validator.ValidationError, "thermal pressure"):
+            validator.validate_product(policy)
+
     def test_auto_answer_delay_modes_are_exact(self):
         policy = load("product_policy.json")
         policy["calls"]["allowed_auto_answer_delay_modes"].append("fixed_5000_ms")

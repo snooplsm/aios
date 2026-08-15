@@ -6,6 +6,7 @@ import android.os.Binder
 import android.os.Build
 import android.os.IBinder
 import android.os.ParcelFileDescriptor
+import android.os.PowerManager
 import android.os.RemoteException
 import android.os.SystemClock
 import android.util.Log
@@ -17,6 +18,7 @@ import com.aios.model.ModelRequest
 import com.aios.runtime.IAiosRuntimeProvider
 import com.aios.runtime.RuntimeArtifact
 import com.aios.runtime.common.RuntimeMemoryTrimPolicy
+import com.aios.runtime.common.RuntimeThermalTrimPolicy
 import org.json.JSONObject
 import java.io.BufferedInputStream
 import java.io.File
@@ -28,6 +30,7 @@ import java.util.concurrent.PriorityBlockingQueue
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.concurrent.thread
 
 /** CPU whisper.cpp provider with incoming-call decode priority. */
@@ -118,7 +121,14 @@ class WhisperRuntimeService : Service() {
     private val decodeQueue = PriorityBlockingQueue<DecodeWindow>()
     private val modelLock = Any()
     @Volatile private var currentModel: ModelHolder? = null
+    private val pendingIdleReleaseReason = AtomicReference<String?>(null)
     @Volatile private var stopping = false
+    private var powerManager: PowerManager? = null
+    private val thermalListener = PowerManager.OnThermalStatusChangedListener { status ->
+        if (RuntimeThermalTrimPolicy.isThermalPressure(status) && !stopping) {
+            requestIdleRelease("thermal_status_$status")
+        }
+    }
     private lateinit var decodeThread: Thread
     private val nativeDecodeSignal = object : DecodeCancellationFence.NativeSignal {
         override fun cancel(token: Long) = NativeWhisper.cancel(token)
@@ -253,6 +263,9 @@ class WhisperRuntimeService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        powerManager = getSystemService(PowerManager::class.java)?.also { manager ->
+            manager.addThermalStatusListener(mainExecutor, thermalListener)
+        }
         decodeThread = thread(start = true, name = "aios-whisper-decode") {
             decodeLoop()
         }
@@ -261,6 +274,8 @@ class WhisperRuntimeService : Service() {
     override fun onBind(intent: Intent?): IBinder = binder
 
     override fun onDestroy() {
+        powerManager?.removeThermalStatusListener(thermalListener)
+        powerManager = null
         stopping = true
         sessions.keys.toList().forEach(::cancelInternal)
         decodeThread.interrupt()
@@ -270,7 +285,7 @@ class WhisperRuntimeService : Service() {
             Thread.currentThread().interrupt()
         }
         if (!decodeThread.isAlive) {
-            closeModel()
+            closeModel("service_destroyed")
         }
         super.onDestroy()
     }
@@ -278,9 +293,7 @@ class WhisperRuntimeService : Service() {
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
         if (RuntimeMemoryTrimPolicy.isMemoryPressure(level)) {
-            synchronized(modelLock) {
-                if (sessions.isEmpty() && decodeQueue.isEmpty()) closeModelLocked()
-            }
+            requestIdleRelease("memory_trim_$level")
         }
     }
 
@@ -605,7 +618,7 @@ class WhisperRuntimeService : Service() {
             && !it.completed.get() && it.artifact.modelDigest != artifact.modelDigest }) {
             "cannot switch ASR models while another stream is active"
         }
-        closeModelLocked()
+        closeModelLocked("model_replaced")
         val startedAt = SystemClock.elapsedRealtime()
         Log.i(TAG, "MODEL_INITIALIZE_START model=${artifact.modelId} bytes=${model.length()}")
         val context = NativeWhisper.create(model.absolutePath)
@@ -646,6 +659,7 @@ class WhisperRuntimeService : Service() {
         } catch (_: RemoteException) {
             // Broker/client has already gone away.
         }
+        releaseIdleIfRequested()
     }
 
     private fun fail(session: AsrSession, code: Int, message: String) {
@@ -659,6 +673,7 @@ class WhisperRuntimeService : Service() {
         closeDescriptor(session.input)
         removeQueuedWindows(session)
         notifyError(session.callback, code, message)
+        releaseIdleIfRequested()
     }
 
     private fun cancelInternal(sessionId: Long) {
@@ -669,6 +684,7 @@ class WhisperRuntimeService : Service() {
         session.callback.asBinder().unlinkToDeath(session.deathRecipient, 0)
         closeDescriptor(session.input)
         removeQueuedWindows(session)
+        releaseIdleIfRequested()
     }
 
     private fun removeQueuedWindows(session: AsrSession) {
@@ -680,14 +696,32 @@ class WhisperRuntimeService : Service() {
         }
     }
 
-    private fun closeModel() {
-        synchronized(modelLock) { closeModelLocked() }
+    private fun requestIdleRelease(reason: String) {
+        pendingIdleReleaseReason.set(reason)
+        Log.i(TAG, "MODEL_RELEASE_REQUEST reason=$reason")
+        releaseIdleIfRequested()
     }
 
-    private fun closeModelLocked() {
+    private fun releaseIdleIfRequested() {
+        val reason = pendingIdleReleaseReason.get() ?: return
+        if (sessions.isNotEmpty() || decodeQueue.isNotEmpty()) return
+        synchronized(modelLock) {
+            if (sessions.isEmpty() && decodeQueue.isEmpty()
+                    && pendingIdleReleaseReason.compareAndSet(reason, null)) {
+                closeModelLocked(reason)
+            }
+        }
+    }
+
+    private fun closeModel(reason: String) {
+        synchronized(modelLock) { closeModelLocked(reason) }
+    }
+
+    private fun closeModelLocked(reason: String) {
         check(Thread.holdsLock(modelLock)) { "model access is not serialized" }
         val holder = currentModel ?: return
         currentModel = null
+        Log.i(TAG, "MODEL_RELEASE reason=$reason count=1")
         if (holder.nativeContext != 0L) NativeWhisper.destroy(holder.nativeContext)
     }
 

@@ -67,6 +67,12 @@
     "call_asr_stream_capacity": 2,
     "call_agent_capacity": 1,
     "preempt_background_on_call": true,
+    "warm_retention": {
+      "mode": "resident_after_first_use",
+      "boot_prewarm_all_models": false,
+      "release_idle_on_memory_pressure": true,
+      "release_idle_on_thermal_status_at_least": 3
+    },
     "raw_model_file_access": false,
     "release_model_admission": "evidence_bound_fail_closed",
     "debug_model_admission": "known_device_research_candidates"

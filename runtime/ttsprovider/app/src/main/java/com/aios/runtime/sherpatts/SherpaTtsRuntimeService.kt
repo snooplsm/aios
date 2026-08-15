@@ -6,6 +6,7 @@ import android.os.Binder
 import android.os.Build
 import android.os.IBinder
 import android.os.ParcelFileDescriptor
+import android.os.PowerManager
 import android.os.RemoteException
 import android.os.SystemClock
 import android.util.Log
@@ -16,6 +17,7 @@ import com.aios.model.ModelRequest
 import com.aios.runtime.IAiosRuntimeProvider
 import com.aios.runtime.RuntimeArtifact
 import com.aios.runtime.common.RuntimeMemoryTrimPolicy
+import com.aios.runtime.common.RuntimeThermalTrimPolicy
 import com.k2fsa.sherpa.onnx.GenerationConfig
 import com.k2fsa.sherpa.onnx.OfflineTts
 import com.k2fsa.sherpa.onnx.OfflineTtsConfig
@@ -31,9 +33,11 @@ import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
+import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.roundToInt
 
 /** Digest-locked, CPU-only Supertonic 3 provider for English/Spanish call speech. */
@@ -141,7 +145,14 @@ class SherpaTtsRuntimeService : Service() {
     }
     private val engineLock = Any()
     @Volatile private var engineHolder: EngineHolder? = null
+    private val pendingIdleReleaseReason = AtomicReference<String?>(null)
     @Volatile private var stopping = false
+    private var powerManager: PowerManager? = null
+    private val thermalListener = PowerManager.OnThermalStatusChangedListener { status ->
+        if (RuntimeThermalTrimPolicy.isThermalPressure(status) && !stopping) {
+            requestIdleRelease("thermal_status_$status")
+        }
+    }
 
     private val binder = object : IAiosRuntimeProvider.Stub() {
         override fun getProviderApiVersion(): Int {
@@ -281,7 +292,16 @@ class SherpaTtsRuntimeService : Service() {
 
     override fun onBind(intent: Intent?): IBinder = binder
 
+    override fun onCreate() {
+        super.onCreate()
+        powerManager = getSystemService(PowerManager::class.java)?.also { manager ->
+            manager.addThermalStatusListener(mainExecutor, thermalListener)
+        }
+    }
+
     override fun onDestroy() {
+        powerManager?.removeThermalStatusListener(thermalListener)
+        powerManager = null
         stopping = true
         sessions.keys.toList().forEach(::cancelInternal)
         runtimeExecutor.shutdownNow()
@@ -291,16 +311,14 @@ class SherpaTtsRuntimeService : Service() {
             Thread.currentThread().interrupt()
             false
         }
-        if (terminated) closeEngine()
+        if (terminated) closeEngine("service_destroyed")
         super.onDestroy()
     }
 
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
         if (RuntimeMemoryTrimPolicy.isMemoryPressure(level)) {
-            runtimeExecutor.execute {
-                if (sessions.isEmpty()) closeEngine()
-            }
+            requestIdleRelease("memory_trim_$level")
         }
     }
 
@@ -572,6 +590,7 @@ class SherpaTtsRuntimeService : Service() {
         } catch (_: RemoteException) {
             // Broker/client teardown already owns cleanup.
         }
+        scheduleIdleRelease()
     }
 
     private fun fail(session: TtsSession, code: Int, message: String) {
@@ -588,6 +607,7 @@ class SherpaTtsRuntimeService : Service() {
         }
         closeDescriptor(descriptor)
         notifyError(session.callback, code, message)
+        scheduleIdleRelease()
     }
 
     private fun cancelInternal(sessionId: Long) {
@@ -601,10 +621,38 @@ class SherpaTtsRuntimeService : Service() {
             current
         }
         closeDescriptor(descriptor)
+        scheduleIdleRelease()
     }
 
-    private fun closeEngine() {
-        synchronized(engineLock) { closeEngineLocked() }
+    private fun requestIdleRelease(reason: String) {
+        pendingIdleReleaseReason.set(reason)
+        Log.i(TAG, "ENGINE_RELEASE_REQUEST reason=$reason")
+        scheduleIdleRelease()
+    }
+
+    private fun scheduleIdleRelease() {
+        try {
+            runtimeExecutor.execute(::releaseIdleIfRequested)
+        } catch (_: RejectedExecutionException) {
+            // Service teardown owns the final native-engine release.
+        }
+    }
+
+    private fun releaseIdleIfRequested() {
+        val reason = pendingIdleReleaseReason.get() ?: return
+        if (sessions.isNotEmpty()) return
+        if (pendingIdleReleaseReason.compareAndSet(reason, null)) {
+            closeEngine(reason)
+        }
+    }
+
+    private fun closeEngine(reason: String) {
+        synchronized(engineLock) {
+            if (engineHolder != null) {
+                Log.i(TAG, "ENGINE_RELEASE reason=$reason count=1")
+            }
+            closeEngineLocked()
+        }
     }
 
     private fun closeEngineLocked() {
