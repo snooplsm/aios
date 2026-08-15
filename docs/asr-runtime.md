@@ -175,6 +175,13 @@ session open. Android memory pressure or severe thermal status records a pending
 release; if a stream or decode window is still active, unloading waits until
 both the session set and priority queue are empty.
 
+After the first complete SHA-256 pass, later warm sessions reuse that digest
+verification only while canonical path, expected digest, size, modification
+time, and filesystem file key remain identical. The provider rechecks this
+identity after hashing to reject concurrent replacement. Any changed identity
+is hashed again before native initialization or reuse; cache-hit logs expose
+only model ID and byte count, never filesystem paths or audio.
+
 ## Deferred video mode
 
 Media Intelligence may request the same `streaming_asr` capability only with the

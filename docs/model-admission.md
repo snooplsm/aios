@@ -117,11 +117,13 @@ The harness force-stops only Broker and its model providers, captures one cold
 and one immediately following warm invocation of each selected role, and then
 evaluates `config/warm_retention_benchmark.json`. A valid warm pass requires
 explicit TTS, Whisper, and Gemma cache-hit logs, no warm reinitialization or
-release/eviction request, no low-memory kill, OOM, or fatal event, thermal status
-below severe, at least 512 MB available-memory headroom, and the checked-in
-first-output targets. Cold and warm source files must have the same hashed
-serial and build fingerprint. The derived `evaluation.json` intentionally omits
-diagnostic logs, transcripts, responses, PCM, and image content.
+release/eviction request, and digest-cache hits for the large Whisper and Gemma
+artifacts. It also requires no low-memory kill, OOM, or fatal event, thermal
+status below severe, at least 512 MB available-memory headroom, and the
+checked-in first-output targets. Cold and warm source files must have the same
+hashed serial and build fingerprint. The derived `evaluation.json`
+intentionally omits diagnostic logs, transcripts, responses, PCM, and image
+content.
 
 `-Measurements C:\safe\measurements.json` remains available for importing the
 same strict raw schema from a separately reviewed runner. The deterministic

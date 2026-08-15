@@ -62,6 +62,7 @@ function ConvertFrom-AiosRuntimeDiagnosticLog {
     $liteRtEngineEvents = [Collections.Generic.List[object]]::new()
     $whisperModelEvents = [Collections.Generic.List[object]]::new()
     $residencyEvents = [Collections.Generic.List[object]]::new()
+    $artifactVerificationEvents = [Collections.Generic.List[object]]::new()
     $lowMemoryEventCount = 0
     $lowMemoryKillCount = 0
     $aiosLowMemoryKillCount = 0
@@ -268,6 +269,19 @@ function ConvertFrom-AiosRuntimeDiagnosticLog {
             })
             continue
         }
+        if ($line -match "AiosLiteRtLmRuntime.*MODEL_DIGEST_(VERIFIED|CACHE_HIT) model=(\S+) bytes=(\d+)") {
+            $artifactVerificationEvents.Add([pscustomobject][ordered]@{
+                runtime = "litert_lm"
+                action = if ($Matches[1] -eq "CACHE_HIT") {
+                    "digest_cache_hit"
+                } else {
+                    "digest_verified"
+                }
+                model_id = $Matches[2]
+                bytes = [long]$Matches[3]
+            })
+            continue
+        }
         if ($line -match "AiosLiteRtLmRuntime.*ENGINE_CACHE_HIT backend=(\S+) vision=(\S+) audio=(\S+)") {
             $residencyEvents.Add([pscustomobject][ordered]@{
                 runtime = "litert_lm"
@@ -358,6 +372,19 @@ function ConvertFrom-AiosRuntimeDiagnosticLog {
             })
             continue
         }
+        if ($line -match "AiosWhisperRuntime.*MODEL_DIGEST_(VERIFIED|CACHE_HIT) model=(\S+) bytes=(\d+)") {
+            $artifactVerificationEvents.Add([pscustomobject][ordered]@{
+                runtime = "whisper_cpp"
+                action = if ($Matches[1] -eq "CACHE_HIT") {
+                    "digest_cache_hit"
+                } else {
+                    "digest_verified"
+                }
+                model_id = $Matches[2]
+                bytes = [long]$Matches[3]
+            })
+            continue
+        }
         if ($line -match "AiosWhisperRuntime.*MODEL_CACHE_HIT model=(\S+)") {
             $residencyEvents.Add([pscustomobject][ordered]@{
                 runtime = "whisper_cpp"
@@ -408,6 +435,7 @@ function ConvertFrom-AiosRuntimeDiagnosticLog {
         whisper_sessions = ConvertTo-AiosRuntimeSessionArray -Sessions $whisper
         whisper_model_events = @($whisperModelEvents)
         residency_events = @($residencyEvents)
+        artifact_verification_events = @($artifactVerificationEvents)
         system_health = [pscustomobject][ordered]@{
             low_memory_event_count = $lowMemoryEventCount
             low_memory_kill_count = $lowMemoryKillCount

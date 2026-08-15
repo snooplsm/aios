@@ -35,6 +35,14 @@ def source_record(warm: bool) -> dict:
             {"runtime": "litert_lm", "action": "cache_hit"},
             {"runtime": "whisper_cpp", "action": "cache_hit"},
         ] if warm else [],
+        "artifact_verification_events": [
+            {"runtime": "litert_lm", "action": "digest_cache_hit"},
+            {"runtime": "litert_lm", "action": "digest_cache_hit"},
+            {"runtime": "whisper_cpp", "action": "digest_cache_hit"},
+        ] if warm else [
+            {"runtime": "litert_lm", "action": "digest_verified"},
+            {"runtime": "whisper_cpp", "action": "digest_verified"},
+        ],
         "system_health": health,
     }
     latencies = {
@@ -107,6 +115,12 @@ class WarmRetentionEvaluationTests(unittest.TestCase):
         evidence = self.evaluate(source_record(False), warm)
         self.assertEqual("failed", evidence["decision"])
         self.assertIn("warm_cache_hit:litert_lm", evidence["failed_gates"])
+
+    def test_missing_digest_cache_hit_fails_evidence(self):
+        warm = source_record(True)
+        warm["runtime_phase_diagnostics"]["artifact_verification_events"] = []
+        evidence = self.evaluate(source_record(False), warm)
+        self.assertIn("warm_digest_cache_hit:whisper_cpp", evidence["failed_gates"])
 
     def test_release_and_background_kill_fail_evidence(self):
         warm = source_record(True)

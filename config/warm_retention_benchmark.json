@@ -16,6 +16,10 @@
     "litert_lm": 2,
     "whisper_cpp": 1
   },
+  "required_warm_digest_cache_hits": {
+    "litert_lm": 2,
+    "whisper_cpp": 1
+  },
   "health_gates": {
     "max_release_or_eviction_events": 0,
     "max_aios_low_memory_kills": 0,

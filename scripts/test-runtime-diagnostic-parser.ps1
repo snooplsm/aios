@@ -18,6 +18,7 @@ $lines = @(
     "08-15 I AiosLiteRtLmRuntime: SESSION_CREATED id=2 capability=text_generation model=gemma4-e2b-mobile-text backend=gpu",
     "08-15 I AiosLiteRtLmRuntime: MODEL_VERIFIED id=2 bytes=2588147712 elapsed_ms=3000",
     "08-15 I AiosLiteRtLmRuntime: ENGINE_INITIALIZE_DONE backend=gpu elapsed_ms=5000",
+    "08-15 I AiosLiteRtLmRuntime: MODEL_DIGEST_CACHE_HIT model=gemma4-e2b-mobile-text bytes=2588147712",
     "08-15 I AiosLiteRtLmRuntime: ENGINE_CACHE_HIT backend=gpu vision=true audio=false",
     "08-15 I AiosLiteRtLmRuntime: ENGINE_READY id=2 elapsed_ms=8100",
     "08-15 I AiosLiteRtLmRuntime: CONVERSATION_READY id=2 elapsed_ms=8200",
@@ -25,6 +26,7 @@ $lines = @(
     "08-15 I AiosLiteRtLmRuntime: INFERENCE_DONE id=2 chars=42 elapsed_ms=11000",
     "08-15 I AiosWhisperRuntime: SESSION_CREATED id=4 model=whisper-base-multilingual-quantized workload=call_downlink backend=cpu",
     "08-15 I AiosWhisperRuntime: MODEL_INITIALIZE_DONE model=whisper-base-multilingual-quantized elapsed_ms=700",
+    "08-15 I AiosWhisperRuntime: MODEL_DIGEST_VERIFIED model=whisper-base-multilingual-quantized bytes=150000000",
     "08-15 I AiosWhisperRuntime: MODEL_CACHE_HIT model=whisper-base-multilingual-quantized",
     "08-15 I AiosWhisperRuntime: DECODE_DONE id=4 language=en reported_language=en chars=5 elapsed_ms=450",
     "08-15 I AiosWhisperRuntime: DECODE_DONE id=4 language=en reported_language=en chars=9 elapsed_ms=500",
@@ -94,6 +96,15 @@ if (@($parsed.residency_events | Where-Object { $_.action -eq "cache_hit" }).Cou
     @($parsed.residency_events | Where-Object { $_.action -eq "release_requested" }).Count -ne 1 -or
     @($parsed.residency_events | Where-Object { $_.action -eq "released" }).Count -ne 1) {
     throw "runtime residency event parsing failed"
+}
+if (@($parsed.artifact_verification_events).Count -ne 2 -or
+    @($parsed.artifact_verification_events | Where-Object {
+        $_.action -eq "digest_cache_hit" -and $_.runtime -eq "litert_lm"
+    }).Count -ne 1 -or
+    @($parsed.artifact_verification_events | Where-Object {
+        $_.action -eq "digest_verified" -and $_.runtime -eq "whisper_cpp"
+    }).Count -ne 1) {
+    throw "artifact verification event parsing failed"
 }
 if ($parsed.system_health.low_memory_event_count -ne 1 -or
     $parsed.system_health.low_memory_kill_count -ne 1 -or

@@ -2151,6 +2151,7 @@ def validate_aosp_overlay(root: Path) -> None:
             and "first_token_after_ready_ms" in runtime_diagnostic_parser
             and "decode_elapsed_total_ms" in runtime_diagnostic_parser
             and "residency_events" in runtime_diagnostic_parser
+            and "artifact_verification_events" in runtime_diagnostic_parser
             and "system_health" in runtime_diagnostic_parser
             and "background_low_memory_kill_count" in runtime_diagnostic_parser
             and "Export-ModuleMember" in runtime_diagnostic_parser
@@ -2176,6 +2177,8 @@ def validate_aosp_overlay(root: Path) -> None:
             and warm_retention_suite.get("supported_device_codenames") == ["tegu"]
             and warm_retention_suite.get("required_warm_cache_hits") == {
                 "sherpa_onnx_tts": 1, "litert_lm": 2, "whisper_cpp": 1}
+            and warm_retention_suite.get("required_warm_digest_cache_hits") == {
+                "litert_lm": 2, "whisper_cpp": 1}
             and warm_retention_suite.get("health_gates", {}).get(
                 "max_release_or_eviction_events") == 0
             and warm_retention_suite.get("health_gates", {}).get(
@@ -4307,8 +4310,12 @@ def validate_aosp_overlay(root: Path) -> None:
             "ASR runtime must retain its warm model until idle memory or thermal pressure")
     require("MODEL_DIRECTORY.canonicalFile" in whisper_source
             and "MessageDigest.isEqual" in whisper_source
-            and "model.length() == artifact.sizeBytes" in whisper_source,
-            "ASR runtime must reverify model confinement, size, and digest")
+            and "observed.sizeBytes == artifact.sizeBytes" in whisper_source
+            and "MODEL_DIGEST_CACHE_HIT" in whisper_source
+            and "model changed during digest verification" in whisper_source
+            and "BasicFileAttributes" in whisper_source
+            and "LinkOption.NOFOLLOW_LINKS" in whisper_source,
+            "ASR runtime must reverify model identity and cache only unchanged digest evidence")
     require('TAG = "AiosWhisperRuntime"' in whisper_source
             and '"MODEL_INITIALIZE_START' in whisper_source
             and '"MODEL_CACHE_HIT' in whisper_source

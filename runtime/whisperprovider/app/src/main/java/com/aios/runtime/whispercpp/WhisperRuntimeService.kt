@@ -24,7 +24,11 @@ import java.io.BufferedInputStream
 import java.io.File
 import java.io.FileInputStream
 import java.io.IOException
+import java.nio.file.Files
+import java.nio.file.LinkOption
+import java.nio.file.attribute.BasicFileAttributes
 import java.security.MessageDigest
+import java.util.LinkedHashSet
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.PriorityBlockingQueue
 import java.util.concurrent.atomic.AtomicBoolean
@@ -39,7 +43,7 @@ class WhisperRuntimeService : Service() {
         const val TAG = "AiosWhisperRuntime"
         const val BROKER_PACKAGE = "com.aios.modelbroker"
         const val RUNTIME_ID = "whisper_cpp"
-        const val IMPLEMENTATION_VERSION = "1.9.9"
+        const val IMPLEMENTATION_VERSION = "1.9.10"
         const val PROVIDER_API_VERSION = 2
         const val ERROR_INVALID_REQUEST = 2
         const val ERROR_BUSY = 3
@@ -66,6 +70,13 @@ class WhisperRuntimeService : Service() {
 
     private data class ModelIdentity(val path: String, val digest: String)
     private data class ModelHolder(val identity: ModelIdentity, val nativeContext: Long)
+    private data class VerifiedModelIdentity(
+        val path: String,
+        val digest: String,
+        val sizeBytes: Long,
+        val lastModifiedMillis: Long,
+        val fileKey: String,
+    )
 
     private class AsrSession(
         val id: Long,
@@ -121,6 +132,7 @@ class WhisperRuntimeService : Service() {
     private val decodeQueue = PriorityBlockingQueue<DecodeWindow>()
     private val modelLock = Any()
     @Volatile private var currentModel: ModelHolder? = null
+    private val verifiedModelIdentities = LinkedHashSet<VerifiedModelIdentity>()
     private val pendingIdleReleaseReason = AtomicReference<String?>(null)
     @Volatile private var stopping = false
     private var powerManager: PowerManager? = null
@@ -765,12 +777,41 @@ class WhisperRuntimeService : Service() {
         check(confined && model.isFile) {
             "model path is outside the read-only model directory"
         }
-        check(model.length() == artifact.sizeBytes) { "model size mismatch" }
+        val observed = modelIdentity(model, artifact.modelDigest)
+        check(observed.sizeBytes == artifact.sizeBytes) { "model size mismatch" }
+        if (verifiedModelIdentities.contains(observed)) {
+            Log.i(TAG, "MODEL_DIGEST_CACHE_HIT model=${artifact.modelId} " +
+                "bytes=${observed.sizeBytes}")
+            return model
+        }
+        val actualDigest = sha256(model)
+        check(modelIdentity(model, artifact.modelDigest) == observed) {
+            "model changed during digest verification"
+        }
         check(MessageDigest.isEqual(
             artifact.modelDigest.toByteArray(Charsets.US_ASCII),
-            sha256(model).toByteArray(Charsets.US_ASCII),
+            actualDigest.toByteArray(Charsets.US_ASCII),
         )) { "model digest mismatch" }
+        verifiedModelIdentities.add(observed)
+        Log.i(TAG, "MODEL_DIGEST_VERIFIED model=${artifact.modelId} " +
+            "bytes=${observed.sizeBytes}")
         return model
+    }
+
+    private fun modelIdentity(model: File, digest: String): VerifiedModelIdentity {
+        val attributes = Files.readAttributes(
+            model.toPath(),
+            BasicFileAttributes::class.java,
+            LinkOption.NOFOLLOW_LINKS,
+        )
+        check(attributes.isRegularFile) { "model is not a regular file" }
+        return VerifiedModelIdentity(
+            model.absolutePath,
+            digest,
+            attributes.size(),
+            attributes.lastModifiedTime().toMillis(),
+            attributes.fileKey()?.toString() ?: "",
+        )
     }
 
     private fun allowsEmulatorModelFixtures(): Boolean =

@@ -113,8 +113,9 @@ on Android low-memory callbacks or severe-and-higher thermal status, and a
 pressure request that arrives during inference is completed as soon as the final
 session becomes idle. A physical cold/warm harness now requires explicit
 per-provider cache hits and fails on reinitialization, eviction, low-memory
-kills, OOM/fatal events, severe thermal pressure, inadequate headroom, or missed
-first-output targets; its derived evidence is bound to hashed device/build
+kills, OOM/fatal events, severe thermal pressure, inadequate headroom, missed
+first-output targets, or an unnecessary repeat digest pass over the large
+Whisper/Gemma artifacts; its derived evidence is bound to hashed device/build
 identity and excludes content-bearing fields.
 The owner-facing phone application is now an original Kotlin/Jetpack Compose
 `InCallService` using immutable UDF state, typed actions, and a multi-call

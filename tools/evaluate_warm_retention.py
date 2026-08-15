@@ -44,7 +44,7 @@ def validate_suite(suite: dict) -> None:
         "schema_version", "suite_version", "source_evidence_kind",
         "source_suite_version", "supported_device_codenames",
         "required_cold_initializations", "required_warm_cache_hits",
-        "health_gates", "latency_gates_ms",
+        "required_warm_digest_cache_hits", "health_gates", "latency_gates_ms",
     }
     if set(suite) != expected or suite.get("schema_version") != 1:
         raise WarmRetentionError("warm-retention suite has unknown or missing fields")
@@ -64,6 +64,13 @@ def validate_suite(suite: dict) -> None:
                 or not all(isinstance(value, int) and not isinstance(value, bool)
                            and value >= 1 for value in values.values()):
             raise WarmRetentionError(f"{field} must cover every retained runtime")
+    digest_hits = suite.get("required_warm_digest_cache_hits")
+    if not isinstance(digest_hits, dict) \
+            or set(digest_hits) != {"litert_lm", "whisper_cpp"} \
+            or not all(isinstance(value, int) and not isinstance(value, bool)
+                       and value >= 1 for value in digest_hits.values()):
+        raise WarmRetentionError(
+            "required_warm_digest_cache_hits must cover large model artifacts")
     health = suite.get("health_gates")
     required_health = {
         "max_release_or_eviction_events", "max_aios_low_memory_kills",
@@ -116,7 +123,8 @@ def validate_source(record: dict, suite: dict, label: str) -> None:
         raise WarmRetentionError(f"{label}: runtime diagnostics schema 2 is required")
     for field in (
             "tts_engine_events", "litert_lm_engine_events",
-            "whisper_model_events", "residency_events"):
+            "whisper_model_events", "residency_events",
+            "artifact_verification_events"):
         if not isinstance(diagnostics.get(field), list):
             raise WarmRetentionError(f"{label}: missing diagnostic list {field}")
     health = diagnostics.get("system_health")
@@ -145,6 +153,15 @@ def cache_hit_counts(diagnostics: dict) -> dict[str, int]:
     counts = {runtime: 0 for runtime in RUNTIMES}
     for event in diagnostics["residency_events"]:
         if isinstance(event, dict) and event.get("action") == "cache_hit" \
+                and event.get("runtime") in counts:
+            counts[event["runtime"]] += 1
+    return counts
+
+
+def digest_cache_hit_counts(diagnostics: dict) -> dict[str, int]:
+    counts = {"litert_lm": 0, "whisper_cpp": 0}
+    for event in diagnostics["artifact_verification_events"]:
+        if isinstance(event, dict) and event.get("action") == "digest_cache_hit" \
                 and event.get("runtime") in counts:
             counts[event["runtime"]] += 1
     return counts
@@ -212,6 +229,7 @@ def evaluate(suite_path: Path, cold_path: Path, warm_path: Path,
     cold_initializations = initialization_counts(cold_diagnostics)
     warm_initializations = initialization_counts(warm_diagnostics)
     warm_cache_hits = cache_hit_counts(warm_diagnostics)
+    warm_digest_cache_hits = digest_cache_hit_counts(warm_diagnostics)
     release_or_eviction_events = sum(
         isinstance(event, dict) and event.get("action") in {
             "release_requested", "released", "cache_evicted"
@@ -230,6 +248,9 @@ def evaluate(suite_path: Path, cold_path: Path, warm_path: Path,
     for runtime, minimum in suite["required_warm_cache_hits"].items():
         if warm_cache_hits[runtime] < minimum:
             failed_gates.append(f"warm_cache_hit:{runtime}")
+    for runtime, minimum in suite["required_warm_digest_cache_hits"].items():
+        if warm_digest_cache_hits[runtime] < minimum:
+            failed_gates.append(f"warm_digest_cache_hit:{runtime}")
     for runtime, count in warm_initializations.items():
         if count != 0:
             failed_gates.append(f"unexpected_warm_initialization:{runtime}")
@@ -273,6 +294,7 @@ def evaluate(suite_path: Path, cold_path: Path, warm_path: Path,
             "cold_initializations": cold_initializations,
             "warm_initializations": warm_initializations,
             "warm_cache_hits": warm_cache_hits,
+            "warm_digest_cache_hits": warm_digest_cache_hits,
             "release_or_eviction_events": release_or_eviction_events,
             "aios_low_memory_kills": health["aios_low_memory_kill_count"],
             "background_low_memory_kills": health["background_low_memory_kill_count"],
