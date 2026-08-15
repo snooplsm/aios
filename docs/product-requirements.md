@@ -299,9 +299,10 @@ carrier-certification, update-signing, privacy, and compliance workstream.
 The Pixel 9a milestone is complete only when all of the following work on a real
 device:
 
-1. AIOS boots, a signed full Virtual A/B OTA reaches the inactive slot, the
-   target slot boots and completes snapshot merge, rollback is exercised, and
-   the phone can still be safely returned to a factory image.
+1. AIOS boots; one signed full Virtual A/B OTA attempt is cancelled from the
+   unverified pre-merge state and returns cleanly to its source slot; a separate
+   fresh attempt reaches the inactive slot, boots the target, and completes
+   snapshot merge; and the phone can still be safely returned to a factory image.
 2. The AIOS dialer places and receives normal and emergency calls.
 3. The configured AI policy can answer a non-emergency incoming call.
 4. Downlink English and Spanish transcription meets the latency target defined

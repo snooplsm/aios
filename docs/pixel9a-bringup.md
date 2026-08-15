@@ -220,6 +220,73 @@ This proves that the exact update's target slot is durable without remaining
 Virtual A/B snapshot state. It does not prove rollback, carrier telephony, model
 latency, or media behavior.
 
+Virtual A/B rollback must be exercised in a separate OTA attempt **before**
+the target boots successfully or merge begins. Snapshot Manager defines the
+`unverified` state as rollback-capable and explicitly states that no rollback is
+possible after snapshot state becomes `merging`. A completed merge therefore
+cannot be tested by reactivating the old slot: its dynamic-partition contents no
+longer represent a coherent previous system.
+
+After an authorized `apply_pixel_ota.py` execution returns successfully, do not
+reboot into the pending target. Run `tools/exercise_pixel_rollback.py prepare`
+without `--execute`. It binds the exact OTA and update-result records, requires
+the old build to remain current and successful, the evidenced target to be
+active for the next boot, Snapshot Manager state `unverified` with actual
+snapshots, and Boot Control merge state `snapshotted`:
+
+```text
+python3 vendor/aios/tools/exercise_pixel_rollback.py prepare \
+  --adb /absolute/path/to/adb \
+  --serial <adb-serial> \
+  --ota-evidence /safe/release-artifacts/rollback-attempt/full-ota-evidence.json \
+  --update-result /safe/release-artifacts/rollback-attempt/update-result.json
+```
+
+After reviewing the preflight, repeat it with `--execute`, the exact printed
+`ROLLBACK-<serial>-TO-<source-incremental>` value, and an outside-tree output:
+
+```text
+python3 vendor/aios/tools/exercise_pixel_rollback.py prepare \
+  --adb /absolute/path/to/adb \
+  --serial <adb-serial> \
+  --ota-evidence /safe/release-artifacts/rollback-attempt/full-ota-evidence.json \
+  --update-result /safe/release-artifacts/rollback-attempt/update-result.json \
+  --execute \
+  --confirmation <exact-printed-token> \
+  --output /safe/release-artifacts/rollback-attempt/rollback-prepare.json
+```
+
+This calls only `bootctl set-active-boot-slot` for the already-running source
+slot. AOSP documents that operation as the way to cancel a pending update. The
+tool verifies the source slot became active for the next boot, writes a
+hash-chained record, and never invokes `reboot`, `mark-boot-successful`, snapshot
+merge, or a factory flash.
+
+Reboot is a distinct operator-controlled step. After the source build completes
+boot and Android removes the cancelled snapshots, capture the result read-only:
+
+```text
+python3 vendor/aios/tools/exercise_pixel_rollback.py capture \
+  --adb /absolute/path/to/adb \
+  --serial <adb-serial> \
+  --ota-evidence /safe/release-artifacts/rollback-attempt/full-ota-evidence.json \
+  --update-result /safe/release-artifacts/rollback-attempt/update-result.json \
+  --prepare-result /safe/release-artifacts/rollback-attempt/rollback-prepare.json \
+  --output /safe/release-artifacts/rollback-attempt/rollback.json
+```
+
+Capture requires the exact old fingerprint and source slot to be current and
+active, the source to be bootable and marked successful, Snapshot Manager state
+`none`, zero snapshot records and indicators, and Boot Control merge state
+`none`. It proves cancellation of that unverified update only; the target was
+never booted and no merge occurred.
+
+The cancelled OTA attempt cannot also satisfy post-update boot or merge gates.
+Run `apply_pixel_ota.py` again to create a fresh, separately evidenced update
+result, then follow the target-boot and merge capture steps above. Keep the
+matching factory image and a current backup available throughout physical
+update testing.
+
 Use `tools/flash_pixel_dev_image.py` for both the host preflight and execution.
 Without `--execute` it is read-only. It requires exactly the named fastboot
 serial, bootloader mode rather than fastbootd, `tegu`, an unlocked bootloader,

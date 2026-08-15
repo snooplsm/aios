@@ -973,6 +973,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "tools/validate_build_version.py",
         "tools/capture_pixel_aios_update.py",
         "tools/capture_pixel_aios_merge.py",
+        "tools/exercise_pixel_rollback.py",
         "tools/flash_pixel_dev_image.py",
         "tools/capture_pixel_aios_boot.py",
         "tools/capture_cuttlefish_boot_evidence.py",
@@ -1938,6 +1939,23 @@ def validate_aosp_overlay(root: Path) -> None:
             and '"proves_rollback": False' in pixel_merge_capture
             and '"proves_telephony_gate": False' in pixel_merge_capture,
             "Pixel merge capture must bind the post-update slot and prove all snapshot state is gone")
+    pixel_rollback = (root / "tools" /
+                      "exercise_pixel_rollback.py").read_text(encoding="utf-8")
+    require("pixel9a_aios_virtual_ab_rollback_prepare" in pixel_rollback
+            and "pixel9a_aios_virtual_ab_rollback" in pixel_rollback
+            and "set-active-boot-slot" in pixel_rollback
+            and "ROLLBACK-" in pixel_rollback
+            and 'snapshot["update_state"] != "unverified"' in pixel_rollback
+            and 'boot_status != "snapshotted"' in pixel_rollback
+            and '"fresh_update_required": True' in pixel_rollback
+            and "reboot_performed" in pixel_rollback
+            and "physical rollback evidence must remain outside source" in pixel_rollback
+            and '"proves_source_slot_boot": True' in pixel_rollback
+            and '"proves_post_update_boot": False' in pixel_rollback
+            and '"proves_merge_completed": False' in pixel_rollback
+            and '"proves_rollback": True' in pixel_rollback
+            and '"proves_telephony_gate": False' in pixel_rollback,
+            "Pixel rollback must cancel only an unverified pre-merge update without overclaiming")
 
     common_product = (root / "products" / "aios_common.mk").read_text(
         encoding="utf-8"
@@ -7355,7 +7373,7 @@ def validate_release_configuration(root: Path) -> None:
     update_dependency_chain = (
         ("update.post_update_boot", "update.full_virtual_ab_ota_packaged"),
         ("update.snapshot_merge_completed", "update.post_update_boot"),
-        ("update.rollback_to_previous_slot", "update.post_update_boot"),
+        ("update.rollback_to_previous_slot", "update.full_virtual_ab_ota_packaged"),
     )
     for gate_id, prerequisite in update_dependency_chain:
         if statuses[gate_id]["status"] == "passed":
@@ -7365,6 +7383,8 @@ def validate_release_configuration(root: Path) -> None:
     post_update_gate = statuses["update.post_update_boot"]
     post_update = None
     post_update_path = None
+    update_result = None
+    update_result_path = None
     if post_update_gate["status"] == "passed":
         require(physical_build is not None and physical_build_path is not None
                 and physical_ota is not None and physical_ota_path is not None,
@@ -7373,8 +7393,6 @@ def validate_release_configuration(root: Path) -> None:
                 and all(not item.startswith("https://")
                         for item in post_update_gate["evidence"]),
                 "Pixel post-update boot requires local update-result and boot records")
-        update_result = None
-        update_result_path = None
         for reference in post_update_gate["evidence"]:
             candidate_path = (root / reference).resolve()
             candidate = load_json(candidate_path)
@@ -7469,13 +7487,16 @@ def validate_release_configuration(root: Path) -> None:
                 "Pixel post-update boot record does not bind the exact target slot")
 
     merge_gate = statuses["update.snapshot_merge_completed"]
+    merge = None
+    merge_path = None
     if merge_gate["status"] == "passed":
         require(post_update is not None and post_update_path is not None,
                 "Pixel merge evidence requires the local post-update record")
         require(len(merge_gate["evidence"]) == 1
                 and not merge_gate["evidence"][0].startswith("https://"),
                 "Pixel merge evidence must be one local record")
-        merge = load_json((root / merge_gate["evidence"][0]).resolve())
+        merge_path = (root / merge_gate["evidence"][0]).resolve()
+        merge = load_json(merge_path)
         merge_checks = merge.get("checks")
         require(merge.get("schema_version") == 1
                 and merge.get("status") == "passed"
@@ -7510,6 +7531,163 @@ def validate_release_configuration(root: Path) -> None:
                 and merge.get("proves_telephony_gate") is False
                 and merge.get("proves_model_inference") is False,
                 "Pixel merge evidence does not prove the exact update is durable")
+
+    rollback_gate = statuses["update.rollback_to_previous_slot"]
+    if rollback_gate["status"] == "passed":
+        require(physical_ota is not None and physical_ota_path is not None,
+                "Pixel rollback evidence requires the local full OTA record")
+        require(len(rollback_gate["evidence"]) == 3
+                and all(not item.startswith("https://")
+                        for item in rollback_gate["evidence"]),
+                "Pixel rollback evidence requires update, preparation, and capture records")
+        rollback_records = {}
+        rollback_paths = {}
+        rollback_kinds = {
+            "pixel9a_aios_virtual_ab_update",
+            "pixel9a_aios_virtual_ab_rollback_prepare",
+            "pixel9a_aios_virtual_ab_rollback",
+        }
+        for reference in rollback_gate["evidence"]:
+            record_path = (root / reference).resolve()
+            record = load_json(record_path)
+            kind = record.get("kind")
+            require(kind in rollback_kinds and kind not in rollback_records,
+                    "Pixel rollback evidence has an unknown or duplicate phase")
+            rollback_records[kind] = record
+            rollback_paths[kind] = record_path
+        require(set(rollback_records) == rollback_kinds,
+                "Pixel rollback evidence is missing a required phase")
+
+        rollback_update = rollback_records["pixel9a_aios_virtual_ab_update"]
+        prepare = rollback_records["pixel9a_aios_virtual_ab_rollback_prepare"]
+        rollback = rollback_records["pixel9a_aios_virtual_ab_rollback"]
+        update_path = rollback_paths["pixel9a_aios_virtual_ab_update"]
+        prepare_path = rollback_paths["pixel9a_aios_virtual_ab_rollback_prepare"]
+        serial_sha = rollback_update.get("serial_sha256")
+        source_fingerprint = rollback_update.get("source_fingerprint")
+        source_match = re.fullmatch(
+            r"AIOS/aios_tegu/tegu:[^/]+/[^/]+/"
+            r"([A-Za-z0-9._+-]{1,64}):userdebug/test-keys",
+            str(source_fingerprint or ""),
+        )
+        require(source_match is not None,
+                "Pixel rollback source fingerprint is invalid")
+        source_incremental = source_match.group(1)
+        source_slot = rollback_update.get("source_slot")
+        target_slot = rollback_update.get("expected_target_slot")
+        target_fingerprint = physical_ota.get("build_fingerprint")
+        target_incremental = physical_build.get("build_incremental")
+        ota_sha = hashlib.sha256(physical_ota_path.read_bytes()).hexdigest()
+        update_sha = hashlib.sha256(update_path.read_bytes()).hexdigest()
+        if update_result_path is not None:
+            require(update_sha != hashlib.sha256(
+                update_result_path.read_bytes()).hexdigest(),
+                    "Pixel rollback requires a separate OTA application attempt")
+
+        require(rollback_update.get("schema_version") == 1
+                and rollback_update.get("status") == "update_engine_command_passed"
+                and re.fullmatch(r"[0-9a-f]{64}", str(serial_sha or ""))
+                and rollback_update.get("ota_evidence_sha256") == ota_sha
+                and rollback_update.get("ota_archive_sha256")
+                == physical_ota["ota_archive"]["sha256"]
+                and rollback_update.get("target_fingerprint") == target_fingerprint
+                and source_fingerprint != target_fingerprint
+                and source_slot in {"_a", "_b"}
+                and target_slot in {"_a", "_b"}
+                and source_slot != target_slot
+                and rollback_update.get("payload_applicability_verified") is True
+                and rollback_update.get("payload_space_allocated") is True
+                and rollback_update.get("staging_removed") is True
+                and rollback_update.get("reboot_performed") is False
+                and rollback_update.get("proves_update_engine_command_passed") is True
+                and rollback_update.get("proves_post_update_boot") is False
+                and rollback_update.get("proves_slot_switch") is False
+                and rollback_update.get("proves_merge_completed") is False,
+                "Pixel rollback update result does not bind an unverified OTA")
+
+        require(prepare.get("schema_version") == 1
+                and prepare.get("status") == "source_slot_armed"
+                and prepare.get("serial_sha256") == serial_sha
+                and prepare.get("source_fingerprint") == source_fingerprint
+                and prepare.get("source_incremental") == source_incremental
+                and prepare.get("source_slot") == source_slot
+                and prepare.get("target_fingerprint") == target_fingerprint
+                and prepare.get("target_incremental") == target_incremental
+                and prepare.get("pending_target_slot") == target_slot
+                and prepare.get("pre_current_slot") == source_slot
+                and prepare.get("pre_active_slot") == target_slot
+                and prepare.get("post_current_slot") == source_slot
+                and prepare.get("post_active_slot") == source_slot
+                and prepare.get("source_slot_bootable_after_arm") is True
+                and prepare.get("snapshot_update_state") == "unverified"
+                and isinstance(prepare.get("snapshot_count"), int)
+                and prepare["snapshot_count"] > 0
+                and prepare.get("boot_control_merge_status") == "snapshotted"
+                and prepare.get("rollback_indicator_absent") is True
+                and prepare.get("forward_merge_indicator_absent") is True
+                and prepare.get("source_build_fingerprint_present") is True
+                and prepare.get("ota_evidence_sha256") == ota_sha
+                and prepare.get("update_result_sha256") == update_sha
+                and prepare.get("ota_archive_sha256")
+                == physical_ota["ota_archive"]["sha256"]
+                and re.fullmatch(r"[0-9a-f]{64}", str(
+                    prepare.get("confirmation_token_sha256", "")))
+                and prepare.get("reboot_performed") is False
+                and prepare.get("target_boot_performed") is False
+                and prepare.get("proves_update_engine_command_passed") is True
+                and prepare.get("proves_pending_update_was_armed") is True
+                and prepare.get("proves_source_slot_boot") is False
+                and prepare.get("proves_post_update_boot") is False
+                and prepare.get("proves_merge_completed") is False
+                and prepare.get("proves_rollback") is False,
+                "Pixel rollback preparation is not inside the unverified window")
+
+        rollback_checks = rollback.get("checks")
+        require(rollback.get("schema_version") == 1
+                and rollback.get("status") == "passed"
+                and rollback.get("serial_sha256") == serial_sha
+                and rollback.get("source_fingerprint") == source_fingerprint
+                and rollback.get("source_incremental") == source_incremental
+                and rollback.get("source_slot") == source_slot
+                and rollback.get("cancelled_target_fingerprint") == target_fingerprint
+                and rollback.get("cancelled_target_incremental") == target_incremental
+                and rollback.get("cancelled_target_slot") == target_slot
+                and rollback.get("final_active_slot") == source_slot
+                and rollback.get("ota_evidence_sha256") == ota_sha
+                and rollback.get("update_result_sha256") == update_sha
+                and rollback.get("prepare_result_sha256")
+                == hashlib.sha256(prepare_path.read_bytes()).hexdigest()
+                and rollback.get("ota_archive_sha256")
+                == physical_ota["ota_archive"]["sha256"]
+                and re.fullmatch(r"[0-9a-f]{64}", str(
+                    rollback.get("snapshot_dump_sha256", "")))
+                and isinstance(rollback_checks, dict)
+                and all(rollback_checks.get(field) is True for field in (
+                    "exact_ota_update_prepare_chain_verified",
+                    "source_boot_completed",
+                    "full_device_not_gsi",
+                    "exact_source_fingerprint",
+                    "source_slot_current_and_active",
+                    "source_slot_marked_successful",
+                    "source_slot_bootable",
+                    "unverified_update_cancelled",
+                    "snapshot_update_state_none",
+                    "no_snapshot_records",
+                    "no_snapshot_indicators",
+                    "boot_control_merge_status_none",
+                ))
+                and rollback.get("target_boot_performed") is False
+                and rollback.get("fresh_update_required") is True
+                and rollback.get("proves_update_engine_command_passed") is True
+                and rollback.get("proves_source_slot_boot") is True
+                and rollback.get("proves_post_update_boot") is False
+                and rollback.get("proves_merge_completed") is False
+                and rollback.get("proves_rollback") is True
+                and rollback.get("proves_telephony_gate") is False
+                and rollback.get("proves_model_inference") is False
+                and rollback.get("proves_model_latency_gate") is False
+                and rollback.get("proves_media_gate") is False,
+                "Pixel rollback evidence does not prove pre-merge cancellation")
 
     latest_build_gates = (
         "integration.android_latest_manifest_locked",

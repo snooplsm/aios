@@ -414,7 +414,11 @@ separate release requirements. See
 `docs/pixel9a-bringup.md` for the guarded commands.
 Post-update merge capture is read-only and requires both Snapshot Manager and
 Boot Control to report no remaining Virtual A/B state for the exact evidenced
-target slot.
+target slot. Rollback is tested in a separate OTA attempt while its snapshots
+are still `unverified`: an exact confirmation re-arms the current source slot,
+the tool never reboots, and post-reboot evidence must show the pending update
+fully cancelled. A fresh OTA application is then required for target boot and
+merge because Virtual A/B cannot roll back after merging starts.
 
 When Google's moving manifest ref changes, refresh its reviewed observation
 before syncing projects:

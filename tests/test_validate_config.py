@@ -1141,6 +1141,140 @@ class IntegrationStructureTests(unittest.TestCase):
             merge["snapshot_count"] = 0
             merge_path.write_text(json.dumps(merge), encoding="utf-8")
 
+            rollback_update = dict(update_result)
+            rollback_update["attempt_id"] = "rollback-fixture"
+            rollback_update_path = evidence_dir / "rollback-update-result.json"
+            rollback_update_path.write_text(
+                json.dumps(rollback_update), encoding="utf-8"
+            )
+            rollback_prepare = {
+                "schema_version": 1,
+                "status": "source_slot_armed",
+                "kind": "pixel9a_aios_virtual_ab_rollback_prepare",
+                "serial_sha256": serial_sha,
+                "source_fingerprint": update_result["source_fingerprint"],
+                "source_incremental": "2026081300",
+                "source_slot": "_a",
+                "target_fingerprint": build["build_fingerprint"],
+                "target_incremental": build["build_incremental"],
+                "pending_target_slot": "_b",
+                "pre_current_slot": "_a",
+                "pre_active_slot": "_b",
+                "post_current_slot": "_a",
+                "post_active_slot": "_a",
+                "source_slot_bootable_after_arm": True,
+                "snapshot_update_state": "unverified",
+                "snapshot_count": 4,
+                "boot_control_merge_status": "snapshotted",
+                "rollback_indicator_absent": True,
+                "forward_merge_indicator_absent": True,
+                "source_build_fingerprint_present": True,
+                "ota_evidence_sha256": hashlib.sha256(
+                    ota_path.read_bytes()
+                ).hexdigest(),
+                "update_result_sha256": hashlib.sha256(
+                    rollback_update_path.read_bytes()
+                ).hexdigest(),
+                "ota_archive_sha256": ota["ota_archive"]["sha256"],
+                "confirmation_token_sha256": "4" * 64,
+                "reboot_performed": False,
+                "target_boot_performed": False,
+                "proves_update_engine_command_passed": True,
+                "proves_pending_update_was_armed": True,
+                "proves_source_slot_boot": False,
+                "proves_post_update_boot": False,
+                "proves_merge_completed": False,
+                "proves_rollback": False,
+            }
+            rollback_prepare_path = evidence_dir / "rollback-prepare.json"
+            rollback_prepare_path.write_text(
+                json.dumps(rollback_prepare), encoding="utf-8"
+            )
+            rollback = {
+                "schema_version": 1,
+                "status": "passed",
+                "kind": "pixel9a_aios_virtual_ab_rollback",
+                "serial_sha256": serial_sha,
+                "source_fingerprint": update_result["source_fingerprint"],
+                "source_incremental": "2026081300",
+                "source_slot": "_a",
+                "cancelled_target_fingerprint": build["build_fingerprint"],
+                "cancelled_target_incremental": build["build_incremental"],
+                "cancelled_target_slot": "_b",
+                "final_active_slot": "_a",
+                "ota_evidence_sha256": hashlib.sha256(
+                    ota_path.read_bytes()
+                ).hexdigest(),
+                "update_result_sha256": hashlib.sha256(
+                    rollback_update_path.read_bytes()
+                ).hexdigest(),
+                "prepare_result_sha256": hashlib.sha256(
+                    rollback_prepare_path.read_bytes()
+                ).hexdigest(),
+                "ota_archive_sha256": ota["ota_archive"]["sha256"],
+                "snapshot_dump_sha256": "5" * 64,
+                "checks": {
+                    "exact_ota_update_prepare_chain_verified": True,
+                    "source_boot_completed": True,
+                    "full_device_not_gsi": True,
+                    "exact_source_fingerprint": True,
+                    "source_slot_current_and_active": True,
+                    "source_slot_marked_successful": True,
+                    "source_slot_bootable": True,
+                    "unverified_update_cancelled": True,
+                    "snapshot_update_state_none": True,
+                    "no_snapshot_records": True,
+                    "no_snapshot_indicators": True,
+                    "boot_control_merge_status_none": True,
+                },
+                "target_boot_performed": False,
+                "fresh_update_required": True,
+                "proves_update_engine_command_passed": True,
+                "proves_source_slot_boot": True,
+                "proves_post_update_boot": False,
+                "proves_merge_completed": False,
+                "proves_rollback": True,
+                "proves_telephony_gate": False,
+                "proves_model_inference": False,
+                "proves_model_latency_gate": False,
+                "proves_media_gate": False,
+            }
+            rollback_path = evidence_dir / "rollback.json"
+            rollback_path.write_text(json.dumps(rollback), encoding="utf-8")
+            status["statuses"]["update.rollback_to_previous_slot"] = {
+                "status": "passed",
+                "evidence": [
+                    rollback_update_path.relative_to(temporary).as_posix(),
+                    rollback_prepare_path.relative_to(temporary).as_posix(),
+                    rollback_path.relative_to(temporary).as_posix(),
+                ],
+            }
+            status_path.write_text(json.dumps(status), encoding="utf-8")
+            validator.validate_release_configuration(temporary)
+
+            status["statuses"]["update.rollback_to_previous_slot"]["evidence"][0] = (
+                update_path.relative_to(temporary).as_posix()
+            )
+            status_path.write_text(json.dumps(status), encoding="utf-8")
+            with self.assertRaisesRegex(
+                validator.ValidationError, "separate OTA application attempt"
+            ):
+                validator.validate_release_configuration(temporary)
+            status["statuses"]["update.rollback_to_previous_slot"]["evidence"][0] = (
+                rollback_update_path.relative_to(temporary).as_posix()
+            )
+            status_path.write_text(json.dumps(status), encoding="utf-8")
+
+            rollback["fresh_update_required"] = False
+            rollback_path.write_text(json.dumps(rollback), encoding="utf-8")
+            with self.assertRaisesRegex(
+                validator.ValidationError,
+                "does not prove pre-merge cancellation",
+            ):
+                validator.validate_release_configuration(temporary)
+            rollback["fresh_update_required"] = True
+            rollback_path.write_text(json.dumps(rollback), encoding="utf-8")
+
             ota["target_files_sha256"] = "0" * 64
             ota_path.write_text(json.dumps(ota), encoding="utf-8")
             with self.assertRaisesRegex(
