@@ -10,8 +10,19 @@ rather than trusting the requested priority, and closes all descriptors on
 cancellation or binder death.
 
 Capabilities are semantic (`streaming_asr`, `text_generation`,
-`image_understanding`, `speech_synthesis`). Model IDs are diagnostic data, not a
-contract that callers may pin indefinitely.
+`text_embedding`, `image_understanding`, `speech_synthesis`). Model IDs are
+diagnostic data, not a contract that callers may pin indefinitely.
+
+Embedding transport is typed and deliberately separate from generation JSON.
+An embedding request fixes `embeddingTask` to `query` or `document`, carries no
+generation-token budget, and accepts exactly one complete, non-empty text input
+of at most 4,096 UTF-16 code units. The isolated provider owns the exact task
+prefix and tokenizer pinned by the model bundle; the client submits unprefixed
+text. The provider cannot stream generation chunks. Completion must contain
+exactly 256 finite, L2-normalized floats and no JSON; every other
+capability must contain JSON and no vector. The broker rejects mixed payloads,
+wrong dimensions, non-finite values, and non-normalized output before invoking
+the client callback.
 
 Current startup code verifies the locally generated artifact manifest, confines
 canonical paths to `/product/etc/aios/models`, recomputes exact size/SHA-256,
@@ -27,8 +38,9 @@ policy rather than duplicated in service code. RX and TX transcription share a
 two-stream ASR pool, while reasoning and speech synthesis share one call-agent
 lane; all work also consumes one of three global slots. Per-client quotas count
 both active and queued sessions. A class-saturated queued request cannot block
-promotion of another class that still has capacity, and background media uses
-only idle capacity outside a live call.
+promotion of another class that still has capacity. Interactive context-query
+embedding shares the call-agent lane, while asynchronous context indexing shares
+the fully preemptible media-background class and cannot run during a call.
 
 Selection remains primary-first within that chain and de-duplicates shared
 models. A fallback is usable only when its exact artifact digest was separately
@@ -79,3 +91,9 @@ aggregate chunk-count/text bounds. Lifecycle call ASR has no arbitrary total
 transcript ceiling; its callbacks are instead bounded against the captured-audio
 timeline, while every individual chunk remains size-, sequence-, language-,
 confidence-, and timestamp-validated.
+
+`text_embedding` is a reserved, fail-closed API contract at present. It is not
+listed for any authorized client and no catalog model advertises it until the
+gated EmbeddingGemma model, tokenizer, preprocessing prefix contract, LiteRT
+runtime, notices, and exact bundle manifest have been accepted and reproducibly
+packaged. Adding the typed fields does not make semantic retrieval available.

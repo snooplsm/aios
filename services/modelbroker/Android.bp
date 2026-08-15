@@ -35,6 +35,8 @@ java_test_host {
         "src/com/aios/modelbroker/CallActivityLeaseTracker.java",
         "src/com/aios/modelbroker/BuildFingerprintPolicy.java",
         "src/com/aios/modelbroker/CatalogTierPlanner.java",
+        "src/com/aios/modelbroker/EmbeddingRequestPolicy.java",
+        "src/com/aios/modelbroker/EmbeddingResultPolicy.java",
         "src/com/aios/modelbroker/PolicyFileReader.java",
         "src/com/aios/modelbroker/RuntimeActivationState.java",
         "src/com/aios/modelbroker/RuntimeCandidatePolicy.java",

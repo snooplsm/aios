@@ -1182,6 +1182,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/modelbroker/AndroidManifest.xml",
         "services/modelbroker/aidl/com/aios/model/IAiosModelService.aidl",
         "services/modelbroker/aidl/com/aios/model/ModelRequest.aidl",
+        "services/modelbroker/aidl/com/aios/model/InferenceResult.aidl",
         "services/modelbroker/src/com/aios/modelbroker/ModelBrokerService.java",
         "services/modelbroker/src/com/aios/modelbroker/ArtifactVerifier.java",
         "services/modelbroker/src/com/aios/modelbroker/AuthorizedClientPolicy.java",
@@ -1189,6 +1190,8 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/modelbroker/src/com/aios/modelbroker/CatalogPolicy.java",
         "services/modelbroker/src/com/aios/modelbroker/CatalogTierPlanner.java",
         "services/modelbroker/src/com/aios/modelbroker/DeviceModelAdmission.java",
+        "services/modelbroker/src/com/aios/modelbroker/EmbeddingRequestPolicy.java",
+        "services/modelbroker/src/com/aios/modelbroker/EmbeddingResultPolicy.java",
         "services/modelbroker/src/com/aios/modelbroker/BrokerProductProperties.java",
         "services/modelbroker/src/com/aios/modelbroker/BrokerCapacityPolicy.java",
         "services/modelbroker/src/com/aios/modelbroker/BrokerState.java",
@@ -1214,6 +1217,9 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/modelbroker/tests/src/com/aios/modelbroker/SessionDeadlineQueueTest.java",
         "services/modelbroker/tests/src/com/aios/modelbroker/CallActivityLeaseTrackerTest.java",
         "services/modelbroker/tests/src/com/aios/modelbroker/BuildFingerprintPolicyTest.java",
+        "services/modelbroker/tests/src/com/aios/modelbroker/EmbeddingRequestPolicyTest.java",
+        "services/modelbroker/tests/src/com/aios/modelbroker/EmbeddingResultPolicyTest.java",
+        "services/modelbroker/tests/src/com/aios/modelbroker/EmbeddingWorkClassTest.java",
         "services/modelbroker/tests/src/com/aios/modelbroker/PolicyFileReaderTest.java",
         "services/modelbroker/tests/src/com/aios/modelbroker/CatalogTierPlannerTest.java",
         "services/modelbroker/tests/src/com/aios/modelbroker/RuntimeCandidatePolicyTest.java",
@@ -3460,6 +3466,22 @@ def validate_aosp_overlay(root: Path) -> None:
     session_controller = (root / "services" / "modelbroker" / "src" / "com" /
                           "aios" / "modelbroker" / "SessionController.java").read_text(
                               encoding="utf-8")
+    embedding_request_policy = (
+        root / "services" / "modelbroker" / "src" / "com" / "aios" /
+        "modelbroker" / "EmbeddingRequestPolicy.java"
+    ).read_text(encoding="utf-8")
+    embedding_result_policy = (
+        root / "services" / "modelbroker" / "src" / "com" / "aios" /
+        "modelbroker" / "EmbeddingResultPolicy.java"
+    ).read_text(encoding="utf-8")
+    model_request_aidl = (
+        root / "services" / "modelbroker" / "aidl" / "com" / "aios" /
+        "model" / "ModelRequest.aidl"
+    ).read_text(encoding="utf-8")
+    inference_result_aidl = (
+        root / "services" / "modelbroker" / "aidl" / "com" / "aios" /
+        "model" / "InferenceResult.aidl"
+    ).read_text(encoding="utf-8")
     require("closeDescriptor(pcmStream)" in session_controller
             and "closeDescriptor(media)" in session_controller
             and "closeDescriptor(pcmSink)" in session_controller
@@ -3487,6 +3509,25 @@ def validate_aosp_overlay(root: Path) -> None:
             and "record.chunkChars" in session_controller
             and "record.createdAtElapsedMillis" in session_controller,
             "broker must apply workload-aware aggregate or timeline chunk bounds")
+    require('String embeddingTask' in model_request_aidl
+            and 'float[] embedding' in inference_result_aidl
+            and 'CAPABILITY = "text_embedding"' in embedding_request_policy
+            and 'QUERY = "query"' in embedding_request_policy
+            and 'DOCUMENT = "document"' in embedding_request_policy
+            and "maxOutputTokens == 0" in embedding_request_policy
+            and "MAX_INPUT_CHARS = 4_096" in embedding_request_policy
+            and "acceptsTextInput" in embedding_request_policy
+            and "permitsGenerationChunks" in embedding_request_policy
+            and "permitsTextSubmission" in embedding_request_policy
+            and "DIMENSIONS = 256" in embedding_result_policy
+            and "Float.isFinite(value)" in embedding_result_policy
+            and "MIN_SQUARED_NORM" in embedding_result_policy
+            and "MAX_SQUARED_NORM" in embedding_result_policy
+            and "EmbeddingResultPolicy.accepts" in session_controller
+            and "result.embedding" in session_controller
+            and "record.embeddingInputSubmitted" in session_controller
+            and "EmbeddingRequestPolicy.permitsGenerationChunks" in session_controller,
+            "embedding transport must be typed, one-shot, bounded, non-streaming, finite, normalized, and 256-dimensional")
 
     runtime_api = (root / "services" / "runtimeapi" / "aidl" / "com" / "aios" /
                    "runtime" / "IAiosRuntimeProvider.aidl").read_text(encoding="utf-8")
@@ -3812,6 +3853,11 @@ def validate_aosp_overlay(root: Path) -> None:
     work_class_source = (broker_source_root / "WorkClass.java").read_text(
         encoding="utf-8"
     )
+    require("EmbeddingRequestPolicy.accepts" in broker_state
+            and '"context_background".equals(request.workload)' in broker_state
+            and 'case "context_query"' in work_class_source
+            and 'case "context_background"' in work_class_source,
+            "embedding queries must be interactive while background indexing remains call-preemptible")
     runtime_pressure_source = (
         broker_source_root / "RuntimePressurePolicy.java"
     ).read_text(encoding="utf-8")
@@ -6326,7 +6372,8 @@ def validate_authorized_clients(root: Path) -> None:
     packages = [client["package"] for client in clients]
     require(len(packages) == len(set(packages)), "authorized packages must be unique")
     allowed_workloads = {
-        "call_rx", "call_tx", "call_agent", "call_background", "media_background"
+        "call_rx", "call_tx", "call_agent", "call_background", "media_background",
+        "context_query", "context_background",
     }
     for client in clients:
         require(str(client["package"]).startswith("com.aios."),

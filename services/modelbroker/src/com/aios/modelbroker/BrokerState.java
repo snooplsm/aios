@@ -137,6 +137,10 @@ final class BrokerState {
         if (!client.allows(request)) {
             throw new IllegalArgumentException("request exceeds client policy");
         }
+        if (!EmbeddingRequestPolicy.accepts(
+                request.capability, request.embeddingTask, request.maxOutputTokens)) {
+            throw new IllegalArgumentException("request has an invalid embedding task");
+        }
         if (request.requestId == null || request.requestId.isEmpty()) {
             throw new IllegalArgumentException("request ID is required");
         }
@@ -147,8 +151,9 @@ final class BrokerState {
             throw new IllegalArgumentException(
                     "request deadline is expired, too distant, or invalid for its capability");
         }
-        if (callActive && "media_background".equals(request.workload)) {
-            throw new IllegalArgumentException("media inference is blocked during a call");
+        if (callActive && ("media_background".equals(request.workload)
+                || "context_background".equals(request.workload))) {
+            throw new IllegalArgumentException("background inference is blocked during a call");
         }
         List<VerifiedArtifact> candidates = RuntimeCandidatePolicy.requestCandidates(
                 selectedArtifacts.values(),

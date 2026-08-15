@@ -52,6 +52,10 @@ final class SessionController implements AutoCloseable {
 
         @Override
         public boolean accepts(String capability) {
+            if (EmbeddingRequestPolicy.CAPABILITY.equals(capability)) {
+                return EmbeddingRequestPolicy.acceptsTextInput(
+                        capability, text, endOfInput);
+            }
             return "text_generation".equals(capability)
                     || "call_classification".equals(capability)
                     || "call_summary".equals(capability)
@@ -168,6 +172,7 @@ final class SessionController implements AutoCloseable {
         VerifiedArtifact artifact;
         RuntimeAdapter.Session runtimeSession;
         boolean audioOutputAttached;
+        boolean embeddingInputSubmitted;
         boolean terminal;
         long lastChunkSequence = -1L;
         long chunkCount;
@@ -434,10 +439,17 @@ final class SessionController implements AutoCloseable {
                 input.close();
                 throw new SecurityException("session is owned by another UID");
             }
-            if (!input.accepts(record.request.capability)) {
+            boolean embeddingText = input instanceof TextInput
+                    && EmbeddingRequestPolicy.CAPABILITY.equals(record.request.capability);
+            if (!input.accepts(record.request.capability)
+                    || (embeddingText && !EmbeddingRequestPolicy.permitsTextSubmission(
+                            record.request.capability, record.embeddingInputSubmitted))) {
                 invalidType = true;
                 runtime = null;
             } else {
+                if (embeddingText) {
+                    record.embeddingInputSubmitted = true;
+                }
                 runtime = record.runtimeSession;
             }
             if (!invalidType && runtime == null) {
@@ -707,7 +719,10 @@ final class SessionController implements AutoCloseable {
     }
 
     private synchronized boolean acceptChunk(Record record, GenerationChunk chunk) {
-        if (records.get(record.id) != record || chunk == null || chunk.text == null
+        if (records.get(record.id) != record
+                || !EmbeddingRequestPolicy.permitsGenerationChunks(
+                        record.request.capability)
+                || chunk == null || chunk.text == null
                 || chunk.text.length() > MAX_CHUNK_CHARS
                 || chunk.language == null
                 || !record.artifact.languages.contains(chunk.language)
@@ -746,10 +761,16 @@ final class SessionController implements AutoCloseable {
                 && record.artifact.modelId.equals(result.modelId)
                 && record.artifact.sha256.equals(result.modelDigest)
                 && record.artifact.languages.contains(result.language)
-                && result.outputJson != null
-                && result.outputJson.length() <= MAX_RESULT_CHARS
+                && EmbeddingResultPolicy.accepts(
+                        record.request.capability, result.embedding, result.outputJson)
                 && result.elapsedMillis >= 0L;
         if (!fieldsValid) {
+            return false;
+        }
+        if (EmbeddingRequestPolicy.CAPABILITY.equals(record.request.capability)) {
+            return true;
+        }
+        if (result.outputJson.length() > MAX_RESULT_CHARS) {
             return false;
         }
         try {

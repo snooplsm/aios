@@ -47,6 +47,14 @@ public final class SessionDeadlinePolicyTest {
     }
 
     @Test
+    public void textEmbeddingRejectsLifecycleBoundDeadline() {
+        assertFalse(SessionDeadlinePolicy.validMode(
+                "text_embedding", SessionDeadlinePolicy.LIFECYCLE_BOUND));
+        assertFalse(SessionDeadlinePolicy.validAt(
+                "text_embedding", SessionDeadlinePolicy.LIFECYCLE_BOUND, 1L));
+    }
+
+    @Test
     public void unknownCapabilityFailsClosedForLifecycleMode() {
         assertFalse(SessionDeadlinePolicy.validMode(
                 "future_capability", SessionDeadlinePolicy.LIFECYCLE_BOUND));

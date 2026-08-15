@@ -21,10 +21,12 @@ enum WorkClass {
             case "call_tx":
                 return CALL_TX;
             case "call_agent":
+            case "context_query":
                 return CALL_AGENT;
             case "call_background":
                 return CALL_BACKGROUND;
             case "media_background":
+            case "context_background":
             default:
                 return MEDIA_BACKGROUND;
         }

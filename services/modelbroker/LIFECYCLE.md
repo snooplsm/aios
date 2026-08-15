@@ -44,12 +44,14 @@ Server policy assigns one of four classes:
 
 1. `CALL_RX_REALTIME`: incoming call transcription; cannot be displaced by
    background work.
-2. `CALL_INTERACTIVE`: uplink transcription, receptionist reasoning, and TTS.
+2. `CALL_INTERACTIVE`: uplink transcription, receptionist reasoning, TTS, and
+   caller-context query embeddings.
 3. `CALL_BACKGROUND`: summary compaction while the live call lane is idle;
    immediately preempted by RX, TX, receptionist reasoning, TTS, memory pressure,
    or new caller speech observed by the call pipeline.
-4. `MEDIA_BACKGROUND`: photo/video work; preemptible at any model boundary and
-   blocked for the complete ringing/active-call lease.
+4. `MEDIA_BACKGROUND`: photo/video work and asynchronous context-document
+   embedding; preemptible at any model boundary and blocked for the complete
+   ringing/active-call lease.
 
 A ringing or active call immediately prevents new media leases and requests
 cancellation of existing media inference. If memory cannot hold RX ASR plus an

@@ -116,8 +116,11 @@ opaque conversation identity, allowed source types, and expiry predicates. It
 combines semantic cosine similarity, FTS rank, and recency, then returns the same
 eight-snippet API. If query embedding is absent, corrupt, late, or produced by a
 different artifact, retrieval uses the existing deterministic lexical/recency
-path. No vector or raw SQL crosses Binder, and neither an application nor the
-language model may generate database statements.
+path. No stored vector or raw SQL crosses the Communication Context Binder. A
+fresh query/document vector may cross only the signature-protected Model Broker
+boundary as an exactly 256-float typed result; it is never exposed to Phone,
+Messaging, or Call Intelligence. Neither an application nor the language model
+may generate database statements.
 
 The selected embedding candidate is Google's 300M EmbeddingGemma with its
 Matryoshka 256-dimensional output and documented query/document task prefixes.

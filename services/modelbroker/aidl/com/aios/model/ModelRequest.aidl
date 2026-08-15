@@ -19,4 +19,10 @@ parcelable ModelRequest {
      * the first admitted capability/language candidate, including benchmarks.
      */
     boolean allowFallback;
+    /**
+     * Required as "query" or "document" only for text_embedding. The runtime
+     * applies the artifact-pinned task prefix; callers submit unprefixed text.
+     * Must be absent for every other capability.
+     */
+    String embeddingTask;
 }
