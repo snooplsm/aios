@@ -57,11 +57,34 @@ function ConvertFrom-AiosRuntimeDiagnosticLog {
     $tts = [ordered]@{}
     $liteRt = [ordered]@{}
     $whisper = [ordered]@{}
+    $receptionistPrewarm = [ordered]@{}
     $ttsEngineEvents = [Collections.Generic.List[object]]::new()
     $liteRtEngineEvents = [Collections.Generic.List[object]]::new()
     $whisperModelEvents = [Collections.Generic.List[object]]::new()
 
     foreach ($line in $Lines) {
+        if ($line -match "AiosReceptionist.*PREWARM_START serial=(\d+) language=(\S+) elapsed_ms=(\d+)") {
+            $event = Get-AiosRuntimeSession -Sessions $receptionistPrewarm `
+                -SessionId ([long]$Matches[1]) -Runtime "receptionist_prewarm"
+            $event.language = $Matches[2]
+            $event.start_elapsed_ms = [long]$Matches[3]
+            continue
+        }
+        if ($line -match "AiosReceptionist.*PREWARM_HANDOFF serial=(\d+) elapsed_ms=(\d+)") {
+            $event = Get-AiosRuntimeSession -Sessions $receptionistPrewarm `
+                -SessionId ([long]$Matches[1]) -Runtime "receptionist_prewarm"
+            $event.handoff_elapsed_ms = [long]$Matches[2]
+            $event.terminal_status = "handed_off"
+            continue
+        }
+        if ($line -match "AiosReceptionist.*PREWARM_END serial=(\d+) detail=(\S+) elapsed_ms=(\d+)") {
+            $event = Get-AiosRuntimeSession -Sessions $receptionistPrewarm `
+                -SessionId ([long]$Matches[1]) -Runtime "receptionist_prewarm"
+            $event.detail = $Matches[2]
+            $event.elapsed_ms = [long]$Matches[3]
+            $event.terminal_status = "ended"
+            continue
+        }
         if ($line -match "AiosTtsRuntime.*SESSION_CREATED id=(\d+) model=(\S+) language=(\S+) backend=(\S+)") {
             $session = Get-AiosRuntimeSession -Sessions $tts `
                 -SessionId ([long]$Matches[1]) -Runtime "sherpa_onnx_tts"
@@ -248,6 +271,8 @@ function ConvertFrom-AiosRuntimeDiagnosticLog {
 
     return [pscustomobject][ordered]@{
         schema_version = 1
+        receptionist_prewarm_events = ConvertTo-AiosRuntimeSessionArray `
+            -Sessions $receptionistPrewarm
         tts_sessions = ConvertTo-AiosRuntimeSessionArray -Sessions $tts
         tts_engine_events = @($ttsEngineEvents)
         litert_lm_sessions = ConvertTo-AiosRuntimeSessionArray -Sessions $liteRt

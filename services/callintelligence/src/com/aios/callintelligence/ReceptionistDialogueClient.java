@@ -83,6 +83,7 @@ final class ReceptionistDialogueClient implements AutoCloseable {
         final CallState owner;
         final long requestSerial;
         final String language;
+        final long createdAtElapsedRealtimeMillis;
         IAiosModelService broker;
         long sessionId = -1L;
 
@@ -90,11 +91,13 @@ final class ReceptionistDialogueClient implements AutoCloseable {
                 String callId,
                 CallState owner,
                 long requestSerial,
-                String language) {
+                String language,
+                long createdAtElapsedRealtimeMillis) {
             this.callId = callId;
             this.owner = owner;
             this.requestSerial = requestSerial;
             this.language = language;
+            this.createdAtElapsedRealtimeMillis = createdAtElapsedRealtimeMillis;
         }
     }
 
@@ -223,7 +226,12 @@ final class ReceptionistDialogueClient implements AutoCloseable {
                     || nextRequestSerial == Long.MAX_VALUE) {
                 return false;
             }
-            warmup = new Warmup(callId, state, ++nextRequestSerial, language);
+            warmup = new Warmup(
+                    callId,
+                    state,
+                    ++nextRequestSerial,
+                    language,
+                    SystemClock.elapsedRealtime());
             state.warmup = warmup;
         }
         worker.execute(() -> dispatchWarmup(warmup));
@@ -296,6 +304,10 @@ final class ReceptionistDialogueClient implements AutoCloseable {
             Log.i(TAG, "COMPACTION_PREEMPT reason=live_reply");
         }
         cancel(preemptedBroker, preemptedSessionId);
+        if (preemptedWarmup != null) {
+            Log.i(TAG, "PREWARM_HANDOFF serial=" + preemptedWarmup.requestSerial
+                    + " elapsed_ms=" + elapsedWarmupMillis(preemptedWarmup));
+        }
         cancelWarmup(preemptedWarmup);
         scheduleTimeout(pending);
         worker.execute(() -> dispatch(pending));
@@ -440,7 +452,8 @@ final class ReceptionistDialogueClient implements AutoCloseable {
                 return;
             }
             Log.i(TAG, "PREWARM_START serial=" + warmup.requestSerial
-                    + " language=" + warmup.language);
+                    + " language=" + warmup.language
+                    + " elapsed_ms=" + elapsedWarmupMillis(warmup));
             listener.onStatus(warmup.callId, "receptionist_prewarming");
         } catch (RemoteException error) {
             cancel(broker, sessionId);
@@ -638,7 +651,9 @@ final class ReceptionistDialogueClient implements AutoCloseable {
             if (current) state.warmup = null;
         }
         if (!current) return;
-        Log.i(TAG, "PREWARM_END serial=" + warmup.requestSerial + " detail=" + detail);
+        Log.i(TAG, "PREWARM_END serial=" + warmup.requestSerial
+                + " detail=" + detail
+                + " elapsed_ms=" + elapsedWarmupMillis(warmup));
         listener.onStatus(warmup.callId, detail);
     }
 
@@ -1004,5 +1019,11 @@ final class ReceptionistDialogueClient implements AutoCloseable {
     private static void cancelWarmup(Warmup warmup) {
         if (warmup == null) return;
         cancel(warmup.broker, warmup.sessionId);
+    }
+
+    private static long elapsedWarmupMillis(Warmup warmup) {
+        long now = SystemClock.elapsedRealtime();
+        return now >= warmup.createdAtElapsedRealtimeMillis
+                ? now - warmup.createdAtElapsedRealtimeMillis : 0L;
     }
 }

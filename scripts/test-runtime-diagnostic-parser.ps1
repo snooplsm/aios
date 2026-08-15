@@ -3,6 +3,10 @@ $module = Join-Path $PSScriptRoot "AiosRuntimeDiagnostics.psm1"
 Import-Module -Name $module -Force
 
 $lines = @(
+    "08-15 I AiosReceptionist: PREWARM_START serial=9 language=en elapsed_ms=12",
+    "08-15 I AiosReceptionist: PREWARM_HANDOFF serial=9 elapsed_ms=4300",
+    "08-15 I AiosReceptionist: PREWARM_START serial=10 language=es elapsed_ms=4",
+    "08-15 I AiosReceptionist: PREWARM_END serial=10 detail=receptionist_prewarm_error_4 elapsed_ms=900",
     "08-15 I AiosTtsRuntime: SESSION_CREATED id=7 model=supertonic3-en-es-int8 language=en backend=cpu",
     "08-15 I AiosTtsRuntime: ENGINE_INITIALIZE_DONE model=supertonic3-en-es-int8 elapsed_ms=1200",
     "08-15 I AiosTtsRuntime: ENGINE_READY id=7 elapsed_ms=1300",
@@ -26,6 +30,21 @@ $lines = @(
 
 $parsed = ConvertFrom-AiosRuntimeDiagnosticLog -Lines $lines
 if ($parsed.schema_version -ne 1) { throw "schema version changed" }
+if (@($parsed.receptionist_prewarm_events).Count -ne 2) {
+    throw "receptionist prewarm event count changed"
+}
+$prewarm = $parsed.receptionist_prewarm_events[0]
+if ($prewarm.language -ne "en" -or $prewarm.start_elapsed_ms -ne 12 -or
+    $prewarm.handoff_elapsed_ms -ne 4300 -or
+    $prewarm.terminal_status -ne "handed_off") {
+    throw "receptionist prewarm parsing failed"
+}
+$failedPrewarm = $parsed.receptionist_prewarm_events[1]
+if ($failedPrewarm.language -ne "es" -or $failedPrewarm.elapsed_ms -ne 900 -or
+    $failedPrewarm.detail -ne "receptionist_prewarm_error_4" -or
+    $failedPrewarm.terminal_status -ne "ended") {
+    throw "receptionist prewarm terminal parsing failed"
+}
 if (@($parsed.tts_sessions).Count -ne 1) { throw "TTS session count changed" }
 $tts = $parsed.tts_sessions[0]
 if ($tts.first_audio_after_engine_ready_ms -ne 800 -or
