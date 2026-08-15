@@ -327,9 +327,12 @@ python -m unittest discover -s tests -v
 python tools/release_report.py
 ```
 
-`config/release_status.json` starts with every physical/build gate marked
-`not_run`. A gate may be changed to `passed` only with an evidence path or URL;
-`python tools/release_report.py --require-pass` is the release-blocking check.
+`config/release_status.json` keeps unrun physical behavior at `not_run` and
+marks a gate `passed` only with a reviewable evidence path or URL. Pixel build
+and OTA records stay external until their metadata is explicitly approved for
+publication; even then they prove packaging only, not boot, merge, rollback,
+telephony, or inference. `python tools/release_report.py --require-pass` is the
+release-blocking check.
 
 On a synced AOSP tree, capture and validate the immutable lane lock, then verify
 every maintenance topic before applying it:

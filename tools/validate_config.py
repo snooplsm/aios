@@ -7195,6 +7195,173 @@ def validate_release_configuration(root: Path) -> None:
             require(evidence_path.is_file(),
                     f"{gate_id}: local evidence file does not exist: {reference}")
 
+    physical_build_gate_ids = (
+        "build.manifest_locked",
+        "build.userdebug_succeeds",
+    )
+    physical_build_references = {
+        reference
+        for gate_id in physical_build_gate_ids
+        if statuses[gate_id]["status"] == "passed"
+        for reference in statuses[gate_id]["evidence"]
+    }
+    physical_build = None
+    physical_build_path = None
+    if physical_build_references:
+        require(len(physical_build_references) == 1,
+                "Pixel build gates must reference one exact build record")
+        physical_build_reference = next(iter(physical_build_references))
+        require(not physical_build_reference.startswith("https://"),
+                "Pixel build evidence must be locally reviewable")
+        physical_build_path = (root / physical_build_reference).resolve()
+        physical_build = load_json(physical_build_path)
+        target_files = physical_build.get("target_files_package")
+        generated_support = physical_build.get("generated_device_support")
+        generated_payloads = physical_build.get("generated_payloads")
+        model_pack = (generated_payloads or {}).get("model_pack")
+        runtime_packs = (generated_payloads or {}).get("runtime_packs")
+        artifacts = physical_build.get("artifacts")
+        require(physical_build.get("schema_version") == 2
+                and physical_build.get("status") == "passed"
+                and physical_build.get("lane") == "pixel9a_tegu_hardware"
+                and physical_build.get("kind") == "physical_hardware"
+                and physical_build.get("product") == "aios_tegu"
+                and physical_build.get("target_device") == "tegu"
+                and physical_build.get("lunch_target")
+                == "aios_tegu-cur-userdebug"
+                and physical_build.get("android_release") == "17"
+                and physical_build.get("artifact_layout")
+                == "full_device_target_files"
+                and physical_build.get("lane_eligible_for_physical_gates") is True
+                and physical_build.get("proves_physical_runtime_gate") is False
+                and physical_build.get("manifest_repository_revision")
+                == hardware.get("manifest_commit")
+                and re.fullmatch(r"[0-9a-f]{40}",
+                                 str(physical_build.get("aios_revision", "")))
+                and re.fullmatch(r"[0-9a-f]{64}",
+                                 str(physical_build.get("manifest_lock_sha256", "")))
+                and re.fullmatch(r"[0-9a-f]{64}",
+                                 str(physical_build.get("manifest_sha256", "")))
+                and re.fullmatch(r"[0-9a-f]{64}",
+                                 str(physical_build.get("build_log_sha256", "")))
+                and physical_build.get("deployable_images")
+                == hardware.get("required_images")
+                and isinstance(generated_support, dict)
+                and generated_support.get("path") == "vendor/google_devices/tegu"
+                and generated_support.get("generator") == "adevtool"
+                and generated_support.get("symlink_count") == 0
+                and isinstance(target_files, dict)
+                and target_files.get("size_bytes", 0) > 0
+                and re.fullmatch(r"[0-9a-f]{64}",
+                                 str(target_files.get("sha256", "")))
+                and physical_build.get("installed_files_sha256")
+                == target_files.get("sha256")
+                and isinstance(model_pack, dict)
+                and model_pack.get("models") == hardware.get("required_model_ids")
+                and isinstance(runtime_packs, list)
+                and [item.get("runtime") for item in runtime_packs]
+                == hardware.get("required_runtime_ids")
+                and isinstance(artifacts, list) and len(artifacts) >= 34
+                and all(isinstance(item, dict)
+                        and re.fullmatch(r"[a-z0-9_+./-]+", str(item.get("path", "")),
+                                         re.IGNORECASE)
+                        and ".." not in Path(item["path"]).parts
+                        and item.get("size_bytes", 0) > 0
+                        and re.fullmatch(r"[0-9a-f]{64}",
+                                         str(item.get("sha256", "")))
+                        for item in artifacts),
+                "Pixel build evidence does not prove the locked full-device build")
+        incremental = str(physical_build.get("build_incremental", ""))
+        build_timestamp = physical_build.get("build_timestamp")
+        require(re.fullmatch(r"[0-9]{10}", incremental)
+                and incremental > hardware["build_version_policy"][
+                    "minimum_build_number_exclusive"]
+                and isinstance(build_timestamp, int)
+                and build_timestamp > hardware["build_version_policy"][
+                    "minimum_build_timestamp_exclusive"]
+                and f"/{incremental}:userdebug/test-keys"
+                in str(physical_build.get("build_fingerprint", "")),
+                "Pixel build evidence is not monotonic or fingerprint-bound")
+    if statuses["build.userdebug_succeeds"]["status"] == "passed":
+        require(statuses["build.manifest_locked"]["status"] == "passed",
+                "Pixel userdebug build cannot pass before its manifest lock")
+
+    ota_gate = statuses["update.full_virtual_ab_ota_packaged"]
+    physical_ota = None
+    physical_ota_path = None
+    if ota_gate["status"] == "passed":
+        require(statuses["build.userdebug_succeeds"]["status"] == "passed"
+                and physical_build is not None
+                and physical_build_path is not None,
+                "Pixel full OTA cannot pass before its exact build")
+        require(len(ota_gate["evidence"]) == 1
+                and not ota_gate["evidence"][0].startswith("https://"),
+                "Pixel full OTA evidence must be one local record")
+        physical_ota_path = (root / ota_gate["evidence"][0]).resolve()
+        physical_ota = load_json(physical_ota_path)
+        signature = physical_ota.get("signature_verification")
+        ota_archive = physical_ota.get("ota_archive")
+        payload = physical_ota.get("payload")
+        ota_metadata = physical_ota.get("ota_metadata")
+        require(physical_ota.get("schema_version") == 1
+                and physical_ota.get("status") == "passed"
+                and physical_ota.get("update_kind") == "full_virtual_ab_ota"
+                and physical_ota.get("lane") == "pixel9a_tegu_hardware"
+                and physical_ota.get("product") == "aios_tegu"
+                and physical_ota.get("target_device") == "tegu"
+                and physical_ota.get("aios_revision")
+                == physical_build.get("aios_revision")
+                and physical_ota.get("build_fingerprint")
+                == physical_build.get("build_fingerprint")
+                and physical_ota.get("security_patch")
+                == physical_build.get("security_patch")
+                and physical_ota.get("build_evidence_sha256")
+                == hashlib.sha256(physical_build_path.read_bytes()).hexdigest()
+                and physical_ota.get("target_files_sha256")
+                == physical_build["target_files_package"]["sha256"]
+                and physical_ota.get("virtual_ab_compression") == "true"
+                and physical_ota.get("contains_required_model_payloads") is True
+                and physical_ota.get("installation_performed") is False
+                and physical_ota.get("signing_state")
+                == "public_android_test_keys_unlocked_bootloader_only"
+                and isinstance(signature, dict)
+                and signature.get("status") == "passed"
+                and signature.get("whole_file_and_payload_verified") is True
+                and isinstance(ota_archive, dict)
+                and ota_archive.get("size_bytes", 0) > 0
+                and re.fullmatch(r"[0-9a-f]{64}",
+                                 str(ota_archive.get("sha256", "")))
+                and isinstance(payload, dict)
+                and payload.get("size_bytes", 0) > 0
+                and 0 < payload.get("metadata_size_bytes", 0)
+                < payload["size_bytes"]
+                and re.fullmatch(r"[0-9a-f]{64}",
+                                 str(payload.get("sha256", "")))
+                and re.fullmatch(r"[0-9a-f]{64}",
+                                 str(payload.get("metadata_sha256", "")))
+                and isinstance(ota_metadata, dict)
+                and ota_metadata.get("ota-type") == "AB"
+                and ota_metadata.get("pre-device") == "tegu"
+                and ota_metadata.get("post-build")
+                == physical_build.get("build_fingerprint")
+                and ota_metadata.get("post-build-incremental")
+                == physical_build.get("build_incremental")
+                and ota_metadata.get("post-timestamp")
+                == str(physical_build.get("build_timestamp"))
+                and ota_metadata.get("post-security-patch-level")
+                == physical_build.get("security_patch"),
+                "Pixel full OTA evidence is not bound to the signed model-inclusive build")
+
+    update_dependency_chain = (
+        ("update.post_update_boot", "update.full_virtual_ab_ota_packaged"),
+        ("update.snapshot_merge_completed", "update.post_update_boot"),
+        ("update.rollback_to_previous_slot", "update.post_update_boot"),
+    )
+    for gate_id, prerequisite in update_dependency_chain:
+        if statuses[gate_id]["status"] == "passed":
+            require(statuses[prerequisite]["status"] == "passed",
+                    f"{gate_id} cannot pass before {prerequisite}")
+
     latest_build_gates = (
         "integration.android_latest_manifest_locked",
         "integration.android_latest_userdebug_succeeds",

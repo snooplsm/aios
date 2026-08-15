@@ -117,8 +117,9 @@ upstream lane.
 Every full-device release keeps platform, generated vendor tree, kernel,
 bootloader, radio, target-files, and signing-key identities together. Extracted
 vendor or firmware inputs remain local and are never committed or redistributed.
-A complete signed factory image and the physical test matrix are still required
-before we claim telephony, camera, accelerator, or update support.
+A complete signed factory image, full OTA, target-slot boot, snapshot merge,
+rollback exercise, and the physical test matrix are still required before we
+claim telephony, camera, accelerator, or update support.
 
 AIOS is an independent derivative and is not GrapheneOS or endorsed by the
 GrapheneOS project. Each imported or forked project retains its upstream license

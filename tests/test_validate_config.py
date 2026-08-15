@@ -854,6 +854,34 @@ class IntegrationStructureTests(unittest.TestCase):
             with self.assertRaisesRegex(validator.ValidationError, "requires evidence"):
                 validator.validate_release_configuration(temporary)
 
+    def test_post_update_gate_cannot_pass_before_full_ota(self):
+        with tempfile.TemporaryDirectory() as raw:
+            temporary = Path(raw)
+            (temporary / "config").mkdir()
+            copy_patch_contract_fixture(temporary)
+            for name in ("aosp_tracking.json", "aosp_lanes.json",
+                         "model_catalog.json", "release_gates.json",
+                         "release_status.json"):
+                shutil.copy(ROOT / "config" / name,
+                            temporary / "config" / name)
+            shutil.copytree(ROOT / "evidence", temporary / "evidence")
+            status_path = temporary / "config" / "release_status.json"
+            status = json.loads(status_path.read_text(encoding="utf-8"))
+            build_reference = status["statuses"][
+                "integration.android_latest_userdebug_succeeds"
+            ]["evidence"][0]
+            status["statuses"]["update.full_virtual_ab_ota_packaged"] = {
+                "status": "not_run", "evidence": [],
+            }
+            status["statuses"]["update.post_update_boot"] = {
+                "status": "passed", "evidence": [build_reference],
+            }
+            status_path.write_text(json.dumps(status), encoding="utf-8")
+            with self.assertRaisesRegex(
+                validator.ValidationError, "cannot pass before"
+            ):
+                validator.validate_release_configuration(temporary)
+
     def test_first_boot_evidence_must_bind_checked_in_build_record(self):
         with tempfile.TemporaryDirectory() as raw:
             temporary = Path(raw)
