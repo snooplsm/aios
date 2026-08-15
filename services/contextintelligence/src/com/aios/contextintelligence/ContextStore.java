@@ -11,7 +11,9 @@ import com.aios.context.ContextSnippet;
 import com.aios.context.ConversationIdentity;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /** Credential-encrypted, revisioned hybrid index for bounded local retrieval. */
 final class ContextStore extends SQLiteOpenHelper {
@@ -264,6 +266,115 @@ final class ContextStore extends SQLiteOpenHelper {
             }
         }
         return results;
+    }
+
+    /**
+     * Reranks an identity/source/expiry-bounded recent pool with one exact model bundle.
+     * Corrupt or missing stored vectors degrade per-row to lexical/recency scoring.
+     */
+    List<ContextSnippet> queryHybrid(
+            ConversationIdentity identity,
+            String[] sourceTypes,
+            String query,
+            int limit,
+            long nowEpochMillis,
+            String modelId,
+            String modelBundleSha256,
+            float[] queryEmbedding) {
+        EmbeddingModelIdentity.validate(modelId, modelBundleSha256);
+        QuantizedEmbedding.quantize(queryEmbedding);
+        purgeExpired(nowEpochMillis);
+        StringBuilder identityClause = new StringBuilder("e.conversation_key IN (");
+        List<String> baseArguments = new ArrayList<>();
+        baseArguments.add(modelId);
+        baseArguments.add(modelBundleSha256);
+        boolean firstIdentity = true;
+        for (String key : identity.relatedConversationKeys) {
+            if (!firstIdentity) identityClause.append(',');
+            identityClause.append('?');
+            baseArguments.add(key);
+            firstIdentity = false;
+        }
+        identityClause.append(')');
+        String sourceClause = ContextSourceScope.selectionClause(sourceTypes, baseArguments);
+        String columns = "SELECT e.source_type,e.source_id,e.revision,e.event_at_epoch_ms,e.body,"
+                + "x.quantization_scale,x.vector_norm,x.vector"
+                + " FROM entries e";
+        String embeddingJoin = " LEFT JOIN entry_embeddings x"
+                + " ON x.entry_id=e._id AND x.model_id=? AND x.model_bundle_sha256=?"
+                + " WHERE " + identityClause + sourceClause
+                + " AND (e.expires_at_epoch_ms=0 OR e.expires_at_epoch_ms>?)";
+        SQLiteDatabase database = getReadableDatabase();
+        Map<String, HybridRetrievalRanker.Candidate> candidateMap = new LinkedHashMap<>();
+        String fts = ContextText.ftsQuery(query);
+        if (!fts.isEmpty()) {
+            List<String> lexicalArguments = new ArrayList<>(baseArguments);
+            lexicalArguments.add(Long.toString(nowEpochMillis));
+            lexicalArguments.add(fts);
+            lexicalArguments.add("128");
+            try (Cursor cursor = database.rawQuery(
+                    columns + " JOIN entries_fts ON entries_fts.docid=e._id"
+                            + embeddingJoin
+                            + " AND entries_fts MATCH ?"
+                            + " ORDER BY e.event_at_epoch_ms DESC LIMIT ?",
+                    lexicalArguments.toArray(new String[0]))) {
+                addHybridCandidates(cursor, query, candidateMap);
+            }
+        }
+        List<String> recentArguments = new ArrayList<>(baseArguments);
+        recentArguments.add(Long.toString(nowEpochMillis));
+        recentArguments.add(Integer.toString(HybridRetrievalRanker.MAX_CANDIDATES));
+        try (Cursor cursor = database.rawQuery(
+                columns + embeddingJoin
+                        + " ORDER BY e.event_at_epoch_ms DESC LIMIT ?",
+                recentArguments.toArray(new String[0]))) {
+            addHybridCandidates(cursor, query, candidateMap);
+        }
+        List<HybridRetrievalRanker.Candidate> candidates = new ArrayList<>(
+                candidateMap.values());
+        List<HybridRetrievalRanker.Candidate> ranked = HybridRetrievalRanker.rank(
+                candidates, queryEmbedding, limit, nowEpochMillis);
+        List<ContextSnippet> results = new ArrayList<>(ranked.size());
+        for (HybridRetrievalRanker.Candidate candidate : ranked) {
+            results.add(new ContextSnippet(
+                    candidate.sourceType,
+                    candidate.sourceId,
+                    candidate.revision,
+                    candidate.eventAtEpochMillis,
+                    ContextText.excerpt(candidate.text)));
+        }
+        return results;
+    }
+
+    private static void addHybridCandidates(
+            Cursor cursor,
+            String query,
+            Map<String, HybridRetrievalRanker.Candidate> candidates) {
+        while (cursor.moveToNext()
+                && candidates.size() < HybridRetrievalRanker.MAX_CANDIDATES) {
+            String sourceType = cursor.getString(0);
+            String sourceId = cursor.getString(1);
+            String key = sourceType + '\u0000' + sourceId;
+            if (candidates.containsKey(key)) continue;
+            QuantizedEmbedding embedding = null;
+            if (!cursor.isNull(5) && !cursor.isNull(6) && !cursor.isNull(7)) {
+                try {
+                    embedding = QuantizedEmbedding.restore(
+                            cursor.getBlob(7), cursor.getFloat(5), cursor.getFloat(6));
+                } catch (IllegalArgumentException ignored) {
+                    // A malformed row cannot disable lexical retrieval.
+                }
+            }
+            String text = cursor.getString(4);
+            candidates.put(key, new HybridRetrievalRanker.Candidate(
+                    sourceType,
+                    sourceId,
+                    cursor.getLong(2),
+                    cursor.getLong(3),
+                    text,
+                    ContextText.lexicalRank(text, query),
+                    embedding));
+        }
     }
 
     /**

@@ -12,6 +12,7 @@ import android.os.IBinder;
 import android.provider.ContactsContract;
 import android.telephony.PhoneNumberUtils;
 import android.util.Base64;
+import android.util.Log;
 
 import com.aios.context.ContextDocument;
 import com.aios.context.ContextSnippet;
@@ -30,6 +31,7 @@ import javax.crypto.spec.SecretKeySpec;
 
 /** Signature-only boundary for communication identity, indexing, and retrieval. */
 public final class CommunicationContextService extends Service {
+    private static final String TAG = "AiosCommunicationContext";
     static final String ACTION = "com.aios.context.COMMUNICATION_CONTEXT_SERVICE";
     private static final String PREFS = "opaque_identity";
     private static final String SECRET = "hmac_secret";
@@ -37,6 +39,7 @@ public final class CommunicationContextService extends Service {
     private static final int STORE_INSTANCE_BYTES = 16;
 
     private ContextStore store;
+    private ContextEmbeddingClient embeddings;
 
     private final ICommunicationContext.Stub binder = new ICommunicationContext.Stub() {
         @Override
@@ -86,6 +89,7 @@ public final class CommunicationContextService extends Service {
             long token = Binder.clearCallingIdentity();
             try {
                 store.upsert(document);
+                embeddings.scheduleIndexing();
                 ContextRetentionAlarm.scheduleNext(
                         CommunicationContextService.this, store);
             } finally {
@@ -142,7 +146,26 @@ public final class CommunicationContextService extends Service {
                     nowEpochMillis);
             long token = Binder.clearCallingIdentity();
             try {
-                return store.query(identity, sourceTypes, query, limit, nowEpochMillis);
+                ContextEmbeddingClient.QueryVector semantic =
+                        query == null || query.isBlank()
+                        ? null : embeddings.embedQuery(query);
+                if (semantic == null) {
+                    return store.query(identity, sourceTypes, query, limit, nowEpochMillis);
+                }
+                try {
+                    return store.queryHybrid(
+                            identity,
+                            sourceTypes,
+                            query,
+                            limit,
+                            nowEpochMillis,
+                            semantic.modelId,
+                            semantic.modelDigest,
+                            semantic.values);
+                } catch (RuntimeException invalidSemanticState) {
+                    Log.w(TAG, "Semantic reranking failed; using SQL/FTS", invalidSemanticState);
+                    return store.query(identity, sourceTypes, query, limit, nowEpochMillis);
+                }
             } finally {
                 Binder.restoreCallingIdentity(token);
             }
@@ -167,8 +190,10 @@ public final class CommunicationContextService extends Service {
     public void onCreate() {
         super.onCreate();
         store = new ContextStore(this);
+        embeddings = new ContextEmbeddingClient(this, store);
         store.purgeExpired(System.currentTimeMillis());
         ContextRetentionAlarm.scheduleNext(this, store);
+        embeddings.start();
     }
 
     @Override
@@ -178,6 +203,7 @@ public final class CommunicationContextService extends Service {
 
     @Override
     public void onDestroy() {
+        embeddings.close();
         store.close();
         super.onDestroy();
     }

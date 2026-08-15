@@ -154,6 +154,18 @@ public final class ContextLifecycleSmokeActivity extends Activity {
                     ContextPolicy.CALL_ARTIFACT,
                     ContextPolicy.MEDIA_METADATA
             };
+            List<ContextSnippet> hybrid = store.queryHybrid(
+                    identity,
+                    allSources,
+                    "semantically related request",
+                    8,
+                    now,
+                    EMBEDDING_MODEL,
+                    EMBEDDING_BUNDLE_SHA256,
+                    fixtureEmbeddingVector());
+            require(!hybrid.isEmpty()
+                            && hybrid.get(0).sourceId.equals(smsEmbeddingWork.sourceId),
+                    "hybrid retrieval did not rank the semantic fixture first");
             List<ContextSnippet> all = remote.query(identity, allSources, "", 8, now);
             require(all.size() == 5,
                     "cross-source retrieval returned " + all.size() + " documents: "

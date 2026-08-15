@@ -22,7 +22,8 @@ text. The provider cannot stream generation chunks. Completion must contain
 exactly 256 finite, L2-normalized floats and no JSON; every other
 capability must contain JSON and no vector. The broker rejects mixed payloads,
 wrong dimensions, non-finite values, and non-normalized output before invoking
-the client callback.
+the client callback. Capability discovery exposes the exact selected bundle
+SHA-256 so a retrieval client can reject or reindex vectors from another space.
 
 Current startup code verifies the locally generated artifact manifest, confines
 canonical paths to `/product/etc/aios/models`, recomputes exact size/SHA-256,

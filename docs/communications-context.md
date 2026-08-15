@@ -113,10 +113,11 @@ removes the vector with the same transaction semantics as its FTS posting.
 
 Hybrid ranking is bounded to 512 candidates after SQL has already applied the
 opaque conversation identity, allowed source types, and expiry predicates. It
-combines semantic cosine similarity, FTS rank, and recency, then returns the same
-eight-snippet API. If query embedding is absent, corrupt, late, or produced by a
-different artifact, retrieval uses the existing deterministic lexical/recency
-path. No stored vector or raw SQL crosses the Communication Context Binder. A
+combines semantic cosine similarity, bounded prefix-token rank, and recency,
+then returns the same eight-snippet API. The service gives an interactive query
+embedding at most 250 ms; absence, corruption, timeout, or an artifact mismatch
+uses the existing deterministic SQL/FTS path. No stored vector or raw SQL crosses
+the Communication Context Binder. A
 fresh query/document vector may cross only the signature-protected Model Broker
 boundary as an exactly 256-float typed result; it is never exposed to Phone,
 Messaging, or Call Intelligence. Neither an application nor the language model
@@ -125,11 +126,16 @@ may generate database statements.
 The selected embedding candidate is Google's 300M EmbeddingGemma with its
 Matryoshka 256-dimensional output and documented query/document task prefixes.
 It requires a distinct non-generative Android runtime; the existing LiteRT-LM
-provider is deliberately not relabeled as an embedding engine. Model-catalog and
-broker activation remain fail-closed until the exact quantized artifact,
-tokenizer, preprocessing contract, runtime notices, and Pixel 9a latency/memory
-evidence are reproducible. Until then, the schema and ranker are inert storage
-infrastructure and production queries remain FTS-backed.
+provider is deliberately not relabeled as an embedding engine. Communication
+Context is wired to the broker with one-shot `query` and `document` requests,
+requires the exact selected bundle digest, disables fallback into a different
+vector space, and drains current missing documents in 16-row background batches.
+Interactive requests use the call-agent lane; indexing is call-preemptible
+background work. Model-catalog and authorized-client activation remain
+fail-closed until the exact quantized artifact, tokenizer, preprocessing
+contract, runtime notices, and Pixel 9a latency/memory evidence are reproducible.
+Until then no embedding capability is returned and production queries remain
+FTS-backed without waiting.
 
 For an incoming call, AIOS Phone appends the presented number and country ISO to
 the version-tolerant tail of `IncomingCallContext` only when the owner has enabled
@@ -262,8 +268,10 @@ watermark without dropping current entries. The version-3 migration does the
 same for legacy SMS/MMS tombstones before provider reconciliation begins.
 
 The public-SDK `preview:callcontextcheck` lane stages the complete production
-Communication Context service, API parcelables, AIDL, tests, resources, and real
-manifest. It also verifies that every private app-data domain is excluded from
+Communication Context service, API parcelables, Context and Model Broker AIDL,
+tests, resources, and real manifest. Its Android lifecycle fixture directly
+exercises hybrid ranking with an artifact-pinned vector. It also verifies that
+every private app-data domain is excluded from
 cloud backup and device transfer: opaque keys, source revisions, tombstones, and
 retrieval documents are meaningful only for the originating installation. The
 lane catches Android API/component/resource drift but does not prove the

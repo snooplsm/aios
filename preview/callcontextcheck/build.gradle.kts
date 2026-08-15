@@ -44,6 +44,7 @@ android {
             java.directories.add(generatedMain.get().asFile.absolutePath)
             res.directories.add("../../services/contextintelligence/res")
             aidl.directories.add("../../services/contextintelligence/aidl")
+            aidl.directories.add("../../services/modelbroker/aidl")
         }
         getByName("test") {
             java.directories.add(generatedTest.get().asFile.absolutePath)

@@ -28,6 +28,12 @@ final class HybridRetrievalRanker {
                     || candidate.lexicalRank < -1) {
                 throw new IllegalArgumentException("invalid retrieval candidate");
             }
+            if (queryEmbedding != null
+                    && candidate.embedding == null
+                    && candidate.lexicalRank < 0) {
+                // Partial indexing must not turn unrelated recent rows into matches.
+                continue;
+            }
             double lexical = candidate.lexicalRank < 0
                     ? 0.0 : 1.0 / (1.0 + candidate.lexicalRank);
             double ageDays = (nowEpochMillis - candidate.eventAtEpochMillis) / DAY_MILLIS;

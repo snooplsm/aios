@@ -1151,6 +1151,11 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/contextintelligence/src/com/aios/contextintelligence/ContextRetentionAlarm.java",
         "services/contextintelligence/src/com/aios/contextintelligence/ContextRetentionClock.java",
         "services/contextintelligence/src/com/aios/contextintelligence/ContextStore.java",
+        "services/contextintelligence/src/com/aios/contextintelligence/ContextEmbeddingClient.java",
+        "services/contextintelligence/src/com/aios/contextintelligence/EmbeddingCapabilityPolicy.java",
+        "services/contextintelligence/src/com/aios/contextintelligence/EmbeddingModelIdentity.java",
+        "services/contextintelligence/src/com/aios/contextintelligence/HybridRetrievalRanker.java",
+        "services/contextintelligence/src/com/aios/contextintelligence/QuantizedEmbedding.java",
         "services/contextintelligence/src/com/aios/contextintelligence/ContextPolicy.java",
         "services/contextintelligence/src/com/aios/contextintelligence/ContextSourceScope.java",
         "services/contextintelligence/src/com/aios/contextintelligence/RevisionGate.java",
@@ -1158,6 +1163,10 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/contextintelligence/tests/src/com/aios/contextintelligence/ContextPolicyTest.java",
         "services/contextintelligence/tests/src/com/aios/contextintelligence/ContextSourceScopeTest.java",
         "services/contextintelligence/tests/src/com/aios/contextintelligence/ContextStoreQueryTest.java",
+        "services/contextintelligence/tests/src/com/aios/contextintelligence/EmbeddingCapabilityPolicyTest.java",
+        "services/contextintelligence/tests/src/com/aios/contextintelligence/EmbeddingModelIdentityTest.java",
+        "services/contextintelligence/tests/src/com/aios/contextintelligence/HybridRetrievalRankerTest.java",
+        "services/contextintelligence/tests/src/com/aios/contextintelligence/QuantizedEmbeddingTest.java",
         "services/contextintelligence/tests/src/com/aios/contextintelligence/RevisionGateTest.java",
         "docs/communications-context.md",
         "docs/compose-dialer-decision.md",
@@ -1183,6 +1192,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/modelbroker/aidl/com/aios/model/IAiosModelService.aidl",
         "services/modelbroker/aidl/com/aios/model/ModelRequest.aidl",
         "services/modelbroker/aidl/com/aios/model/InferenceResult.aidl",
+        "services/modelbroker/aidl/com/aios/model/ModelCapability.aidl",
         "services/modelbroker/src/com/aios/modelbroker/ModelBrokerService.java",
         "services/modelbroker/src/com/aios/modelbroker/ArtifactVerifier.java",
         "services/modelbroker/src/com/aios/modelbroker/AuthorizedClientPolicy.java",
@@ -2518,6 +2528,14 @@ def validate_aosp_overlay(root: Path) -> None:
                                   "contextintelligence" /
                                   "EmbeddingModelIdentity.java").read_text(
                                       encoding="utf-8")
+    context_embedding_client = (context_root / "src" / "com" / "aios" /
+                                "contextintelligence" /
+                                "ContextEmbeddingClient.java").read_text(
+                                    encoding="utf-8")
+    context_embedding_capability = (context_root / "src" / "com" / "aios" /
+                                    "contextintelligence" /
+                                    "EmbeddingCapabilityPolicy.java").read_text(
+                                        encoding="utf-8")
     context_expiry = (context_root / "src" / "com" / "aios" /
                       "contextintelligence" / "ContextExpiryPolicy.java").read_text(
                           encoding="utf-8")
@@ -2602,15 +2620,37 @@ def validate_aosp_overlay(root: Path) -> None:
             and "0.65 * semantic" in context_ranker
             and "0.25 * lexical" in context_ranker
             and "0.10 * recency" in context_ranker
+            and "Partial indexing must not turn unrelated recent rows into matches"
+            in context_ranker
             and "[0-9a-f]{64}" in context_embedding_identity,
             "communication hybrid retrieval must be bounded, artifact-pinned, quantized, and cascade-deleted")
+    require('com.aios.permission.USE_MODEL_BROKER' in context_manifest
+            and 'com.aios.model.MODEL_SERVICE' in context_manifest
+            and "class ContextEmbeddingClient" in context_embedding_client
+            and "QUERY_WAIT_MILLIS = 250L" in context_embedding_client
+            and '"context_query"' in context_embedding_client
+            and '"context_background"' in context_embedding_client
+            and "request.allowFallback = false" in context_embedding_client
+            and "capability.selectedModelDigest" in context_embedding_client
+            and "pendingEmbeddings" in context_embedding_client
+            and "commitEmbedding" in context_embedding_client
+            and 'LANGUAGE = "und"' in context_embedding_capability
+            and "embeddings.scheduleIndexing()" in context_service
+            and "embeddings.embedQuery(query)" in context_service
+            and "store.queryHybrid(" in context_service
+            and "Semantic reranking failed; using SQL/FTS" in context_service
+            and "List<ContextSnippet> queryHybrid(" in context_store
+            and "ContextText.lexicalRank" in context_store,
+            "communication embedding integration must be digest-pinned, bounded, preemptible, and fail back to SQL/FTS")
     require("pendingEmbeddings" in context_smoke
             and "commitEmbedding" in context_smoke
             and "embeddingCount(store) == 0" in context_smoke
             and "late stale-revision embedding callback was accepted" in context_smoke
             and "freshArtifact.expiresAtEpochMillis" in context_smoke
             and "model_bundle_sha256" in context_smoke
-            and "length(vector)" in context_smoke,
+            and "length(vector)" in context_smoke
+            and "store.queryHybrid(" in context_smoke
+            and "hybrid retrieval did not rank the semantic fixture first" in context_smoke,
             "Android context smoke must exercise embedding persistence, stale callbacks, expiry, and cascade deletion")
     require("expiry_boot_identity TEXT NOT NULL" in context_store
             and "created_at_elapsed_ms INTEGER NOT NULL" in context_store
@@ -3482,6 +3522,10 @@ def validate_aosp_overlay(root: Path) -> None:
         root / "services" / "modelbroker" / "aidl" / "com" / "aios" /
         "model" / "InferenceResult.aidl"
     ).read_text(encoding="utf-8")
+    model_capability_aidl = (
+        root / "services" / "modelbroker" / "aidl" / "com" / "aios" /
+        "model" / "ModelCapability.aidl"
+    ).read_text(encoding="utf-8")
     require("closeDescriptor(pcmStream)" in session_controller
             and "closeDescriptor(media)" in session_controller
             and "closeDescriptor(pcmSink)" in session_controller
@@ -3511,6 +3555,7 @@ def validate_aosp_overlay(root: Path) -> None:
             "broker must apply workload-aware aggregate or timeline chunk bounds")
     require('String embeddingTask' in model_request_aidl
             and 'float[] embedding' in inference_result_aidl
+            and 'String selectedModelDigest' in model_capability_aidl
             and 'CAPABILITY = "text_embedding"' in embedding_request_policy
             and 'QUERY = "query"' in embedding_request_policy
             and 'DOCUMENT = "document"' in embedding_request_policy
@@ -3854,6 +3899,7 @@ def validate_aosp_overlay(root: Path) -> None:
         encoding="utf-8"
     )
     require("EmbeddingRequestPolicy.accepts" in broker_state
+            and "value.selectedModelDigest = choice.artifact.sha256" in broker_state
             and '"context_background".equals(request.workload)' in broker_state
             and 'case "context_query"' in work_class_source
             and 'case "context_background"' in work_class_source,
@@ -4990,8 +5036,9 @@ def validate_aosp_overlay(root: Path) -> None:
             in call_context_check_build
             and '../../services/contextintelligence/aidl' in call_context_check_build
             and '../../services/callintelligence' not in call_context_check_build
-            and '../../services/modelbroker/aidl' not in call_context_check_build
+            and '../../services/modelbroker/aidl' in call_context_check_build
             and 'resource_dirs: ["res"]' in context_bp
+            and '"aios_model_api"' in context_bp
             and '"src/com/aios/contextintelligence/ContextSourceScope.java"'
             in context_bp
             and 'android:dataExtractionRules="@xml/data_extraction_rules"'
@@ -5013,6 +5060,7 @@ def validate_aosp_overlay(root: Path) -> None:
             and "remote.upsert(freshArtifact)" in call_context_smoke
             and "store.deleteSourceType(ContextPolicy.MEDIA_METADATA" in call_context_smoke
             and "AIOS_CONTEXT_LIFECYCLE_SMOKE_OK" in call_context_smoke
+            and "hybrid_retrieval_verified = $true" in call_context_smoke_runner
             and "Refusing to run context-lifecycle smoke checks on non-emulator serial"
             in call_context_smoke_runner
             and "physical_gate_evidence = $false" in call_context_smoke_runner,

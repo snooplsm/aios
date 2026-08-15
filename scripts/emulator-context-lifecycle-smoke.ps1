@@ -121,6 +121,7 @@ try {
         opaque_identity_verified = $true
         equivalent_number_convergence_verified = $true
         sqlite_fts_verified = $true
+        hybrid_retrieval_verified = $true
         source_scoped_retrieval_verified = $true
         query_limit_verified = $true
         sms_revision_and_tombstone_verified = $true

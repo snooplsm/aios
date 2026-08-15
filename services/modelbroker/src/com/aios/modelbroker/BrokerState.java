@@ -123,6 +123,7 @@ final class BrokerState {
             ModelCapability value = new ModelCapability();
             value.capability = capability;
             value.selectedModelId = choice.artifact.modelId;
+            value.selectedModelDigest = choice.artifact.sha256;
             value.languages = choice.artifact.languages.toArray(new String[0]);
             value.available = choice.available;
             value.streaming = "streaming_asr".equals(capability);

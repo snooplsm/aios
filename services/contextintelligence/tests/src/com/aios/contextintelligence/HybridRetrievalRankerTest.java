@@ -33,6 +33,23 @@ public final class HybridRetrievalRankerTest {
         assertEquals("exact", result.get(0).sourceId);
     }
 
+    @Test
+    public void partialIndexDoesNotReturnUnrelatedUnembeddedRows() {
+        HybridRetrievalRanker.Candidate semantic = candidate(
+                "semantic", -1, vector(1.0f, 0.0f));
+        HybridRetrievalRanker.Candidate unrelatedUnembedded = candidate(
+                "unindexed", -1, null);
+
+        List<HybridRetrievalRanker.Candidate> result = HybridRetrievalRanker.rank(
+                List.of(unrelatedUnembedded, semantic),
+                vector(1.0f, 0.0f),
+                2,
+                NOW);
+
+        assertEquals(1, result.size());
+        assertEquals("semantic", result.get(0).sourceId);
+    }
+
     @Test(expected = IllegalArgumentException.class)
     public void candidateSetIsHardBounded() {
         HybridRetrievalRanker.Candidate candidate = candidate("same", -1, null);
