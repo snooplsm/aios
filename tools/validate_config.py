@@ -7362,6 +7362,155 @@ def validate_release_configuration(root: Path) -> None:
             require(statuses[prerequisite]["status"] == "passed",
                     f"{gate_id} cannot pass before {prerequisite}")
 
+    post_update_gate = statuses["update.post_update_boot"]
+    post_update = None
+    post_update_path = None
+    if post_update_gate["status"] == "passed":
+        require(physical_build is not None and physical_build_path is not None
+                and physical_ota is not None and physical_ota_path is not None,
+                "Pixel post-update boot requires its local build and OTA chain")
+        require(len(post_update_gate["evidence"]) == 2
+                and all(not item.startswith("https://")
+                        for item in post_update_gate["evidence"]),
+                "Pixel post-update boot requires local update-result and boot records")
+        update_result = None
+        update_result_path = None
+        for reference in post_update_gate["evidence"]:
+            candidate_path = (root / reference).resolve()
+            candidate = load_json(candidate_path)
+            if candidate.get("kind") == "pixel9a_aios_virtual_ab_update":
+                require(update_result is None,
+                        "Pixel post-update evidence has duplicate update results")
+                update_result = candidate
+                update_result_path = candidate_path
+            elif candidate.get("kind") == "pixel9a_aios_virtual_ab_post_update_boot":
+                require(post_update is None,
+                        "Pixel post-update evidence has duplicate boot records")
+                post_update = candidate
+                post_update_path = candidate_path
+            else:
+                raise ValidationError(
+                    "Pixel post-update evidence contains an unknown record"
+                )
+        require(update_result is not None and update_result_path is not None
+                and post_update is not None and post_update_path is not None,
+                "Pixel post-update evidence is incomplete")
+        update_serial = update_result.get("serial_sha256")
+        require(update_result.get("schema_version") == 1
+                and update_result.get("status") == "update_engine_command_passed"
+                and re.fullmatch(r"[0-9a-f]{64}", str(update_serial or ""))
+                and update_result.get("ota_evidence_sha256")
+                == hashlib.sha256(physical_ota_path.read_bytes()).hexdigest()
+                and update_result.get("ota_archive_sha256")
+                == physical_ota["ota_archive"]["sha256"]
+                and update_result.get("target_fingerprint")
+                == physical_build["build_fingerprint"]
+                and update_result.get("source_fingerprint")
+                != update_result.get("target_fingerprint")
+                and update_result.get("source_slot") in {"_a", "_b"}
+                and update_result.get("expected_target_slot") in {"_a", "_b"}
+                and update_result.get("source_slot")
+                != update_result.get("expected_target_slot")
+                and update_result.get("payload_applicability_verified") is True
+                and update_result.get("payload_space_allocated") is True
+                and update_result.get("staging_removed") is True
+                and update_result.get("reboot_performed") is False
+                and update_result.get("proves_update_engine_command_passed") is True
+                and update_result.get("proves_post_update_boot") is False
+                and update_result.get("proves_slot_switch") is False
+                and update_result.get("proves_merge_completed") is False,
+                "Pixel update result does not bind the signed OTA command")
+        post_checks = post_update.get("checks")
+        post_properties = post_update.get("properties")
+        require(post_update.get("schema_version") == 1
+                and post_update.get("status") == "passed"
+                and post_update.get("serial_sha256") == update_serial
+                and post_update.get("build_fingerprint")
+                == physical_build["build_fingerprint"]
+                and post_update.get("source_fingerprint")
+                == update_result.get("source_fingerprint")
+                and post_update.get("source_slot")
+                == update_result.get("source_slot")
+                and post_update.get("active_slot")
+                == update_result.get("expected_target_slot")
+                and post_update.get("build_evidence_sha256")
+                == hashlib.sha256(physical_build_path.read_bytes()).hexdigest()
+                and post_update.get("ota_evidence_sha256")
+                == hashlib.sha256(physical_ota_path.read_bytes()).hexdigest()
+                and post_update.get("update_result_sha256")
+                == hashlib.sha256(update_result_path.read_bytes()).hexdigest()
+                and post_update.get("ota_archive_sha256")
+                == physical_ota["ota_archive"]["sha256"]
+                and isinstance(post_properties, dict)
+                and post_properties.get("ro.build.fingerprint")
+                == physical_build["build_fingerprint"]
+                and post_properties.get("ro.build.version.incremental")
+                == physical_build["build_incremental"]
+                and post_properties.get("ro.boot.slot_suffix")
+                == update_result.get("expected_target_slot")
+                and post_properties.get("ro.virtual_ab.enabled") == "true"
+                and post_properties.get("ro.virtual_ab.compression.enabled") == "true"
+                and isinstance(post_checks, dict)
+                and all(post_checks.get(field) is True for field in (
+                    "build_ota_update_chain_verified",
+                    "boot_completed",
+                    "exact_target_fingerprint",
+                    "inactive_slot_became_active",
+                    "every_evidenced_product_artifact_verified",
+                ))
+                and post_update.get("proves_update_engine_command_passed") is True
+                and post_update.get("proves_post_update_boot") is True
+                and post_update.get("proves_slot_switch") is True
+                and post_update.get("proves_model_payload_install") is True
+                and post_update.get("proves_merge_completed") is False
+                and post_update.get("proves_rollback") is False
+                and post_update.get("proves_telephony_gate") is False
+                and post_update.get("proves_model_inference") is False,
+                "Pixel post-update boot record does not bind the exact target slot")
+
+    merge_gate = statuses["update.snapshot_merge_completed"]
+    if merge_gate["status"] == "passed":
+        require(post_update is not None and post_update_path is not None,
+                "Pixel merge evidence requires the local post-update record")
+        require(len(merge_gate["evidence"]) == 1
+                and not merge_gate["evidence"][0].startswith("https://"),
+                "Pixel merge evidence must be one local record")
+        merge = load_json((root / merge_gate["evidence"][0]).resolve())
+        merge_checks = merge.get("checks")
+        require(merge.get("schema_version") == 1
+                and merge.get("status") == "passed"
+                and merge.get("kind") == "pixel9a_aios_virtual_ab_merge"
+                and merge.get("serial_sha256") == post_update.get("serial_sha256")
+                and merge.get("build_fingerprint")
+                == post_update.get("build_fingerprint")
+                and merge.get("build_incremental")
+                == physical_build.get("build_incremental")
+                and merge.get("active_slot") == post_update.get("active_slot")
+                and merge.get("snapshot_update_state") == "none"
+                and merge.get("snapshot_count") == 0
+                and merge.get("boot_control_merge_status") == "none"
+                and merge.get("current_slot_marked_successful") is True
+                and merge.get("post_update_evidence_sha256")
+                == hashlib.sha256(post_update_path.read_bytes()).hexdigest()
+                and isinstance(merge_checks, dict)
+                and all(merge_checks.get(field) is True for field in (
+                    "exact_post_update_chain_verified",
+                    "exact_target_still_booted",
+                    "target_slot_current_and_active",
+                    "target_slot_marked_successful",
+                    "snapshot_update_state_none",
+                    "no_snapshot_records",
+                    "no_merge_indicators",
+                    "boot_control_merge_status_none",
+                ))
+                and merge.get("proves_post_update_boot") is True
+                and merge.get("proves_slot_switch") is True
+                and merge.get("proves_merge_completed") is True
+                and merge.get("proves_rollback") is False
+                and merge.get("proves_telephony_gate") is False
+                and merge.get("proves_model_inference") is False,
+                "Pixel merge evidence does not prove the exact update is durable")
+
     latest_build_gates = (
         "integration.android_latest_manifest_locked",
         "integration.android_latest_userdebug_succeeds",

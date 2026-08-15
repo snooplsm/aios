@@ -1012,6 +1012,135 @@ class IntegrationStructureTests(unittest.TestCase):
             status_path.write_text(json.dumps(status), encoding="utf-8")
             validator.validate_release_configuration(temporary)
 
+            serial_sha = "3" * 64
+            update_result = {
+                "schema_version": 1,
+                "status": "update_engine_command_passed",
+                "kind": "pixel9a_aios_virtual_ab_update",
+                "serial_sha256": serial_sha,
+                "ota_evidence_sha256": hashlib.sha256(
+                    ota_path.read_bytes()
+                ).hexdigest(),
+                "ota_archive_sha256": ota["ota_archive"]["sha256"],
+                "source_fingerprint": (
+                    "AIOS/aios_tegu/tegu:17/FIXTURE/"
+                    "2026081300:userdebug/test-keys"
+                ),
+                "target_fingerprint": build["build_fingerprint"],
+                "source_slot": "_a",
+                "expected_target_slot": "_b",
+                "payload_applicability_verified": True,
+                "payload_space_allocated": True,
+                "staging_removed": True,
+                "reboot_performed": False,
+                "proves_update_engine_command_passed": True,
+                "proves_post_update_boot": False,
+                "proves_slot_switch": False,
+                "proves_merge_completed": False,
+            }
+            update_path = evidence_dir / "update-result.json"
+            update_path.write_text(json.dumps(update_result), encoding="utf-8")
+            post_update = {
+                "schema_version": 1,
+                "status": "passed",
+                "kind": "pixel9a_aios_virtual_ab_post_update_boot",
+                "serial_sha256": serial_sha,
+                "build_fingerprint": build["build_fingerprint"],
+                "source_fingerprint": update_result["source_fingerprint"],
+                "source_slot": "_a",
+                "active_slot": "_b",
+                "build_evidence_sha256": hashlib.sha256(
+                    build_path.read_bytes()
+                ).hexdigest(),
+                "ota_evidence_sha256": hashlib.sha256(
+                    ota_path.read_bytes()
+                ).hexdigest(),
+                "update_result_sha256": hashlib.sha256(
+                    update_path.read_bytes()
+                ).hexdigest(),
+                "ota_archive_sha256": ota["ota_archive"]["sha256"],
+                "properties": {
+                    "ro.build.fingerprint": build["build_fingerprint"],
+                    "ro.build.version.incremental": build["build_incremental"],
+                    "ro.boot.slot_suffix": "_b",
+                    "ro.virtual_ab.enabled": "true",
+                    "ro.virtual_ab.compression.enabled": "true",
+                },
+                "checks": {
+                    "build_ota_update_chain_verified": True,
+                    "boot_completed": True,
+                    "exact_target_fingerprint": True,
+                    "inactive_slot_became_active": True,
+                    "every_evidenced_product_artifact_verified": True,
+                },
+                "proves_update_engine_command_passed": True,
+                "proves_post_update_boot": True,
+                "proves_slot_switch": True,
+                "proves_model_payload_install": True,
+                "proves_merge_completed": False,
+                "proves_rollback": False,
+                "proves_telephony_gate": False,
+                "proves_model_inference": False,
+            }
+            post_path = evidence_dir / "post-update.json"
+            post_path.write_text(json.dumps(post_update), encoding="utf-8")
+            merge = {
+                "schema_version": 1,
+                "status": "passed",
+                "kind": "pixel9a_aios_virtual_ab_merge",
+                "serial_sha256": serial_sha,
+                "build_fingerprint": build["build_fingerprint"],
+                "build_incremental": build["build_incremental"],
+                "active_slot": "_b",
+                "snapshot_update_state": "none",
+                "snapshot_count": 0,
+                "boot_control_merge_status": "none",
+                "current_slot_marked_successful": True,
+                "post_update_evidence_sha256": hashlib.sha256(
+                    post_path.read_bytes()
+                ).hexdigest(),
+                "checks": {
+                    "exact_post_update_chain_verified": True,
+                    "exact_target_still_booted": True,
+                    "target_slot_current_and_active": True,
+                    "target_slot_marked_successful": True,
+                    "snapshot_update_state_none": True,
+                    "no_snapshot_records": True,
+                    "no_merge_indicators": True,
+                    "boot_control_merge_status_none": True,
+                },
+                "proves_post_update_boot": True,
+                "proves_slot_switch": True,
+                "proves_merge_completed": True,
+                "proves_rollback": False,
+                "proves_telephony_gate": False,
+                "proves_model_inference": False,
+            }
+            merge_path = evidence_dir / "merge.json"
+            merge_path.write_text(json.dumps(merge), encoding="utf-8")
+            status["statuses"]["update.post_update_boot"] = {
+                "status": "passed",
+                "evidence": [
+                    update_path.relative_to(temporary).as_posix(),
+                    post_path.relative_to(temporary).as_posix(),
+                ],
+            }
+            status["statuses"]["update.snapshot_merge_completed"] = {
+                "status": "passed",
+                "evidence": [merge_path.relative_to(temporary).as_posix()],
+            }
+            status_path.write_text(json.dumps(status), encoding="utf-8")
+            validator.validate_release_configuration(temporary)
+
+            merge["snapshot_count"] = 1
+            merge_path.write_text(json.dumps(merge), encoding="utf-8")
+            with self.assertRaisesRegex(
+                validator.ValidationError, "does not prove the exact update"
+            ):
+                validator.validate_release_configuration(temporary)
+            merge["snapshot_count"] = 0
+            merge_path.write_text(json.dumps(merge), encoding="utf-8")
+
             ota["target_files_sha256"] = "0" * 64
             ota_path.write_text(json.dumps(ota), encoding="utf-8")
             with self.assertRaisesRegex(
