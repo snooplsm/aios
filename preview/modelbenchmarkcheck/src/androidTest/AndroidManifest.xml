@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="com.aios.permission.USE_MODEL_BROKER" />
+
+    <application android:hasCode="true">
+        <uses-library android:name="android.test.runner" />
+    </application>
+</manifest>

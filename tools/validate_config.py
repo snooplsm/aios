@@ -1130,6 +1130,9 @@ def validate_aosp_overlay(root: Path) -> None:
         "preview/callservicecheck/src/debug/AndroidManifest.xml",
         "preview/callservicecheck/src/debug/java/com/aios/callintelligence/CallRetentionSmokeActivity.java",
         "preview/modelservicecheck/build.gradle.kts",
+        "preview/modelbenchmarkcheck/build.gradle.kts",
+        "preview/modelbenchmarkcheck/src/androidTest/AndroidManifest.xml",
+        "preview/modelbenchmarkcheck/src/main/AndroidManifest.xml",
         "preview/modelservicecheck/src/main/java/com/aios/modelbroker/BrokerProductProperties.java",
         "preview/modelservicecheck/src/debug/AndroidManifest.xml",
         "preview/modelservicecheck/src/debug/java/com/aios/modelbroker/ModelAdmissionSmokeActivity.java",
@@ -2035,6 +2038,16 @@ def validate_aosp_overlay(root: Path) -> None:
     benchmark_source = (root / "benchmarks" / "modeladmission" / "tests" / "src" /
                           "com" / "aios" / "modelbenchmark" /
                           "ModelAdmissionBenchmarkTest.java").read_text(encoding="utf-8")
+    benchmark_math = (root / "benchmarks" / "modeladmission" / "common" / "com" /
+                      "aios" / "modelbenchmark" / "BenchmarkMath.java").read_text(
+                          encoding="utf-8")
+    benchmark_math_test = (root / "benchmarks" / "modeladmission" / "hosttests" /
+                           "com" / "aios" / "modelbenchmark" /
+                           "BenchmarkMathTest.java").read_text(encoding="utf-8")
+    benchmark_compile_check = (root / "preview" / "modelbenchmarkcheck" /
+                               "build.gradle.kts").read_text(encoding="utf-8")
+    benchmark_preview_settings = (root / "preview" / "settings.gradle.kts").read_text(
+        encoding="utf-8")
     realtime_capture = (root / "scripts" /
                         "capture-realtime-smoke.ps1").read_text(encoding="utf-8")
     physical_call_capture = (root / "scripts" /
@@ -2064,12 +2077,36 @@ def validate_aosp_overlay(root: Path) -> None:
             and "instrumentation_runtime_pss_available" in realtime_capture
             and "contains_aios_low_memory_kill" in realtime_capture
             and "details.time_to_first_audio_ms" in realtime_capture
+            and "ExpectedRoleCounts = @(4, 5)" in realtime_capture
+            and "$expectedRoleCounts -notcontains" in realtime_capture
+            and "details.dimensions -ne 256" in realtime_capture
+            and "details.cross_language_ordering_valid" in realtime_capture
             and "physical realtime smoke refuses QEMU targets" in realtime_capture
             and "admission_evidence = $false" in realtime_capture
             and "#$testMethod" in realtime_capture
             and "runAudioRealtimeSmoke" in realtime_capture
             and "refusing to overwrite" in realtime_capture,
             "physical realtime smoke must be focused, non-overwriting, and non-admission")
+    require('include("com/aios/modelbenchmark/**/*.java")'
+            in benchmark_compile_check
+            and 'include(":modelbenchmarkcheck")' in benchmark_preview_settings
+            and '../../benchmarks/modeladmission/tests/src'
+            in benchmark_compile_check
+            and '../../benchmarks/modeladmission/common'
+            in benchmark_compile_check
+            and '../../benchmarks/modeladmission/hosttests'
+            in benchmark_compile_check
+            and '../../services/modelbroker/aidl' in benchmark_compile_check
+            and 'manifest.srcFile("src/main/AndroidManifest.xml")'
+            in benchmark_compile_check
+            and 'manifest.srcFile("src/androidTest/AndroidManifest.xml")'
+            in benchmark_compile_check
+            and 'getByName("test")' in benchmark_compile_check
+            and 'getByName("androidTest")' in benchmark_compile_check
+            and 'testImplementation("junit:junit:' in benchmark_compile_check
+            and 'androidx.test.ext:junit:' in benchmark_compile_check
+            and 'androidx.test:runner:' in benchmark_compile_check,
+            "the physical model benchmark needs a public-SDK instrumentation compile check")
     require("physical call capture refuses emulator serials" in physical_call_capture
             and '"ro.boot.qemu"' in physical_call_capture
             and '"ro.kernel.qemu"' in physical_call_capture
@@ -2118,8 +2155,21 @@ def validate_aosp_overlay(root: Path) -> None:
             and "finalChunkLanguage" in benchmark_source
             and '"p95_endpoint_delay_ms"' in benchmark_source
             and '"p95_first_partial_source_span_ms"' in benchmark_source
+            and "invokeEmbedding(" in benchmark_source
+            and "request.embeddingTask = embeddingTask" in benchmark_source
+            and '"context_query"' in benchmark_source
+            and '"context_background"' in benchmark_source
+            and "embeddingCapability.selectedModelDigest" in benchmark_source
+            and '"cross_language_ordering_valid"' in benchmark_source
+            and '"positive_cosine"' in benchmark_source
+            and '"negative_cosine"' in benchmark_source
+            and "BenchmarkMath.isNormalizedEmbedding" in benchmark_source
+            and "BenchmarkMath.cosine" in benchmark_source
+            and "static boolean isNormalizedEmbedding" in benchmark_math
+            and "static double cosine" in benchmark_math
+            and "embeddingShapeNormAndCosineAreFailClosed" in benchmark_math_test
             and "aios_measurements_base64" in benchmark_source,
-            "model benchmark must cover image/video and source-paced live ASR Broker paths")
+            "model benchmark must cover image/video, optional bilingual embeddings, and source-paced live ASR Broker paths")
     benchmark_capture = (root / "scripts" /
                          "capture-model-benchmark.ps1").read_text(encoding="utf-8")
     require('"config\\model_benchmark_suite.json"' in benchmark_capture
@@ -6413,6 +6463,9 @@ def validate_authorized_clients(root: Path) -> None:
         for model in catalog["models"]
         for capability in model["capabilities"]
     }
+    # The debug-only benchmark is allowed to probe the reserved typed contract
+    # before a gated artifact is activated in the production catalog.
+    available_capabilities.add("text_embedding")
     value = load_json(root / "config" / "authorized_clients.json")
     require(value.get("schema_version") == 1, "unsupported authorized-client schema")
     clients = value.get("clients")
@@ -6428,6 +6481,9 @@ def validate_authorized_clients(root: Path) -> None:
                 f"unexpected preauthorized package: {client['package']}")
         require(set(client["capabilities"]).issubset(available_capabilities),
                 f"{client['package']}: unknown capability")
+        if "text_embedding" in client["capabilities"]:
+            require(client["package"] == "com.aios.modelbenchmark",
+                    "only the debug benchmark may hold dormant embedding authority")
         require(set(client["workloads"]).issubset(allowed_workloads),
                 f"{client['package']}: unknown workload")
         require(client["max_sessions"] > 0 and client["max_output_tokens"] > 0,
@@ -6458,10 +6514,11 @@ def validate_authorized_clients(root: Path) -> None:
     require(benchmark is not None
             and set(benchmark["capabilities"]) == {
                 "streaming_asr", "text_generation", "image_understanding",
-                "video_understanding", "speech_synthesis",
+                "video_understanding", "speech_synthesis", "text_embedding",
             }
             and set(benchmark["workloads"])
-            == {"call_rx", "call_agent", "media_background"}
+            == {"call_rx", "call_agent", "media_background",
+                "context_query", "context_background"}
             and benchmark["max_sessions"] == 1
             and benchmark["can_control_call_state"] is False,
             "debug model benchmark must have one bounded production-path session "

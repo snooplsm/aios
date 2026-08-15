@@ -92,6 +92,12 @@ benchmark-client quota. The runner refuses to replace an existing package and
 removes every temporary byte and APK. It does not claim real inference, runtime-
 provider activation, AVB protection, or physical-Pixel admission evidence.
 
+`modelbenchmarkcheck` independently stages the production debug benchmark target,
+shared benchmark math, full instrumentation source, and Model Broker AIDL. Its
+`assembleDebugAndroidTest` task catches public-SDK/AIDL/AndroidX drift in the
+physical-device diagnostic—including the optional bilingual embedding probe—
+without installing or running the privileged benchmark.
+
 `runtimeprovidercheck` is the separate broker-identity client for
 `scripts/emulator-runtime-provider-smoke.ps1`. The runner installs the actual
 LiteRT-LM provider APK beside that client on an x86_64 API-35+ emulator. Across a
@@ -244,6 +250,7 @@ gradle :app:assembleDebug :prodcheck:testDebugUnitTest :prodcheck:lintDebug \
   :callcontextcheck:testDebugUnitTest :callcontextcheck:lintDebug \
   :callservicecheck:testDebugUnitTest :callservicecheck:lintDebug \
   :modelservicecheck:testDebugUnitTest :modelservicecheck:lintDebug \
+  :modelbenchmarkcheck:testDebugUnitTest :modelbenchmarkcheck:assembleDebugAndroidTest \
   :mediascancheck:testDebugUnitTest :mediascancheck:lintDebug
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 adb shell am start -n com.aios.phone.preview/.PreviewActivity

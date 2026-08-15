@@ -235,6 +235,27 @@ public final class ModelAdmissionBenchmarkTest {
                             .put("input_id", "generated_solid_red_jpeg_64x64")
                             .put("response", parseObject(media.result))));
 
+            ModelCapability embeddingCapability = capabilities.get("text_embedding");
+            if (embeddingCapability != null) {
+                embeddingCapability = waitForSelectedCapability(
+                        broker, "text_embedding", embeddingCapability);
+                Artifact embeddingArtifact = artifacts.require(
+                        embeddingCapability.selectedModelId);
+                assertEquals(
+                        "embedding capability digest does not match the verified manifest",
+                        embeddingArtifact.sha256,
+                        embeddingCapability.selectedModelDigest);
+                if (embeddingCapability.available) {
+                    results.put(diagnoseEmbedding(
+                            context, broker, embeddingArtifact));
+                } else {
+                    Log.e(TAG, "ERROR capability=text_embedding reason=runtime_unavailable");
+                    results.put(unavailableEmbeddingDiagnostic(embeddingArtifact));
+                }
+            } else {
+                Log.i(TAG, "SKIP capability=text_embedding reason=not_selected");
+            }
+
             JSONObject measurements = new JSONObject()
                     .put("schema_version", 1)
                     .put("suite_version", 4)
@@ -309,6 +330,116 @@ public final class ModelAdmissionBenchmarkTest {
                 + " error=" + (invocation.error.isEmpty() ? "none" : invocation.error)
                 + " aios_runtime_pss_mb=" + memoryAfterMb);
         return result(artifact, metrics).put("capability", capability);
+    }
+
+    private static JSONObject diagnoseEmbedding(
+            Context context,
+            IAiosModelService broker,
+            Artifact artifact) throws Exception {
+        int memoryBeforeMb = runtimePssMb(context);
+        logDiagnosticStart(artifact, "text_embedding", memoryBeforeMb);
+        Invocation query;
+        Invocation positiveDocument;
+        Invocation negativeDocument;
+        ResourceObservation observation;
+        try (ResourceSampler sampler = new ResourceSampler(context)) {
+            query = invokeEmbedding(
+                    broker,
+                    "query",
+                    "context_query",
+                    "When is the plumbing appointment?",
+                    DIAGNOSTIC_TIMEOUT_MILLIS);
+            positiveDocument = invokeEmbedding(
+                    broker,
+                    "document",
+                    "context_background",
+                    "La cita de plomería es mañana.",
+                    DIAGNOSTIC_TIMEOUT_MILLIS);
+            negativeDocument = invokeEmbedding(
+                    broker,
+                    "document",
+                    "context_background",
+                    "Una receta de pastel de chocolate usa cacao.",
+                    DIAGNOSTIC_TIMEOUT_MILLIS);
+            observation = sampler.finish();
+        }
+        float[] queryVector = embedding(query.result);
+        float[] positiveVector = embedding(positiveDocument.result);
+        float[] negativeVector = embedding(negativeDocument.result);
+        double positiveCosine = BenchmarkMath.cosine(queryVector, positiveVector);
+        double negativeCosine = BenchmarkMath.cosine(queryVector, negativeVector);
+        double cosineMargin = positiveCosine - negativeCosine;
+        boolean orderingValid = Double.isFinite(positiveCosine)
+                && Double.isFinite(negativeCosine)
+                && positiveCosine > negativeCosine;
+        boolean succeeded = query.succeeded()
+                && positiveDocument.succeeded()
+                && negativeDocument.succeeded()
+                && orderingValid;
+        long elapsed = query.elapsedOrTimeout()
+                + positiveDocument.elapsedOrTimeout()
+                + negativeDocument.elapsedOrTimeout();
+        String error = firstError(query, positiveDocument, negativeDocument);
+        if (error.isEmpty() && !orderingValid) error = "semantic_ordering_failed";
+        JSONObject details = new JSONObject()
+                .put("query_input_id", "fixed_plumbing_question_en")
+                .put("positive_input_id", "fixed_plumbing_appointment_es")
+                .put("negative_input_id", "fixed_chocolate_recipe_es")
+                .put("dimensions", queryVector == null ? 0 : queryVector.length)
+                .put("query_elapsed_ms", query.elapsedOrTimeout())
+                .put("positive_document_elapsed_ms", positiveDocument.elapsedOrTimeout())
+                .put("negative_document_elapsed_ms", negativeDocument.elapsedOrTimeout())
+                .put("positive_cosine", jsonNumber(positiveCosine))
+                .put("negative_cosine", jsonNumber(negativeCosine))
+                .put("cosine_margin", jsonNumber(cosineMargin))
+                .put("cross_language_ordering_valid", orderingValid);
+        JSONObject metrics = new JSONObject()
+                .put("succeeded", succeeded)
+                .put("error", error)
+                .put("elapsed_ms", elapsed)
+                .put("first_output_ms", query.elapsedOrTimeout())
+                .put("aios_runtime_pss_before_mb", memoryBeforeMb)
+                .put("aios_runtime_pss_after_mb", runtimePssMb(context))
+                .put("aios_runtime_peak_pss_mb", observation.peakRssMb)
+                .put("thermal_status_max", observation.thermalStatusMax)
+                .put("details", details);
+        Log.i(TAG, "FINISH capability=text_embedding"
+                + " model=" + artifact.modelId
+                + " success=" + succeeded
+                + " elapsed_ms=" + elapsed
+                + " query_ms=" + query.elapsedOrTimeout()
+                + " positive_ms=" + positiveDocument.elapsedOrTimeout()
+                + " negative_ms=" + negativeDocument.elapsedOrTimeout()
+                + " cosine_margin=" + cosineMargin
+                + " error=" + (error.isEmpty() ? "none" : error));
+        return result(artifact, metrics).put("capability", "text_embedding");
+    }
+
+    private static JSONObject unavailableEmbeddingDiagnostic(Artifact artifact)
+            throws JSONException {
+        JSONObject details = new JSONObject()
+                .put("query_input_id", "fixed_plumbing_question_en")
+                .put("positive_input_id", "fixed_plumbing_appointment_es")
+                .put("negative_input_id", "fixed_chocolate_recipe_es")
+                .put("dimensions", 0)
+                .put("query_elapsed_ms", DIAGNOSTIC_TIMEOUT_MILLIS)
+                .put("positive_document_elapsed_ms", DIAGNOSTIC_TIMEOUT_MILLIS)
+                .put("negative_document_elapsed_ms", DIAGNOSTIC_TIMEOUT_MILLIS)
+                .put("positive_cosine", JSONObject.NULL)
+                .put("negative_cosine", JSONObject.NULL)
+                .put("cosine_margin", JSONObject.NULL)
+                .put("cross_language_ordering_valid", false);
+        JSONObject metrics = new JSONObject()
+                .put("succeeded", false)
+                .put("error", "runtime_unavailable")
+                .put("elapsed_ms", 0L)
+                .put("first_output_ms", DIAGNOSTIC_TIMEOUT_MILLIS)
+                .put("aios_runtime_pss_before_mb", 0)
+                .put("aios_runtime_pss_after_mb", 0)
+                .put("aios_runtime_peak_pss_mb", 0)
+                .put("thermal_status_max", 0)
+                .put("details", details);
+        return result(artifact, metrics).put("capability", "text_embedding");
     }
 
     private static void runBenchmark(
@@ -659,6 +790,27 @@ public final class ModelAdmissionBenchmarkTest {
         return invocation;
     }
 
+    private static Invocation invokeEmbedding(
+            IAiosModelService broker,
+            String embeddingTask,
+            String workload,
+            String text,
+            long timeoutMillis) throws Exception {
+        Invocation invocation = new Invocation("text_embedding", timeoutMillis);
+        try {
+            ModelRequest request = request(
+                    "text_embedding", workload, "und", 0, timeoutMillis);
+            request.embeddingTask = embeddingTask;
+            long session = broker.createSession(request, invocation.callback);
+            invocation.sessionId = session;
+            if (session > 0L) broker.submitText(session, text, true);
+        } catch (Exception error) {
+            invocation.failLocal(error);
+        }
+        invocation.await(broker);
+        return invocation;
+    }
+
     private static Invocation invokeMedia(
             IAiosModelService broker,
             String capability,
@@ -900,6 +1052,24 @@ public final class ModelAdmissionBenchmarkTest {
         return latest;
     }
 
+    private static ModelCapability waitForSelectedCapability(
+            IAiosModelService broker,
+            String name,
+            ModelCapability initial) throws Exception {
+        ModelCapability latest = initial;
+        long deadline = SystemClock.elapsedRealtime() + 30_000L;
+        while (!latest.available && SystemClock.elapsedRealtime() < deadline) {
+            Thread.sleep(500L);
+            for (ModelCapability capability : broker.listCapabilities()) {
+                if (name.equals(capability.capability)) {
+                    latest = capability;
+                    break;
+                }
+            }
+        }
+        return latest;
+    }
+
     private static void requireCapabilities(Map<String, ModelCapability> values) {
         for (String capability : List.of(
                 "text_generation", "image_understanding", "video_understanding",
@@ -908,6 +1078,9 @@ public final class ModelAdmissionBenchmarkTest {
             assertNotNull("missing benchmark capability " + capability, value);
             assertTrue("selected model ID is absent for " + capability,
                     value.selectedModelId != null && !value.selectedModelId.isBlank());
+            assertTrue("selected model digest is absent for " + capability,
+                    value.selectedModelDigest != null
+                            && value.selectedModelDigest.matches("[0-9a-f]{64}"));
             assertTrue("runtime adapter is unavailable for " + capability,
                     value.available);
         }
@@ -935,6 +1108,30 @@ public final class ModelAdmissionBenchmarkTest {
         } catch (JSONException ignored) {
             return null;
         }
+    }
+
+    private static float[] embedding(InferenceResult result) {
+        if (result == null || result.outputJson != null || result.embedding == null
+                || result.embedding.length != 256) {
+            return null;
+        }
+        if (!BenchmarkMath.isNormalizedEmbedding(result.embedding, 256, 0.02)) {
+            return null;
+        }
+        return java.util.Arrays.copyOf(result.embedding, result.embedding.length);
+    }
+
+    private static String firstError(Invocation... invocations) {
+        for (Invocation invocation : invocations) {
+            if (!invocation.error.isEmpty()) return invocation.error;
+            if (invocation.result == null) return "missing_result";
+            if (embedding(invocation.result) == null) return "invalid_embedding";
+        }
+        return "";
+    }
+
+    private static Object jsonNumber(double value) {
+        return Double.isFinite(value) ? value : JSONObject.NULL;
     }
 
     private static boolean validTtsResult(InferenceResult result) {

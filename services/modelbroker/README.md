@@ -93,8 +93,9 @@ transcript ceiling; its callbacks are instead bounded against the captured-audio
 timeline, while every individual chunk remains size-, sequence-, language-,
 confidence-, and timestamp-validated.
 
-`text_embedding` is a reserved, fail-closed API contract at present. It is not
-listed for any authorized client and no catalog model advertises it until the
-gated EmbeddingGemma model, tokenizer, preprocessing prefix contract, LiteRT
-runtime, notices, and exact bundle manifest have been accepted and reproducibly
-packaged. Adding the typed fields does not make semantic retrieval available.
+`text_embedding` is a reserved, fail-closed API contract at present. Only the
+debug-only model benchmark is preauthorized to probe it; no production client
+is authorized and no catalog model advertises it until the gated EmbeddingGemma
+model, tokenizer, preprocessing prefix contract, LiteRT runtime, notices, and
+exact bundle manifest have been accepted and reproducibly packaged. Adding the
+typed fields does not make semantic retrieval available.

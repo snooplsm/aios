@@ -105,6 +105,44 @@ public final class BenchmarkMath {
         return sourceEndMillis - sourceStartMillis;
     }
 
+    public static boolean isNormalizedEmbedding(
+            float[] values, int dimensions, double tolerance) {
+        if (values == null || values.length != dimensions
+                || dimensions <= 0 || tolerance < 0.0 || tolerance >= 1.0) {
+            return false;
+        }
+        double squaredNorm = 0.0;
+        for (float value : values) {
+            if (!Float.isFinite(value)) return false;
+            squaredNorm += (double) value * value;
+        }
+        double minimum = (1.0 - tolerance) * (1.0 - tolerance);
+        double maximum = (1.0 + tolerance) * (1.0 + tolerance);
+        return Double.isFinite(squaredNorm)
+                && squaredNorm >= minimum
+                && squaredNorm <= maximum;
+    }
+
+    public static double cosine(float[] left, float[] right) {
+        if (left == null || right == null || left.length == 0
+                || left.length != right.length) {
+            return Double.NaN;
+        }
+        double dot = 0.0;
+        double leftNorm = 0.0;
+        double rightNorm = 0.0;
+        for (int index = 0; index < left.length; index++) {
+            if (!Float.isFinite(left[index]) || !Float.isFinite(right[index])) {
+                return Double.NaN;
+            }
+            dot += (double) left[index] * right[index];
+            leftNorm += (double) left[index] * left[index];
+            rightNorm += (double) right[index] * right[index];
+        }
+        if (!(leftNorm > 0.0) || !(rightNorm > 0.0)) return Double.NaN;
+        return dot / Math.sqrt(leftNorm * rightNorm);
+    }
+
     private static List<String> words(String value) {
         String normalized = Normalizer.normalize(
                 value == null ? "" : value, Normalizer.Form.NFD)

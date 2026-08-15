@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="com.aios.permission.USE_MODEL_BROKER" />
+    <uses-permission android:name="android.permission.READ_PHONE_STATE" />
+
+    <application
+        android:allowBackup="false"
+        android:hasCode="true"
+        android:label="AIOS Model Benchmark Compile Check"
+        android:testOnly="true" />
+</manifest>

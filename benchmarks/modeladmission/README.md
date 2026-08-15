@@ -21,6 +21,17 @@ selected capability:
   at real time to measure source-relative partial/final lag and endpoint delay,
   and once fast-fed to measure decode real-time factor independently.
 
+The focused `runSingleModelDiagnostic` path additionally detects an optional
+`text_embedding` capability. When selected, it performs one English query plus
+one related and one unrelated Spanish document request, verifies the exact
+capability/manifest digest, reports each latency and peak runtime PSS, and checks
+that the cross-language related cosine exceeds the unrelated cosine. It emits
+only fixed fixture IDs and aggregate similarity values, never vectors or text.
+When the gated embedding artifact is not selected, the diagnostic records a
+content-free skip marker and retains the existing four-result payload. Once an
+artifact is selected, an unavailable runtime becomes an explicit fifth failed
+result rather than silently falling back to four roles.
+
 It publishes one base64-encoded raw JSON document in the instrumentation result
 bundle under `aios_measurements_base64`. Raw output has model/artifact identity
 and numeric measurements but contains no gate list or decision. PSS and thermal

@@ -107,7 +107,7 @@ $modeConfig = switch ($Mode) {
         @{
             TestMethod = "runAudioRealtimeSmoke"
             ExpectedMode = "audio_realtime_smoke"
-            ExpectedRoles = 2
+            ExpectedRoleCounts = @(2)
             EvidenceKind = "pixel_aios_audio_realtime_smoke"
         }
     }
@@ -115,7 +115,7 @@ $modeConfig = switch ($Mode) {
         @{
             TestMethod = "runSingleModelDiagnostic"
             ExpectedMode = "single_model_diagnostic"
-            ExpectedRoles = 4
+            ExpectedRoleCounts = @(4, 5)
             EvidenceKind = "pixel_aios_single_model_diagnostic"
         }
     }
@@ -123,14 +123,14 @@ $modeConfig = switch ($Mode) {
         @{
             TestMethod = "runRealtimeSmoke"
             ExpectedMode = "realtime_smoke"
-            ExpectedRoles = 3
+            ExpectedRoleCounts = @(3)
             EvidenceKind = "pixel_aios_realtime_model_smoke"
         }
     }
 }
 $testMethod = $modeConfig.TestMethod
 $expectedMode = $modeConfig.ExpectedMode
-$expectedRoles = $modeConfig.ExpectedRoles
+$expectedRoleCounts = @($modeConfig.ExpectedRoleCounts)
 $evidenceKind = $modeConfig.EvidenceKind
 
 # The selected tags contain lifecycle/timing metadata and errors, never prompt text or PCM.
@@ -214,7 +214,7 @@ $measurement = $measurementJson | ConvertFrom-Json
 if ($measurement.schema_version -ne 1 -or
     $measurement.suite_version -ne 4 -or
     $measurement.mode -ne $expectedMode -or
-    @($measurement.results).Count -ne $expectedRoles) {
+    $expectedRoleCounts -notcontains @($measurement.results).Count) {
     throw "realtime smoke payload has an unexpected schema or role count"
 }
 
@@ -228,6 +228,25 @@ if ($Mode -eq "single") {
     }
     $ttsResults[0].metrics.first_output_ms =
         [int64]$ttsResults[0].metrics.details.time_to_first_audio_ms
+    $embeddingResults = @($measurement.results | Where-Object {
+        $_.capability -eq "text_embedding"
+    })
+    if (@($measurement.results).Count -eq 5 -and
+        ($embeddingResults.Count -ne 1 -or
+         $null -eq $embeddingResults[0].metrics.details.query_elapsed_ms -or
+         $null -eq $embeddingResults[0].metrics.details.positive_document_elapsed_ms -or
+         $null -eq $embeddingResults[0].metrics.details.negative_document_elapsed_ms -or
+         $null -eq $embeddingResults[0].metrics.details.cross_language_ordering_valid)) {
+        throw "single-model diagnostic emitted an invalid embedding result"
+    }
+    if ($embeddingResults.Count -eq 1 -and
+        $embeddingResults[0].metrics.succeeded -eq $true -and
+        $embeddingResults[0].metrics.details.dimensions -ne 256) {
+        throw "successful embedding diagnostic did not emit 256 dimensions"
+    }
+    if (@($measurement.results).Count -eq 4 -and $embeddingResults.Count -ne 0) {
+        throw "single-model diagnostic role count disagrees with embedding output"
+    }
 }
 
 $peakTotalRssMb = 0.0

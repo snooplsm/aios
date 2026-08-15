@@ -1,6 +1,7 @@
 package com.aios.modelbenchmark;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import java.util.List;
@@ -49,5 +50,27 @@ public final class BenchmarkMathTest {
                 3_000L, 0L, 2_000L, 120_000L));
         assertEquals(120_000L, BenchmarkMath.sourceSpanOrTimeout(
                 -1L, 2_000L, 120_000L));
+    }
+
+    @Test
+    public void embeddingShapeNormAndCosineAreFailClosed() {
+        float[] query = embedding(1.0f, 0.0f);
+        float[] related = embedding(0.9f, 0.1f);
+        float[] unrelated = embedding(0.0f, 1.0f);
+        assertTrue(BenchmarkMath.isNormalizedEmbedding(query, 256, 0.02));
+        assertTrue(BenchmarkMath.cosine(query, related)
+                > BenchmarkMath.cosine(query, unrelated));
+        assertFalse(BenchmarkMath.isNormalizedEmbedding(new float[128], 256, 0.02));
+        query[3] = Float.NaN;
+        assertFalse(BenchmarkMath.isNormalizedEmbedding(query, 256, 0.02));
+        assertTrue(Double.isNaN(BenchmarkMath.cosine(query, related)));
+    }
+
+    private static float[] embedding(float first, float second) {
+        float[] values = new float[256];
+        double norm = Math.sqrt(first * first + second * second);
+        values[0] = (float) (first / norm);
+        values[1] = (float) (second / norm);
+        return values;
     }
 }
