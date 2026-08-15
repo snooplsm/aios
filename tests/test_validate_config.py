@@ -882,6 +882,143 @@ class IntegrationStructureTests(unittest.TestCase):
             ):
                 validator.validate_release_configuration(temporary)
 
+    def test_synthetic_physical_build_and_ota_chain_is_tamper_evident(self):
+        with tempfile.TemporaryDirectory() as raw:
+            temporary = Path(raw)
+            (temporary / "config").mkdir()
+            copy_patch_contract_fixture(temporary)
+            for name in ("aosp_tracking.json", "aosp_lanes.json",
+                         "model_catalog.json", "release_gates.json",
+                         "release_status.json"):
+                shutil.copy(ROOT / "config" / name,
+                            temporary / "config" / name)
+            shutil.copytree(ROOT / "evidence", temporary / "evidence")
+            lanes = json.loads(
+                (temporary / "config" / "aosp_lanes.json")
+                .read_text(encoding="utf-8")
+            )["lanes"]
+            hardware = next(
+                lane for lane in lanes if lane["id"] == "pixel9a_tegu_hardware"
+            )
+            evidence_dir = temporary / "evidence" / "synthetic-pixel-ota"
+            evidence_dir.mkdir()
+            target_files_sha = "a" * 64
+            build = {
+                "schema_version": 2,
+                "status": "passed",
+                "lane": "pixel9a_tegu_hardware",
+                "kind": "physical_hardware",
+                "product": "aios_tegu",
+                "target_device": "tegu",
+                "lunch_target": "aios_tegu-cur-userdebug",
+                "android_release": "17",
+                "artifact_layout": "full_device_target_files",
+                "lane_eligible_for_physical_gates": True,
+                "proves_physical_runtime_gate": False,
+                "manifest_repository_revision": hardware["manifest_commit"],
+                "aios_revision": "b" * 40,
+                "manifest_lock_sha256": "c" * 64,
+                "manifest_sha256": "d" * 64,
+                "build_log_sha256": "e" * 64,
+                "deployable_images": hardware["required_images"],
+                "generated_device_support": {
+                    "path": "vendor/google_devices/tegu",
+                    "generator": "adevtool",
+                    "symlink_count": 0,
+                },
+                "target_files_package": {
+                    "path": "target/product/tegu/target-files.zip",
+                    "size_bytes": 8_000_000_000,
+                    "sha256": target_files_sha,
+                },
+                "installed_files_sha256": target_files_sha,
+                "generated_payloads": {
+                    "model_pack": {"models": hardware["required_model_ids"]},
+                    "runtime_packs": [
+                        {"runtime": runtime}
+                        for runtime in hardware["required_runtime_ids"]
+                    ],
+                },
+                "artifacts": [
+                    {
+                        "path": f"product/etc/aios/synthetic-{index}.bin",
+                        "size_bytes": index + 1,
+                        "sha256": f"{index + 1:064x}",
+                    }
+                    for index in range(34)
+                ],
+                "build_incremental": "2026081401",
+                "build_timestamp": 1786749300,
+                "build_fingerprint": (
+                    "AIOS/aios_tegu/tegu:17/FIXTURE/"
+                    "2026081401:userdebug/test-keys"
+                ),
+                "security_patch": "2026-08-05",
+            }
+            build_path = evidence_dir / "build.json"
+            build_path.write_text(json.dumps(build), encoding="utf-8")
+            ota = {
+                "schema_version": 1,
+                "status": "passed",
+                "update_kind": "full_virtual_ab_ota",
+                "lane": "pixel9a_tegu_hardware",
+                "product": "aios_tegu",
+                "target_device": "tegu",
+                "aios_revision": build["aios_revision"],
+                "build_fingerprint": build["build_fingerprint"],
+                "security_patch": build["security_patch"],
+                "build_evidence_sha256": hashlib.sha256(
+                    build_path.read_bytes()
+                ).hexdigest(),
+                "target_files_sha256": target_files_sha,
+                "virtual_ab_compression": "true",
+                "contains_required_model_payloads": True,
+                "installation_performed": False,
+                "signing_state": "public_android_test_keys_unlocked_bootloader_only",
+                "signature_verification": {
+                    "status": "passed",
+                    "whole_file_and_payload_verified": True,
+                },
+                "ota_archive": {"size_bytes": 4_000_000_000,
+                                "sha256": "f" * 64},
+                "payload": {
+                    "size_bytes": 3_900_000_000,
+                    "metadata_size_bytes": 200_000,
+                    "sha256": "1" * 64,
+                    "metadata_sha256": "2" * 64,
+                },
+                "ota_metadata": {
+                    "ota-type": "AB",
+                    "pre-device": "tegu",
+                    "post-build": build["build_fingerprint"],
+                    "post-build-incremental": build["build_incremental"],
+                    "post-timestamp": str(build["build_timestamp"]),
+                    "post-security-patch-level": build["security_patch"],
+                },
+            }
+            ota_path = evidence_dir / "ota.json"
+            ota_path.write_text(json.dumps(ota), encoding="utf-8")
+            status_path = temporary / "config" / "release_status.json"
+            status = json.loads(status_path.read_text(encoding="utf-8"))
+            build_reference = build_path.relative_to(temporary).as_posix()
+            ota_reference = ota_path.relative_to(temporary).as_posix()
+            for gate_id in ("build.manifest_locked", "build.userdebug_succeeds"):
+                status["statuses"][gate_id] = {
+                    "status": "passed", "evidence": [build_reference],
+                }
+            status["statuses"]["update.full_virtual_ab_ota_packaged"] = {
+                "status": "passed", "evidence": [ota_reference],
+            }
+            status_path.write_text(json.dumps(status), encoding="utf-8")
+            validator.validate_release_configuration(temporary)
+
+            ota["target_files_sha256"] = "0" * 64
+            ota_path.write_text(json.dumps(ota), encoding="utf-8")
+            with self.assertRaisesRegex(
+                validator.ValidationError, "not bound to the signed"
+            ):
+                validator.validate_release_configuration(temporary)
+
     def test_first_boot_evidence_must_bind_checked_in_build_record(self):
         with tempfile.TemporaryDirectory() as raw:
             temporary = Path(raw)
