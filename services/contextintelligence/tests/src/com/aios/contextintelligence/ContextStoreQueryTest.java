@@ -7,7 +7,7 @@ import org.junit.Test;
 public final class ContextStoreQueryTest {
     @Test
     public void multiTokenQueryUsesPortableFts4IntersectionSyntax() {
-        assertEquals("\"copper\"* \"pipe\"*", ContextStore.ftsQuery("Copper, pipe!"));
+        assertEquals("\"copper\"* \"pipe\"*", ContextText.ftsQuery("Copper, pipe!"));
     }
 
     @Test
@@ -15,7 +15,7 @@ public final class ContextStoreQueryTest {
         assertEquals(
                 "\"one\"* \"two\"* \"three\"* \"four\"* \"five\"* "
                         + "\"six\"* \"seven\"* \"eight\"*",
-                ContextStore.ftsQuery("one two three four five six seven eight nine"));
-        assertEquals("", ContextStore.ftsQuery("---"));
+                ContextText.ftsQuery("one two three four five six seven eight nine"));
+        assertEquals("", ContextText.ftsQuery("---"));
     }
 }

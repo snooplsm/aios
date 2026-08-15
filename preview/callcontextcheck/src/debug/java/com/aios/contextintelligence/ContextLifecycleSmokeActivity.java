@@ -27,6 +27,9 @@ public final class ContextLifecycleSmokeActivity extends Activity {
     private static final String TAG = "AiosContextSmoke";
     private static final String DATABASE = "communication_context.db";
     private static final String PREFS = "opaque_identity";
+    private static final String EMBEDDING_MODEL = "embeddinggemma-300m-q4";
+    private static final String EMBEDDING_BUNDLE_SHA256 =
+            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
     private boolean bound;
     private Throwable result;
@@ -120,6 +123,29 @@ public final class ContextLifecycleSmokeActivity extends Activity {
             remote.upsert(freshArtifact);
             require(hasSource(store, ContextPolicy.CALL_ARTIFACT, freshArtifact.sourceId),
                     "Binder call-artifact write was missing immediately after return");
+            List<EmbeddingWorkItem> embeddingWork = store.pendingEmbeddings(
+                    EMBEDDING_MODEL, EMBEDDING_BUNDLE_SHA256, 16, now);
+            require(embeddingWork.size() == 5,
+                    "embedding work did not include every current context revision");
+            EmbeddingWorkItem smsEmbeddingWork = embeddingWork.stream()
+                    .filter(item -> item.sourceType.equals(ContextPolicy.SMS))
+                    .findFirst()
+                    .orElseThrow(() -> new IllegalStateException(
+                            "SMS embedding work was unavailable"));
+            QuantizedEmbedding fixtureEmbedding = QuantizedEmbedding.quantize(
+                    fixtureEmbeddingVector());
+            require(store.commitEmbedding(
+                            smsEmbeddingWork.sourceType,
+                            smsEmbeddingWork.sourceId,
+                            smsEmbeddingWork.revision,
+                            EMBEDDING_MODEL,
+                            EMBEDDING_BUNDLE_SHA256,
+                            fixtureEmbedding,
+                            now),
+                    "current embedding revision did not commit");
+            require(embeddingCount(store) == 1,
+                    "embedding row did not persist exactly once");
+            verifyEmbeddingRow(store);
 
             String[] allSources = {
                     ContextPolicy.SMS,
@@ -153,6 +179,17 @@ public final class ContextLifecycleSmokeActivity extends Activity {
 
             store.upsert(document(ContextPolicy.SMS, "sms-" + token, 2L, identity,
                     now + 1L, "Customer confirmed a green vanity installation"));
+            require(embeddingCount(store) == 0,
+                    "source replacement did not cascade-delete its embedding");
+            require(!store.commitEmbedding(
+                            smsEmbeddingWork.sourceType,
+                            smsEmbeddingWork.sourceId,
+                            smsEmbeddingWork.revision,
+                            EMBEDDING_MODEL,
+                            EMBEDDING_BUNDLE_SHA256,
+                            fixtureEmbedding,
+                            now + 2L),
+                    "late stale-revision embedding callback was accepted");
             require(remote.query(identity, new String[]{ContextPolicy.SMS},
                             "green vanity", 8, now).size() == 1,
                     "newer SMS revision did not replace the old document");
@@ -179,6 +216,15 @@ public final class ContextLifecycleSmokeActivity extends Activity {
                             "fresh photo", 8, now).size() == 1,
                     "new media revision did not advance past the watermark");
 
+            require(!store.commitEmbedding(
+                            ContextPolicy.CALL_ARTIFACT,
+                            freshArtifact.sourceId,
+                            freshArtifact.revision,
+                            EMBEDDING_MODEL,
+                            EMBEDDING_BUNDLE_SHA256,
+                            fixtureEmbedding,
+                            freshArtifact.expiresAtEpochMillis),
+                    "call-artifact embedding that completed at expiry was accepted");
             remote.deleteSource(ContextPolicy.CALL_ARTIFACT, freshArtifact.sourceId, 2L);
             remote.upsert(freshArtifact);
             require(remote.query(identity, new String[]{ContextPolicy.CALL_ARTIFACT},
@@ -277,6 +323,37 @@ public final class ContextLifecycleSmokeActivity extends Activity {
                 null,
                 null)) {
             return cursor.moveToFirst();
+        }
+    }
+
+    private static float[] fixtureEmbeddingVector() {
+        float[] result = new float[QuantizedEmbedding.DIMENSIONS];
+        result[0] = 1.0f;
+        result[1] = 0.5f;
+        result[2] = -0.25f;
+        return result;
+    }
+
+    private static int embeddingCount(ContextStore store) {
+        try (Cursor cursor = store.getReadableDatabase().rawQuery(
+                "SELECT COUNT(*) FROM entry_embeddings", null)) {
+            require(cursor.moveToFirst(), "embedding count query returned no row");
+            return cursor.getInt(0);
+        }
+    }
+
+    private static void verifyEmbeddingRow(ContextStore store) {
+        try (Cursor cursor = store.getReadableDatabase().rawQuery(
+                "SELECT model_id,model_bundle_sha256,dimensions,length(vector)"
+                        + " FROM entry_embeddings",
+                null)) {
+            require(cursor.moveToFirst()
+                            && EMBEDDING_MODEL.equals(cursor.getString(0))
+                            && EMBEDDING_BUNDLE_SHA256.equals(cursor.getString(1))
+                            && cursor.getInt(2) == QuantizedEmbedding.DIMENSIONS
+                            && cursor.getInt(3) == QuantizedEmbedding.DIMENSIONS
+                            && !cursor.moveToNext(),
+                    "stored embedding was not artifact-pinned and 256-byte quantized");
         }
     }
 

@@ -95,11 +95,38 @@ The exported Binder service requires a signature permission and then checks the
 exact calling package and source type. AIOS Messaging, Phone, and Call
 Intelligence may query; Media Intelligence may publish but cannot read a person's
 communication history. Results are capped at eight snippets and 512 characters
-each. Source documents are capped at 4,096 characters. The first implementation
-uses local FTS4 lexical retrieval with basic-syntax whitespace intersection for
-portable multi-token queries across Android SQLite builds; a later embedding
-index can replace ranking without changing identity, authorization, retention,
-or deletion semantics.
+each. Source documents are capped at 4,096 characters. Production retrieval uses
+local FTS4 lexical matching with basic-syntax whitespace intersection for
+portable multi-token queries across Android SQLite builds.
+
+The hybrid-retrieval storage foundation keeps SQLite as the source of truth. A
+version-6 migration adds one optional `entry_embeddings` row per source entry,
+linked by an `ON DELETE CASCADE` foreign key. A vector is exactly 256 dimensions,
+L2-normalized, symmetrically quantized to a 256-byte int8 BLOB, and pinned to an
+exact lowercase model ID and SHA-256 bundle-manifest digest covering the graph,
+weights, tokenizer, and preprocessing contract. Model replacement cannot
+silently mix vector spaces. Reindex work is limited to 16 current documents at
+a time, and its compare-and-set commit succeeds only if the source still has the
+revision that was embedded and the row has not expired while inference was in
+flight. Replacing, expiring, tombstoning, or bulk-deleting a source therefore
+removes the vector with the same transaction semantics as its FTS posting.
+
+Hybrid ranking is bounded to 512 candidates after SQL has already applied the
+opaque conversation identity, allowed source types, and expiry predicates. It
+combines semantic cosine similarity, FTS rank, and recency, then returns the same
+eight-snippet API. If query embedding is absent, corrupt, late, or produced by a
+different artifact, retrieval uses the existing deterministic lexical/recency
+path. No vector or raw SQL crosses Binder, and neither an application nor the
+language model may generate database statements.
+
+The selected embedding candidate is Google's 300M EmbeddingGemma with its
+Matryoshka 256-dimensional output and documented query/document task prefixes.
+It requires a distinct non-generative Android runtime; the existing LiteRT-LM
+provider is deliberately not relabeled as an embedding engine. Model-catalog and
+broker activation remain fail-closed until the exact quantized artifact,
+tokenizer, preprocessing contract, runtime notices, and Pixel 9a latency/memory
+evidence are reproducible. Until then, the schema and ranker are inert storage
+infrastructure and production queries remain FTS-backed.
 
 For an incoming call, AIOS Phone appends the presented number and country ISO to
 the version-tolerant tail of `IncomingCallContext` only when the owner has enabled

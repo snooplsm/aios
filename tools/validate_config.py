@@ -2489,6 +2489,9 @@ def validate_aosp_overlay(root: Path) -> None:
     context_store = (context_root / "src" / "com" / "aios" /
                      "contextintelligence" / "ContextStore.java").read_text(
                          encoding="utf-8")
+    context_text = (context_root / "src" / "com" / "aios" /
+                    "contextintelligence" / "ContextText.java").read_text(
+                        encoding="utf-8")
     context_policy = (context_root / "src" / "com" / "aios" /
                       "contextintelligence" / "ContextPolicy.java").read_text(
                           encoding="utf-8")
@@ -2499,6 +2502,16 @@ def validate_aosp_overlay(root: Path) -> None:
                                  "aios" / "contextintelligence" /
                                  "ContextSourceScopeTest.java").read_text(
                                      encoding="utf-8")
+    context_embedding = (context_root / "src" / "com" / "aios" /
+                         "contextintelligence" /
+                         "QuantizedEmbedding.java").read_text(encoding="utf-8")
+    context_ranker = (context_root / "src" / "com" / "aios" /
+                      "contextintelligence" /
+                      "HybridRetrievalRanker.java").read_text(encoding="utf-8")
+    context_embedding_identity = (context_root / "src" / "com" / "aios" /
+                                  "contextintelligence" /
+                                  "EmbeddingModelIdentity.java").read_text(
+                                      encoding="utf-8")
     context_expiry = (context_root / "src" / "com" / "aios" /
                       "contextintelligence" / "ContextExpiryPolicy.java").read_text(
                           encoding="utf-8")
@@ -2511,6 +2524,10 @@ def validate_aosp_overlay(root: Path) -> None:
     context_expiry_test = (context_root / "tests" / "src" / "com" / "aios" /
                            "contextintelligence" /
                            "ContextExpiryPolicyTest.java").read_text(encoding="utf-8")
+    context_smoke = (root / "preview" / "callcontextcheck" / "src" / "debug" /
+                     "java" / "com" / "aios" / "contextintelligence" /
+                     "ContextLifecycleSmokeActivity.java").read_text(
+                         encoding="utf-8")
     context_document = (context_root / "api" / "com" / "aios" / "context" /
                         "ContextDocument.java").read_text(encoding="utf-8")
     call_context_writer = (root / "services" / "callintelligence" / "src" / "com" /
@@ -2561,6 +2578,34 @@ def validate_aosp_overlay(root: Path) -> None:
             and "CALL_ARTIFACT_TTL_MILLIS" in context_policy
             and "call artifacts must expire within 24 hours" in context_policy,
             "communication retrieval must be source-scoped, bounded, revisioned, and retention-aware")
+    require("private static final int VERSION = 6" in context_store
+            and "CREATE TABLE entry_embeddings" in context_store
+            and "REFERENCES entries(_id) ON DELETE CASCADE" in context_store
+            and "CHECK(dimensions=256)" in context_store
+            and "CHECK(length(vector)=256)" in context_store
+            and "oldVersion < 6" in context_store
+            and "MAX_EMBEDDING_BATCH = 16" in context_store
+            and "pendingEmbeddings" in context_store
+            and "currentRevision != revision" in context_store
+            and "expiresAtEpochMillis <= embeddedAtEpochMillis" in context_store
+            and "model_bundle_sha256" in context_store
+            and "commitEmbedding" in context_store
+            and "DIMENSIONS = 256" in context_embedding
+            and "embedding contains a non-finite value" in context_embedding
+            and "MAX_CANDIDATES = 512" in context_ranker
+            and "0.65 * semantic" in context_ranker
+            and "0.25 * lexical" in context_ranker
+            and "0.10 * recency" in context_ranker
+            and "[0-9a-f]{64}" in context_embedding_identity,
+            "communication hybrid retrieval must be bounded, artifact-pinned, quantized, and cascade-deleted")
+    require("pendingEmbeddings" in context_smoke
+            and "commitEmbedding" in context_smoke
+            and "embeddingCount(store) == 0" in context_smoke
+            and "late stale-revision embedding callback was accepted" in context_smoke
+            and "freshArtifact.expiresAtEpochMillis" in context_smoke
+            and "model_bundle_sha256" in context_smoke
+            and "length(vector)" in context_smoke,
+            "Android context smoke must exercise embedding persistence, stale callbacks, expiry, and cascade deletion")
     require("expiry_boot_identity TEXT NOT NULL" in context_store
             and "created_at_elapsed_ms INTEGER NOT NULL" in context_store
             and "expires_at_elapsed_ms INTEGER NOT NULL" in context_store
@@ -2608,8 +2653,8 @@ def validate_aosp_overlay(root: Path) -> None:
             "communication index must not store raw phone or contact identifiers")
     require(context_store.count("<>CAST(? AS INTEGER)") == 2,
             "SQLite retention comparisons must cast text-bound TTL arguments")
-    require("result.append(' ')" in context_store
-            and 'result.append(" AND ")' not in context_store,
+    require("result.append(' ')" in context_text
+            and 'result.append(" AND ")' not in context_text,
             "communication retrieval must use Android-portable FTS4 intersection syntax")
     context_client_manifests = (
         phone_manifest,

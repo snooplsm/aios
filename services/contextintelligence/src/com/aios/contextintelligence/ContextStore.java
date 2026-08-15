@@ -12,12 +12,12 @@ import com.aios.context.ConversationIdentity;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 
-/** Credential-encrypted, revisioned lexical index for bounded local retrieval. */
+/** Credential-encrypted, revisioned hybrid index for bounded local retrieval. */
 final class ContextStore extends SQLiteOpenHelper {
     private static final String DATABASE = "communication_context.db";
-    private static final int VERSION = 5;
+    private static final int VERSION = 6;
+    private static final int MAX_EMBEDDING_BATCH = 16;
 
     private final Context context;
 
@@ -68,6 +68,7 @@ final class ContextStore extends SQLiteOpenHelper {
         database.execSQL(
                 "CREATE TRIGGER entries_before_delete BEFORE DELETE ON entries BEGIN "
                         + "DELETE FROM entries_fts WHERE docid=old._id; END");
+        createEmbeddingTable(database);
     }
 
     @Override
@@ -99,6 +100,9 @@ final class ContextStore extends SQLiteOpenHelper {
             database.execSQL(
                     "ALTER TABLE entries ADD COLUMN expires_at_elapsed_ms"
                             + " INTEGER NOT NULL DEFAULT 0");
+        }
+        if (oldVersion < 6) {
+            createEmbeddingTable(database);
         }
     }
 
@@ -228,7 +232,7 @@ final class ContextStore extends SQLiteOpenHelper {
         }
         identityClause.append(')');
         String sourceClause = ContextSourceScope.selectionClause(sourceTypes, arguments);
-        String fts = ftsQuery(query);
+        String fts = ContextText.ftsQuery(query);
         String sql;
         if (fts.isEmpty()) {
             sql = "SELECT e.source_type,e.source_id,e.revision,e.event_at_epoch_ms,e.body"
@@ -256,10 +260,116 @@ final class ContextStore extends SQLiteOpenHelper {
                         cursor.getString(1),
                         cursor.getLong(2),
                         cursor.getLong(3),
-                        excerpt(cursor.getString(4))));
+                        ContextText.excerpt(cursor.getString(4))));
             }
         }
         return results;
+    }
+
+    /**
+     * Returns only current, unexpired revisions missing the exact selected model artifact.
+     * The caller must run this off the Binder thread and submit at most one bounded batch.
+     */
+    List<EmbeddingWorkItem> pendingEmbeddings(
+            String modelId,
+            String modelBundleSha256,
+            int limit,
+            long nowEpochMillis) {
+        EmbeddingModelIdentity.validate(modelId, modelBundleSha256);
+        if (limit < 1 || limit > MAX_EMBEDDING_BATCH || nowEpochMillis <= 0L) {
+            throw new IllegalArgumentException("invalid embedding work request");
+        }
+        purgeExpired(nowEpochMillis);
+        List<EmbeddingWorkItem> result = new ArrayList<>();
+        try (Cursor cursor = getReadableDatabase().rawQuery(
+                "SELECT e.source_type,e.source_id,e.revision,e.body"
+                        + " FROM entries e LEFT JOIN entry_embeddings x"
+                        + " ON x.entry_id=e._id"
+                        + " AND x.model_id=? AND x.model_bundle_sha256=?"
+                        + " WHERE x.entry_id IS NULL"
+                        + " AND (e.expires_at_epoch_ms=0 OR e.expires_at_epoch_ms>?)"
+                        + " ORDER BY e.event_at_epoch_ms DESC LIMIT ?",
+                new String[]{
+                        modelId,
+                        modelBundleSha256,
+                        Long.toString(nowEpochMillis),
+                        Integer.toString(limit)})) {
+            while (cursor.moveToNext()) {
+                result.add(new EmbeddingWorkItem(
+                        cursor.getString(0),
+                        cursor.getString(1),
+                        cursor.getLong(2),
+                        cursor.getString(3)));
+            }
+        }
+        return result;
+    }
+
+    /** Commits only if the source still exists at the revision that was embedded. */
+    boolean commitEmbedding(
+            String sourceType,
+            String sourceId,
+            long revision,
+            String modelId,
+            String modelBundleSha256,
+            QuantizedEmbedding embedding,
+            long embeddedAtEpochMillis) {
+        EmbeddingModelIdentity.validate(modelId, modelBundleSha256);
+        if (sourceType == null || sourceType.isBlank()
+                || sourceId == null || sourceId.isBlank()
+                || revision <= 0L || embedding == null || embeddedAtEpochMillis <= 0L) {
+            throw new IllegalArgumentException("invalid embedding commit");
+        }
+        SQLiteDatabase database = getWritableDatabase();
+        database.beginTransaction();
+        try {
+            long entryId;
+            long currentRevision;
+            long expiresAtEpochMillis;
+            try (Cursor cursor = database.query(
+                    "entries",
+                    new String[]{"_id", "revision", "expires_at_epoch_ms"},
+                    "source_type=? AND source_id=?",
+                    new String[]{sourceType, sourceId},
+                    null,
+                    null,
+                    null)) {
+                if (!cursor.moveToFirst()) {
+                    database.setTransactionSuccessful();
+                    return false;
+                }
+                entryId = cursor.getLong(0);
+                currentRevision = cursor.getLong(1);
+                expiresAtEpochMillis = cursor.getLong(2);
+            }
+            if (currentRevision != revision
+                    || (expiresAtEpochMillis > 0L
+                    && expiresAtEpochMillis <= embeddedAtEpochMillis)) {
+                database.setTransactionSuccessful();
+                return false;
+            }
+            ContentValues values = new ContentValues();
+            values.put("entry_id", entryId);
+            values.put("entry_revision", revision);
+            values.put("model_id", modelId);
+            values.put("model_bundle_sha256", modelBundleSha256);
+            values.put("dimensions", QuantizedEmbedding.DIMENSIONS);
+            values.put("quantization_scale", embedding.scale());
+            values.put("vector_norm", embedding.norm());
+            values.put("vector", embedding.values());
+            values.put("embedded_at_epoch_ms", embeddedAtEpochMillis);
+            if (database.insertWithOnConflict(
+                    "entry_embeddings",
+                    null,
+                    values,
+                    SQLiteDatabase.CONFLICT_REPLACE) < 0L) {
+                throw new IllegalStateException("cannot store communication embedding");
+            }
+            database.setTransactionSuccessful();
+            return true;
+        } finally {
+            database.endTransaction();
+        }
     }
 
     void purgeExpired(long nowEpochMillis) {
@@ -358,6 +468,24 @@ final class ContextStore extends SQLiteOpenHelper {
                         + "revision INTEGER NOT NULL)");
     }
 
+    private static void createEmbeddingTable(SQLiteDatabase database) {
+        database.execSQL(
+                "CREATE TABLE entry_embeddings ("
+                        + "entry_id INTEGER PRIMARY KEY,"
+                        + "entry_revision INTEGER NOT NULL,"
+                        + "model_id TEXT NOT NULL,"
+                        + "model_bundle_sha256 TEXT NOT NULL,"
+                        + "dimensions INTEGER NOT NULL CHECK(dimensions=256),"
+                        + "quantization_scale REAL NOT NULL CHECK(quantization_scale>0),"
+                        + "vector_norm REAL NOT NULL CHECK(vector_norm>0),"
+                        + "vector BLOB NOT NULL CHECK(length(vector)=256),"
+                        + "embedded_at_epoch_ms INTEGER NOT NULL,"
+                        + "FOREIGN KEY(entry_id) REFERENCES entries(_id) ON DELETE CASCADE)");
+        database.execSQL(
+                "CREATE INDEX entry_embeddings_model"
+                        + " ON entry_embeddings(model_id, model_bundle_sha256)");
+    }
+
     private static void migrateTombstonesToWatermark(
             SQLiteDatabase database, String sourceType) {
         long revision = sourceDeleteWatermark(database, sourceType);
@@ -381,26 +509,4 @@ final class ContextStore extends SQLiteOpenHelper {
         database.delete("tombstones", "source_type=?", new String[]{sourceType});
     }
 
-    static String ftsQuery(String value) {
-        String normalized = value.toLowerCase(Locale.ROOT)
-                .replaceAll("[^\\p{L}\\p{N}]+", " ").trim();
-        if (normalized.isEmpty()) return "";
-        String[] tokens = normalized.split("\\s+");
-        StringBuilder result = new StringBuilder();
-        for (int index = 0; index < Math.min(tokens.length, 8); index++) {
-            if (tokens[index].isEmpty()) continue;
-            // Android's FTS4 build uses the basic syntax, where whitespace is
-            // intersection. Treating AND as an operator instead searches for
-            // a literal "and" token on affected platform builds.
-            if (result.length() > 0) result.append(' ');
-            result.append('"').append(tokens[index]).append('"').append('*');
-        }
-        return result.toString();
-    }
-
-    static String excerpt(String value) {
-        String normalized = value.replaceAll("\\s+", " ").trim();
-        return normalized.length() <= ContextPolicy.MAX_SNIPPET_CHARS
-                ? normalized : normalized.substring(0, ContextPolicy.MAX_SNIPPET_CHARS);
-    }
 }
