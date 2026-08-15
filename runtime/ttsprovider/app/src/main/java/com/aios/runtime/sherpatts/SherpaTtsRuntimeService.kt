@@ -42,7 +42,7 @@ class SherpaTtsRuntimeService : Service() {
         const val TAG = "AiosTtsRuntime"
         const val BROKER_PACKAGE = "com.aios.modelbroker"
         const val RUNTIME_ID = "sherpa_onnx_tts"
-        const val IMPLEMENTATION_VERSION = "1.13.7"
+        const val IMPLEMENTATION_VERSION = "1.13.8"
         const val PROVIDER_API_VERSION = 2
         const val MODEL_ID = "supertonic3-en-es-int8"
         const val SOURCE_ARCHIVE_SHA256 =
@@ -129,6 +129,7 @@ class SherpaTtsRuntimeService : Service() {
         val completed = AtomicBoolean(false)
         val outputAttached = AtomicBoolean(false)
         val textSubmitted = AtomicBoolean(false)
+        val textSubmittedAtElapsed = AtomicLong(0L)
         lateinit var deathRecipient: IBinder.DeathRecipient
         @Volatile var sink: ParcelFileDescriptor? = null
     }
@@ -186,6 +187,10 @@ class SherpaTtsRuntimeService : Service() {
             sessions[id] = session
             Log.i(TAG, "SESSION_CREATED id=$id model=${artifact.modelId} " +
                 "language=${request.language} backend=${artifact.backend}")
+            // Session creation happens while an AI-answered call is still ringing.
+            // Queue model verification/initialization immediately so the existing
+            // answer delay can hide cold startup. No text or PCM is consumed here.
+            runtimeExecutor.execute { prepare(session) }
             return id
         }
 
@@ -200,6 +205,8 @@ class SherpaTtsRuntimeService : Service() {
                     "TTS requires one bounded final text after output attachment")
                 return
             }
+            session.textSubmittedAtElapsed.compareAndSet(
+                0L, SystemClock.elapsedRealtime())
             Log.i(TAG, "TEXT_SUBMITTED id=$sessionId chars=${text.length}")
             runtimeExecutor.execute { synthesize(session, text) }
         }
@@ -317,20 +324,41 @@ class SherpaTtsRuntimeService : Service() {
             return try {
                 writePcm16(output, samples)
                 chunkCount += 1
+                val now = SystemClock.elapsedRealtime()
+                val afterText = elapsedAfterText(session, now)
                 Log.i(TAG, "AUDIO_CHUNK id=${session.id} chunk=$chunkCount elapsed_ms=" +
-                    (SystemClock.elapsedRealtime() - session.createdAtElapsed) +
-                    " samples=${samples.size}")
+                    (now - session.createdAtElapsed) +
+                    " after_text_ms=$afterText samples=${samples.size}")
                 if (!firstBlockLogged) {
                     firstBlockLogged = true
                     Log.i(TAG, "FIRST_AUDIO id=${session.id} elapsed_ms=" +
-                        (SystemClock.elapsedRealtime() - session.createdAtElapsed) +
-                        " samples=${samples.size}")
+                        (now - session.createdAtElapsed) +
+                        " after_text_ms=$afterText samples=${samples.size}")
                 }
                 sampleCount += samples.size
                 1
             } catch (error: IOException) {
                 failure = error
                 0
+            }
+        }
+    }
+
+    private fun prepare(session: TtsSession) {
+        if (session.cancelled.get() || session.completed.get()) return
+        Log.i(TAG, "PREPARE_START id=${session.id}")
+        try {
+            ensureEngine(session.artifact)
+            if (session.cancelled.get() || session.completed.get()) return
+            check(SystemClock.elapsedRealtime() <
+                session.request.deadlineElapsedRealtimeMillis) { "TTS deadline expired" }
+            Log.i(TAG, "ENGINE_READY id=${session.id} elapsed_ms=" +
+                (SystemClock.elapsedRealtime() - session.createdAtElapsed))
+        } catch (error: Exception) {
+            Log.e(TAG, "PREPARE_FAILED id=${session.id}", error)
+            if (!session.cancelled.get()) {
+                fail(session, ERROR_RUNTIME_FAILED,
+                    (error::class.java.simpleName + ": TTS preparation failed").take(256))
             }
         }
     }
@@ -347,7 +375,7 @@ class SherpaTtsRuntimeService : Service() {
         var sampleCount = 0L
         try {
             val tts = ensureEngine(session.artifact)
-            Log.i(TAG, "ENGINE_READY id=${session.id} elapsed_ms=" +
+            Log.i(TAG, "ENGINE_CONFIRMED id=${session.id} elapsed_ms=" +
                 (SystemClock.elapsedRealtime() - session.createdAtElapsed))
             check(tts.sampleRate() == SAMPLE_RATE_HZ) { "unexpected TTS sample rate" }
             check(tts.numSpeakers() > SPEAKER_ID) { "configured TTS speaker is absent" }
@@ -517,8 +545,10 @@ class SherpaTtsRuntimeService : Service() {
 
     private fun complete(session: TtsSession, sampleCount: Long) {
         if (!session.completed.compareAndSet(false, true)) return
+        val now = SystemClock.elapsedRealtime()
+        val afterText = elapsedAfterText(session, now)
         Log.i(TAG, "SYNTHESIS_DONE id=${session.id} samples=$sampleCount elapsed_ms=" +
-            (SystemClock.elapsedRealtime() - session.createdAtElapsed))
+            (now - session.createdAtElapsed) + " after_text_ms=$afterText")
         sessions.remove(session.id, session)
         session.callback.asBinder().unlinkToDeath(session.deathRecipient, 0)
         val output = JSONObject()
@@ -526,6 +556,7 @@ class SherpaTtsRuntimeService : Service() {
             .put("sample_rate_hz", SAMPLE_RATE_HZ)
             .put("sample_count", sampleCount)
             .put("speaker_id", SPEAKER_ID)
+            .put("generation_elapsed_ms", afterText)
             .toString()
         val result = InferenceResult().apply {
             requestId = session.request.requestId
@@ -625,6 +656,11 @@ class SherpaTtsRuntimeService : Service() {
             output.write(bytes, 0, count * 2)
             offset += count
         }
+    }
+
+    private fun elapsedAfterText(session: TtsSession, now: Long): Long {
+        val submitted = session.textSubmittedAtElapsed.get()
+        return if (submitted > 0L) (now - submitted).coerceAtLeast(0L) else 0L
     }
 
     private fun sha256(path: File): String {

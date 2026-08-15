@@ -39,16 +39,36 @@ public final class CallIntelligenceService extends Service {
     private static final int MAX_CONTEXT_CALLS = 64;
     private static final String PREF_EXCLUDED_CALLER_HISTORY_HASHES =
             "excluded_caller_history_address_hashes";
+    private static final String GREETING_EN = "Hello, how can I help you?";
+    private static final String GREETING_ES = "Hola, ¿cómo puedo ayudarle?";
 
-    private static final class PendingIncomingCall {
+    private static final class PendingIncomingCall implements AutoCloseable {
         final int ownerUid;
         final boolean knownContact;
         final boolean processingAllowed;
+        SpeechSynthesisBrokerClient.Speech preparedGreeting;
 
-        PendingIncomingCall(int ownerUid, boolean knownContact, boolean processingAllowed) {
+        PendingIncomingCall(
+                int ownerUid,
+                boolean knownContact,
+                boolean processingAllowed,
+                SpeechSynthesisBrokerClient.Speech preparedGreeting) {
             this.ownerUid = ownerUid;
             this.knownContact = knownContact;
             this.processingAllowed = processingAllowed;
+            this.preparedGreeting = preparedGreeting;
+        }
+
+        SpeechSynthesisBrokerClient.Speech takePreparedGreeting() {
+            SpeechSynthesisBrokerClient.Speech result = preparedGreeting;
+            preparedGreeting = null;
+            return result;
+        }
+
+        @Override
+        public void close() {
+            SpeechSynthesisBrokerClient.Speech current = takePreparedGreeting();
+            if (current != null) current.close();
         }
     }
 
@@ -172,6 +192,23 @@ public final class CallIntelligenceService extends Service {
                 decision = deniedAutomaticAnswerDecision(
                         decision.processingAllowed, automaticAnswerUnavailableReason());
             }
+            SpeechSynthesisBrokerClient.Speech preparedGreeting = null;
+            if (decision.aiMayAnswer) {
+                String language = greetingLanguage();
+                try {
+                    preparedGreeting = speech.prepare(
+                            context.callId,
+                            context.callId + ":tts:preanswer:" + nextSpeechRequestSerial(),
+                            language,
+                            greeting(language));
+                    notifyStatus(context.callId, 5, "speech_synthesis_preparing");
+                } catch (IOException | RuntimeException error) {
+                    decision = deniedAutomaticAnswerDecision(
+                            decision.processingAllowed,
+                            "speech_synthesis_prewarm_failed");
+                    notifyStatus(context.callId, -7, "speech_synthesis_prewarm_failed");
+                }
+            }
             SharedPreferences preferences = ownerPreferences();
             String[] callerHistorySources = callerHistorySources(preferences);
             boolean conversationAllowed = CallerHistoryConversationPolicy.isAllowed(
@@ -186,52 +223,66 @@ public final class CallIntelligenceService extends Service {
                     conversationAllowed,
                     context.transientAddress);
             Object contextRequestIdentity = prepareContext ? new Object() : null;
+            String admissionRejection = null;
+            List<PendingIncomingCall> displacedPending = new ArrayList<>();
             synchronized (telecomPresenceLock) {
                 if (telecomPresenceStopping
                         || !telecomPresence.ownsCall(ownerUid, context.callId)) {
-                    return deniedDecision("telecom_call_not_registered");
-                }
-                synchronized (sessions) {
+                    admissionRejection = "telecom_call_not_registered";
+                } else synchronized (sessions) {
                     Integer emergencyOwner = emergencyProtectedCalls.get(context.callId);
                     if (emergencyOwner != null) {
-                        return deniedDecision(emergencyOwner == ownerUid
+                        admissionRejection = emergencyOwner == ownerUid
                                 ? "emergency_processing_blocked"
-                                : "emergency_call_owned_by_another_uid");
-                    }
-                    if (pendingIncomingCalls.size() >= 64
+                                : "emergency_call_owned_by_another_uid";
+                    } else {
+                        if (pendingIncomingCalls.size() >= 64
                             && !pendingIncomingCalls.containsKey(context.callId)) {
-                        pendingIncomingCalls.clear();
-                    }
-                    pendingIncomingCalls.put(
-                            context.callId,
-                            new PendingIncomingCall(
-                                    ownerUid, context.knownContact, decision.processingAllowed));
-                    if (prepareContext) {
-                        SharedPreferences latestPreferences = ownerPreferences();
-                        String[] latestSources = callerHistorySources(latestPreferences);
-                        if (!latestPreferences.getBoolean("caller_history_enabled", false)
-                                || latestSources.length == 0
-                                || !CallerHistoryConversationPolicy.isAllowed(
-                                        context.normalizedAddressHash,
-                                        latestPreferences.getStringSet(
-                                                PREF_EXCLUDED_CALLER_HISTORY_HASHES,
-                                                Set.of()))) {
-                            prepareContext = false;
-                        } else {
-                            callerHistorySources = latestSources;
+                            displacedPending.addAll(pendingIncomingCalls.values());
+                            pendingIncomingCalls.clear();
                         }
-                    }
-                    if (prepareContext) {
-                        if (!communicationContextRequests.tryStart(
+                        PendingIncomingCall replaced = pendingIncomingCalls.put(
                                 context.callId,
-                                contextRequestIdentity,
-                                MAX_CONTEXT_CALLS)) {
-                            prepareContext = false;
-                        } else {
-                            pendingCommunicationContexts.remove(context.callId);
+                                new PendingIncomingCall(
+                                        ownerUid,
+                                        context.knownContact,
+                                        decision.processingAllowed,
+                                        preparedGreeting));
+                        preparedGreeting = null;
+                        if (replaced != null) displacedPending.add(replaced);
+                        if (prepareContext) {
+                            SharedPreferences latestPreferences = ownerPreferences();
+                            String[] latestSources = callerHistorySources(latestPreferences);
+                            if (!latestPreferences.getBoolean(
+                                    "caller_history_enabled", false)
+                                    || latestSources.length == 0
+                                    || !CallerHistoryConversationPolicy.isAllowed(
+                                            context.normalizedAddressHash,
+                                            latestPreferences.getStringSet(
+                                                    PREF_EXCLUDED_CALLER_HISTORY_HASHES,
+                                                    Set.of()))) {
+                                prepareContext = false;
+                            } else {
+                                callerHistorySources = latestSources;
+                            }
+                        }
+                        if (prepareContext) {
+                            if (!communicationContextRequests.tryStart(
+                                    context.callId,
+                                    contextRequestIdentity,
+                                    MAX_CONTEXT_CALLS)) {
+                                prepareContext = false;
+                            } else {
+                                pendingCommunicationContexts.remove(context.callId);
+                            }
                         }
                     }
                 }
+            }
+            closePreparedGreeting(preparedGreeting);
+            for (PendingIncomingCall displaced : displacedPending) displaced.close();
+            if (admissionRejection != null) {
+                return deniedDecision(admissionRejection);
             }
             if (prepareContext && !communicationContext.prepareCall(
                     context.callId,
@@ -297,6 +348,7 @@ public final class CallIntelligenceService extends Service {
             int ownerUid = android.os.Binder.getCallingUid();
             boolean authorized = ownsPresentTelecomCall(ownerUid, callId);
             ActiveSession stopped = null;
+            PendingIncomingCall stoppedPending = null;
             String rejection = null;
             synchronized (sessions) {
                 Integer existingEmergencyOwner = emergencyProtectedCalls.get(callId);
@@ -314,7 +366,7 @@ public final class CallIntelligenceService extends Service {
                         rejection = "telecom_call_not_owned_or_active";
                     } else {
                         emergencyProtectedCalls.put(callId, ownerUid);
-                        pendingIncomingCalls.remove(callId);
+                        stoppedPending = pendingIncomingCalls.remove(callId);
                         communicationContextRequests.remove(callId);
                         pendingCommunicationContexts.remove(callId);
                         stopped = sessions.remove(callId);
@@ -325,6 +377,7 @@ public final class CallIntelligenceService extends Service {
                 notifyStatus(callId, -8, rejection);
                 return;
             }
+            if (stoppedPending != null) stoppedPending.close();
             classifier.endCall(callId);
             receptionist.endCall(callId);
             if (stopped != null) {
@@ -384,6 +437,7 @@ public final class CallIntelligenceService extends Service {
             int ownerUid = android.os.Binder.getCallingUid();
             boolean ownsPresentCall = ownsPresentTelecomCall(ownerUid, callId);
             ActiveSession ended = null;
+            PendingIncomingCall endedPending = null;
             CallCommunicationContextClient.PreparedContext pendingContext = null;
             String rejection = null;
             boolean authorized = ownsPresentCall;
@@ -401,7 +455,7 @@ public final class CallIntelligenceService extends Service {
                     if (emergencyOwner != null) authorized = true;
                     PendingIncomingCall pending = pendingIncomingCalls.get(callId);
                     if (pending != null && pending.ownerUid == ownerUid) {
-                        pendingIncomingCalls.remove(callId);
+                        endedPending = pendingIncomingCalls.remove(callId);
                         authorized = true;
                     }
                     if (!authorized) {
@@ -422,6 +476,7 @@ public final class CallIntelligenceService extends Service {
                 notifyStatus(callId, -8, rejection);
                 return;
             }
+            if (endedPending != null) endedPending.close();
             classifier.endCall(callId);
             receptionist.endCall(callId);
             long now = System.currentTimeMillis();
@@ -523,6 +578,7 @@ public final class CallIntelligenceService extends Service {
             }
         }
         if (emergencyOwner != null) {
+            if (pending != null && pending.ownerUid == ownerUid) pending.close();
             if (emergencyOwner != ownerUid) {
                 notifyStatus(callId, -8, "emergency_call_owned_by_another_uid");
             } else {
@@ -534,10 +590,14 @@ public final class CallIntelligenceService extends Service {
             notifyStatus(callId, -8, "call_admission_owned_by_another_uid");
             return;
         }
+        SpeechSynthesisBrokerClient.Speech preparedGreeting = answeredByAi && pending != null
+                ? pending.takePreparedGreeting() : null;
+        if (pending != null) pending.close();
         boolean admittedProcessing = pending == null || pending.processingAllowed;
         boolean ownerProcessingEnabled = ownerPreferences().getBoolean(
                 "processing_enabled", false);
         if (!processingAllowed || !admittedProcessing || !ownerProcessingEnabled) {
+            closePreparedGreeting(preparedGreeting);
             notifyStatus(callId, 0, "processing_not_allowed");
             return;
         }
@@ -551,7 +611,8 @@ public final class CallIntelligenceService extends Service {
                     ownerUid,
                     false,
                     knownContact,
-                    resumedAfterServiceLoss);
+                    resumedAfterServiceLoss,
+                    null);
             return;
         }
 
@@ -559,6 +620,7 @@ public final class CallIntelligenceService extends Service {
                 ? manualCallerInteractionTransportReady()
                 : automaticCallerInteractionTransportReady();
         if (!interactionReady) {
+            closePreparedGreeting(preparedGreeting);
             notifyStatus(callId, -4, developmentManualTest
                     ? manualAiAnswerUnavailableReason()
                     : automaticAnswerUnavailableReason());
@@ -569,7 +631,8 @@ public final class CallIntelligenceService extends Service {
                 ownerUid,
                 true,
                 knownContact,
-                resumedAfterServiceLoss);
+                resumedAfterServiceLoss,
+                preparedGreeting);
     }
 
     @Override
@@ -680,6 +743,9 @@ public final class CallIntelligenceService extends Service {
     public void onDestroy() {
         stopTelecomPresenceTracking();
         synchronized (sessions) {
+            for (PendingIncomingCall pending : pendingIncomingCalls.values()) {
+                pending.close();
+            }
             pendingIncomingCalls.clear();
             emergencyProtectedCalls.clear();
             pendingCommunicationContexts.clear();
@@ -843,24 +909,30 @@ public final class CallIntelligenceService extends Service {
             int ownerUid,
             boolean answeredByAi,
             boolean knownContact,
-            boolean resumedAfterServiceLoss) {
-        ActiveSession started;
+            boolean resumedAfterServiceLoss,
+            SpeechSynthesisBrokerClient.Speech preparedGreeting) {
+        ActiveSession started = null;
+        String rejection = null;
         synchronized (telecomPresenceLock) {
             if (telecomPresenceStopping || !telecomPresence.ownsCall(ownerUid, callId)) {
-                notifyStatus(callId, -8, "telecom_call_not_owned_or_active");
-                return;
-            }
-            synchronized (sessions) {
+                rejection = "telecom_call_not_owned_or_active";
+            } else synchronized (sessions) {
                 Integer emergencyOwner = emergencyProtectedCalls.get(callId);
                 if (emergencyOwner != null) {
-                    notifyStatus(callId, emergencyOwner == ownerUid ? 0 : -8,
-                            emergencyOwner == ownerUid
-                                    ? "emergency_processing_blocked"
-                                    : "emergency_call_owned_by_another_uid");
-                    return;
+                    rejection = emergencyOwner == ownerUid
+                            ? "emergency_processing_blocked"
+                            : "emergency_call_owned_by_another_uid";
+                } else {
+                    started = beginCaptureLocked(callId, ownerUid, answeredByAi, knownContact);
                 }
-                started = beginCaptureLocked(callId, ownerUid, answeredByAi, knownContact);
             }
+        }
+        if (rejection != null) {
+            closePreparedGreeting(preparedGreeting);
+            notifyStatus(callId,
+                    "emergency_processing_blocked".equals(rejection) ? 0 : -8,
+                    rejection);
+            return;
         }
         if (started != null) {
             publishAssessment(callId, started, started.initialAssessment());
@@ -870,12 +942,12 @@ public final class CallIntelligenceService extends Service {
                 && AssistantGreetingPolicy.shouldGreet(
                         answeredByAi, resumedAfterServiceLoss)
                 && started.beginGreeting()) {
-            String language = "es".equals(Locale.getDefault().getLanguage()) ? "es" : "en";
-            String greeting = "es".equals(language)
-                    ? "Hola, ¿cómo puedo ayudarle?"
-                    : "Hello, how can I help you?";
-            speakToCaller(callId, started, language, greeting);
+            String language = greetingLanguage();
+            String text = greeting(language);
+            speakToCaller(callId, started, language, text, preparedGreeting);
+            preparedGreeting = null;
         }
+        closePreparedGreeting(preparedGreeting);
     }
 
     private ActiveSession beginCaptureLocked(
@@ -1109,6 +1181,7 @@ public final class CallIntelligenceService extends Service {
         communicationContextRequests.remove(callId);
         pendingCommunicationContexts.remove(callId);
         sessions.remove(callId);
+        if (pending != null) pending.close();
         if (active != null) active.close();
         classifier.endCall(callId);
         receptionist.endCall(callId);
@@ -1502,13 +1575,31 @@ public final class CallIntelligenceService extends Service {
 
     private void speakToCaller(
             String callId, ActiveSession session, String language, String text) {
+        speakToCaller(callId, session, language, text, null);
+    }
+
+    private void speakToCaller(
+            String callId,
+            ActiveSession session,
+            String language,
+            String text,
+            SpeechSynthesisBrokerClient.Speech preparedGreeting) {
         SpeechSynthesisBrokerClient.Speech synthesized = null;
         CallerAudioUplink.Stream uplink = null;
         boolean attached = false;
         try {
-            long generation = nextSpeechRequestSerial();
-            synthesized = speech.prepare(
-                    callId, callId + ":tts:" + generation, language, text);
+            if (preparedGreeting != null
+                    && preparedGreeting.matches(callId, language, text)) {
+                synthesized = preparedGreeting;
+                preparedGreeting = null;
+                notifyStatus(callId, 5, "speech_synthesis_prepared");
+            } else {
+                closePreparedGreeting(preparedGreeting);
+                preparedGreeting = null;
+                long generation = nextSpeechRequestSerial();
+                synthesized = speech.prepare(
+                        callId, callId + ":tts:" + generation, language, text);
+            }
             uplink = callerAudio.open(
                     callId,
                     synthesized.takePcmInput(),
@@ -1529,6 +1620,7 @@ public final class CallIntelligenceService extends Service {
                 notifyStatus(callId, 7, "assistant_speaking");
             }
         } catch (IOException | RuntimeException error) {
+            closePreparedGreeting(preparedGreeting);
             if (uplink != null) uplink.close();
             if (synthesized != null) synthesized.close();
             notifyStatus(callId, -7, "assistant_speech_unavailable");
@@ -1539,6 +1631,19 @@ public final class CallIntelligenceService extends Service {
                 continueAfterAssistantCompletion(callId, session, completion);
             }
         }
+    }
+
+    private static String greetingLanguage() {
+        return "es".equals(Locale.getDefault().getLanguage()) ? "es" : "en";
+    }
+
+    private static String greeting(String language) {
+        return "es".equals(language) ? GREETING_ES : GREETING_EN;
+    }
+
+    private static void closePreparedGreeting(
+            SpeechSynthesisBrokerClient.Speech preparedGreeting) {
+        if (preparedGreeting != null) preparedGreeting.close();
     }
 
     private void handleCallerAudioStatus(

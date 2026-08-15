@@ -24,6 +24,10 @@ public final class SpeechSynthesisStatusPolicyTest {
     public void availabilityAndMalformedStatusesAreNotCallTerminal() {
         assertFalse(SpeechSynthesisStatusPolicy.terminatesCallerAudio(
                 "speech_synthesis_ready"));
+        assertFalse(SpeechSynthesisStatusPolicy.terminatesCallerAudio(
+                "speech_synthesis_preparing"));
+        assertFalse(SpeechSynthesisStatusPolicy.terminatesCallerAudio(
+                "speech_synthesis_prepared"));
         assertFalse(SpeechSynthesisStatusPolicy.terminatesCallerAudio(null));
     }
 }

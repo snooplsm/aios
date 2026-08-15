@@ -110,6 +110,16 @@ Intelligence registers the resulting `Speech` and uplink `Stream`, starts the
 uplink reader, consumes the pair's one-shot start gate, and only then submits
 text to the TTS provider. A synchronous callback or submission exception cannot
 precede identity registration or release a successor turn from the catch path.
+
+For automatic AI answers, the fixed English/Spanish greeting session is created
+during the already-selected 1--4 second ring delay. Creation starts only model
+verification and TTS engine initialization; text submission and PCM production
+remain gated on a connected Telecom call and an attached caller-uplink stream.
+The admitted incoming call owns this prepared session. Replacement, owner
+answer, emergency transition, call end, dialer death, or failed capture cancels
+it. A preparation failure revokes AI-answer authority for that call so normal
+ringing continues.
+
 The speech object separately admits only its first terminal source across model
 completion, provider error, Broker disconnect, and owner closure. Completion
 keeps the uplink drain authoritative even if a broken provider later reports an

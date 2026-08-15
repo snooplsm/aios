@@ -8,7 +8,7 @@ message was captured. It is not used for a mandatory recording disclosure.
 ## Locked implementation
 
 The provider in `runtime/ttsprovider` embeds the official Sherpa-ONNX Android
-runtime at version `1.13.4`; AIOS provider implementation `1.13.7` uses the int8
+runtime at version `1.13.4`; AIOS provider implementation `1.13.8` uses the int8
 Supertonic 3 model bundle. Call synthesis uses the pinned integration's
 five-denoising-step default rather than the upstream model's higher-quality
 eight-step default. It also limits a native synthesis chunk to 64 Unicode code
@@ -50,6 +50,18 @@ provides bounded behavior; physical tests must measure whether playback
 backpressure creates a gap between native chunks before this candidate ships.
 Caller playback converts that native 44.1 kHz mono stream directly to Telecom's
 48 kHz stereo uplink, avoiding a redundant intermediate resample.
+
+For an automatic AI answer, Call Intelligence creates the bounded greeting
+session as soon as incoming-call policy authorizes AI handling. Provider session
+creation queues digest verification and engine initialization immediately, while
+the call is still in its configured 1--4 second ringing delay; it consumes no
+text and emits no PCM before Telecom reports the call connected. The exact
+prepared session is then transferred to the greeting path. A replaced decision,
+owner answer, emergency transition, call end, dialer death, or failed admission
+cancels it and closes both pipe ends. Preparation failure removes AI-answer
+authority and leaves the call ringing for the owner. Runtime diagnostics report
+both session-relative and post-text first-audio timing so hidden pre-answer work
+cannot make connected-call latency ambiguous.
 
 The provider repeats all security checks before native initialization:
 

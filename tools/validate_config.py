@@ -984,12 +984,15 @@ def validate_aosp_overlay(root: Path) -> None:
         "scripts/capture-aosp-lock.sh",
         "scripts/build-aosp-lane.sh",
         "scripts/build-aosp-modules.sh",
+        "scripts/test-aosp-modules.sh",
         "scripts/install-cuttlefish-host.sh",
         "scripts/device-inventory.ps1",
         "scripts/pixel9a-gsi-preflight.ps1",
         "scripts/start-pixel9a-dsu.ps1",
         "scripts/capture-pixel9a-gsi-boot.ps1",
         "scripts/capture-realtime-smoke.ps1",
+        "scripts/AiosRuntimeDiagnostics.psm1",
+        "scripts/test-runtime-diagnostic-parser.ps1",
         "scripts/capture-physical-call.ps1",
         "docs/cuttlefish-bringup.md",
         "docs/emulator-bringup.md",
@@ -1844,6 +1847,18 @@ def validate_aosp_overlay(root: Path) -> None:
             and 'm -j "$jobs" "${targets[@]}"' in module_build_script
             and "not release evidence" in module_build_script,
             "focused Soong builds must resolve lanes and transact the same patch queue")
+    module_test_script = (root / "scripts" / "test-aosp-modules.sh").read_text(
+        encoding="utf-8"
+    )
+    require("aosp_lanes.json" in module_test_script
+            and "pixel9a_tegu_hardware" in module_test_script
+            and "pixel9a-series.json" in module_test_script
+            and "verify_patch_series.py" in module_test_script
+            and "--apply" in module_test_script
+            and "--revert" in module_test_script
+            and "trap cleanup EXIT INT TERM" in module_test_script
+            and 'atest --host "${tests[@]}"' in module_test_script,
+            "Soong host tests must resolve lanes, stay host-only, and transact patches")
     build_evidence_source = (root / "tools" /
                              "capture_build_evidence.py").read_text(encoding="utf-8")
     require("installed-files-product.json" in build_evidence_source
@@ -2064,6 +2079,12 @@ def validate_aosp_overlay(root: Path) -> None:
         encoding="utf-8")
     realtime_capture = (root / "scripts" /
                         "capture-realtime-smoke.ps1").read_text(encoding="utf-8")
+    runtime_diagnostic_parser = (root / "scripts" /
+                                 "AiosRuntimeDiagnostics.psm1").read_text(
+                                     encoding="utf-8")
+    runtime_diagnostic_test = (root / "scripts" /
+                               "test-runtime-diagnostic-parser.ps1").read_text(
+                                   encoding="utf-8")
     physical_call_capture = (root / "scripts" /
                              "capture-physical-call.ps1").read_text(encoding="utf-8")
     require("runRealtimeSmoke" in benchmark_source
@@ -2085,6 +2106,8 @@ def validate_aosp_overlay(root: Path) -> None:
             and "pixel_aios_single_model_diagnostic" in realtime_capture
             and 'ValidateSet("full", "audio", "single")' in realtime_capture
             and "diagnostic_log" in realtime_capture
+            and "AiosRuntimeDiagnostics.psm1" in realtime_capture
+            and "runtime_phase_diagnostics" in realtime_capture
             and "AiosWhisperNative" in realtime_capture
             and "Get-AiosRuntimeRssSnapshot" in realtime_capture
             and "peak_total_aios_runtime_rss_mb" in realtime_capture
@@ -2101,6 +2124,14 @@ def validate_aosp_overlay(root: Path) -> None:
             and "runAudioRealtimeSmoke" in realtime_capture
             and "refusing to overwrite" in realtime_capture,
             "physical realtime smoke must be focused, non-overwriting, and non-admission")
+    require("ConvertFrom-AiosRuntimeDiagnosticLog" in runtime_diagnostic_parser
+            and "first_audio_after_text_ms" in runtime_diagnostic_parser
+            and "first_token_after_ready_ms" in runtime_diagnostic_parser
+            and "decode_elapsed_total_ms" in runtime_diagnostic_parser
+            and "Export-ModuleMember" in runtime_diagnostic_parser
+            and "Runtime diagnostic parser test passed" in runtime_diagnostic_test
+            and "first_audio_after_engine_ready_ms" in runtime_diagnostic_test,
+            "physical diagnostics must parse TTS, Gemma, and Whisper phases reproducibly")
     require('include("com/aios/modelbenchmark/**/*.java")'
             in benchmark_compile_check
             and 'include(":modelbenchmarkcheck")' in benchmark_preview_settings

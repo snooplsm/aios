@@ -96,7 +96,7 @@ final class SpeechSynthesisBrokerClient implements AutoCloseable {
             request.deadlineElapsedRealtimeMillis =
                     SystemClock.elapsedRealtime() + REQUEST_DEADLINE_MILLIS;
             request.allowFallback = false;
-            speech = new Speech(callId, requestId, broker, pipe[0], text);
+            speech = new Speech(callId, requestId, language, broker, pipe[0], text);
             pipe[0] = null;
             long sessionId = broker.createSession(request, callback(speech));
             if (sessionId <= 0L) {
@@ -245,6 +245,7 @@ final class SpeechSynthesisBrokerClient implements AutoCloseable {
         final String callId;
         final String requestId;
         final int sampleRateHz = OUTPUT_SAMPLE_RATE_HZ;
+        private final String language;
         private final IAiosModelService broker;
         private final String text;
         private final SpeechTerminalGate terminal = new SpeechTerminalGate();
@@ -256,11 +257,13 @@ final class SpeechSynthesisBrokerClient implements AutoCloseable {
         Speech(
                 String callId,
                 String requestId,
+                String language,
                 IAiosModelService broker,
                 ParcelFileDescriptor pcmInput,
                 String text) {
             this.callId = callId;
             this.requestId = requestId;
+            this.language = language;
             this.broker = broker;
             this.pcmInput = pcmInput;
             this.text = text;
@@ -294,6 +297,14 @@ final class SpeechSynthesisBrokerClient implements AutoCloseable {
 
         synchronized boolean isFinished() {
             return terminal.isTerminal();
+        }
+
+        synchronized boolean matches(
+                String expectedCallId, String language, String expectedText) {
+            return !closed && !terminal.isTerminal()
+                    && callId.equals(expectedCallId)
+                    && this.language.equals(language)
+                    && text.equals(expectedText);
         }
 
         synchronized ParcelFileDescriptor takePcmInput() throws IOException {

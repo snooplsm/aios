@@ -94,7 +94,12 @@ samples, available/swap memory before and after, provider diagnostics, and
 OOM/fatal/AIOS-low-memory-kill flags. `instrumentation_runtime_pss_available`
 states whether Android exposed the cross-UID PSS values; the host samples remain
 present either way. For TTS, `first_output_ms` is the first PCM byte observed on
-the audio pipe, not a text callback or the request timeout.
+the audio pipe, not a text callback or the request timeout. The structured
+`runtime_phase_diagnostics` section also separates TTS engine readiness from
+first-chunk generation, Gemma artifact verification and engine readiness from
+first-token generation, and Whisper model initialization from per-window decode
+time. Raw lifecycle logs remain attached for diagnosis but contain no prompts,
+transcripts, PCM, photos, phone numbers, or serials.
 
 `-Measurements C:\safe\measurements.json` remains available for importing the
 same strict raw schema from a separately reviewed runner. The deterministic

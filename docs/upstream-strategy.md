@@ -67,6 +67,11 @@ an exit trap, preventing a direct `m` invocation from accidentally compiling an
 unpatched tree. It does not capture a manifest lock or artifact inventory and is
 therefore never accepted as build or release evidence.
 
+Host-side Soong tests use `scripts/test-aosp-modules.sh` for the same reason.
+`atest` may regenerate the Soong graph before executing an already-built test;
+the wrapper applies the lane queue first, forces `--host` so no attached device
+can be selected, and reverts the queue through the same exit-trap discipline.
+
 The moving manifest ref is itself tracked, not merely the projects emitted by
 `repo manifest -r`. `scripts/refresh-aosp-integration.sh` reruns `repo init`
 against Google's official manifest repository and atomically updates the

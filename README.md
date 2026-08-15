@@ -354,6 +354,16 @@ vendor/aios/scripts/build-aosp-modules.sh \
   AiosModelBroker AiosContextIntelligence
 ```
 
+Execute named Soong host tests through the matching transactional wrapper. It
+forces host-only execution, lets `atest` regenerate metadata with the reviewed
+patches present, and restores the upstream projects afterward:
+
+```text
+vendor/aios/scripts/test-aosp-modules.sh \
+  /absolute/path/to/aosp pixel9a_tegu_hardware \
+  aios_callintelligence_host_tests
+```
+
 After the Cuttlefish image boots, bind its identity, privileged AIOS packages,
 and exported core services to that exact build record:
 

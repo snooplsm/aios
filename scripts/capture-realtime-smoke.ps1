@@ -9,6 +9,8 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$diagnosticModule = Join-Path $PSScriptRoot "AiosRuntimeDiagnostics.psm1"
+Import-Module -Name $diagnosticModule -Force
 $outputPath = [IO.Path]::GetFullPath($Output)
 if (Test-Path -LiteralPath $outputPath) {
     throw "refusing to overwrite $outputPath"
@@ -278,6 +280,8 @@ foreach ($result in @($measurement.results)) {
 $instrumentationPssAvailable = @(
     $instrumentationPssValues | Where-Object { $_ -gt 0 }).Count -gt 0
 $diagnosticText = @($diagnosticLog) -join "`n"
+$runtimePhaseDiagnostics = ConvertFrom-AiosRuntimeDiagnosticLog `
+    -Lines @($diagnosticLog)
 
 $record = [ordered]@{
     schema_version = 1
@@ -302,6 +306,7 @@ $record = [ordered]@{
         [bool]($diagnosticText -match "lowmemorykiller: Kill 'com\.aios\.")
     contains_oom_or_fatal = [bool]($diagnosticText -match
         "OutOfMemory|out of memory|oom-kill|Fatal signal|FATAL EXCEPTION")
+    runtime_phase_diagnostics = $runtimePhaseDiagnostics
     results = $measurement.results
     diagnostic_log = @($diagnosticLog)
     instrumentation_stderr = @($instrumentationError -split "\r?\n" |
