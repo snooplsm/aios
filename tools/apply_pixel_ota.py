@@ -21,6 +21,8 @@ ROOT = Path(__file__).resolve().parents[1]
 OTA_METADATA = "META-INF/com/android/metadata"
 PAYLOAD = "payload.bin"
 PAYLOAD_PROPERTIES = "payload_properties.txt"
+PAYLOAD_MAGIC = b"CrAU"
+PAYLOAD_V2_HEADER_SIZE = 24
 SHA256_PATTERN = re.compile(r"[0-9a-f]{64}")
 SAFE_INCREMENTAL = re.compile(r"[A-Za-z0-9._+-]{1,64}")
 SAFE_REMOTE = re.compile(
@@ -108,16 +110,31 @@ def zip_data_offset(stream, info: zipfile.ZipInfo) -> int:
     return info.header_offset + 30 + fields[-2] + fields[-1]
 
 
+def parse_payload_metadata_header(header: bytes) -> tuple[int, int]:
+    if len(header) < PAYLOAD_V2_HEADER_SIZE or header[:4] != PAYLOAD_MAGIC:
+        raise UpdateError("OTA payload header is invalid")
+    version, manifest_size, signature_size = struct.unpack(">QQI", header[4:24])
+    if version != 2 or manifest_size <= 0 or signature_size <= 0:
+        raise UpdateError("OTA payload metadata header is unsupported")
+    metadata_size = PAYLOAD_V2_HEADER_SIZE + manifest_size
+    return metadata_size, signature_size
+
+
 def copy_payload_metadata(
     archive: Path,
     output: Path,
     size_bytes: int,
+    signature_size_bytes: int,
     expected_sha256: str,
 ) -> None:
-    if size_bytes <= 0 or SHA256_PATTERN.fullmatch(expected_sha256) is None:
+    if (size_bytes <= 0
+            or signature_size_bytes <= 0
+            or SHA256_PATTERN.fullmatch(expected_sha256) is None):
         raise UpdateError("OTA payload metadata evidence is invalid")
     digest = hashlib.sha256()
-    remaining = size_bytes
+    total_size = size_bytes + signature_size_bytes
+    remaining = total_size
+    hashed = 0
     try:
         with zipfile.ZipFile(archive) as ota, ota.open(PAYLOAD) as payload, output.open(
             "xb"
@@ -127,7 +144,10 @@ def copy_payload_metadata(
                 if not chunk:
                     raise UpdateError("OTA payload metadata is truncated")
                 destination.write(chunk)
-                digest.update(chunk)
+                hash_length = min(len(chunk), size_bytes - hashed)
+                if hash_length > 0:
+                    digest.update(chunk[:hash_length])
+                    hashed += hash_length
                 remaining -= len(chunk)
     except (OSError, KeyError, zipfile.BadZipFile) as error:
         raise UpdateError(f"cannot extract OTA payload metadata: {error}") from error
@@ -194,6 +214,8 @@ def verify_ota_input(evidence: dict, evidence_path: Path, archive: Path) -> dict
             if payload_info.compress_type != zipfile.ZIP_STORED:
                 raise UpdateError("update_engine requires an uncompressed payload member")
             payload_offset = zip_data_offset(raw_stream, payload_info)
+            with ota.open(PAYLOAD) as payload:
+                payload_header = payload.read(PAYLOAD_V2_HEADER_SIZE)
     except (OSError, KeyError, zipfile.BadZipFile) as error:
         raise UpdateError(f"cannot inspect OTA archive: {error}") from error
 
@@ -213,6 +235,9 @@ def verify_ota_input(evidence: dict, evidence_path: Path, archive: Path) -> dict
         ).hex()
     except (KeyError, ValueError) as error:
         raise UpdateError("payload properties are incomplete") from error
+    parsed_metadata_size, metadata_signature_size = parse_payload_metadata_header(
+        payload_header
+    )
     if (property_size != payload_info.file_size
             or property_size != payload_record.get("size_bytes")
             or property_hash != payload_record.get("sha256")):
@@ -222,6 +247,9 @@ def verify_ota_input(evidence: dict, evidence_path: Path, archive: Path) -> dict
             or metadata_size != payload_record.get("metadata_size_bytes")
             or metadata_hash != payload_record.get("metadata_sha256")):
         raise UpdateError("payload metadata properties differ from release evidence")
+    if (parsed_metadata_size != metadata_size
+            or metadata_size + metadata_signature_size > property_size):
+        raise UpdateError("payload signed metadata span is invalid")
     property_files = parse_property_files(metadata.get("ota-property-files", ""))
     if property_files.get(PAYLOAD) != (payload_offset, payload_info.file_size):
         raise UpdateError("OTA streaming payload range is invalid")
@@ -247,6 +275,8 @@ def verify_ota_input(evidence: dict, evidence_path: Path, archive: Path) -> dict
         "payload_offset_bytes": payload_offset,
         "payload_size_bytes": payload_info.file_size,
         "payload_metadata_size_bytes": metadata_size,
+        "payload_metadata_signature_size_bytes": metadata_signature_size,
+        "payload_metadata_total_size_bytes": metadata_size + metadata_signature_size,
         "payload_metadata_sha256": metadata_hash,
         "payload_properties": properties_text.rstrip("\n"),
         "target_fingerprint": metadata["post-build"],
@@ -318,6 +348,15 @@ def parse_data_available_kib(output: str) -> int:
     return available
 
 
+def overlayfs_mount_points(output: str) -> list[str]:
+    mount_points = []
+    for raw_line in output.splitlines():
+        fields = raw_line.split()
+        if len(fields) >= 3 and fields[2] in {"overlay", "overlayfs"}:
+            mount_points.append(fields[1])
+    return sorted(set(mount_points))
+
+
 def inspect_device(runner, serial: str, ota: dict) -> dict:
     devices = connected_devices(runner.run(["devices", "-l"], serial=False))
     if devices.get(serial) != "device":
@@ -387,6 +426,9 @@ def inspect_device(runner, serial: str, ota: dict) -> dict:
     available_kib = parse_data_available_kib(
         runner.run(["shell", "df", "-k", "/data"])
     )
+    overlay_mounts = overlayfs_mount_points(
+        runner.run(["shell", "cat", "/proc/mounts"])
+    )
     try:
         current_timestamp = int(properties["ro.build.date.utc"])
     except ValueError as error:
@@ -403,6 +445,8 @@ def inspect_device(runner, serial: str, ota: dict) -> dict:
         reasons.append("security_patch_downgrade")
     if available_kib < required_kib:
         reasons.append("insufficient_staging_space")
+    if overlay_mounts:
+        reasons.append("overlayfs_enabled")
     return {
         "source_fingerprint": properties["ro.build.fingerprint"],
         "source_incremental": properties["ro.build.version.incremental"],
@@ -412,6 +456,7 @@ def inspect_device(runner, serial: str, ota: dict) -> dict:
         "expected_target_slot": "_b" if properties["ro.boot.slot_suffix"] == "_a" else "_a",
         "data_available_kib": available_kib,
         "data_required_kib": required_kib,
+        "overlayfs_mount_points": overlay_mounts,
         "install_eligible": not reasons,
         "ineligibility_reasons": reasons,
     }
@@ -514,6 +559,7 @@ def apply_update(
                 archive,
                 metadata_path,
                 ota["payload_metadata_size_bytes"],
+                ota["payload_metadata_signature_size_bytes"],
                 ota["payload_metadata_sha256"],
             )
             runner.run(["push", str(archive.resolve()), remote_archive], timeout=None)

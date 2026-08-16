@@ -61,9 +61,17 @@ class ApplyRunner:
 
 class PixelOtaUpdateTests(unittest.TestCase):
     def make_ota(self, path, *, timestamp=1786646738, incremental="2026081401"):
-        payload = b"CrAU" + bytes(range(128)) * 4
+        manifest = bytes(range(128)) * 4
+        metadata_signature = b"signed-metadata-fixture"
+        payload_metadata = (
+            b"CrAU"
+            + (2).to_bytes(8, "big")
+            + len(manifest).to_bytes(8, "big")
+            + len(metadata_signature).to_bytes(4, "big")
+            + manifest
+        )
+        payload = payload_metadata + metadata_signature + b"payload-operations"
         payload_hash = hashlib.sha256(payload).digest()
-        payload_metadata = payload[:16]
         metadata_hash = hashlib.sha256(payload_metadata).digest()
         properties = (
             f"FILE_HASH={base64.b64encode(payload_hash).decode()}\n"
@@ -184,6 +192,8 @@ class PixelOtaUpdateTests(unittest.TestCase):
                 "Service android.os.UpdateEngineService: found",
             ("shell", "df", "-k", "/data"):
                 f"Filesystem 1K-blocks Used Available Use% Mounted\n/dev/dm 1 1 {free} 1% /data",
+            ("shell", "cat", "/proc/mounts"):
+                "/dev/block/dm-0 / ext4 ro 0 0\n",
         }
         values.update({
             ("shell", "getprop", name): value for name, value in properties.items()
@@ -197,11 +207,39 @@ class PixelOtaUpdateTests(unittest.TestCase):
             evidence_path = Path(raw) / "evidence.json"
             evidence_path.write_text(json.dumps(evidence))
             ota = updater.verify_ota_input(evidence, evidence_path, archive)
+            self.assertEqual(
+                len(b"signed-metadata-fixture"),
+                ota["payload_metadata_signature_size_bytes"],
+            )
+            self.assertEqual(
+                evidence["payload"]["metadata_size_bytes"]
+                + len(b"signed-metadata-fixture"),
+                ota["payload_metadata_total_size_bytes"],
+            )
             source = "AIOS/aios_tegu/tegu:17/FIXTURE/2026081300:userdebug/test-keys"
             runner = FakeRunner(self.device_values(fingerprint=source))
             device = updater.inspect_device(runner, "SERIAL", ota)
             self.assertTrue(device["install_eligible"])
             self.assertEqual("_b", device["expected_target_slot"])
+            self.assertEqual([], device["overlayfs_mount_points"])
+
+    def test_overlayfs_is_not_install_eligible(self):
+        with tempfile.TemporaryDirectory() as raw:
+            archive = Path(raw) / "ota.zip"
+            evidence = self.make_ota(archive)
+            evidence_path = Path(raw) / "evidence.json"
+            evidence_path.write_text(json.dumps(evidence))
+            ota = updater.verify_ota_input(evidence, evidence_path, archive)
+            source = "AIOS/aios_tegu/tegu:17/FIXTURE/2026081300:userdebug/test-keys"
+            values = self.device_values(fingerprint=source)
+            values[("shell", "cat", "/proc/mounts")] = (
+                "/dev/block/dm-0 / ext4 ro 0 0\n"
+                "overlay /system overlay ro,lowerdir=/system 0 0\n"
+            )
+            device = updater.inspect_device(FakeRunner(values), "SERIAL", ota)
+            self.assertFalse(device["install_eligible"])
+            self.assertIn("overlayfs_enabled", device["ineligibility_reasons"])
+            self.assertEqual(["/system"], device["overlayfs_mount_points"])
 
     def test_same_build_is_read_only_but_not_install_eligible(self):
         with tempfile.TemporaryDirectory() as raw:
@@ -259,11 +297,24 @@ class PixelOtaUpdateTests(unittest.TestCase):
                 archive,
                 output,
                 evidence["payload"]["metadata_size_bytes"],
+                len(b"signed-metadata-fixture"),
                 evidence["payload"]["metadata_sha256"],
             )
             with zipfile.ZipFile(archive) as ota, ota.open(updater.PAYLOAD) as payload:
-                expected = payload.read(evidence["payload"]["metadata_size_bytes"])
+                expected = payload.read(
+                    evidence["payload"]["metadata_size_bytes"]
+                    + len(b"signed-metadata-fixture")
+                )
             self.assertEqual(expected, output.read_bytes())
+
+    def test_rejects_payload_metadata_header_without_manifest(self):
+        with self.assertRaisesRegex(updater.UpdateError, "unsupported"):
+            updater.parse_payload_metadata_header(
+                b"CrAU"
+                + (2).to_bytes(8, "big")
+                + (0).to_bytes(8, "big")
+                + (267).to_bytes(4, "big")
+            )
 
     def test_semantic_update_engine_results_fail_closed(self):
         updater.require_update_engine_applicable("Payload is applicable.")
