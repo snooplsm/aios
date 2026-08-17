@@ -121,7 +121,9 @@ $modeConfig = switch ($Mode) {
         @{
             TestMethod = "runSingleModelDiagnostic"
             ExpectedMode = "single_model_diagnostic"
-            ExpectedRoleCounts = @(4, 5)
+            # The unified multimodal Gemma fills text and media roles with one
+            # physical artifact, so the one-shot diagnostic invokes it once.
+            ExpectedRoleCounts = @(3, 4, 5)
             EvidenceKind = "pixel_aios_single_model_diagnostic"
         }
     }

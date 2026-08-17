@@ -32,6 +32,11 @@ content-free skip marker and retains the existing four-result payload. Once an
 artifact is selected, an unavailable runtime becomes an explicit fifth failed
 result rather than silently falling back to four roles.
 
+The focused path invokes each physical model artifact only once. If text and
+media roles resolve to the same runtime and artifact digest, it exercises text
+generation and emits a content-free media skip marker instead of loading and
+running the same multimodal Gemma weights a second time.
+
 It publishes one base64-encoded raw JSON document in the instrumentation result
 bundle under `aios_measurements_base64`. Raw output has model/artifact identity
 and numeric measurements but contains no gate list or decision. PSS and thermal

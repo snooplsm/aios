@@ -35,6 +35,7 @@ final class RemoteRuntimeAdapter implements RuntimeAdapter {
     private static final String PROVIDER_PERMISSION =
             "com.aios.permission.PROVIDE_MODEL_RUNTIME";
     private static final long CONNECT_TIMEOUT_MILLIS = 15_000L;
+    private static final long AVAILABILITY_LOG_INTERVAL_MILLIS = 5_000L;
 
     static final class Spec {
         final int apiVersion;
@@ -86,6 +87,7 @@ final class RemoteRuntimeAdapter implements RuntimeAdapter {
     private boolean priorityBound;
     private boolean binding;
     private boolean closed;
+    private long lastAvailabilityWarningMillis;
 
     private final Runnable rebind = () -> {
         if (rebindPolicy.begin()) {
@@ -136,6 +138,8 @@ final class RemoteRuntimeAdapter implements RuntimeAdapter {
         @Override
         public void onServiceDisconnected(ComponentName name) {
             // Android retains an ordinary crash binding and reconnects it.
+            Log.w(TAG, "DISCONNECTED runtime=" + spec.runtimeId
+                    + " component=" + name.flattenToShortString());
             failCurrent(this, "runtime provider disconnected");
             armConnectionTimeout(this);
         }
@@ -144,12 +148,16 @@ final class RemoteRuntimeAdapter implements RuntimeAdapter {
         public void onBindingDied(ComponentName name) {
             // This binding can never reconnect. Release it and bind a fresh
             // ServiceConnection immediately, as required by the platform API.
+            Log.w(TAG, "BINDING_DIED runtime=" + spec.runtimeId
+                    + " component=" + name.flattenToShortString());
             replaceTerminalBinding(this, "runtime provider binding died", true);
         }
 
         @Override
         public void onNullBinding(ComponentName name) {
             // A null binding is permanently unusable and must also be released.
+            Log.e(TAG, "NULL_BINDING runtime=" + spec.runtimeId
+                    + " component=" + name.flattenToShortString());
             replaceTerminalBinding(
                     this, "runtime provider returned a null binding", false);
         }
@@ -166,8 +174,42 @@ final class RemoteRuntimeAdapter implements RuntimeAdapter {
     }
 
     @Override
-    public synchronized boolean supportsBackend(String backend) {
-        return provider != null && providerBackends.contains(backend);
+    public boolean supportsBackend(String backend) {
+        ProviderConnection deadConnection = null;
+        boolean needsInitialBind = false;
+        boolean available;
+        synchronized (this) {
+            boolean providerConnected = provider != null;
+            boolean binderAlive = providerConnected && provider.asBinder().isBinderAlive();
+            available = binderAlive && providerBackends.contains(backend);
+            if (!available) {
+                long now = SystemClock.elapsedRealtime();
+                if (now - lastAvailabilityWarningMillis
+                        >= AVAILABILITY_LOG_INTERVAL_MILLIS) {
+                    lastAvailabilityWarningMillis = now;
+                    Log.w(TAG, "UNAVAILABLE runtime=" + spec.runtimeId
+                            + " requested_backend=" + backend
+                            + " provider_connected=" + providerConnected
+                            + " binder_alive=" + binderAlive
+                            + " advertised_backends=" + providerBackends
+                            + " allowed_backends=" + spec.allowedBackends
+                            + " active_binding=" + (activeConnection != null)
+                            + " binding=" + binding);
+                }
+                if (providerConnected && !binderAlive) {
+                    deadConnection = activeConnection;
+                } else if (!providerConnected && activeConnection == null && !binding) {
+                    needsInitialBind = true;
+                }
+            }
+        }
+        if (deadConnection != null) {
+            replaceTerminalBinding(
+                    deadConnection, "runtime provider binder is dead", true);
+        } else if (needsInitialBind) {
+            scheduleRebind(true);
+        }
+        return available;
     }
 
     @Override
@@ -356,6 +398,7 @@ final class RemoteRuntimeAdapter implements RuntimeAdapter {
                 return;
             }
         }
+        Log.e(TAG, "CONNECT_TIMEOUT runtime=" + spec.runtimeId);
         replaceTerminalBinding(
                 connection, "runtime provider connection timed out", false);
     }

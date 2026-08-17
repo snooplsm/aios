@@ -211,29 +211,36 @@ public final class ModelAdmissionBenchmarkTest {
 
             Artifact mediaArtifact = artifacts.require(capabilities.get(
                     "image_understanding").selectedModelId);
-            int mediaMemoryBefore = runtimePssMb(context);
-            Invocation media;
-            ResourceObservation mediaObservation;
-            logDiagnosticStart(mediaArtifact, "image_understanding", mediaMemoryBefore);
-            try (ResourceSampler sampler = new ResourceSampler(context)) {
-                media = invokeMedia(
-                        broker,
+            if (samePhysicalArtifact(textArtifact, mediaArtifact)) {
+                Log.i(TAG, "SKIP capability=image_understanding"
+                        + " reason=already_tested_same_physical_model"
+                        + " model=" + mediaArtifact.modelId
+                        + " digest=" + mediaArtifact.sha256);
+            } else {
+                int mediaMemoryBefore = runtimePssMb(context);
+                Invocation media;
+                ResourceObservation mediaObservation;
+                logDiagnosticStart(mediaArtifact, "image_understanding", mediaMemoryBefore);
+                try (ResourceSampler sampler = new ResourceSampler(context)) {
+                    media = invokeMedia(
+                            broker,
+                            "image_understanding",
+                            "en",
+                            redJpeg(),
+                            DIAGNOSTIC_TIMEOUT_MILLIS);
+                    mediaObservation = sampler.finish();
+                }
+                results.put(diagnosticResult(
+                        mediaArtifact,
                         "image_understanding",
-                        "en",
-                        redJpeg(),
-                        DIAGNOSTIC_TIMEOUT_MILLIS);
-                mediaObservation = sampler.finish();
+                        media,
+                        mediaObservation,
+                        mediaMemoryBefore,
+                        runtimePssMb(context),
+                        new JSONObject()
+                                .put("input_id", "generated_solid_red_jpeg_64x64")
+                                .put("response", parseObject(media.result))));
             }
-            results.put(diagnosticResult(
-                    mediaArtifact,
-                    "image_understanding",
-                    media,
-                    mediaObservation,
-                    mediaMemoryBefore,
-                    runtimePssMb(context),
-                    new JSONObject()
-                            .put("input_id", "generated_solid_red_jpeg_64x64")
-                            .put("response", parseObject(media.result))));
 
             ModelCapability embeddingCapability = capabilities.get("text_embedding");
             if (embeddingCapability != null) {
@@ -1099,6 +1106,11 @@ public final class ModelAdmissionBenchmarkTest {
     private static JSONObject result(
             String role, Artifact artifact, JSONObject metrics) throws JSONException {
         return result(artifact, metrics).put("role", role);
+    }
+
+    private static boolean samePhysicalArtifact(Artifact first, Artifact second) {
+        return first.runtime.equals(second.runtime)
+                && first.sha256.equals(second.sha256);
     }
 
     private static String resultText(InferenceResult result) {

@@ -2143,7 +2143,7 @@ def validate_aosp_overlay(root: Path) -> None:
             and "instrumentation_runtime_pss_available" in realtime_capture
             and "contains_aios_low_memory_kill" in realtime_capture
             and "details.time_to_first_audio_ms" in realtime_capture
-            and "ExpectedRoleCounts = @(4, 5)" in realtime_capture
+            and "ExpectedRoleCounts = @(3, 4, 5)" in realtime_capture
             and "$expectedRoleCounts -notcontains" in realtime_capture
             and "details.dimensions -ne 256" in realtime_capture
             and "details.cross_language_ordering_valid" in realtime_capture
