@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<manifest>
+  <!--
+    Keep the launcher on Google's exact Android 17 release while the rest of
+    each build lane follows its own manifest. Both possible upstream project
+    names are removed so this override works in AOSP and GrapheneOS checkouts.
+  -->
+  <remote name="aios-launcher-aosp" fetch="https://android.googlesource.com/" />
+  <remove-project name="platform/packages/apps/Launcher3" optional="true" />
+  <remove-project name="platform_packages_apps_Launcher3" optional="true" />
+  <project
+      name="platform/packages/apps/Launcher3"
+      path="packages/apps/Launcher3"
+      remote="aios-launcher-aosp"
+      revision="refs/tags/android-17.0.0_r1" />
+</manifest>

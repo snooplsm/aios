@@ -872,6 +872,9 @@ def validate_default_dialer_overlay(root: Path) -> None:
     require(defaults_config.count('name="config_defaultDialer"') == 1
             and ">com.aios.phone</string>" in defaults_config,
             "fresh AIOS users must receive AIOS Phone as the configured dialer")
+    require(defaults_config.count('name="config_defaultSms"') == 1
+            and ">com.aios.messaging</string>" in defaults_config,
+            "fresh AIOS users must receive AIOS Messaging as configured SMS app")
     developer_manifest = (root / "apps" / "developerdefaults" /
                           "AndroidManifest.xml").read_text(encoding="utf-8")
     developer_receiver = (root / "apps" / "developerdefaults" / "src" / "com" /
@@ -7253,6 +7256,8 @@ def validate_release_configuration(root: Path) -> None:
                 and all(re.fullmatch(r"[a-z0-9_]+\.img", image)
                         for image in lane["required_images"]),
                 f"{lane.get('id')}: build artifact layout must be explicit")
+        require("packages/apps/Launcher3" in lane.get("required_projects", []),
+                f"{lane.get('id')}: manifest lock must include Launcher3")
     integration, emulator, gsi, hardware = lanes
     require(integration.get("kind") == "virtual_integration"
             and integration.get("manifest_revision") == "android-latest-release"
@@ -7344,6 +7349,53 @@ def validate_release_configuration(root: Path) -> None:
                              str(dialer_reference.get("commit", ""))) is not None,
             "Dialer patch must record its exact official Android 17 base")
 
+    launcher_reference = tracking.get("launcher_reference", {})
+    require(launcher_reference == {
+                "project": "platform/packages/apps/Launcher3",
+                "path": "packages/apps/Launcher3",
+                "source_url": (
+                    "https://android.googlesource.com/platform/packages/apps/Launcher3"
+                ),
+                "tag": "android-17.0.0_r1",
+                "commit": "c612e6ece389f21c40f8cb9cd9a4b44239f00009",
+                "manifest_override": "manifests/launcher3-android17.xml.example",
+                "patch_status": (
+                    "exact_base_aios_home_patch_compiled_pixel9a_smoke_passed"
+                ),
+                "smoke_evidence": (
+                    "evidence/launcher/pixel9a-aios-home-20260817.json"
+                ),
+                "next_major_tag": "android-18.0.0_r1",
+            },
+            "Launcher3 must bind the exact official Android 17 tag and Android 18 target")
+    launcher_manifest = (
+        root / launcher_reference["manifest_override"]
+    ).read_text(encoding="utf-8")
+    require('name="platform/packages/apps/Launcher3"' in launcher_manifest
+            and 'name="platform_packages_apps_Launcher3"' in launcher_manifest
+            and 'revision="refs/tags/android-17.0.0_r1"' in launcher_manifest
+            and 'fetch="https://android.googlesource.com/"' in launcher_manifest,
+            "Launcher3 manifest must replace both lane project names with AOSP tag")
+    launcher_evidence = load_json(root / launcher_reference["smoke_evidence"])
+    require(launcher_evidence.get("schema_version") == 1
+            and launcher_evidence.get("device") == "tegu"
+            and launcher_evidence.get("android_release") == "17"
+            and launcher_evidence.get("launcher_upstream_commit")
+            == launcher_reference["commit"]
+            and launcher_evidence.get("launcher_patch_sha256")
+            == "ac78ee60031eb8c4b30d725be2cde7f3c20cf39ca3aad41e64e3f193dbc316fc"
+            and launcher_evidence.get("observations", {}).get(
+                "launcher_module_build_succeeded") is True
+            and launcher_evidence.get("observations", {}).get(
+                "boot_completed_after_overlayfs_install") is True
+            and launcher_evidence.get("observations", {}).get(
+                "android_runtime_errors_observed") == 0
+            and launcher_evidence.get("observations", {}).get(
+                "full_color_aios_phone_icon_observed") is True
+            and launcher_evidence.get("observations", {}).get(
+                "full_color_aios_messaging_icon_observed_in_app_drawer") is True,
+            "Launcher3 Pixel smoke evidence must bind the exact build and colored icons")
+
     series = load_json(root / "patches" / "series.json")
     dialer_patches = [
         patch for patch in series["patches"]
@@ -7352,6 +7404,25 @@ def validate_release_configuration(root: Path) -> None:
     require(len(dialer_patches) == 1
             and dialer_patches[0]["base_revision"] == dialer_reference["commit"],
             "Dialer patch base must match the tracked reference")
+    launcher_patches = [
+        patch for patch in series["patches"]
+        if patch["project"] == "packages/apps/Launcher3"
+    ]
+    require(len(launcher_patches) == 1
+            and launcher_patches[0]["base_revision"]
+            == launcher_reference["commit"]
+            and launcher_patches[0]["paths"] == [
+                "res/values/strings.xml",
+                "res/xml/default_workspace_5x5.xml",
+            ],
+            "AIOS Home patch must bind the tracked Launcher3 base and narrow footprint")
+    launcher_patch_text = (
+        root / "patches" / launcher_patches[0]["file"]
+    ).read_text(encoding="utf-8")
+    require("AIOS Home" in launcher_patch_text
+            and "android.intent.action.ASSIST" in launcher_patch_text
+            and "com.aios" not in launcher_patch_text,
+            "AIOS Home must use the system assistant contract without runtime coupling")
     mms_reference = tracking.get("mms_reference", {})
     mms_patches = [
         patch for patch in series["patches"]
@@ -7375,9 +7446,10 @@ def validate_release_configuration(root: Path) -> None:
     pixel_series = load_json(root / "patches" / "pixel9a-series.json")
     pixel_patches = pixel_series.get("patches", [])
     pixel_by_project = {patch.get("project"): patch for patch in pixel_patches}
-    require(len(pixel_patches) == 2
+    require(len(pixel_patches) == 3
             and set(pixel_by_project)
-            == {"packages/apps/Dialer", "frameworks/base"}
+            == {"packages/apps/Dialer", "frameworks/base",
+                "packages/apps/Launcher3"}
             and pixel_by_project["packages/apps/Dialer"]["base_revision"]
             == "6a629762cf425002d34ecf28596813babda7d751"
             and pixel_by_project["frameworks/base"]["base_revision"]
@@ -7385,8 +7457,12 @@ def validate_release_configuration(root: Path) -> None:
             and pixel_by_project["packages/apps/Dialer"]["file"]
             == dialer_patches[0]["file"]
             and pixel_by_project["frameworks/base"]["file"]
-            == mms_patches[0]["file"],
-            "Pixel patch queue must bind only the pinned Dialer and framework forks")
+            == mms_patches[0]["file"]
+            and pixel_by_project["packages/apps/Launcher3"]["base_revision"]
+            == launcher_reference["commit"]
+            and pixel_by_project["packages/apps/Launcher3"]["file"]
+            == launcher_patches[0]["file"],
+            "Pixel patch queue must bind Dialer, framework, and official Launcher3 bases")
     gsi_size_patches = [
         patch for patch in series["patches"]
         if patch["project"] == "build/make"

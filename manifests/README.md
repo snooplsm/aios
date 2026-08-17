@@ -2,9 +2,11 @@
 
 This Git repository is intended to appear at `vendor/aios` inside an AOSP
 checkout. Copy `local_manifest.xml.example` to the AOSP checkout's
-`.repo/local_manifests/aios.xml` and sync. The example points at the canonical
-public AIOS repository; a private development mirror should override only that
-remote while retaining the same project path.
+`.repo/local_manifests/aios.xml` and copy `launcher3-android17.xml.example` to
+`.repo/local_manifests/aios-launcher.xml` before syncing. The first manifest
+points at the canonical public AIOS repository. The second replaces either the
+AOSP or GrapheneOS Launcher3 project with Google's exact Android 17 release tag;
+see `docs/launcher.md` for the isolated Android 18 rebase procedure.
 
 Do not add model weights or Pixel vendor binaries to this manifest. Both are
 licensed local build inputs handled outside source control.

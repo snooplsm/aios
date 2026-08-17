@@ -49,6 +49,9 @@ def load(name):
 
 def copy_patch_contract_fixture(destination):
     shutil.copytree(ROOT / "patches", destination / "patches")
+    manifest = destination / "manifests" / "launcher3-android17.xml.example"
+    manifest.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy(ROOT / "manifests" / manifest.name, manifest)
     for relative in (
             "scripts/emulator-context-lifecycle-smoke.ps1",
             "scripts/emulator-call-retention-smoke.ps1",
@@ -122,6 +125,24 @@ class ProductPolicyTests(unittest.TestCase):
             )
             with self.assertRaisesRegex(validator.ValidationError,
                                         "fresh AIOS users"):
+                validator.validate_default_dialer_overlay(temporary)
+
+    def test_default_sms_overlay_is_fail_closed(self):
+        with tempfile.TemporaryDirectory() as raw:
+            temporary = Path(raw)
+            shutil.copytree(ROOT / "overlays", temporary / "overlays")
+            (temporary / "products").mkdir()
+            shutil.copy(ROOT / "products" / "aios_common.mk",
+                        temporary / "products" / "aios_common.mk")
+            config = (temporary / "overlays" / "frameworkdefaults" / "res" /
+                      "values" / "config.xml")
+            config.write_text(
+                config.read_text(encoding="utf-8").replace(
+                    "com.aios.messaging", "com.android.messaging"),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(validator.ValidationError,
+                                        "configured SMS"):
                 validator.validate_default_dialer_overlay(temporary)
 
     def test_emergency_bypass_is_required(self):
@@ -741,6 +762,28 @@ class IntegrationStructureTests(unittest.TestCase):
         self.assertIn('avb_algorithm: "SHA256_RSA2048"', text)
         self.assertNotIn("AiosPhone", text)
         self.assertNotIn("aios_model_", text)
+
+    def test_launcher_is_exact_aosp_tag_with_narrow_aios_topic(self):
+        tracking = load("../config/aosp_tracking.json")
+        reference = tracking["launcher_reference"]
+        self.assertEqual("android-17.0.0_r1", reference["tag"])
+        self.assertEqual(
+            "c612e6ece389f21c40f8cb9cd9a4b44239f00009",
+            reference["commit"],
+        )
+        self.assertEqual("android-18.0.0_r1", reference["next_major_tag"])
+        series = load("../patches/series.json")
+        patch = next(item for item in series["patches"]
+                     if item["project"] == "packages/apps/Launcher3")
+        self.assertEqual(reference["commit"], patch["base_revision"])
+        self.assertEqual([
+            "res/values/strings.xml",
+            "res/xml/default_workspace_5x5.xml",
+        ], patch["paths"])
+        text = (ROOT / "patches" / patch["file"]).read_text(encoding="utf-8")
+        self.assertIn("AIOS Home", text)
+        self.assertIn("android.intent.action.ASSIST", text)
+        self.assertNotIn("com.aios", text)
 
     def test_declared_patch_footprint_cannot_drift(self):
         with tempfile.TemporaryDirectory() as raw:

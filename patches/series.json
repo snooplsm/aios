@@ -60,6 +60,24 @@
       "reason": "Preserve AOSP's compliance-GSI defaults while allowing an additive product to size its model-inclusive build container, declare its package closure to Android 17's Soong system-image check, and align that image with the board's chained GSI AVB key.",
       "removal_condition": "Remove the sizing hunk when AOSP exposes a product-supported GSI sizing mechanism; remove the filesystem wrapper when additive products can extend android_gsi through a public Soong interface.",
       "rebase_notes": "Re-export from the tracked build/make base, preserve the two conditional size defaults and adjacent android_gsi_defaults wrapper, verify the default GSI remains 3 GiB, verify AIOS resolves its generated payload and 6 GiB group, then require chained AVB verification of vbmeta plus system."
+    },
+    {
+      "id": "launcher3-aios-home",
+      "project": "packages/apps/Launcher3",
+      "file": "0004-launcher3-aios-home.patch",
+      "base_revision": "c612e6ece389f21c40f8cb9cd9a4b44239f00009",
+      "sha256": "ac78ee60031eb8c4b30d725be2cde7f3c20cf39ca3aad41e64e3f193dbc316fc",
+      "owner": "launcher-platform",
+      "paths": [
+        "res/values/strings.xml",
+        "res/xml/default_workspace_5x5.xml"
+      ],
+      "tests": [
+        "tests/test_validate_config.py"
+      ],
+      "reason": "Establish AIOS Home on the exact Android 17 Launcher3 base while exposing the configured system assistant through the standard Android intent contract.",
+      "removal_condition": "Remove only if AIOS stops shipping a launcher or upstream Launcher3 provides equivalent product branding and assistant-first workspace configuration hooks.",
+      "rebase_notes": "Re-export from the next official Android release tag, preserve the package identity and two-file footprint where possible, then test clean setup, workspace migration, Quickstep, gestures, widgets, rotation, and assistant fallback."
     }
   ]
 }

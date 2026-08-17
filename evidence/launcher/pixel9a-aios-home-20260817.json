@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "captured_on": "2026-08-17",
+  "device": "tegu",
+  "android_release": "17",
+  "build_fingerprint": "AIOS/aios_tegu/tegu:17/CP2A.260805.005/2026081506:userdebug/test-keys",
+  "launcher_upstream_commit": "c612e6ece389f21c40f8cb9cd9a4b44239f00009",
+  "launcher_patch_sha256": "ac78ee60031eb8c4b30d725be2cde7f3c20cf39ca3aad41e64e3f193dbc316fc",
+  "artifacts": {
+    "Launcher3QuickStep.apk": "cfb76a4287d7044307bbefbc57fc9ea214f98ca617b51b3865402d3d6c3c507f",
+    "AiosPhone.apk": "0fb20728a37c436c5a3c878a35a77d85b699f9f9bee4b421f29dfc9f0d592f19",
+    "AiosMessaging.apk": "089322c2603bcf5c550e6297537927289c74e28580a88fb81b9b1499ac70b9ab"
+  },
+  "observations": {
+    "launcher_module_build_succeeded": true,
+    "phone_module_build_succeeded": true,
+    "messaging_module_build_succeeded": true,
+    "boot_completed_after_overlayfs_install": true,
+    "home_activity": "com.android.launcher3/.uioverrides.QuickstepLauncher",
+    "launcher_process_running": true,
+    "android_runtime_errors_observed": 0,
+    "full_color_aios_phone_icon_observed": true,
+    "full_color_aios_messaging_icon_observed_in_app_drawer": true,
+    "default_dialer_role": "com.aios.phone",
+    "default_sms_role": "com.aios.messaging"
+  },
+  "scope": "Developer overlayfs smoke evidence only; this is not full release or OTA evidence."
+}

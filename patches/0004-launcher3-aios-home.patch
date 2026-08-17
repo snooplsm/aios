@@ -1,0 +1,20 @@
+diff --git a/res/values/strings.xml b/res/values/strings.xml
+--- a/res/values/strings.xml
++++ b/res/values/strings.xml
+@@ -23,3 +23,3 @@
+     <!-- Application name -->
+-    <string name="app_name">Launcher3</string>
++    <string name="app_name">AIOS Home</string>
+     <!-- Work folder name -->
+diff --git a/res/xml/default_workspace_5x5.xml b/res/xml/default_workspace_5x5.xml
+--- a/res/xml/default_workspace_5x5.xml
++++ b/res/xml/default_workspace_5x5.xml
+@@ -43,7 +43,8 @@
+     <resolve
+         launcher:container="-101"
+         launcher:screen="2"
+         launcher:x="2"
+         launcher:y="0" >
++        <favorite launcher:uri="#Intent;action=android.intent.action.ASSIST;end" />
+         <favorite launcher:uri="#Intent;action=android.intent.action.MAIN;category=android.intent.category.APP_MAPS;end" />
+         <favorite launcher:uri="#Intent;action=android.intent.action.MAIN;category=android.intent.category.APP_MUSIC;end" />

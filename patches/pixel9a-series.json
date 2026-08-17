@@ -40,6 +40,24 @@
       "reason": "Allow the platform-signed AIOS Messaging app to link the maintained MMS codec and provider persister on the pinned full-device Android 17 base.",
       "removal_condition": "Remove when the device base exports framework-mms-shared-srcs to product modules or supplies an equivalent supported MMS library.",
       "rebase_notes": "Verify or re-export from the signed 2026080500 frameworks/base commit and retain only the vendor subtree visibility change."
+    },
+    {
+      "id": "launcher3-aios-home-aosp17",
+      "project": "packages/apps/Launcher3",
+      "file": "0004-launcher3-aios-home.patch",
+      "base_revision": "c612e6ece389f21c40f8cb9cd9a4b44239f00009",
+      "sha256": "ac78ee60031eb8c4b30d725be2cde7f3c20cf39ca3aad41e64e3f193dbc316fc",
+      "owner": "launcher-platform",
+      "paths": [
+        "res/values/strings.xml",
+        "res/xml/default_workspace_5x5.xml"
+      ],
+      "tests": [
+        "tests/test_validate_config.py"
+      ],
+      "reason": "Replace the Pixel lane launcher fork with the exact Android 17 AOSP Launcher3 base and apply the same isolated AIOS Home product topic.",
+      "removal_condition": "Remove only if AIOS stops shipping a launcher or upstream Launcher3 provides equivalent product branding and assistant-first workspace configuration hooks.",
+      "rebase_notes": "Advance the dedicated Launcher3 manifest override to the next official Android tag, regenerate this shared patch, and pass both integration and Pixel launcher test matrices before release."
     }
   ]
 }

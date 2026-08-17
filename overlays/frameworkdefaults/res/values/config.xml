@@ -3,4 +3,7 @@
     <!-- PermissionController's DIALER role reads this framework resource when
          initializing a fresh user's default holder. The owner may change it. -->
     <string name="config_defaultDialer" translatable="false">com.aios.phone</string>
+    <!-- Keep launcher and SENDTO resolution on the AIOS communication surface
+         for each newly created user. The owner may change the SMS role later. -->
+    <string name="config_defaultSms" translatable="false">com.aios.messaging</string>
 </resources>
