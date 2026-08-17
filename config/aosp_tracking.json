@@ -33,8 +33,8 @@
     "tag": "android-17.0.0_r1",
     "commit": "c612e6ece389f21c40f8cb9cd9a4b44239f00009",
     "manifest_override": "manifests/launcher3-android17.xml.example",
-    "patch_status": "exact_base_aios_home_patch_compiled_pixel9a_smoke_passed",
-    "smoke_evidence": "evidence/launcher/pixel9a-aios-home-20260817.json",
+    "patch_status": "exact_base_selective_launcher_ports_compiled_pixel9a_smoke_passed",
+    "smoke_evidence": "evidence/launcher/pixel9a-aios-home-selective-ports-20260817.json",
     "next_major_tag": "android-18.0.0_r1"
   },
   "first_device": {

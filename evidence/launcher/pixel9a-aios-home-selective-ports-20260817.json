@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "captured_on": "2026-08-17",
+  "device": "tegu",
+  "device_serial": "55201JEBF12498",
+  "android_release": "17",
+  "build_fingerprint": "AIOS/aios_tegu/tegu:17/CP2A.260805.005/2026081506:userdebug/test-keys",
+  "launcher_upstream_commit": "c612e6ece389f21c40f8cb9cd9a4b44239f00009",
+  "launcher_patch_sha256": "85e21f123ce39ff5d4dc830216fcd1d4259a1df8123b3dd86d0e55c7c568186f",
+  "carried_grapheneos_commits": [
+    "926d5d6b3b",
+    "2ef1ec96ba",
+    "a3d13f92f6",
+    "6b43b830e9",
+    "4b05814830",
+    "98b29c00c0",
+    "be50fbc49c",
+    "dc7a8c5c62",
+    "587f3b40ad",
+    "f373cb16d1",
+    "4b7beece9e",
+    "2879a47c6e",
+    "0248c74c49",
+    "cb0269c2d8"
+  ],
+  "artifacts": {
+    "Launcher3QuickStep.apk": "3d2ba2e3bdf92611c50a24d1dcafbff4bb562d4e083b38a6596daeaf63cb9554",
+    "previous_Launcher3QuickStep.apk": "cfb76a4287d7044307bbefbc57fc9ea214f98ca617b51b3865402d3d6c3c507f"
+  },
+  "observations": {
+    "launcher_module_build_succeeded": true,
+    "pixel9a_overlayfs_install_succeeded": true,
+    "boot_completed_after_overlayfs_install": true,
+    "installed_apk_hash_matches_build": true,
+    "home_role_holder": "com.android.launcher3",
+    "home_activity": "com.android.launcher3/.uioverrides.QuickstepLauncher",
+    "launcher_process_running": true,
+    "android_crash_buffer_entries_observed": 0,
+    "full_color_aios_phone_icon_observed": true,
+    "full_color_aios_messaging_icon_observed_in_app_drawer": true,
+    "search_tap_replaced_az_list_with_search_results": true,
+    "back_dismissed_ime_before_search": true,
+    "second_back_restored_az_list_without_closing_drawer": true,
+    "grid_resources_compiled": true,
+    "grid_selection_runtime_tested": false,
+    "user_switch_race_runtime_tested": false
+  },
+  "scope": "Developer overlayfs module smoke evidence; grid switching and the multi-user race still require dedicated runtime tests before release."
+}

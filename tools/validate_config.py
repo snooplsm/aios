@@ -7360,10 +7360,10 @@ def validate_release_configuration(root: Path) -> None:
                 "commit": "c612e6ece389f21c40f8cb9cd9a4b44239f00009",
                 "manifest_override": "manifests/launcher3-android17.xml.example",
                 "patch_status": (
-                    "exact_base_aios_home_patch_compiled_pixel9a_smoke_passed"
+                    "exact_base_selective_launcher_ports_compiled_pixel9a_smoke_passed"
                 ),
                 "smoke_evidence": (
-                    "evidence/launcher/pixel9a-aios-home-20260817.json"
+                    "evidence/launcher/pixel9a-aios-home-selective-ports-20260817.json"
                 ),
                 "next_major_tag": "android-18.0.0_r1",
             },
@@ -7383,18 +7383,22 @@ def validate_release_configuration(root: Path) -> None:
             and launcher_evidence.get("launcher_upstream_commit")
             == launcher_reference["commit"]
             and launcher_evidence.get("launcher_patch_sha256")
-            == "ac78ee60031eb8c4b30d725be2cde7f3c20cf39ca3aad41e64e3f193dbc316fc"
+            == "85e21f123ce39ff5d4dc830216fcd1d4259a1df8123b3dd86d0e55c7c568186f"
             and launcher_evidence.get("observations", {}).get(
                 "launcher_module_build_succeeded") is True
             and launcher_evidence.get("observations", {}).get(
                 "boot_completed_after_overlayfs_install") is True
             and launcher_evidence.get("observations", {}).get(
-                "android_runtime_errors_observed") == 0
+                "android_crash_buffer_entries_observed") == 0
             and launcher_evidence.get("observations", {}).get(
                 "full_color_aios_phone_icon_observed") is True
             and launcher_evidence.get("observations", {}).get(
-                "full_color_aios_messaging_icon_observed_in_app_drawer") is True,
-            "Launcher3 Pixel smoke evidence must bind the exact build and colored icons")
+                "full_color_aios_messaging_icon_observed_in_app_drawer") is True
+            and launcher_evidence.get("observations", {}).get(
+                "search_tap_replaced_az_list_with_search_results") is True
+            and launcher_evidence.get("observations", {}).get(
+                "second_back_restored_az_list_without_closing_drawer") is True,
+            "Launcher3 Pixel smoke evidence must bind the build, icons, and search UX")
 
     series = load_json(root / "patches" / "series.json")
     dialer_patches = [
@@ -7412,17 +7416,39 @@ def validate_release_configuration(root: Path) -> None:
             and launcher_patches[0]["base_revision"]
             == launcher_reference["commit"]
             and launcher_patches[0]["paths"] == [
+                "quickstep/dagger/com/android/launcher3/dagger/AppActivityContextModule.kt",
+                "quickstep/src/com/android/launcher3/model/QuickstepModelDelegate.java",
+                "quickstep/src/com/android/launcher3/taskbar/allapps/TaskbarSearchSessionControllerImpl.kt",
+                "quickstep/src/com/android/launcher3/uioverrides/QuickstepLauncher.java",
+                "quickstep/src/com/android/quickstep/AllAppsActionManager.kt",
+                "res/values/dimens.xml",
                 "res/values/strings.xml",
+                "res/xml/default_workspace_2x2.xml",
+                "res/xml/default_workspace_4x5.xml",
                 "res/xml/default_workspace_5x5.xml",
+                "res/xml/device_profiles.xml",
+                "src/com/android/launcher3/InvariantDeviceProfile.java",
+                "src/com/android/launcher3/allapps/ActivityAllAppsContainerView.java",
+                "src/com/android/launcher3/allapps/AlphabeticalAppsList.java",
+                "src/com/android/launcher3/allapps/SearchUiManager.java",
+                "src/com/android/launcher3/allapps/search/AllAppsSearchBarController.java",
+                "src/com/android/launcher3/allapps/search/AppsSearchContainerLayout.java",
+                "src/com/android/launcher3/allapps/search/SearchSessionManager.kt",
+                "src/com/android/launcher3/deviceprofile/WorkspaceProfileNonResponsiveFactory.kt",
+                "src/com/android/launcher3/util/KeyboardShortcutsDelegate.java",
             ],
-            "AIOS Home patch must bind the tracked Launcher3 base and narrow footprint")
+            "AIOS Home patch must bind the tracked Launcher3 base and reviewed footprint")
     launcher_patch_text = (
         root / "patches" / launcher_patches[0]["file"]
     ).read_text(encoding="utf-8")
     require("AIOS Home" in launcher_patch_text
             and "android.intent.action.ASSIST" in launcher_patch_text
+            and 'launcher:name="2_by_2"' in launcher_patch_text
+            and 'launcher:name="4_by_5"' in launcher_patch_text
+            and "SearchSessionManager" in launcher_patch_text
+            and "isDestroyed" in launcher_patch_text
             and "com.aios" not in launcher_patch_text,
-            "AIOS Home must use the system assistant contract without runtime coupling")
+            "AIOS Home must carry reviewed launcher behavior without runtime coupling")
     mms_reference = tracking.get("mms_reference", {})
     mms_patches = [
         patch for patch in series["patches"]

@@ -763,7 +763,7 @@ class IntegrationStructureTests(unittest.TestCase):
         self.assertNotIn("AiosPhone", text)
         self.assertNotIn("aios_model_", text)
 
-    def test_launcher_is_exact_aosp_tag_with_narrow_aios_topic(self):
+    def test_launcher_is_exact_aosp_tag_with_reviewed_aios_topic(self):
         tracking = load("../config/aosp_tracking.json")
         reference = tracking["launcher_reference"]
         self.assertEqual("android-17.0.0_r1", reference["tag"])
@@ -777,12 +777,34 @@ class IntegrationStructureTests(unittest.TestCase):
                      if item["project"] == "packages/apps/Launcher3")
         self.assertEqual(reference["commit"], patch["base_revision"])
         self.assertEqual([
+            "quickstep/dagger/com/android/launcher3/dagger/AppActivityContextModule.kt",
+            "quickstep/src/com/android/launcher3/model/QuickstepModelDelegate.java",
+            "quickstep/src/com/android/launcher3/taskbar/allapps/TaskbarSearchSessionControllerImpl.kt",
+            "quickstep/src/com/android/launcher3/uioverrides/QuickstepLauncher.java",
+            "quickstep/src/com/android/quickstep/AllAppsActionManager.kt",
+            "res/values/dimens.xml",
             "res/values/strings.xml",
+            "res/xml/default_workspace_2x2.xml",
+            "res/xml/default_workspace_4x5.xml",
             "res/xml/default_workspace_5x5.xml",
+            "res/xml/device_profiles.xml",
+            "src/com/android/launcher3/InvariantDeviceProfile.java",
+            "src/com/android/launcher3/allapps/ActivityAllAppsContainerView.java",
+            "src/com/android/launcher3/allapps/AlphabeticalAppsList.java",
+            "src/com/android/launcher3/allapps/SearchUiManager.java",
+            "src/com/android/launcher3/allapps/search/AllAppsSearchBarController.java",
+            "src/com/android/launcher3/allapps/search/AppsSearchContainerLayout.java",
+            "src/com/android/launcher3/allapps/search/SearchSessionManager.kt",
+            "src/com/android/launcher3/deviceprofile/WorkspaceProfileNonResponsiveFactory.kt",
+            "src/com/android/launcher3/util/KeyboardShortcutsDelegate.java",
         ], patch["paths"])
         text = (ROOT / "patches" / patch["file"]).read_text(encoding="utf-8")
         self.assertIn("AIOS Home", text)
         self.assertIn("android.intent.action.ASSIST", text)
+        self.assertIn('launcher:name="2_by_2"', text)
+        self.assertIn('launcher:name="4_by_5"', text)
+        self.assertIn("SearchSessionManager", text)
+        self.assertIn("isDestroyed", text)
         self.assertNotIn("com.aios", text)
 
     def test_declared_patch_footprint_cannot_drift(self):

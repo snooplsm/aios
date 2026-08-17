@@ -46,18 +46,36 @@
       "project": "packages/apps/Launcher3",
       "file": "0004-launcher3-aios-home.patch",
       "base_revision": "c612e6ece389f21c40f8cb9cd9a4b44239f00009",
-      "sha256": "ac78ee60031eb8c4b30d725be2cde7f3c20cf39ca3aad41e64e3f193dbc316fc",
+      "sha256": "85e21f123ce39ff5d4dc830216fcd1d4259a1df8123b3dd86d0e55c7c568186f",
       "owner": "launcher-platform",
       "paths": [
+        "quickstep/dagger/com/android/launcher3/dagger/AppActivityContextModule.kt",
+        "quickstep/src/com/android/launcher3/model/QuickstepModelDelegate.java",
+        "quickstep/src/com/android/launcher3/taskbar/allapps/TaskbarSearchSessionControllerImpl.kt",
+        "quickstep/src/com/android/launcher3/uioverrides/QuickstepLauncher.java",
+        "quickstep/src/com/android/quickstep/AllAppsActionManager.kt",
+        "res/values/dimens.xml",
         "res/values/strings.xml",
-        "res/xml/default_workspace_5x5.xml"
+        "res/xml/default_workspace_2x2.xml",
+        "res/xml/default_workspace_4x5.xml",
+        "res/xml/default_workspace_5x5.xml",
+        "res/xml/device_profiles.xml",
+        "src/com/android/launcher3/InvariantDeviceProfile.java",
+        "src/com/android/launcher3/allapps/ActivityAllAppsContainerView.java",
+        "src/com/android/launcher3/allapps/AlphabeticalAppsList.java",
+        "src/com/android/launcher3/allapps/SearchUiManager.java",
+        "src/com/android/launcher3/allapps/search/AllAppsSearchBarController.java",
+        "src/com/android/launcher3/allapps/search/AppsSearchContainerLayout.java",
+        "src/com/android/launcher3/allapps/search/SearchSessionManager.kt",
+        "src/com/android/launcher3/deviceprofile/WorkspaceProfileNonResponsiveFactory.kt",
+        "src/com/android/launcher3/util/KeyboardShortcutsDelegate.java"
       ],
       "tests": [
         "tests/test_validate_config.py"
       ],
-      "reason": "Replace the Pixel lane launcher fork with the exact Android 17 AOSP Launcher3 base and apply the same isolated AIOS Home product topic.",
-      "removal_condition": "Remove only if AIOS stops shipping a launcher or upstream Launcher3 provides equivalent product branding and assistant-first workspace configuration hooks.",
-      "rebase_notes": "Advance the dedicated Launcher3 manifest override to the next official Android tag, regenerate this shared patch, and pass both integration and Pixel launcher test matrices before release."
+      "reason": "Replace the Pixel lane launcher fork with the exact Android 17 AOSP Launcher3 base and apply the shared AIOS Home topic with selected grid, search UX, and stability fixes.",
+      "removal_condition": "Remove individual carried fixes when upstream Launcher3 provides equivalent behavior; remove the topic only if AIOS stops shipping its launcher.",
+      "rebase_notes": "Advance the dedicated Launcher3 manifest override to the next official Android tag, audit the carried fixes, regenerate this shared patch, and pass both integration and Pixel launcher test matrices before release."
     }
   ]
 }
