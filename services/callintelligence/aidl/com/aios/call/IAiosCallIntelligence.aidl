@@ -48,6 +48,9 @@ interface IAiosCallIntelligence {
     /** Stop receptionist speech/replies while preserving capture and transcription. */
     boolean takeOverCall(String callId);
 
+    /** Delete retained transcript history and any transient artifact for a finished call. */
+    void deleteCallHistory(String callId);
+
     void onCallEnded(String callId, int disconnectCause);
 
     void registerListener(in ICallIntelligenceListener listener);

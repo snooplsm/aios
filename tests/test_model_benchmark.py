@@ -37,15 +37,15 @@ def raw_benchmark():
     catalog = load("model_catalog.json")
     suite = load("model_benchmark_suite.json")
     tier = next(item for item in catalog["tiers"] if item["id"] == "edge_8gb")
-    roles = {
-        tier["text_model"]: "text_model",
-        tier["media_model"]: "media_model",
-        tier["tts_model"]: "tts_model",
-        **{item: "asr_candidate" for item in tier["asr_candidates"]},
-    }
+    roles = [
+        (tier["text_model"], "text_model"),
+        (tier["media_model"], "media_model"),
+        (tier["tts_model"], "tts_model"),
+        *((item, "asr_candidate") for item in tier["asr_candidates"]),
+    ]
     models = {item["id"]: item for item in catalog["models"]}
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "suite_version": suite["suite_version"],
         "profile_id": "pixel_9a_tegu",
         "catalog_tier": tier["id"],
@@ -55,11 +55,12 @@ def raw_benchmark():
         "completed_at": "2026-08-09T18:00:00Z",
         "results": [{
             "model_id": model_id,
+            "role": role,
             "runtime": models[model_id]["runtime"],
             "backend": models[model_id]["default_backend"],
             "artifact_sha256": hashlib.sha256(model_id.encode()).hexdigest(),
             "metrics": passing_metrics(role, suite),
-        } for model_id, role in roles.items()],
+        } for model_id, role in roles],
     }
 
 
@@ -79,7 +80,7 @@ class ModelBenchmarkEvaluationTests(unittest.TestCase):
 
     def test_passing_measurements_produce_suite_bound_evidence(self):
         evidence = self.evaluate(raw_benchmark())
-        self.assertEqual(2, evidence["schema_version"])
+        self.assertEqual(3, evidence["schema_version"])
         self.assertEqual(
             evaluator.canonical_sha256(load("model_benchmark_suite.json")),
             evidence["suite_sha256"],
@@ -90,11 +91,12 @@ class ModelBenchmarkEvaluationTests(unittest.TestCase):
     def test_latency_regression_fails_without_rejecting_evidence(self):
         raw = raw_benchmark()
         text = next(item for item in raw["results"]
-                    if item["model_id"] == "gemma4-e2b-mobile-text")
+                    if item["role"] == "text_model")
         text["metrics"]["p95_first_token_ms"] = 2001
         evidence = self.evaluate(raw)
         result = next(item for item in evidence["results"]
-                      if item["model_id"] == text["model_id"])
+                      if item["model_id"] == text["model_id"]
+                      and item["role"] == "text_model")
         self.assertEqual("failed", result["decision"])
         self.assertEqual(["first_token_latency"], result["failed_gates"])
 
@@ -148,7 +150,7 @@ class ModelBenchmarkEvaluationTests(unittest.TestCase):
     def test_missing_required_role_cannot_be_evaluated(self):
         raw = raw_benchmark()
         raw["results"] = [item for item in raw["results"]
-                          if item["model_id"] != "gemma4-e2b-mobile-multimodal"]
+                          if item["role"] != "media_model"]
         with self.assertRaisesRegex(evaluator.BenchmarkError,
                                     "text, media, TTS"):
             self.evaluate(raw)
@@ -187,7 +189,8 @@ class ModelBenchmarkEvaluationTests(unittest.TestCase):
         raw["results"][0]["metrics"]["measured_runs"] = True
         evidence = self.evaluate(raw)
         first = next(item for item in evidence["results"]
-                     if item["model_id"] == raw["results"][0]["model_id"])
+                     if item["model_id"] == raw["results"][0]["model_id"]
+                     and item["role"] == raw["results"][0]["role"])
         self.assertIn("measured_runs", first["failed_gates"])
 
 

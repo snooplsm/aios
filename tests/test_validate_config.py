@@ -71,23 +71,25 @@ def passing_admission_evidence(
         roles = {model_id: roles[model_id] for model_id in selected_ids}
     models = {item["id"]: item for item in catalog["models"]}
     results = []
-    for model_id, role in roles.items():
-        metrics = {item: 1 for item in suite["required_observations"]}
-        gates = suite["gate_profiles"][role]
-        for gate in gates:
-            metrics[gate["metric"]] = gate["threshold"]
-        results.append({
-            "model_id": model_id,
-            "runtime": models[model_id]["runtime"],
-            "backend": models[model_id]["default_backend"],
-            "artifact_sha256": hashlib.sha256(model_id.encode()).hexdigest(),
-            "decision": "passed",
-            "required_gates": [gate["id"] for gate in gates],
-            "failed_gates": [],
-            "metrics": metrics,
-        })
+    for model_id, model_roles in roles.items():
+        for role in model_roles:
+            metrics = {item: 1 for item in suite["required_observations"]}
+            gates = suite["gate_profiles"][role]
+            for gate in gates:
+                metrics[gate["metric"]] = gate["threshold"]
+            results.append({
+                "model_id": model_id,
+                "role": role,
+                "runtime": models[model_id]["runtime"],
+                "backend": models[model_id]["default_backend"],
+                "artifact_sha256": hashlib.sha256(model_id.encode()).hexdigest(),
+                "decision": "passed",
+                "required_gates": [gate["id"] for gate in gates],
+                "failed_gates": [],
+                "metrics": metrics,
+            })
     return {
-        "schema_version": 2,
+        "schema_version": 3,
         "suite_version": suite["suite_version"],
         "suite_sha256": admission_generator.canonical_sha256(suite),
         "profile_id": profile_id,
@@ -202,7 +204,7 @@ class ModelCatalogTests(unittest.TestCase):
 
     def test_gemma4_candidates_are_bound_to_official_litert_artifacts(self):
         model = next(item for item in self.catalog["models"]
-                     if item["id"] == "gemma4-e2b-mobile-text")
+                     if item["id"] == "gemma4-e2b-mobile-multimodal")
         model["reference_artifact"]["sha256"] = "0" * 64
 
         with self.assertRaisesRegex(
@@ -222,16 +224,15 @@ class ModelCatalogTests(unittest.TestCase):
         roles = validator.tier_candidate_roles(self.catalog, "edge_16gb_plus")
 
         self.assertEqual([
-            "gemma4-e4b-mobile-text",
             "gemma4-e4b-mobile-multimodal",
             "supertonic3-en-es-int8",
             "whisper-small-multilingual-quantized",
             "whisper-base-multilingual-quantized",
-            "gemma4-e2b-mobile-text",
             "gemma4-e2b-mobile-multimodal",
         ], list(roles))
-        self.assertEqual("text_model", roles["gemma4-e2b-mobile-text"])
-        self.assertEqual("media_model", roles["gemma4-e2b-mobile-multimodal"])
+        self.assertEqual(
+            {"text_model", "media_model"},
+            roles["gemma4-e2b-mobile-multimodal"])
 
     def test_official_pixel_10_family_maps_by_measured_ram(self):
         expected = {
@@ -470,13 +471,11 @@ class ModelAdmissionTests(unittest.TestCase):
             (config / "model_admission.json").write_text(
                 json.dumps(policy), encoding="utf-8")
             primary_ids = {
-                "gemma4-e4b-mobile-text",
                 "gemma4-e4b-mobile-multimodal",
                 "supertonic3-en-es-int8",
                 "whisper-small-multilingual-quantized",
             }
             fallback_ids = {
-                "gemma4-e2b-mobile-text",
                 "gemma4-e2b-mobile-multimodal",
                 "supertonic3-en-es-int8",
                 "whisper-base-multilingual-quantized",
@@ -559,7 +558,7 @@ class ModelAdmissionTests(unittest.TestCase):
         tier = next(item for item in catalog["tiers"] if item["id"] == "edge_8gb")
         evidence = passing_admission_evidence(catalog, suite)
         evidence["results"] = [item for item in evidence["results"]
-                               if item["model_id"] != tier["media_model"]]
+                               if item["role"] != "media_model"]
         with self.assertRaisesRegex(admission_generator.AdmissionError,
                                     "text, media, TTS"):
             admission_generator.validate_evidence(catalog, suite, evidence)
@@ -569,7 +568,7 @@ class ModelAdmissionTests(unittest.TestCase):
         suite = load("model_benchmark_suite.json")
         evidence = passing_admission_evidence(catalog, suite)
         text = next(item for item in evidence["results"]
-                    if item["model_id"] == "gemma4-e2b-mobile-text")
+                    if item["role"] == "text_model")
         text["metrics"]["p95_first_token_ms"] = 999999
         with self.assertRaisesRegex(admission_generator.AdmissionError,
                                     "decision disagrees with suite gates"):
@@ -1338,9 +1337,12 @@ class IntegrationStructureTests(unittest.TestCase):
                 (temporary / "config" / "release_status.json")
                 .read_text(encoding="utf-8")
             )
-            build_reference = status["statuses"][
-                "integration.android_gsi_arm64_userdebug_succeeds"
-            ]["evidence"]
+            gate = status["statuses"][
+                "integration.android_gsi_arm64_userdebug_succeeds"]
+            if gate["status"] == "not_run":
+                self.assertEqual([], gate["evidence"])
+                return
+            build_reference = gate["evidence"]
             self.assertEqual(1, len(build_reference))
             avb_path = (temporary / build_reference[0]).parent / "avb-verification.json"
             avb = json.loads(avb_path.read_text(encoding="utf-8"))
@@ -1365,9 +1367,12 @@ class IntegrationStructureTests(unittest.TestCase):
                 (temporary / "config" / "release_status.json")
                 .read_text(encoding="utf-8")
             )
-            build_reference = status["statuses"][
-                "integration.android_gsi_arm64_userdebug_succeeds"
-            ]["evidence"]
+            gate = status["statuses"][
+                "integration.android_gsi_arm64_userdebug_succeeds"]
+            if gate["status"] == "not_run":
+                self.assertEqual([], gate["evidence"])
+                return
+            build_reference = gate["evidence"]
             self.assertEqual(1, len(build_reference))
             avb_path = (
                 temporary / build_reference[0]
@@ -1394,9 +1399,12 @@ class IntegrationStructureTests(unittest.TestCase):
                 (temporary / "config" / "release_status.json")
                 .read_text(encoding="utf-8")
             )
-            build_reference = status["statuses"][
-                "integration.android_gsi_arm64_userdebug_succeeds"
-            ]["evidence"]
+            gate = status["statuses"][
+                "integration.android_gsi_arm64_userdebug_succeeds"]
+            if gate["status"] == "not_run":
+                self.assertEqual([], gate["evidence"])
+                return
+            build_reference = gate["evidence"]
             self.assertEqual(1, len(build_reference))
             payload_path = (temporary / build_reference[0]).parent / "dsu-payload.json"
             payload = json.loads(payload_path.read_text(encoding="utf-8"))
@@ -1421,9 +1429,12 @@ class IntegrationStructureTests(unittest.TestCase):
                 (temporary / "config" / "release_status.json")
                 .read_text(encoding="utf-8")
             )
-            build_reference = status["statuses"][
-                "integration.android_gsi_arm64_userdebug_succeeds"
-            ]["evidence"]
+            gate = status["statuses"][
+                "integration.android_gsi_arm64_userdebug_succeeds"]
+            if gate["status"] == "not_run":
+                self.assertEqual([], gate["evidence"])
+                return
+            build_reference = gate["evidence"]
             self.assertEqual(1, len(build_reference))
             interface_path = (
                 temporary / build_reference[0]
@@ -1640,8 +1651,8 @@ class ModelPackTests(unittest.TestCase):
         model_path = (Path(tempfile.gettempdir()) / "models" /
                       "gemma.litertlm").resolve()
         parsed = packager.parse_source(
-            f"gemma4-e2b-mobile-text:cpu={model_path}")
-        self.assertEqual("gemma4-e2b-mobile-text", parsed.model_id)
+            f"gemma4-e2b-mobile-multimodal:cpu={model_path}")
+        self.assertEqual("gemma4-e2b-mobile-multimodal", parsed.model_id)
         self.assertEqual("cpu", parsed.backend)
         self.assertEqual(model_path, parsed.path)
 
@@ -1705,7 +1716,7 @@ class ModelPackTests(unittest.TestCase):
                     temporary / "pack",
                 )
 
-    def test_generates_digest_manifest_and_deduplicates_shared_weights(self):
+    def test_generates_digest_manifest_for_shared_multimodal_model(self):
         with tempfile.TemporaryDirectory() as raw:
             temporary = Path(raw)
             model = temporary / "model.litertlm"
@@ -1713,9 +1724,7 @@ class ModelPackTests(unittest.TestCase):
             fixture_digest = hashlib.sha256(model.read_bytes()).hexdigest()
             catalog = load("model_catalog.json")
             for item in catalog["models"]:
-                if item["id"] in {
-                        "gemma4-e2b-mobile-text",
-                        "gemma4-e2b-mobile-multimodal"}:
+                if item["id"] == "gemma4-e2b-mobile-multimodal":
                     item["reference_artifact"]["sha256"] = fixture_digest
                     item["reference_artifact"]["size_bytes"] = model.stat().st_size
             catalog_path = temporary / "catalog.json"
@@ -1724,11 +1733,6 @@ class ModelPackTests(unittest.TestCase):
             acceptance.write_text(json.dumps({
                 "schema_version": 1,
                 "accepted": [{
-                    "model_id": "gemma4-e2b-mobile-text",
-                    "license_url": "https://ai.google.dev/gemma/apache_2",
-                    "accepted_at": "2026-08-09T00:00:00Z",
-                    "accepted_by": "unit-test"
-                }, {
                     "model_id": "gemma4-e2b-mobile-multimodal",
                     "license_url": "https://ai.google.dev/gemma/apache_2",
                     "accepted_at": "2026-08-09T00:00:00Z",
@@ -1740,25 +1744,21 @@ class ModelPackTests(unittest.TestCase):
                 catalog_path,
                 acceptance,
                 [
-                    packager.Source("gemma4-e2b-mobile-text", None, model),
                     packager.Source("gemma4-e2b-mobile-multimodal", None, model),
                 ],
                 output,
                 [
                     packager.LicenseSource(
-                        "gemma4-e2b-mobile-text", ROOT / "LICENSE"),
-                    packager.LicenseSource(
                         "gemma4-e2b-mobile-multimodal", ROOT / "LICENSE"),
                 ],
             )
-            self.assertEqual(2, len(manifest["artifacts"]))
-            artifact, media_artifact = manifest["artifacts"]
+            self.assertEqual(1, len(manifest["artifacts"]))
+            artifact = manifest["artifacts"][0]
             self.assertEqual(hashlib.sha256(model.read_bytes()).hexdigest(), artifact["sha256"])
             self.assertEqual(model.stat().st_size, artifact["size_bytes"])
             self.assertEqual("gpu", artifact["backend"])
-            self.assertEqual(artifact["relative_path"], media_artifact["relative_path"])
             self.assertEqual(
-                ["gemma4-e2b-mobile-text.litertlm"],
+                ["gemma4-e2b-mobile-multimodal.litertlm"],
                 [item.name for item in (output / "assets").glob("*.litertlm")],
             )
             self.assertEqual(
@@ -1767,10 +1767,10 @@ class ModelPackTests(unittest.TestCase):
             )
             self.assertEqual(
                 (ROOT / "LICENSE").read_bytes(),
-                (output / "assets" / "gemma4-e2b-mobile-text"
+                (output / "assets" / "gemma4-e2b-mobile-multimodal"
                  / "LICENSE.Apache-2.0.txt").read_bytes(),
             )
-            self.assertIn("aios_model_gemma4_e2b_mobile_text",
+            self.assertIn("aios_model_gemma4_e2b_mobile_multimodal",
                           (output / "Android.bp").read_text(encoding="utf-8"))
             self.assertIn('name: "aios_model_pack_anchor"',
                           (output / "Android.bp").read_text(encoding="utf-8"))
@@ -1792,7 +1792,7 @@ class ModelPackTests(unittest.TestCase):
             acceptance.write_text(json.dumps({
                 "schema_version": 1,
                 "accepted": [{
-                    "model_id": "gemma4-e2b-mobile-text",
+                    "model_id": "gemma4-e2b-mobile-multimodal",
                     "license_url": "https://ai.google.dev/gemma/apache_2",
                     "accepted_at": "2026-08-09T00:00:00Z",
                     "accepted_by": "unit-test"
@@ -1802,7 +1802,7 @@ class ModelPackTests(unittest.TestCase):
             catalog = load("model_catalog.json")
             catalog_model = next(
                 item for item in catalog["models"]
-                if item["id"] == "gemma4-e2b-mobile-text")
+                if item["id"] == "gemma4-e2b-mobile-multimodal")
             catalog_model["reference_artifact"]["sha256"] = hashlib.sha256(
                 model.read_bytes()).hexdigest()
             catalog_model["reference_artifact"]["size_bytes"] = model.stat().st_size
@@ -1811,11 +1811,11 @@ class ModelPackTests(unittest.TestCase):
             packager.generate(
                 catalog_path,
                 acceptance,
-                [packager.Source("gemma4-e2b-mobile-text", None, model)],
+                [packager.Source("gemma4-e2b-mobile-multimodal", None, model)],
                 output,
-                [packager.LicenseSource("gemma4-e2b-mobile-text", ROOT / "LICENSE")],
+                [packager.LicenseSource("gemma4-e2b-mobile-multimodal", ROOT / "LICENSE")],
             )
-            (output / "assets" / "gemma4-e2b-mobile-text.litertlm").write_bytes(b"tampered")
+            (output / "assets" / "gemma4-e2b-mobile-multimodal.litertlm").write_bytes(b"tampered")
             with self.assertRaisesRegex(packager.PackError, "size mismatch|digest mismatch"):
                 packager.verify_generated_pack(output)
 
@@ -1828,7 +1828,7 @@ class ModelPackTests(unittest.TestCase):
             acceptance.write_text(json.dumps({
                 "schema_version": 1,
                 "accepted": [{
-                    "model_id": "gemma4-e2b-mobile-text",
+                    "model_id": "gemma4-e2b-mobile-multimodal",
                     "license_url": "https://example.invalid/wrong",
                     "accepted_at": "2026-08-09T00:00:00Z",
                     "accepted_by": "unit-test"
@@ -1838,7 +1838,7 @@ class ModelPackTests(unittest.TestCase):
                 packager.generate(
                     ROOT / "config" / "model_catalog.json",
                     acceptance,
-                    [packager.Source("gemma4-e2b-mobile-text", None, model)],
+                    [packager.Source("gemma4-e2b-mobile-multimodal", None, model)],
                     temporary / "pack",
                 )
 

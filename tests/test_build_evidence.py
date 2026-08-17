@@ -359,7 +359,6 @@ class BuildEvidenceTests(unittest.TestCase):
             )
             self.assertEqual(
                 {
-                    "gemma4-e2b-mobile-text",
                     "gemma4-e2b-mobile-multimodal",
                     "whisper-base-multilingual-quantized",
                     "supertonic3-en-es-int8",

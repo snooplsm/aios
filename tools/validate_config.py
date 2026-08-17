@@ -83,8 +83,8 @@ def tier_chain(catalog: dict[str, Any], tier_id: str) -> list[dict[str, Any]]:
 
 
 def tier_candidate_roles(
-        catalog: dict[str, Any], tier_id: str) -> dict[str, str]:
-    roles: dict[str, str] = {}
+        catalog: dict[str, Any], tier_id: str) -> dict[str, set[str]]:
+    roles: dict[str, set[str]] = {}
     for tier in tier_chain(catalog, tier_id):
         candidates = [
             (tier["text_model"], "text_model"),
@@ -93,9 +93,7 @@ def tier_candidate_roles(
             *((item, "asr_candidate") for item in tier["asr_candidates"]),
         ]
         for model_id, role in candidates:
-            previous = roles.setdefault(model_id, role)
-            require(previous == role,
-                    f"{model_id}: fallback chain changes the model role")
+            roles.setdefault(model_id, set()).add(role)
     return roles
 
 
@@ -156,7 +154,10 @@ def validate_product(policy: dict[str, Any]) -> None:
 
     retention = policy["retention"]
     require(retention["call_artifact_ttl_hours"] == 24,
-            "prototype call retention must be exactly 24 hours")
+            "transient call retention must be exactly 24 hours")
+    require(retention["raw_audio_delete_after_final_transcript_commit"] is True
+            and retention["transcript_retention"] == "until_user_deletion",
+            "raw audio must be acknowledged after durable transcription while transcripts persist")
     require(retention["cleanup_on_boot"] and retention["cleanup_after_call"],
             "both boot and post-call cleanup are required")
 
@@ -595,7 +596,7 @@ def validate_model_admission(root: Path) -> None:
                 f"{profile['id']}: supported profile requires models and evidence")
         evidence_digests: set[str] = set()
         evidence_build_fingerprints: set[str] = set()
-        passed_by_evidence: dict[str, set[tuple[str, str, str]]] = {}
+        passed_by_evidence: dict[str, set[tuple[str, str, str, str]]] = {}
         for evidence in evidence_entries:
             require(isinstance(evidence, dict) and set(evidence) == {
                 "path", "sha256", "build_fingerprint_sha256", "suite_sha256",
@@ -628,7 +629,7 @@ def validate_model_admission(root: Path) -> None:
                         "total_ram_mb", "build_fingerprint_sha256",
                         "completed_at", "results",
                     }
-                    and benchmark.get("schema_version") == 2
+                    and benchmark.get("schema_version") == 3
                     and isinstance(benchmark.get("suite_version"), int)
                     and benchmark["suite_version"] == suite["suite_version"]
                     and benchmark.get("suite_sha256") == suite_sha256
@@ -642,29 +643,32 @@ def validate_model_admission(root: Path) -> None:
                     == evidence["build_fingerprint_sha256"]
                     and benchmark.get("completed_at") == evidence["completed_at"],
                     f"{profile['id']}: benchmark identity does not match profile")
-            passes: set[tuple[str, str, str]] = set()
+            passes: set[tuple[str, str, str, str]] = set()
             results = benchmark.get("results")
             require(isinstance(results, list) and results,
                     f"{profile['id']}: benchmark results are required")
-            result_ids: set[str] = set()
+            result_keys: set[tuple[str, str]] = set()
             for result in results:
                 require(isinstance(result, dict) and set(result) == {
-                    "model_id", "runtime", "backend", "artifact_sha256",
+                    "model_id", "role", "runtime", "backend", "artifact_sha256",
                     "decision", "required_gates", "failed_gates", "metrics"
                 }, f"{profile['id']}: malformed benchmark result")
                 model_id = result["model_id"]
+                role = result["role"]
+                result_key = (model_id, role)
                 model = models.get(model_id)
                 required_gates = result["required_gates"]
                 failed_gates = result["failed_gates"]
                 metrics = result["metrics"]
-                require(model_id in tier_ids and model_id not in result_ids
+                require(model_id in tier_ids and role in benchmark_roles[model_id]
+                        and result_key not in result_keys
                         and model is not None
                         and result["runtime"] == model["runtime"]
                         and result["backend"] in model["allowed_backends"]
                         and re.fullmatch(r"[0-9a-f]{64}",
                                          str(result["artifact_sha256"])) is not None,
                         f"{profile['id']}: benchmark result does not match catalog")
-                result_ids.add(model_id)
+                result_keys.add(result_key)
                 require(isinstance(required_gates, list) and required_gates
                         and len(required_gates) == len(set(required_gates))
                         and all(isinstance(item, str)
@@ -694,7 +698,7 @@ def validate_model_admission(root: Path) -> None:
                         and isinstance(thermal_status_max, int)
                         and 0 <= thermal_status_max <= 6,
                         f"{profile['id']}: benchmark thermal observation is invalid")
-                gates = suite["gate_profiles"][benchmark_roles[model_id]]
+                gates = suite["gate_profiles"][role]
                 expected_gate_ids = [gate["id"] for gate in gates]
                 require(required_gates == expected_gate_ids
                         and set(suite["required_observations"]) <= set(metrics)
@@ -710,9 +714,9 @@ def validate_model_admission(root: Path) -> None:
                         and result["decision"] in {"passed", "failed"},
                         f"{profile['id']}: benchmark decision disagrees with suite gates")
                 if result["decision"] == "passed":
-                    passes.add((model_id, result["backend"],
+                    passes.add((model_id, role, result["backend"],
                                 result["artifact_sha256"]))
-            measured_roles = {benchmark_roles[model_id] for model_id in result_ids}
+            measured_roles = {role for _, role in result_keys}
             coverage = suite["required_role_coverage"]
             require(set(coverage["all"]) <= measured_roles
                     and set(coverage["at_least_one"]).intersection(measured_roles),
@@ -726,13 +730,16 @@ def validate_model_admission(root: Path) -> None:
                 "model_id", "backend", "artifact_sha256", "evidence_sha256"
             }, f"{profile['id']}: malformed admitted model")
             model_id = item["model_id"]
-            key = (model_id, item["backend"], item["artifact_sha256"])
+            keys = {(model_id, role, item["backend"], item["artifact_sha256"])
+                    for role in benchmark_roles[model_id]}
             require(model_id not in admitted_ids and model_id in tier_ids
                     and item["evidence_sha256"] in passed_by_evidence
-                    and key in passed_by_evidence[item["evidence_sha256"]],
+                    and keys <= passed_by_evidence[item["evidence_sha256"]],
                     f"{profile['id']}: admitted model lacks an exact benchmark pass")
             admitted_ids.add(model_id)
-        admitted_roles = {benchmark_roles[model_id] for model_id in admitted_ids}
+        admitted_roles = set().union(
+            *(benchmark_roles[model_id] for model_id in admitted_ids)) \
+            if admitted_ids else set()
         coverage = suite["required_role_coverage"]
         require(set(coverage["all"]) <= admitted_roles
                 and set(coverage["at_least_one"]).intersection(admitted_roles),
@@ -1364,6 +1371,7 @@ def validate_aosp_overlay(root: Path) -> None:
         "services/callintelligence/src/com/aios/callintelligence/CallerHistoryConversationPolicy.java",
         "services/callintelligence/src/com/aios/callintelligence/CallerHistorySourcePolicy.java",
         "services/callintelligence/src/com/aios/callintelligence/CallArtifactRetention.java",
+        "services/callintelligence/src/com/aios/callintelligence/AcknowledgedAudioSpool.java",
         "services/callintelligence/src/com/aios/callintelligence/CallArtifactStore.java",
         "services/callintelligence/src/com/aios/callintelligence/RetentionClock.java",
         "services/callintelligence/src/com/aios/callintelligence/TelephonyAudioCapture.java",
@@ -4879,6 +4887,8 @@ def validate_aosp_overlay(root: Path) -> None:
         encoding="utf-8")
     artifact_source = (call_source_root / "CallArtifactStore.java").read_text(
         encoding="utf-8")
+    audio_spool_source = (call_source_root / "AcknowledgedAudioSpool.java").read_text(
+        encoding="utf-8")
     risk_tracker_test = (root / "services" / "callintelligence" / "tests" / "src" /
                          "com" / "aios" / "callintelligence" /
                          "RiskAssessmentTrackerTest.java").read_text(encoding="utf-8")
@@ -5120,12 +5130,12 @@ def validate_aosp_overlay(root: Path) -> None:
             and "callOrphaned" in telecom_presence,
             "Telecom presence must be UID-owned, bounded, release/death-linked, stop orphaned capture, and drive call priority")
     require("CallArtifactRetention.canResume(" in artifact_source
-            and 'new FileOutputStream(new File(directory, "rx.pcm"), true)'
-            in artifact_source
-            and 'new FileOutputStream(new File(directory, "tx.pcm"), true)'
-            in artifact_source
+            and 'new File(directory, "audio-spool/downlink")' in artifact_source
+            and 'new File(directory, "audio-spool/uplink")' in artifact_source
+            and "downlinkReplayStartBytes" in artifact_source
+            and "uplinkReplayStartBytes" in artifact_source
             and "storedAnsweredByAi || answeredByAi" in artifact_source,
-            "dialer restart must append to the original bounded call artifact without extending expiry")
+            "dialer restart must resume the original transient spool without extending expiry")
     require("String transientAddress" in incoming_call_api
             and "String countryIso" in incoming_call_api
             and incoming_call_api.index("ringingSinceElapsedRealtimeMillis")
@@ -5263,6 +5273,7 @@ def validate_aosp_overlay(root: Path) -> None:
             and "knownContactPublishesInitialLegitimacy" in risk_tracker_test,
             "call risk must be typed, revisioned, replayable, and publish initial legitimacy")
     require("boolean takeOverCall(String callId)" in call_api
+            and "void deleteCallHistory(String callId)" in call_api
             and "CallAssistantState" in call_listener_api
             and "boolean aiHandling" in call_assistant_api
             and "long revision" in call_assistant_api
@@ -5273,6 +5284,8 @@ def validate_aosp_overlay(root: Path) -> None:
             and "takeover.closeAudio()" in call_service
             and "receptionist.endCall(callId)" in call_service
             and "classifier.beginCall(callId, takeover.knownContact)" in call_service
+            and "artifactStore.discard(callId)" in call_service
+            and '"call_history_deleted"' in call_service
             and "turnQueue.close()" in call_service
             and "appendAssistantState(" in artifact_source
             and '"assistant_state.jsonl"' in artifact_source
@@ -5339,10 +5352,9 @@ def validate_aosp_overlay(root: Path) -> None:
             in pcm_transcript_timeline_test
             and "cumulativePartialAndFinalMayReuseTheSameStartAndEnd"
             in pcm_transcript_timeline_test
-            and "downlinkTranscriptTimeline.activate(downlink.identity, downlinkOffset)"
-            in call_service
-            and "uplinkTranscriptTimeline.activate(uplink.identity, uplinkOffset)"
-            in call_service
+            and "downlink.identity, expectedDownlinkOffset" in call_service
+            and "uplink.identity, expectedUplinkOffset" in call_service
+            and "replaceSecondaryWithReplay" in call_service
             and "accepted.startMillis" in call_service
             and "accepted.endMillis" in call_service
             and '"src/com/aios/callintelligence/PcmTranscriptTimeline.java"'
@@ -5463,7 +5475,7 @@ def validate_aosp_overlay(root: Path) -> None:
             and "recoveryKeepsTheNewestBoundedExactTail"
             in transcript_context_recovery_test
             and "readConversationTail()" in artifact_source
-            and 'appendJsonLine("transcript.jsonl", transcript)' in artifact_source
+            and "appendTranscriptLine(transcript)" in artifact_source
             and "stored.readConversationTail()" in call_service
             and '"transcript_context_restored"' in call_service
             and 'communicationSummary.appendTranscript(' in call_service
@@ -5721,8 +5733,15 @@ def validate_aosp_overlay(root: Path) -> None:
             and "CallArtifactRetention.nextElapsedAlarm" in artifact_source
             and 'json.put("schema_version", 2)' in artifact_source
             and '"boot_identity"' in artifact_source
-            and '"expires_at_elapsed_realtime_ms"' in artifact_source,
-            "call artifact storage must close live files, lock, and delegate to the tested TTL policy")
+            and '"expires_at_elapsed_realtime_ms"' in artifact_source
+            and 'new File(this.context.getFilesDir(), "transcripts")' in artifact_source
+            and "appendTranscriptLine" in artifact_source
+            and "acknowledgeTranscript" in artifact_source
+            and "AcknowledgedAudioSpool" in artifact_source
+            and "persistAcknowledgedBytes" in audio_spool_source
+            and "replayUnacknowledgedTo" in audio_spool_source
+            and "acknowledgeThroughMillis" in audio_spool_source,
+            "call storage must retain transcripts separately and acknowledge raw audio only after commit")
     require("nextExpiryElapsedRealtimeMillis" in retention_alarm
             and "AlarmManager.ELAPSED_REALTIME_WAKEUP" in retention_alarm
             and "setExactAndAllowWhileIdle" in retention_alarm
@@ -5742,6 +5761,10 @@ def validate_aosp_overlay(root: Path) -> None:
             and "CallArtifactRetention.RETENTION_MILLIS" in retention_smoke_activity
             and "expired.openDownlink()" in retention_smoke_activity
             and "expired.openUplink()" in retention_smoke_activity
+            and "expired.acknowledgeTranscript" in retention_smoke_activity
+            and 'new File(getFilesDir(), "transcripts")' in retention_smoke_activity
+            and "transient cleanup deleted retained transcript history"
+            in retention_smoke_activity
             and "store.cleanup(nowEpochMillis)" in retention_smoke_activity
             and "store.discard(freshCallId)" in retention_smoke_activity
             and "RetentionAlarm.scheduleNext(this, store)" in retention_smoke_activity,
@@ -5904,11 +5927,16 @@ def validate_aosp_overlay(root: Path) -> None:
         root / "services" / "callintelligence" / "tests" / "src" / "com" /
         "aios" / "callintelligence" / "ResilientFanoutOutputStreamTest.java"
     ).read_text(encoding="utf-8")
+    audio_spool_test = (
+        root / "services" / "callintelligence" / "tests" / "src" / "com" /
+        "aios" / "callintelligence" / "AcknowledgedAudioSpoolTest.java"
+    ).read_text(encoding="utf-8")
     require("dropSecondary()" in fanout
             and "primary.write" in fanout
             and "replaceSecondary" in fanout
             and "primaryBytesWritten" in fanout
             and "replaceSecondaryAtCurrentByteOffset" in fanout
+            and "replaceSecondaryWithReplay" in fanout
             and "onAsrUnavailable" in asr_client
             and "acceptsCallback" in asr_client
             and "activeStreams.clear()" in asr_client
@@ -5919,7 +5947,11 @@ def validate_aosp_overlay(root: Path) -> None:
             and "replacementReceivesFutureAudioWithoutInterruptingPrimary"
             in fanout_test
             and "replacementReportsAtomicAuthoritativePcmOffset" in fanout_test
-            and "failedSecondaryCanBeRestored" in fanout_test,
+            and "failedSecondaryCanBeRestored" in fanout_test
+            and "replacementReplaysOnlyUnacknowledgedAudioBeforeLivePcm"
+            in fanout_test
+            and "replayStartsAtDurableAcknowledgementWithoutDuplicatingPrefix"
+            in audio_spool_test,
             "ASR loss must preserve local PCM, reject stale streams, and attach recovered inference sinks")
 
     media_source_root = (
@@ -7281,7 +7313,6 @@ def validate_release_configuration(root: Path) -> None:
                 "vendor_boot.img", "vendor_kernel_boot.img", "vbmeta.img",
             ]
             and hardware.get("required_model_ids") == [
-                "gemma4-e2b-mobile-text",
                 "gemma4-e2b-mobile-multimodal",
                 "whisper-base-multilingual-quantized",
                 "supertonic3-en-es-int8",
@@ -8143,13 +8174,12 @@ def validate_release_configuration(root: Path) -> None:
                             if isinstance(generated_payloads, dict) else None)
         require(isinstance(model_payload, dict)
                 and set(model_payload.get("models", [])) == {
-                    "gemma4-e2b-mobile-text",
                     "gemma4-e2b-mobile-multimodal",
                     "whisper-base-multilingual-quantized",
                     "supertonic3-en-es-int8",
                 }
                 and isinstance(model_payload.get("installed_file_count"), int)
-                and model_payload["installed_file_count"] == 15
+                and model_payload["installed_file_count"] == 14
                 and re.fullmatch(
                     r"[0-9a-f]{64}",
                     str(model_payload.get("manifest_sha256", ""))) is not None,
@@ -8362,7 +8392,7 @@ def validate_release_configuration(root: Path) -> None:
                 and model_pack.get("proves_model_inference") is False
                 and model_pack.get("proves_physical_device_runtime") is False
                 and isinstance(model_pack.get("logical_artifact_count"), int)
-                and model_pack["logical_artifact_count"] == 4
+                and model_pack["logical_artifact_count"] == 3
                 and isinstance(model_pack.get("physical_model_payload_count"), int)
                 and model_pack["physical_model_payload_count"] == 10,
                 "reference model-pack evidence is not catalog-bound packaging proof")
@@ -8371,7 +8401,6 @@ def validate_release_configuration(root: Path) -> None:
             if isinstance(item, dict)
         }
         require(packed_ids == {
-                    "gemma4-e2b-mobile-text",
                     "gemma4-e2b-mobile-multimodal",
                     "whisper-base-multilingual-quantized",
                     "supertonic3-en-es-int8",

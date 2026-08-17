@@ -203,7 +203,7 @@ try {
     $measurementFields = @($measurementDocument.PSObject.Properties.Name | Sort-Object)
     $expectedFields = @("results", "schema_version", "suite_version")
     if (($measurementFields -join ",") -ne ($expectedFields -join ",") -or
-        $measurementDocument.schema_version -ne 1 -or
+        $measurementDocument.schema_version -ne 2 -or
         $measurementDocument.suite_version -ne $suite.suite_version -or
         $null -eq $measurementDocument.results) {
         throw "measurement input must match the checked-in benchmark suite"
@@ -222,7 +222,7 @@ try {
     }
 
     $rawDocument = [ordered]@{
-        schema_version = 1
+        schema_version = 2
         suite_version = [int]$measurementDocument.suite_version
         profile_id = $profile[0].id
         catalog_tier = $profile[0].catalog_tier

@@ -90,7 +90,6 @@
       "generated_device_path": "vendor/google_devices/tegu",
       "device_generation_command": "adevtool generate-all -d tegu",
       "required_model_ids": [
-        "gemma4-e2b-mobile-text",
         "gemma4-e2b-mobile-multimodal",
         "whisper-base-multilingual-quantized",
         "supertonic3-en-es-int8"

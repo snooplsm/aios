@@ -11,7 +11,6 @@
       "max_total_ram_mb": 9216,
       "status": "benchmark_pending",
       "research_candidate_models": [
-        "gemma4-e2b-mobile-text",
         "gemma4-e2b-mobile-multimodal",
         "supertonic3-en-es-int8",
         "whisper-base-multilingual-quantized",
@@ -28,9 +27,7 @@
       "max_total_ram_mb": 13312,
       "status": "benchmark_pending",
       "research_candidate_models": [
-        "gemma4-e4b-mobile-text",
         "gemma4-e4b-mobile-multimodal",
-        "gemma4-e2b-mobile-text",
         "gemma4-e2b-mobile-multimodal",
         "supertonic3-en-es-int8",
         "whisper-small-multilingual-quantized",
@@ -47,9 +44,7 @@
       "max_total_ram_mb": 17408,
       "status": "benchmark_pending",
       "research_candidate_models": [
-        "gemma4-e4b-mobile-text",
         "gemma4-e4b-mobile-multimodal",
-        "gemma4-e2b-mobile-text",
         "gemma4-e2b-mobile-multimodal",
         "supertonic3-en-es-int8",
         "whisper-small-multilingual-quantized",
@@ -66,9 +61,7 @@
       "max_total_ram_mb": 17408,
       "status": "benchmark_pending",
       "research_candidate_models": [
-        "gemma4-e4b-mobile-text",
         "gemma4-e4b-mobile-multimodal",
-        "gemma4-e2b-mobile-text",
         "gemma4-e2b-mobile-multimodal",
         "supertonic3-en-es-int8",
         "whisper-small-multilingual-quantized",
@@ -85,9 +78,7 @@
       "max_total_ram_mb": 17408,
       "status": "benchmark_pending",
       "research_candidate_models": [
-        "gemma4-e4b-mobile-text",
         "gemma4-e4b-mobile-multimodal",
-        "gemma4-e2b-mobile-text",
         "gemma4-e2b-mobile-multimodal",
         "supertonic3-en-es-int8",
         "whisper-small-multilingual-quantized",

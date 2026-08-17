@@ -11,10 +11,10 @@ predicts quality or speed.
 - Streaming ASR: dedicated multilingual model with partial hypotheses.
 - Spam risk: deterministic context plus small classifiers; Gemma may explain but
   is not the sole decision maker.
-- Receptionist reasoning and call summary: Gemma text model.
+- Receptionist reasoning and call summary: the tier's shared Gemma multimodal model.
 - TTS: the current candidate is the digest-locked bilingual Supertonic 3 int8
   bundle through the replaceable Sherpa-ONNX provider.
-- Photo/video understanding: Gemma multimodal model; videos use one bounded
+- Photo/video understanding: the same Gemma multimodal model; videos use one bounded
   twenty-keyframe storyboard and all media work is preemptible.
 - Video subtitles: the selected Whisper ASR model under a lower-priority
   `media_background` lease, using the same English/Spanish weights as calls.
@@ -26,15 +26,18 @@ is cold or media inference is unloading.
 
 ### Edge 8 GB — Pixel 9a baseline and Pixel 10a candidate
 
-- Gemma 4 E2B mobile text-only for receptionist reasoning.
+- One Gemma 4 E2B multimodal artifact serves receptionist reasoning,
+  classification, summaries, image understanding, and video understanding.
 - Compact multilingual streaming ASR; benchmark Whisper `base` and `small`
   quantized candidates against 8 kHz telephony audio.
-- Media understanding uses Gemma 4 E2B multimodal only as a background lease.
+- Media requests remain a preemptible background lease even though they share
+  the already-loaded Gemma engine with call work.
 - Keep any combination that improves quality and still passes real call latency,
   memory-pressure, and thermal tests; there is no product-imposed RAM ceiling.
 
-Google estimates the Gemma 4 E2B mobile footprint at about 0.84 GB text-only and
-1.1 GB multimodal before workload-dependent context/runtime overhead. AIOS still
+Google estimates the Gemma 4 E2B mobile footprint at about 1.1 GB multimodal
+before workload-dependent context/runtime overhead. The smaller text-only
+configuration is not separately packaged. AIOS still
 uses measured resident memory and thermal behavior as the gate. Pixel 10a also
 has 8 GB RAM and Tensor G4, but remains a catalog-only candidate until its exact
 build lane and device identity are verified.
@@ -49,13 +52,14 @@ cap.
 
 ### Edge 12 GB — Pixel 10 candidate
 
-- Gemma 4 E4B mobile text-only is eligible for receptionist reasoning.
-- Gemma 4 E4B multimodal is eligible for deferred media processing.
+- One Gemma 4 E4B multimodal artifact is eligible for both receptionist work
+  and deferred media processing.
 - Fall back independently to E2B if call latency, memory pressure, or thermal
   limits fail.
 
 Pixel 10 has 12 GB RAM and Tensor G5. Google estimates Gemma 4 E4B mobile at about
-2.2 GB text-only and 2.5 GB multimodal before context/runtime overhead. This is
+2.5 GB multimodal before context/runtime overhead. AIOS does not package a
+second text-only identity. This is
 an expected catalog tier only until an exact platform/device/vendor input set
 and build lane are locked and benchmarked.
 

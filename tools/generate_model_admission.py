@@ -42,13 +42,13 @@ def load(path: Path) -> dict:
         raise AdmissionError(f"cannot read JSON {path}: {error}") from error
 
 
-def tier_models(catalog: dict, tier_id: str) -> tuple[dict, dict[str, str]]:
+def tier_models(catalog: dict, tier_id: str) -> tuple[dict, dict[str, set[str]]]:
     models = {item["id"]: item for item in catalog["models"]}
     tiers = {item["id"]: item for item in catalog["tiers"]}
     tier = tiers.get(tier_id)
     if tier is None:
         raise AdmissionError(f"unknown catalog tier: {tier_id}")
-    roles: dict[str, str] = {}
+    roles: dict[str, set[str]] = {}
     seen_tiers: set[str] = set()
     current = tier
     while current is not None:
@@ -63,10 +63,7 @@ def tier_models(catalog: dict, tier_id: str) -> tuple[dict, dict[str, str]]:
             *((item, "asr_candidate") for item in current["asr_candidates"]),
         ]
         for model_id, role in candidates:
-            previous = roles.get(model_id)
-            if previous is not None and previous != role:
-                raise AdmissionError("a fallback model cannot hold multiple roles")
-            roles.setdefault(model_id, role)
+            roles.setdefault(model_id, set()).add(role)
         fallback_id = current.get("fallback_tier")
         if fallback_id is None:
             break
@@ -108,7 +105,7 @@ def validate_evidence(catalog: dict, suite: dict, evidence: dict) -> dict:
         "device_codename", "total_ram_mb", "build_fingerprint_sha256",
         "completed_at", "results",
     }
-    if set(evidence) != required or evidence.get("schema_version") != 2:
+    if set(evidence) != required or evidence.get("schema_version") != 3:
         raise AdmissionError("benchmark evidence has unknown or missing top-level fields")
     if not isinstance(evidence.get("suite_version"), int) \
             or evidence["suite_version"] < 1:
@@ -143,18 +140,21 @@ def validate_evidence(catalog: dict, suite: dict, evidence: dict) -> dict:
         raise AdmissionError("benchmark evidence must contain model results")
 
     passed: list[dict] = []
-    seen: set[str] = set()
+    seen: set[tuple[str, str]] = set()
     for result in results:
         expected_fields = {
-            "model_id", "runtime", "backend", "artifact_sha256", "decision",
+            "model_id", "role", "runtime", "backend", "artifact_sha256", "decision",
             "required_gates", "failed_gates", "metrics",
         }
         if not isinstance(result, dict) or set(result) != expected_fields:
             raise AdmissionError("model result has unknown or missing fields")
         model_id = result.get("model_id")
-        if model_id not in tier_ids or model_id in seen:
-            raise AdmissionError(f"duplicate or out-of-tier benchmark model: {model_id}")
-        seen.add(model_id)
+        role = result.get("role")
+        result_key = (model_id, role)
+        if model_id not in tier_ids or role not in roles[model_id] or result_key in seen:
+            raise AdmissionError(
+                f"duplicate or out-of-tier benchmark model role: {model_id}/{role}")
+        seen.add(result_key)
         model = models[model_id]
         if result.get("runtime") != model["runtime"] \
                 or result.get("backend") not in model["allowed_backends"]:
@@ -195,7 +195,7 @@ def validate_evidence(catalog: dict, suite: dict, evidence: dict) -> dict:
                 or not 0 <= thermal_status_max <= 6:
             raise AdmissionError(
                 f"{model_id}: thermal observation must be an Android status 0..6")
-        gates = profiles.get(roles[model_id])
+        gates = profiles.get(role)
         if not isinstance(gates, list) or not gates \
                 or required_gates != [gate.get("id") for gate in gates] \
                 or not set(observations) <= set(metrics) \
@@ -215,17 +215,17 @@ def validate_evidence(catalog: dict, suite: dict, evidence: dict) -> dict:
         if decision == "passed":
             passed.append({
                 "model_id": model_id,
+                "role": role,
                 "backend": result["backend"],
                 "artifact_sha256": result["artifact_sha256"],
             })
 
-    seen_roles = {roles[model_id] for model_id in seen}
+    seen_roles = {role for _, role in seen}
     if not set(coverage["all"]) <= seen_roles \
             or not set(coverage["at_least_one"]).intersection(seen_roles):
         raise AdmissionError(
             "benchmark evidence needs text, media, TTS, and at least one ASR result")
-    passed_ids = {item["model_id"] for item in passed}
-    passed_roles = {roles[model_id] for model_id in passed_ids}
+    passed_roles = {item["role"] for item in passed}
     if not {"text_model", "media_model", "tts_model"} <= passed_roles \
             or "asr_candidate" not in passed_roles:
         raise AdmissionError(
@@ -239,7 +239,7 @@ def validate_evidence(catalog: dict, suite: dict, evidence: dict) -> dict:
         "build_fingerprint_sha256": evidence["build_fingerprint_sha256"],
         "suite_sha256": evidence["suite_sha256"],
         "completed_at": completed_at,
-        "passed": sorted(passed, key=lambda item: item["model_id"]),
+        "passed": sorted(passed, key=lambda item: (item["model_id"], item["role"])),
     }
 
 
@@ -320,7 +320,12 @@ def generate(
         }
         promotion["evidence"][evidence_sha256] = evidence_record
         for item in checked["passed"]:
-            candidate = {**item, "evidence_sha256": evidence_sha256}
+            candidate = {
+                "model_id": item["model_id"],
+                "backend": item["backend"],
+                "artifact_sha256": item["artifact_sha256"],
+                "evidence_sha256": evidence_sha256,
+            }
             existing = promotion["models"].get(item["model_id"])
             if existing is not None and (
                     existing["backend"] != item["backend"]
@@ -328,13 +333,11 @@ def generate(
                 raise AdmissionError(
                     f"conflicting admitted artifact for {item['model_id']}")
             promotion["models"].setdefault(item["model_id"], candidate)
+            promotion.setdefault("roles", set()).add(item["role"])
 
     for profile_id, promotion in promotions.items():
         profile = by_id[profile_id]
-        _, roles = tier_models(catalog, profile["catalog_tier"])
-        admitted_roles = {
-            roles[model_id] for model_id in promotion["models"]
-        }
+        admitted_roles = promotion.get("roles", set())
         if not {"text_model", "media_model", "tts_model"} <= admitted_roles \
                 or "asr_candidate" not in admitted_roles:
             raise AdmissionError(

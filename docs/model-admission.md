@@ -18,7 +18,7 @@ A benchmark evidence file under `evidence/model-admission/` binds all of these:
 
 - exact device codename, measured total RAM, and hashed build fingerprint;
 - benchmark-suite version and completion timestamp;
-- exact model ID, runtime, backend, and packaged artifact SHA-256;
+- exact model ID, benchmark role, runtime, backend, and packaged artifact SHA-256;
 - the canonical-JSON SHA-256 of `config/model_benchmark_suite.json`;
 - the required gates, failed gates, and measured numeric/boolean metrics; and
 - an explicit `passed` or `failed` decision consistent with those gates.
@@ -32,6 +32,9 @@ complete fallback configuration;
 the admission generator can merge those evidence files into one profile. Every
 admitted model still points to the exact evidence file that passed its backend
 and artifact digest, and conflicting results for the same model are rejected.
+One multimodal Gemma ID intentionally appears in both the text and media result
+records. Evidence uniqueness is therefore `(model_id, role)`, while packaging
+and admission still contain one artifact and one resident engine.
 
 The suite gates English and Spanish quality, call-time latency, throughput, and
 crash-free execution. Peak RSS and maximum thermal status are mandatory

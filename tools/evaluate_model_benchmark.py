@@ -85,13 +85,13 @@ def validate_suite(suite: dict) -> None:
         raise BenchmarkError("unsupported benchmark role coverage")
 
 
-def tier_roles(catalog: dict, tier_id: str) -> tuple[dict[str, dict], dict[str, str]]:
+def tier_roles(catalog: dict, tier_id: str) -> tuple[dict[str, dict], dict[str, set[str]]]:
     models = {item["id"]: item for item in catalog.get("models", [])}
     tiers = {item.get("id"): item for item in catalog.get("tiers", [])}
     tier = tiers.get(tier_id)
     if tier is None:
         raise BenchmarkError(f"unknown catalog tier: {tier_id}")
-    roles: dict[str, str] = {}
+    roles: dict[str, set[str]] = {}
     seen_tiers: set[str] = set()
     current = tier
     while current is not None:
@@ -106,10 +106,7 @@ def tier_roles(catalog: dict, tier_id: str) -> tuple[dict[str, dict], dict[str, 
             *((item, "asr_candidate") for item in current["asr_candidates"]),
         ]
         for model_id, role in candidates:
-            previous = roles.get(model_id)
-            if previous is not None and previous != role:
-                raise BenchmarkError("a fallback model cannot hold multiple roles")
-            roles.setdefault(model_id, role)
+            roles.setdefault(model_id, set()).add(role)
         fallback_id = current.get("fallback_tier")
         if fallback_id is None:
             break
@@ -146,7 +143,7 @@ def evaluate(catalog_path: Path, suite_path: Path, raw_path: Path,
         "device_codename", "total_ram_mb", "build_fingerprint_sha256",
         "completed_at", "results",
     }
-    if set(raw) != expected_top or raw.get("schema_version") != 1:
+    if set(raw) != expected_top or raw.get("schema_version") != 2:
         raise BenchmarkError("raw benchmark has unknown or missing top-level fields")
     if raw.get("suite_version") != suite["suite_version"]:
         raise BenchmarkError("raw benchmark suite version does not match policy")
@@ -168,15 +165,19 @@ def evaluate(catalog_path: Path, suite_path: Path, raw_path: Path,
     if not isinstance(raw_results, list) or not raw_results:
         raise BenchmarkError("raw benchmark model results are required")
     results: list[dict] = []
-    seen: set[str] = set()
+    seen: set[tuple[str, str]] = set()
     for result in raw_results:
         if not isinstance(result, dict) or set(result) != {
-                "model_id", "runtime", "backend", "artifact_sha256", "metrics"}:
+                "model_id", "role", "runtime", "backend", "artifact_sha256",
+                "metrics"}:
             raise BenchmarkError("raw model result has unknown or missing fields")
         model_id = result.get("model_id")
-        if model_id not in roles or model_id in seen:
-            raise BenchmarkError(f"duplicate or out-of-tier raw model: {model_id}")
-        seen.add(model_id)
+        role = result.get("role")
+        result_key = (model_id, role)
+        if model_id not in roles or role not in roles[model_id] or result_key in seen:
+            raise BenchmarkError(
+                f"duplicate or out-of-tier raw model role: {model_id}/{role}")
+        seen.add(result_key)
         model = models[model_id]
         if result.get("runtime") != model["runtime"] \
                 or result.get("backend") not in model["allowed_backends"]:
@@ -204,7 +205,7 @@ def evaluate(catalog_path: Path, suite_path: Path, raw_path: Path,
                 or not 0 <= thermal_status_max <= 6:
             raise BenchmarkError(
                 f"{model_id}: thermal observation must be an Android status 0..6")
-        gates = suite["gate_profiles"][roles[model_id]]
+        gates = suite["gate_profiles"][role]
         missing_gate_metrics = {gate["metric"] for gate in gates} - set(metrics)
         if missing_gate_metrics:
             raise BenchmarkError(
@@ -214,6 +215,7 @@ def evaluate(catalog_path: Path, suite_path: Path, raw_path: Path,
                                      gate["operator"], gate["threshold"])]
         results.append({
             "model_id": model_id,
+            "role": role,
             "runtime": result["runtime"],
             "backend": result["backend"],
             "artifact_sha256": result["artifact_sha256"],
@@ -222,7 +224,7 @@ def evaluate(catalog_path: Path, suite_path: Path, raw_path: Path,
             "failed_gates": failed,
             "metrics": metrics,
         })
-    seen_roles = {roles[model_id] for model_id in seen}
+    seen_roles = {role for _, role in seen}
     coverage = suite["required_role_coverage"]
     if not set(coverage["all"]) <= seen_roles \
             or not set(coverage["at_least_one"]).intersection(seen_roles):
@@ -230,7 +232,7 @@ def evaluate(catalog_path: Path, suite_path: Path, raw_path: Path,
             "raw benchmark needs text, media, TTS, and at least one ASR result")
 
     evidence = {
-        "schema_version": 2,
+        "schema_version": 3,
         "suite_version": suite["suite_version"],
         "suite_sha256": canonical_sha256(suite),
         "profile_id": raw["profile_id"],
@@ -239,7 +241,7 @@ def evaluate(catalog_path: Path, suite_path: Path, raw_path: Path,
         "total_ram_mb": raw["total_ram_mb"],
         "build_fingerprint_sha256": raw["build_fingerprint_sha256"],
         "completed_at": completed_at,
-        "results": sorted(results, key=lambda item: item["model_id"]),
+        "results": sorted(results, key=lambda item: (item["model_id"], item["role"])),
     }
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(evidence, indent=2) + "\n", encoding="utf-8")

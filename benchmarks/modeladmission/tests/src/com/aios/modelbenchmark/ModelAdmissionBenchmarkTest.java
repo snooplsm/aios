@@ -489,7 +489,7 @@ public final class ModelAdmissionBenchmarkTest {
                     runsPerLanguage));
 
             JSONObject measurements = new JSONObject()
-                    .put("schema_version", 1)
+                    .put("schema_version", 2)
                     .put("suite_version", 4)
                     .put("results", results);
             if (mode != null) measurements.put("mode", mode);
@@ -547,7 +547,7 @@ public final class ModelAdmissionBenchmarkTest {
                         BenchmarkMath.rate(englishKnown, runsPerLanguage))
                 .put("es_known_answer_rate",
                         BenchmarkMath.rate(spanishKnown, runsPerLanguage));
-        return result(artifact, metrics);
+        return result("text_model", artifact, metrics);
     }
 
     private static JSONObject benchmarkMedia(
@@ -612,7 +612,7 @@ public final class ModelAdmissionBenchmarkTest {
                         BenchmarkMath.rate(englishKnown, runsPerLanguage * 2))
                 .put("es_known_answer_rate",
                         BenchmarkMath.rate(spanishKnown, runsPerLanguage * 2));
-        return result(artifact, metrics);
+        return result("media_model", artifact, metrics);
     }
 
     private static TtsOutput benchmarkTts(
@@ -665,7 +665,7 @@ public final class ModelAdmissionBenchmarkTest {
         if (englishFixture == null) englishFixture = new byte[ASR_SAMPLE_RATE * 2];
         if (spanishFixture == null) spanishFixture = new byte[ASR_SAMPLE_RATE * 2];
         return new TtsOutput(
-                result(artifact, metrics),
+                result("tts_model", artifact, metrics),
                 resampleTtsTo16k(englishFixture),
                 resampleTtsTo16k(spanishFixture));
     }
@@ -753,7 +753,7 @@ public final class ModelAdmissionBenchmarkTest {
                         BenchmarkMath.percentileDouble(realtimeFactors, 0.95))
                 .put("en_wer", englishWer / runsPerLanguage)
                 .put("es_wer", spanishWer / runsPerLanguage);
-        return result(artifact, metrics);
+        return result("asr_candidate", artifact, metrics);
     }
 
     private static Invocation invokeText(
@@ -1094,6 +1094,11 @@ public final class ModelAdmissionBenchmarkTest {
                 .put("backend", artifact.backend)
                 .put("artifact_sha256", artifact.sha256)
                 .put("metrics", metrics);
+    }
+
+    private static JSONObject result(
+            String role, Artifact artifact, JSONObject metrics) throws JSONException {
+        return result(artifact, metrics).put("role", role);
     }
 
     private static String resultText(InferenceResult result) {

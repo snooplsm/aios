@@ -9,35 +9,9 @@
   },
   "models": [
     {
-      "id": "gemma4-e2b-mobile-text",
-      "family": "gemma4",
-      "capabilities": ["text_generation", "call_classification", "call_summary"],
-      "languages": ["en", "es"],
-      "runtime": "litert_lm",
-      "allowed_backends": ["gpu", "cpu"],
-      "default_backend": "gpu",
-      "artifact_formats": ["litertlm"],
-      "reference_artifact": {
-        "url": "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/main/gemma-4-E2B-it.litertlm",
-        "size_bytes": 2588147712,
-        "sha256": "181938105e0eefd105961417e8da75903eacda102c4fce9ce90f50b97139a63c"
-      },
-      "license_url": "https://ai.google.dev/gemma/apache_2",
-      "license_spdx": "Apache-2.0",
-      "packaged_license": {
-        "filename": "LICENSE.Apache-2.0.txt",
-        "size_bytes": 11357,
-        "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
-        "soong_license_kinds": ["SPDX-license-identifier-Apache-2.0"]
-      },
-      "estimated_resident_mb": 840,
-      "distribution": "licensed_build_input",
-      "status": "candidate"
-    },
-    {
       "id": "gemma4-e2b-mobile-multimodal",
       "family": "gemma4",
-      "capabilities": ["image_understanding", "video_understanding", "audio_understanding"],
+      "capabilities": ["text_generation", "call_classification", "call_summary", "image_understanding", "video_understanding", "audio_understanding"],
       "languages": ["en", "es"],
       "runtime": "litert_lm",
       "allowed_backends": ["gpu", "cpu"],
@@ -61,35 +35,9 @@
       "status": "candidate"
     },
     {
-      "id": "gemma4-e4b-mobile-text",
-      "family": "gemma4",
-      "capabilities": ["text_generation", "call_classification", "call_summary"],
-      "languages": ["en", "es"],
-      "runtime": "litert_lm",
-      "allowed_backends": ["gpu", "cpu"],
-      "default_backend": "gpu",
-      "artifact_formats": ["litertlm"],
-      "reference_artifact": {
-        "url": "https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm/resolve/main/gemma-4-E4B-it.litertlm",
-        "size_bytes": 3659530240,
-        "sha256": "0b2a8980ce155fd97673d8e820b4d29d9c7d99b8fa6806f425d969b145bd52e0"
-      },
-      "license_url": "https://ai.google.dev/gemma/apache_2",
-      "license_spdx": "Apache-2.0",
-      "packaged_license": {
-        "filename": "LICENSE.Apache-2.0.txt",
-        "size_bytes": 11357,
-        "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
-        "soong_license_kinds": ["SPDX-license-identifier-Apache-2.0"]
-      },
-      "estimated_resident_mb": 2200,
-      "distribution": "licensed_build_input",
-      "status": "candidate"
-    },
-    {
       "id": "gemma4-e4b-mobile-multimodal",
       "family": "gemma4",
-      "capabilities": ["image_understanding", "video_understanding", "audio_understanding"],
+      "capabilities": ["text_generation", "call_classification", "call_summary", "image_understanding", "video_understanding", "audio_understanding"],
       "languages": ["en", "es"],
       "runtime": "litert_lm",
       "allowed_backends": ["gpu", "cpu"],
@@ -193,7 +141,7 @@
     {
       "id": "edge_8gb",
       "min_total_ram_mb": 7168,
-      "text_model": "gemma4-e2b-mobile-text",
+      "text_model": "gemma4-e2b-mobile-multimodal",
       "media_model": "gemma4-e2b-mobile-multimodal",
       "tts_model": "supertonic3-en-es-int8",
       "asr_candidates": [
@@ -204,7 +152,7 @@
     {
       "id": "edge_12gb",
       "min_total_ram_mb": 11264,
-      "text_model": "gemma4-e4b-mobile-text",
+      "text_model": "gemma4-e4b-mobile-multimodal",
       "media_model": "gemma4-e4b-mobile-multimodal",
       "tts_model": "supertonic3-en-es-int8",
       "fallback_tier": "edge_8gb",
@@ -216,7 +164,7 @@
     {
       "id": "edge_16gb_plus",
       "min_total_ram_mb": 15360,
-      "text_model": "gemma4-e4b-mobile-text",
+      "text_model": "gemma4-e4b-mobile-multimodal",
       "media_model": "gemma4-e4b-mobile-multimodal",
       "tts_model": "supertonic3-en-es-int8",
       "fallback_tier": "edge_12gb",

@@ -22,20 +22,24 @@ public final class CallRetentionSmokeActivity extends Activity {
     protected void onCreate(Bundle state) {
         super.onCreate(state);
         File calls = new File(getFilesDir(), "calls");
+        File transcripts = new File(getFilesDir(), "transcripts");
         try {
             require(CallArtifactRetention.deleteTree(calls),
                     "could not reset the compile-check call store");
-            verifyRetention(calls);
+            require(CallArtifactRetention.deleteTree(transcripts),
+                    "could not reset the retained transcript store");
+            verifyRetention(calls, transcripts);
             Log.i(TAG, "AIOS_CALL_RETENTION_SMOKE_OK");
         } catch (Throwable error) {
             Log.e(TAG, "AIOS_CALL_RETENTION_SMOKE_FAILED", error);
         } finally {
             CallArtifactRetention.deleteTree(calls);
+            CallArtifactRetention.deleteTree(transcripts);
             finish();
         }
     }
 
-    private void verifyRetention(File calls) throws Exception {
+    private void verifyRetention(File calls, File transcripts) throws Exception {
         CallArtifactStore store = new CallArtifactStore(this);
         String token = UUID.randomUUID().toString();
         String expiredCallId = "expired-" + token;
@@ -53,6 +57,9 @@ public final class CallRetentionSmokeActivity extends Activity {
         expired.openUplink().write(new byte[]{5, 6, 7, 8});
         expired.appendTranscript("downlink", "en", "Need a repair", true,
                 0.9f, 0L, 900L);
+        expired.acknowledgeTranscript("downlink", 900L);
+        require(empty(new File(calls, expired.sourceId + "/audio-spool/downlink")),
+                "acknowledged raw caller audio was retained");
         expired.appendAssessment(8, "likely_legitimate", "service_request",
                 "model", 1L, nowEpochMillis);
         expired.appendAssistantReply("en", "What address should I use?", nowEpochMillis);
@@ -95,6 +102,9 @@ public final class CallRetentionSmokeActivity extends Activity {
         store.cleanup(nowEpochMillis);
         File expiredDirectory = new File(calls, expired.sourceId);
         require(!expiredDirectory.exists(), "expired call artifact survived cleanup");
+        File expiredTranscript = new File(transcripts, expired.sourceId + ".jsonl");
+        require(expiredTranscript.isFile() && expiredTranscript.length() > 0L,
+                "transient cleanup deleted retained transcript history");
         require(!unreadable.exists(), "unreadable call artifact survived cleanup");
         require(freshDirectory.isDirectory(), "fresh call artifact was deleted early");
         require(store.nextExpiryElapsedRealtimeMillis() == originalElapsedExpiry,
@@ -110,6 +120,8 @@ public final class CallRetentionSmokeActivity extends Activity {
 
         store.discard(freshCallId);
         require(!freshDirectory.exists(), "explicit artifact deletion failed");
+        require(!new File(transcripts, resumed.sourceId + ".jsonl").exists(),
+                "explicit deletion retained call transcript history");
         require(store.nextExpiryElapsedRealtimeMillis() == Long.MAX_VALUE,
                 "empty call store retained an expiry alarm");
         RetentionAlarm.scheduleNext(this, store);

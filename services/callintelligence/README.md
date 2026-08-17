@@ -19,9 +19,14 @@ Intelligence dies, Binder cleanup releases priority without relying on a final
 callback; normal Telecom behavior remains independent.
 
 The service implements deterministic answer decisions, two-direction PCM
-capture, private call-session storage, 24-hour cleanup, and streaming PCM pipes
-to Model Broker. If the broker or ASR adapter is unavailable, the best-effort
-pipe is dropped while local PCM capture and the normal call continue unaffected.
+capture, private call-session storage, and streaming PCM pipes to Model Broker.
+Each direction is also written to five-second spool segments. A segment is
+deleted only after a matching final Whisper result is synchronously committed
+to the append-only transcript. If the broker or ASR adapter is unavailable, the
+best-effort pipe is dropped while the loss-recovery spool and normal call
+continue unaffected. Unacknowledged spool data and other transient artifacts
+expire after 24 hours; transcript history is retained locally until the owner
+deletes it.
 Retention eligibility is evaluated at the exact expiry boundary by a host-tested
 policy. Malformed session metadata is deleted fail-closed, and the preinstalled
 service requests an exact, idle-capable elapsed-realtime wakeup so later
@@ -143,7 +148,12 @@ Broker's `call_background` lane. The result must echo its input summary revision
 and exact source turn IDs. A duplicate, late, malformed, or source-mismatched
 result is discarded. New caller speech cancels an active compaction immediately;
 live RX, TX, receptionist, TTS, and system-pressure policy also preempt it.
-Source transcript artifacts remain authoritative and expire after 24 hours.
+Source transcript artifacts remain authoritative and persist until explicit
+owner deletion. Raw synthesized assistant audio is never stored: the accepted
+assistant text is committed directly before TTS begins.
+The signature-protected control API exposes deletion only for a finished call;
+it removes the retained source transcript, transient spool/artifact, and derived
+communication-context projection together.
 
 The AIDL also exposes a validated owner-policy read/update API for the Dialer
 settings screen. The caller-audio transport is implemented but explicitly

@@ -23,10 +23,12 @@ Engineering defaults for the research image are:
   processing to be enabled and the caller-audio interaction transport to pass
   its device gate before it can authorize the Dialer to answer.
 - A persistent on-device indicator is shown during processing.
-- Stored artifacts expire within 24 hours.
+- Unprocessed raw-audio spool data and other transient call artifacts expire
+  within 24 hours. Finalized transcripts remain only on device until the owner
+  deletes them.
 - Dialer Binder death immediately stops orphaned audio capture and model work;
-  a partial non-emergency artifact remains subject to its original 24-hour
-  maximum, and is never extended by a client restart.
+  a partial non-emergency transient artifact remains subject to its original
+  24-hour maximum, and is never extended by a client restart.
 - An orderly dialer unbind must explicitly release every live presence
   assertion; the final release enforces the same stop rule as Binder death.
 - Late model, transcript, prior-context, and caller-audio callbacks are bound to

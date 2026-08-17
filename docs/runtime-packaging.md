@@ -83,8 +83,9 @@ impossible to reproduce. The provider build must also lock and verify all
 transitive Maven artifacts, not only the LiteRT-LM AAR.
 
 AIOS provider implementation `0.15.1` uses one vision-capable engine for text,
-image, and video requests because the catalog aliases resolve to the same
-complete digest-locked Gemma package. This costs an estimated 260–300 MB over a
+image, and video requests because each hardware tier names one complete,
+digest-locked multimodal Gemma package for both text and media roles. This costs
+an estimated 260–300 MB over a
 text-only engine, but avoids retaining separate text and vision engines, a
 second native initialization, and mode switching between calls, MMS photos, and
 camera work. Audio remains a separate engine mode until it has physical-device

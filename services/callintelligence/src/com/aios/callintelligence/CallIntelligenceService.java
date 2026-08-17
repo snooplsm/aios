@@ -428,6 +428,27 @@ public final class CallIntelligenceService extends Service {
         }
 
         @Override
+        public void deleteCallHistory(String callId) {
+            enforceControlPermission();
+            if (callId == null || callId.isBlank()) {
+                throw new IllegalArgumentException("call ID is required");
+            }
+            synchronized (sessions) {
+                if (sessions.containsKey(callId)) {
+                    throw new IllegalStateException("cannot delete an active call history");
+                }
+            }
+            communicationContext.discardCall(callId);
+            try {
+                artifactStore.discard(callId);
+                notifyStatus(callId, 11, "call_history_deleted");
+            } catch (IOException error) {
+                notifyStatus(callId, -9, "call_history_deletion_failed");
+            }
+            RetentionAlarm.scheduleNext(CallIntelligenceService.this, artifactStore);
+        }
+
+        @Override
         public void onCallEnded(String callId, int disconnectCause) {
             enforceControlPermission();
             if (callId == null || callId.isEmpty() || callId.length() > 128) {
@@ -980,9 +1001,11 @@ public final class CallIntelligenceService extends Service {
                 throw new IOException("incoming ASR is required for AI answering");
             }
             downlinkFanout = new ResilientFanoutOutputStream(
-                    stored.openDownlink(), sink(downlinkAsr));
+                    stored.openDownlink(), null,
+                    stored.downlinkCapturedBytes());
             uplinkFanout = new ResilientFanoutOutputStream(
-                    stored.openUplink(), sink(uplinkAsr));
+                    stored.openUplink(), null,
+                    stored.uplinkCapturedBytes());
             capture = new TelephonyAudioCapture(
                     this,
                     downlinkFanout,
@@ -993,7 +1016,8 @@ public final class CallIntelligenceService extends Service {
                     stored, capture, downlinkFanout, uplinkFanout,
                     downlinkAsr, uplinkAsr,
                     new SpamRiskEngine(knownContact), ownerUid, answeredByAi, knownContact,
-                    preparedContext, recoveredConversation);
+                    preparedContext, recoveredConversation,
+                    stored.downlinkReplayStartBytes(), stored.uplinkReplayStartBytes());
             sessions.put(callId, active);
             if (answeredByAi) {
                 receptionist.beginCall(
@@ -1003,6 +1027,16 @@ public final class CallIntelligenceService extends Service {
                         recoveredConversation);
             } else {
                 classifier.beginCall(callId, knownContact);
+            }
+            // The session identity and transcript timelines must be live before
+            // replay writes can trigger ASR callbacks.
+            if (downlinkAsr != null
+                    && downlinkFanout.replaceSecondaryWithReplay(downlinkAsr.sink) < 0L) {
+                throw new IOException("incoming ASR replay failed");
+            }
+            if (uplinkAsr != null
+                    && uplinkFanout.replaceSecondaryWithReplay(uplinkAsr.sink) < 0L) {
+                throw new IOException("outgoing ASR replay failed");
             }
             capture.startRequired();
             RetentionAlarm.scheduleNext(this, artifactStore);
@@ -1388,6 +1422,7 @@ public final class CallIntelligenceService extends Service {
                 chunk.sourceStartMillis,
                 chunk.sourceEndMillis);
         if (accepted == null) return;
+        boolean transcriptStored = false;
         try {
             session.stored.appendTranscript(
                     direction,
@@ -1397,8 +1432,18 @@ public final class CallIntelligenceService extends Service {
                     chunk.confidence,
                     accepted.startMillis,
                     accepted.endMillis);
+            transcriptStored = true;
         } catch (IOException error) {
             notifyStatus(callId, -2, "transcript_storage_failed");
+        }
+        if (transcriptStored && chunk.isFinal) {
+            try {
+                session.stored.acknowledgeTranscript(direction, accepted.endMillis);
+            } catch (IOException error) {
+                // The transcript is already durable. Retaining extra raw audio
+                // until the transient artifact expires is the fail-safe result.
+                notifyStatus(callId, -2, "raw_audio_cleanup_failed");
+            }
         }
         session.appendContextTranscript(
                 direction, language, chunk.text, chunk.isFinal);
@@ -1917,7 +1962,9 @@ public final class CallIntelligenceService extends Service {
                 boolean answeredByAi,
                 boolean knownContact,
                 CallCommunicationContextClient.PreparedContext communicationContext,
-                List<TranscriptContextRecovery.Turn> recoveredConversation) {
+                List<TranscriptContextRecovery.Turn> recoveredConversation,
+                long downlinkAsrOffset,
+                long uplinkAsrOffset) {
             this.stored = stored;
             this.capture = capture;
             this.downlinkFanout = downlinkFanout;
@@ -1942,10 +1989,12 @@ public final class CallIntelligenceService extends Service {
             }
             if (downlinkAsr != null) {
                 downlinkTranscriptRevisions.activate(downlinkAsr.identity);
-                downlinkTranscriptTimeline.activate(downlinkAsr.identity, 0L);
+                downlinkTranscriptTimeline.activate(
+                        downlinkAsr.identity, downlinkAsrOffset);
             }
             if (uplinkAsr != null) {
-                uplinkTranscriptTimeline.activate(uplinkAsr.identity, 0L);
+                uplinkTranscriptTimeline.activate(
+                        uplinkAsr.identity, uplinkAsrOffset);
             }
         }
 
@@ -2102,43 +2151,72 @@ public final class CallIntelligenceService extends Service {
             return true;
         }
 
-        synchronized boolean replaceAsrStreams(
+        boolean replaceAsrStreams(
                 Object brokerIdentity,
                 AsrBrokerClient.Stream downlink,
                 AsrBrokerClient.Stream uplink) {
-            if (closed || brokerIdentity == null || downlink == null
-                    || downlink.brokerIdentity != brokerIdentity
-                    || (uplink != null && uplink.brokerIdentity != brokerIdentity)) {
-                return false;
-            }
-            AsrBrokerClient.Stream previousDownlink = downlinkAsr;
-            AsrBrokerClient.Stream previousUplink = uplinkAsr;
-            long downlinkOffset = downlinkFanout.replaceSecondaryAtCurrentByteOffset(
-                    downlink.sink);
-            if (downlinkOffset < 0L) return false;
-            long uplinkOffset = uplinkFanout.replaceSecondaryAtCurrentByteOffset(
-                    sink(uplink));
-            if (uplinkOffset < 0L) {
-                downlinkFanout.replaceSecondary(null);
-                return false;
-            }
-            if (!downlinkTranscriptRevisions.activate(downlink.identity)) return false;
-            if (!downlinkTranscriptTimeline.activate(downlink.identity, downlinkOffset)) {
-                return false;
-            }
-            if (uplink == null) {
-                if (previousUplink != null) {
+            AsrBrokerClient.Stream previousDownlink;
+            AsrBrokerClient.Stream previousUplink;
+            long expectedDownlinkOffset;
+            long expectedUplinkOffset;
+            synchronized (this) {
+                if (closed || brokerIdentity == null || downlink == null
+                        || downlink.brokerIdentity != brokerIdentity
+                        || (uplink != null && uplink.brokerIdentity != brokerIdentity)) {
+                    return false;
+                }
+                previousDownlink = downlinkAsr;
+                previousUplink = uplinkAsr;
+                expectedDownlinkOffset = stored.downlinkReplayStartBytes();
+                expectedUplinkOffset = stored.uplinkReplayStartBytes();
+                if (!downlinkTranscriptRevisions.activate(downlink.identity)
+                        || !downlinkTranscriptTimeline.activate(
+                        downlink.identity, expectedDownlinkOffset)
+                        || (uplink != null && !uplinkTranscriptTimeline.activate(
+                        uplink.identity, expectedUplinkOffset))) {
+                    return false;
+                }
+                if (uplink == null && previousUplink != null) {
                     uplinkTranscriptTimeline.deactivate(previousUplink.identity);
                 }
-            } else if (!uplinkTranscriptTimeline.activate(uplink.identity, uplinkOffset)) {
+                classifierTranscriptRevisions.invalidate();
+                downlinkAsr = downlink;
+                uplinkAsr = uplink;
+            }
+            // Do not hold the session monitor while replaying. Provider Binder
+            // callbacks must be able to enter acceptAsrChunk as the pipe drains.
+            long downlinkOffset = downlinkFanout.replaceSecondaryWithReplay(
+                    downlink.sink);
+            long replayedUplinkOffset = uplink == null
+                    ? -1L : uplinkFanout.replaceSecondaryWithReplay(uplink.sink);
+            if (downlinkOffset != expectedDownlinkOffset
+                    || (uplink != null && replayedUplinkOffset != expectedUplinkOffset)) {
+                rollbackAsrReplay(downlink, uplink);
+                if (previousDownlink != null) previousDownlink.close();
+                if (previousUplink != null) previousUplink.close();
                 return false;
             }
-            classifierTranscriptRevisions.invalidate();
-            downlinkAsr = downlink;
-            uplinkAsr = uplink;
+            if (uplink == null) uplinkFanout.replaceSecondary(null);
             if (previousDownlink != null) previousDownlink.close();
             if (previousUplink != null) previousUplink.close();
             return true;
+        }
+
+        private void rollbackAsrReplay(
+                AsrBrokerClient.Stream downlink, AsrBrokerClient.Stream uplink) {
+            downlinkFanout.replaceSecondary(null);
+            uplinkFanout.replaceSecondary(null);
+            synchronized (this) {
+                if (downlinkAsr == downlink) {
+                    downlinkTranscriptRevisions.deactivate(downlink.identity);
+                    downlinkTranscriptTimeline.deactivate(downlink.identity);
+                    downlinkAsr = null;
+                }
+                if (uplink != null && uplinkAsr == uplink) {
+                    uplinkTranscriptTimeline.deactivate(uplink.identity);
+                    uplinkAsr = null;
+                }
+            }
         }
 
         synchronized TakeoverResult takeOver() {

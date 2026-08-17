@@ -30,9 +30,10 @@ models without maintaining a different product fork.
   English/Spanish transcription, advisory spam/legitimacy scoring, bounded
   caller context, and an on-device receptionist response path. Both call
   directions remain available for artifact construction and owner takeover.
-- **Private by architecture:** model requests stay on device; call artifacts
-  are stored locally with a 24-hour expiry. AI failure hands the connected call
-  back to ordinary Telecom controls instead of hanging up.
+- **Private by architecture:** model requests stay on device; finalized call
+  transcripts remain local until the owner deletes them, while unprocessed raw
+  audio and other transient call artifacts expire within 24 hours. AI failure
+  hands the connected call back to ordinary Telecom controls instead of hanging up.
 
 ### SMS, MMS, and conversation context
 
@@ -69,7 +70,7 @@ models without maintaining a different product fork.
 
 ### Model and hardware policy
 
-Pixel 9a research builds currently prefer the GPU for Gemma text/multimodal
+Pixel 9a research builds currently prefer the GPU for the shared Gemma multimodal
 inference and use the CPU for Whisper transcription and Supertonic TTS. The
 Tensor G4 TPU/NPU is deliberately disabled until a compatible public runtime
 artifact and physical-device evidence exist. Model candidates are not admitted
@@ -250,8 +251,9 @@ ranking and the result limit, while scope narrowing clears prepared prompts.
 Recents can also exclude one conversation using only a bounded per-install
 salted address hash. Phone withholds the raw address for excluded callers and
 Call Intelligence independently enforces the exclusion before retrieval.
-The normal teardown publishes a final-only bounded call summary with the existing
-artifact's 24-hour expiry. The client replaces failed, null, terminal, and
+The normal teardown publishes a final-only bounded call summary into a transient
+24-hour retrieval projection; the retained transcript remains the rebuildable
+source of truth. The client replaces failed, null, terminal, and
 stalled context-service bindings and replays bounded preparation or final-index
 work only while the call identity and artifact lifetime remain current. A
 dedicated public-SDK module compiles and tests this Binder client; physical

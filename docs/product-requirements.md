@@ -78,15 +78,17 @@ model capability.
 
 ## Local call data
 
-Audio, partial transcripts, final transcripts, and derived summaries stay on the
-device in app-private encrypted storage. Each artifact receives wall-clock and
-same-boot monotonic expiry timestamps at creation. The default and maximum
-prototype retention is 24 hours. Wall-clock rollback may not extend that bound;
-because monotonic time resets at reboot, previous-boot artifacts are deleted
-fail-closed instead of being granted a new window. Cleanup runs at boot, after a
-call, and periodically; expired records are not recoverable through the
-application.
-The append-only transcript is also the active-call recovery journal. It records
+Audio, transcripts, and derived summaries stay on the device in app-private
+encrypted storage. Raw incoming and outgoing PCM is a loss-recovery spool, not
+a call recording: complete spool segments are deleted only after the matching
+final Whisper segment has been durably committed. Unacknowledged PCM and other
+transient call artifacts receive wall-clock and same-boot monotonic expiry
+timestamps at creation and have a maximum lifetime of 24 hours. Wall-clock
+rollback may not extend that bound; because monotonic time resets at reboot,
+previous-boot transient artifacts are deleted fail-closed instead of receiving
+a new window. Finalized transcript history is retained locally until the owner
+deletes it and is not removed by transient-artifact cleanup.
+The append-only retained transcript is also the active-call recovery journal. It records
 committed assistant replies in order with ASR output. After a same-boot service
 restart, only a bounded tail of finalized English/Spanish caller and assistant
 turns may rebuild receptionist memory; partial hypotheses, uplink/owner audio,
@@ -113,7 +115,9 @@ continues recording, the carrier call and app-private PCM capture remain active.
 All stale broker callbacks and inference sinks are detached immediately. Call
 Intelligence must recreate terminal/null/stalled bindings with bounded backoff,
 then attach fresh downlink and uplink ASR streams to each still-live call without
-restarting its artifact or extending its expiry.
+restarting its transient artifact or extending its expiry. Unacknowledged spool
+segments remain available for recovery work; acknowledged raw audio is never
+kept merely because the transcript is retained.
 If either authoritative telephony capture direction or its private PCM sink
 fails after startup, Call Intelligence must stop that exact AI session rather
 than presenting a frozen transcript. It must cancel caller speech and remaining
@@ -242,8 +246,9 @@ Phone numbers and contact relationships feed a shared on-device retrieval layer
 through per-install opaque identities. Only source-owning AIOS packages may
 write. Queries return at most eight bounded snippets. SMS deletion writes a
 monotonic tombstone, contact membership is re-resolved on every query identity,
-photo metadata must disappear when its source is deleted, and call transcripts
-or summaries may not remain retrievable after the 24-hour call-artifact expiry.
+photo metadata must disappear when its source is deleted. Call retrieval
+projections may expire after 24 hours and be rebuilt from the retained local
+transcript; explicit transcript deletion must remove both source and projection.
 Caller history retrieval must be optional, asynchronous, identifier-free at the
 model boundary, and unable to delay Telecom answer or capture. Historical
 snippets are private context and may not be quoted or disclosed to a caller.
@@ -310,7 +315,9 @@ device:
 5. The owner can take over an AI-handled call from the call UI or notification;
    remote audio contains no queued or later AI speech, while transcription
    continues and the carrier call remains connected.
-6. Call artifacts disappear no later than 24 hours after creation.
+6. Unacknowledged raw PCM and other transient call artifacts disappear no later
+   than 24 hours after creation; finalized transcripts survive until explicit
+   owner deletion, and acknowledged raw segments disappear promptly.
 7. A new JPEG is indexed, a burst is deferred, and a deferred media job does not
    run below 80% battery or off charger. Known English and Spanish videos produce
    one indexed visual result from twenty chronological keyframes plus complete

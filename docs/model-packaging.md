@@ -10,7 +10,7 @@ digest-mismatched partial file uninstalled for inspection:
 
 ```text
 python3 vendor/aios/tools/bootstrap_reference_model.py \
-  --model-id gemma4-e2b-mobile-text \
+  --model-id gemma4-e2b-mobile-multimodal \
   --output-directory /secure/models
 ```
 
@@ -28,7 +28,7 @@ already identical acceptance is idempotent and retains its original timestamp:
 python3 vendor/aios/tools/record_model_acceptance.py \
   --output /secure/local/model_acceptance.json \
   --accepted-by local-builder \
-  --accept gemma4-e2b-mobile-text=https://ai.google.dev/gemma/apache_2 \
+  --accept gemma4-e2b-mobile-multimodal=https://ai.google.dev/gemma/apache_2 \
   --accept gemma4-e2b-mobile-multimodal=https://ai.google.dev/gemma/apache_2
 ```
 
@@ -37,11 +37,11 @@ Example on the Linux build host:
 ```text
 python3 vendor/aios/tools/generate_model_pack.py \
   --acceptance /secure/local/model_acceptance.json \
-  --source gemma4-e2b-mobile-text:gpu=/secure/models/gemma-4-E2B-it.litertlm \
+  --source gemma4-e2b-mobile-multimodal:gpu=/secure/models/gemma-4-E2B-it.litertlm \
   --source gemma4-e2b-mobile-multimodal:gpu=/secure/models/gemma-4-E2B-it.litertlm \
   --source whisper-base-multilingual-quantized:cpu=/secure/models/ggml-base-q5_1.bin \
   --source supertonic3-en-es-int8:cpu=/secure/models/supertonic3.tar.bz2 \
-  --license-file gemma4-e2b-mobile-text=vendor/aios/LICENSE \
+  --license-file gemma4-e2b-mobile-multimodal=vendor/aios/LICENSE \
   --license-file gemma4-e2b-mobile-multimodal=vendor/aios/LICENSE \
   --license-file supertonic3-en-es-int8=/secure/licenses/Supertonic-3-OpenRAIL-M.txt
 ```

@@ -8,6 +8,8 @@ import static org.junit.Assert.assertTrue;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.nio.file.Files;
+import java.io.File;
 
 import org.junit.Test;
 
@@ -57,6 +59,38 @@ public final class ResilientFanoutOutputStreamTest {
         assertEquals(3_200L, offset);
         assertEquals(3_202L, primary.size());
         assertArrayEquals(new byte[]{1, 2}, replacement.toByteArray());
+    }
+
+    @Test
+    public void recoveredPrimaryOffsetIsPreservedAcrossInferenceRestart() throws Exception {
+        ResilientFanoutOutputStream fanout = new ResilientFanoutOutputStream(
+                new ByteArrayOutputStream(), null, 9_600L);
+
+        fanout.write(new byte[3_200]);
+
+        assertEquals(12_800L, fanout.primaryBytesWritten());
+        assertEquals(12_800L,
+                fanout.replaceSecondaryAtCurrentByteOffset(new TrackingStream()));
+    }
+
+    @Test
+    public void replacementReplaysOnlyUnacknowledgedAudioBeforeLivePcm() throws Exception {
+        File directory = Files.createTempDirectory("aios-fanout-replay").toFile();
+        try (AcknowledgedAudioSpool spool = new AcknowledgedAudioSpool(directory, 64)) {
+            spool.write(new byte[96]);
+            spool.acknowledgeThroughMillis(2L); // 64 bytes.
+            ResilientFanoutOutputStream fanout =
+                    new ResilientFanoutOutputStream(spool, null, 96L);
+            TrackingStream replacement = new TrackingStream();
+
+            assertEquals(64L, fanout.replaceSecondaryWithReplay(replacement));
+            fanout.write(new byte[32]);
+
+            assertEquals(64, replacement.size());
+            assertEquals(64L, fanout.secondaryStartByteOffset());
+        } finally {
+            CallArtifactRetention.deleteTree(directory);
+        }
     }
 
     @Test

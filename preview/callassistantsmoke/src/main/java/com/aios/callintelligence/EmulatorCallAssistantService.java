@@ -94,6 +94,12 @@ public final class EmulatorCallAssistantService extends Service {
         }
 
         @Override
+        public void onCallAnsweredForDevelopmentTest(
+                String callId, boolean processingAllowed) {
+            audit("answered:development:" + processingAllowed);
+        }
+
+        @Override
         public void onCallResumed(
                 String callId,
                 boolean aiHandling,
@@ -111,6 +117,11 @@ public final class EmulatorCallAssistantService extends Service {
         public boolean takeOverCall(String callId) {
             audit("takeover");
             return true;
+        }
+
+        @Override
+        public void deleteCallHistory(String callId) {
+            audit("history_deleted");
         }
 
         @Override

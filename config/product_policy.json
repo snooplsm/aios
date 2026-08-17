@@ -27,6 +27,8 @@
   },
   "retention": {
     "call_artifact_ttl_hours": 24,
+    "raw_audio_delete_after_final_transcript_commit": true,
+    "transcript_retention": "until_user_deletion",
     "cleanup_on_boot": true,
     "cleanup_after_call": true
   },

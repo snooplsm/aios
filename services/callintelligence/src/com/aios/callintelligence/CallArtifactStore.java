@@ -6,7 +6,6 @@ import android.util.AtomicFile;
 import org.json.JSONException;
 import org.json.JSONObject;
 
-import java.io.BufferedOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -19,7 +18,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-/** Credential-encrypted call artifacts with a 24-hour maximum and emergency erasure. */
+/** Credential-encrypted transient call artifacts plus user-retained transcripts. */
 final class CallArtifactStore {
     private static final class SessionMetadata {
         final CallArtifactRetention.Deadline deadline;
@@ -38,10 +37,12 @@ final class CallArtifactStore {
 
     private final Context context;
     private final File callsDirectory;
+    private final File transcriptsDirectory;
 
     CallArtifactStore(Context context) {
         this.context = context.getApplicationContext();
         callsDirectory = new File(this.context.getFilesDir(), "calls");
+        transcriptsDirectory = new File(this.context.getFilesDir(), "transcripts");
     }
 
     Session create(String callId, boolean answeredByAi, long nowEpochMillis)
@@ -50,6 +51,9 @@ final class CallArtifactStore {
             RetentionClock.Snapshot now = RetentionClock.capture(context, nowEpochMillis);
             if (!callsDirectory.isDirectory() && !callsDirectory.mkdirs()) {
                 throw new IOException("cannot create private call directory");
+            }
+            if (!transcriptsDirectory.isDirectory() && !transcriptsDirectory.mkdirs()) {
+                throw new IOException("cannot create private transcript directory");
             }
             String sourceId = digest(callId);
             File directory = new File(callsDirectory, sourceId);
@@ -77,6 +81,7 @@ final class CallArtifactStore {
             writeMetadata(directory, deadline, storedAnsweredByAi || answeredByAi);
             Session session = new Session(
                     directory,
+                    new File(transcriptsDirectory, sourceId + ".jsonl"),
                     sourceId,
                     deadline.createdAtEpochMillis,
                     deadline.expiresAtEpochMillis,
@@ -122,6 +127,10 @@ final class CallArtifactStore {
             closeActiveSession(directory);
             if (!CallArtifactRetention.deleteTree(directory)) {
                 throw new IOException("cannot erase emergency call artifact");
+            }
+            File transcript = new File(transcriptsDirectory, sourceId + ".jsonl");
+            if (transcript.exists() && !transcript.delete()) {
+                throw new IOException("cannot erase retained call transcript");
             }
         }
     }
@@ -223,17 +232,19 @@ final class CallArtifactStore {
         private static final int MAX_CONTEXT_JOURNAL_LINE_CHARS = 16_384;
 
         private final File directory;
+        private final File transcriptFile;
         final String sourceId;
         final long createdAtEpochMillis;
         final long expiresAtEpochMillis;
         final String expiryBootIdentity;
         final long createdAtElapsedRealtimeMillis;
         final long expiresAtElapsedRealtimeMillis;
-        private OutputStream downlink;
-        private OutputStream uplink;
+        private AcknowledgedAudioSpool downlink;
+        private AcknowledgedAudioSpool uplink;
 
         Session(
                 File directory,
+                File transcriptFile,
                 String sourceId,
                 long createdAtEpochMillis,
                 long expiresAtEpochMillis,
@@ -241,6 +252,7 @@ final class CallArtifactStore {
                 long createdAtElapsedRealtimeMillis,
                 long expiresAtElapsedRealtimeMillis) {
             this.directory = directory;
+            this.transcriptFile = transcriptFile;
             this.sourceId = sourceId;
             this.createdAtEpochMillis = createdAtEpochMillis;
             this.expiresAtEpochMillis = expiresAtEpochMillis;
@@ -251,18 +263,42 @@ final class CallArtifactStore {
 
         synchronized OutputStream openDownlink() throws IOException {
             if (downlink == null) {
-                downlink = new BufferedOutputStream(
-                        new FileOutputStream(new File(directory, "rx.pcm"), true), 64 * 1024);
+                downlink = new AcknowledgedAudioSpool(
+                        new File(directory, "audio-spool/downlink"));
             }
             return downlink;
         }
 
         synchronized OutputStream openUplink() throws IOException {
             if (uplink == null) {
-                uplink = new BufferedOutputStream(
-                        new FileOutputStream(new File(directory, "tx.pcm"), true), 64 * 1024);
+                uplink = new AcknowledgedAudioSpool(
+                        new File(directory, "audio-spool/uplink"));
             }
             return uplink;
+        }
+
+        synchronized long downlinkCapturedBytes() {
+            return downlink == null ? 0L : downlink.capturedBytes();
+        }
+
+        synchronized long uplinkCapturedBytes() {
+            return uplink == null ? 0L : uplink.capturedBytes();
+        }
+
+        synchronized long downlinkReplayStartBytes() {
+            return downlink == null ? 0L : downlink.unacknowledgedStartBytes();
+        }
+
+        synchronized long uplinkReplayStartBytes() {
+            return uplink == null ? 0L : uplink.unacknowledgedStartBytes();
+        }
+
+        synchronized void acknowledgeTranscript(String direction, long finalEndMillis)
+                throws IOException {
+            AcknowledgedAudioSpool spool = "downlink".equals(direction)
+                    ? downlink : "uplink".equals(direction) ? uplink : null;
+            if (spool == null) throw new IOException("unknown or unopened audio direction");
+            spool.acknowledgeThroughMillis(finalEndMillis);
         }
 
         /**
@@ -274,7 +310,7 @@ final class CallArtifactStore {
          */
         synchronized List<TranscriptContextRecovery.Turn> readConversationTail()
                 throws IOException {
-            File transcript = new File(directory, "transcript.jsonl");
+            File transcript = transcriptFile;
             if (!transcript.isFile() || transcript.length() <= 0L) return List.of();
             long length = transcript.length();
             long start = Math.max(0L, length - MAX_CONTEXT_RECOVERY_BYTES);
@@ -329,7 +365,13 @@ final class CallArtifactStore {
             } catch (JSONException impossible) {
                 throw new IOException("cannot encode transcript segment", impossible);
             }
-            appendJsonLine("transcript.jsonl", value);
+            if (isFinal) {
+                appendTranscriptLine(value);
+            } else {
+                // Live hypotheses are useful during the call but are not stable
+                // history. They leave with the transient artifact.
+                appendJsonLine("partial_transcript.jsonl", value);
+            }
         }
 
         synchronized void appendAssessment(
@@ -385,7 +427,7 @@ final class CallArtifactStore {
             // Commit the unified conversation journal before the compatibility
             // dialogue record. This preserves the model's accepted reply for
             // continuity even if the process is lost during later TTS setup.
-            appendJsonLine("transcript.jsonl", transcript);
+            appendTranscriptLine(transcript);
             appendJsonLine("dialogue.jsonl", value);
         }
 
@@ -427,6 +469,14 @@ final class CallArtifactStore {
         private void appendJsonLine(String name, JSONObject value) throws IOException {
             try (FileOutputStream stream = new FileOutputStream(
                     new File(directory, name), true)) {
+                stream.write(value.toString().getBytes(StandardCharsets.UTF_8));
+                stream.write('\n');
+                stream.getFD().sync();
+            }
+        }
+
+        private void appendTranscriptLine(JSONObject value) throws IOException {
+            try (FileOutputStream stream = new FileOutputStream(transcriptFile, true)) {
                 stream.write(value.toString().getBytes(StandardCharsets.UTF_8));
                 stream.write('\n');
                 stream.getFD().sync();

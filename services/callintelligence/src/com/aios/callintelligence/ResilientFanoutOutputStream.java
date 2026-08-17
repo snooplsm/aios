@@ -9,13 +9,24 @@ final class ResilientFanoutOutputStream extends OutputStream {
     private OutputStream secondary;
     private boolean closed;
     private long primaryBytesWritten;
+    private long secondaryStartByteOffset = -1L;
 
     ResilientFanoutOutputStream(OutputStream primary, OutputStream secondary) {
+        this(primary, secondary, 0L);
+    }
+
+    ResilientFanoutOutputStream(
+            OutputStream primary, OutputStream secondary, long initialPrimaryBytesWritten) {
         if (primary == null) {
             throw new NullPointerException("primary sink is required");
         }
+        if (initialPrimaryBytesWritten < 0L) {
+            throw new IllegalArgumentException("initial PCM byte count cannot be negative");
+        }
         this.primary = primary;
         this.secondary = secondary;
+        primaryBytesWritten = initialPrimaryBytesWritten;
+        if (secondary != null) secondaryStartByteOffset = initialPrimaryBytesWritten;
     }
 
     @Override
@@ -71,6 +82,35 @@ final class ResilientFanoutOutputStream extends OutputStream {
         return replaceSecondaryAtCurrentByteOffset(replacement) >= 0L;
     }
 
+    synchronized long primaryBytesWritten() {
+        return primaryBytesWritten;
+    }
+
+    synchronized long secondaryStartByteOffset() {
+        return secondaryStartByteOffset;
+    }
+
+    /** Replays the unacknowledged primary spool, then atomically attaches live PCM. */
+    synchronized long replaceSecondaryWithReplay(OutputStream replacement) {
+        if (closed || replacement == null || !(primary instanceof AcknowledgedAudioSpool)) {
+            closeQuietly(replacement);
+            return -1L;
+        }
+        long replayStart;
+        try {
+            replayStart = ((AcknowledgedAudioSpool) primary)
+                    .replayUnacknowledgedTo(replacement);
+        } catch (IOException error) {
+            closeQuietly(replacement);
+            return -1L;
+        }
+        OutputStream previous = secondary;
+        secondary = replacement;
+        secondaryStartByteOffset = replayStart;
+        if (previous != replacement) closeQuietly(previous);
+        return replayStart;
+    }
+
     /** Replaces the inference sink and returns its exact start in authoritative PCM bytes. */
     synchronized long replaceSecondaryAtCurrentByteOffset(OutputStream replacement) {
         if (closed) {
@@ -79,6 +119,7 @@ final class ResilientFanoutOutputStream extends OutputStream {
         }
         OutputStream previous = secondary;
         secondary = replacement;
+        secondaryStartByteOffset = replacement == null ? -1L : primaryBytesWritten;
         if (previous != replacement) closeQuietly(previous);
         return primaryBytesWritten;
     }
@@ -97,6 +138,7 @@ final class ResilientFanoutOutputStream extends OutputStream {
     private void dropSecondary() {
         OutputStream value = secondary;
         secondary = null;
+        secondaryStartByteOffset = -1L;
         closeQuietly(value);
     }
 
